@@ -5,8 +5,6 @@ CI: [.github/workflows/ci.yml](.github/workflows/ci.yml)
 Collaborative Typst editor in the browser: code on the left, live PDF on the right.
 One process (FastAPI + pycrdt), SQLite storage, no Node needed at runtime.
 
-![Screenshot placeholder](docs/screenshot.png)
-
 ## Quickstart
 
 ```bat
