@@ -1,0 +1,2586 @@
+﻿<!doctype html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#f5f5f7">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>Typst Editor</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--line:rgba(0,0,0,.08);--text:#1d1d1f;--sub:#6e6e73;--acc:#0071e3;--sel:rgba(0,113,227,.12)}
+html,body{height:100%;margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{transition:background-color .15s ease}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#login{max-width:300px;margin:14vh auto;display:flex;flex-direction:column;gap:10px;background:var(--card);padding:28px;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.12)}
+#login h2{margin:0 0 4px;font-size:20px;font-weight:700;letter-spacing:-.02em}
+#login input{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f5f7}
+#login button{padding:9px;background:var(--acc);color:#fff;border:0;border-radius:10px;cursor:pointer;font-weight:600}
+#login .mode{text-align:center;font-size:13px;color:var(--acc);cursor:pointer}
+#app{display:none;height:100vh}
+#app.on{display:flex}
+aside{width:232px;box-sizing:border-box;background:rgba(242,242,247,.9);padding:12px;overflow:hidden;border-right:1px solid var(--line);flex:none;display:flex;flex-direction:column;transition:width .25s ease,padding .25s ease}
+#nav{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none} /* Mitte scrollt (Mausrad), ohne Balken */
+#nav::-webkit-scrollbar{display:none} /* Chrome/Edge: Balken weg, scrollt trotzdem */
+#userBox{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;font-size:13px}
+#userBox #who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:600;cursor:pointer}
+#userBox #who:hover{color:var(--acc)}
+#userBox button{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;color:var(--sub)}
+aside h3{margin:14px 0 4px;padding:3px 4px;border-radius:8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sub);display:flex;align-items:center;gap:2px;cursor:pointer}
+aside h3:hover,aside .fhd:hover{background:rgba(0,0,0,.05)}
+aside h3 .lbl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+aside h3:hover .mini{visibility:visible}
+aside .doc{display:flex;align-items:center;gap:2px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13.5px}
+aside .doc .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* Text kürzt, Buttons bleiben sichtbar */
+aside .doc .mini{flex:none}
+aside .doc:hover{background:rgba(0,0,0,.05)}
+aside .doc.cur{background:var(--sel);font-weight:600}
+aside .fhd{display:flex;gap:2px;align-items:center;margin:12px 4px 2px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--sub)} /* Ordner: eingerückt, leichter als Sektion (b wäre sonst bolder) */
+aside .fhd b{flex:1;min-width:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+aside .doc.sub{margin-left:20px} /* Doc im Ordner/Gruppe: weiter eingerückt */
+aside .mini{visibility:hidden;background:none;border:0;cursor:pointer;color:var(--sub);padding:1px 3px;font-size:12px;border-radius:6px;min-width:22px;min-height:22px;display:inline-flex;align-items:center;justify-content:center} /* 22px: Touch-Fehlklicks weg, Desktop gleich schlank */
+aside .doc:hover .mini,aside .fhd:hover .mini{visibility:visible} /* visibility statt display: Zeile springt nicht */
+@media (hover:none){aside .mini{visibility:visible}} /* Touch: kein Hover, Buttons immer da */
+aside .mini:hover{background:rgba(0,0,0,.06);color:var(--text)}
+aside .row button{flex:1;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:7px 8px;cursor:pointer;font-weight:600;font-size:13px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+header{display:flex;gap:8px;align-items:center;padding:0 12px;height:48px;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);position:relative;z-index:30}
+header button{background:none;border:0;border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--text);font-size:15px}
+header button:hover{background:rgba(0,0,0,.06)}
+#title{font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#role{font-size:11px;background:var(--sel);color:var(--acc);border-radius:20px;padding:2px 9px;font-weight:600}
+#save{font-size:12px;color:var(--sub)}
+#peers{display:flex;gap:4px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+#userBox .dot{width:18px;height:18px} /* Account-Bild: etwas größer */
+#peers .dot{width:18px;height:18px} /* aktiv oben: so groß wie unten */
+header .grp{display:flex;gap:2px;align-items:center;color:var(--sub);font-size:12.5px}
+#tools{display:flex;gap:2px;padding:6px 10px;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);position:relative;z-index:20;align-items:center}
+#tools button{background:none;border:0;border-radius:8px;min-width:30px;height:28px;padding:4px 8px;cursor:pointer;color:#3a3a3c;box-shadow:none;display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+#tools button:hover{background:rgba(0,0,0,.06)}
+#tools .grp{display:flex;gap:2px;align-items:center;margin-left:auto;color:var(--sub);font-size:12.5px}
+#tools .sep{width:1px;align-self:stretch;background:var(--line);margin:4px 6px}
+#tools button svg,header button svg,#pop button svg{display:block}
+#media{display:flex;gap:8px;padding:8px 12px;background:rgba(255,255,255,.8);border-bottom:1px solid var(--line);align-items:center;overflow-x:auto;font-size:13px}
+#media .chip{display:flex;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 6px 4px 12px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+#media .chip b{cursor:pointer;font-weight:600;font-size:12.5px}
+#media .chip b:hover{color:var(--acc)}
+#media .chip .sz{color:var(--sub);font-size:12px}
+#media button{background:#f5f5f7;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:12.5px}
+#media .chip button{padding:0 6px;color:var(--sub)}
+#mid{flex:1;display:flex;min-height:0}
+#leftCol{width:50%;display:flex;flex-direction:column;min-width:0;min-height:0}
+#rightCol{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+#pvTools{display:flex;gap:2px;padding:6px 10px;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);align-items:center;justify-content:flex-end}
+#pvTools button{background:none;border:0;border-radius:8px;min-width:30px;height:28px;padding:4px 8px;cursor:pointer;color:#3a3a3c;display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+#pvTools button:hover{background:rgba(0,0,0,.06)}
+#pvTools button.on{color:var(--acc);font-weight:700}
+#pvTools .grp{display:flex;gap:2px;align-items:center;color:var(--sub);font-size:12.5px}
+#editWrap{flex:1;display:flex;position:relative;background:var(--card);min-width:0;min-height:0}
+#cmWrap .cm-gutters{background:var(--card);border:0;color:#aeaeb2}
+#cmWrap .cm-lineNumbers .cm-gutterElement{padding:0 8px 0 2px;font-size:calc(var(--ed) - 1px);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#cmWrap .cm-lineNumbers .cm-gutterElement.hasThread{color:var(--acc);font-weight:700;cursor:pointer}
+#cmWrap{flex:1;min-width:0;position:relative;background:var(--card);--ed:14px;--lh:21px;padding:0 12px;box-sizing:border-box}
+#cm{height:100%;overflow:hidden}
+#cm .cm-editor{height:100%}
+#cmWrap .cm-content{font:var(--ed)/var(--lh) ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);caret-color:var(--acc)}
+#cmWrap .cm-cursor{border-left-color:var(--acc)}
+#cmWrap .cm-selectionBackground{background:rgba(0,113,227,.15)}
+#cmWrap .cm-tooltip{border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.14);overflow:hidden;background:var(--card)}
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected]{background:var(--acc);color:#fff}
+.typ-hover{max-width:280px;padding:8px 11px;font:12.5px/1.5 -apple-system,system-ui,sans-serif;color:var(--text);white-space:pre-line}
+.typ-hover.err{background:rgba(215,0,21,.07);border-left:3px solid rgba(215,0,21,.6)} /* Fehler-Box: bisschen Rot */
+.typ-hover.full{max-width:320px}
+.typ-hover b{font-weight:700}
+#cmWrap .cm-line{padding:0 2px} /* 2px seitlich: Cursor an Pos 0 bleibt sichtbar (sonst im Overflow geclippt) */
+#cmWrap .cm-activeLine{background:rgba(0,0,0,.03)}
+.peer{display:inline-block;width:0;height:1.2em;margin-left:-1px;vertical-align:text-top;border-left:3px solid #ff5f57;cursor:default}
+.peerName{font:600 11px/1.5 -apple-system,system-ui,sans-serif;background:#fff;border:1px solid;border-radius:6px;padding:0 5px;margin-left:4px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15);vertical-align:text-top;cursor:default}
+#preview{flex:1;min-width:0;overflow:auto;padding:16px;background:#e8e8ed}
+#split{flex:none;width:11px;cursor:col-resize;position:relative;touch-action:none}
+#split::after{content:'';position:absolute;top:0;bottom:0;left:5px;width:1px;background:rgba(0,0,0,.12)}
+#split:hover::after,#split.drag::after{background:var(--acc);left:4px;width:3px;border-radius:2px}
+#sideSplit{flex:none;width:11px;cursor:col-resize;position:relative;touch-action:none}
+#sideSplit::after{content:'';position:absolute;top:0;bottom:0;left:5px;width:1px;background:rgba(0,0,0,.12)}
+#sideSplit:hover::after,#sideSplit.drag::after{background:var(--acc);left:4px;width:3px;border-radius:2px}
+body.sideDrag aside{transition:none}
+body.noside aside{width:0!important;padding-left:0;padding-right:0;border-right:0;overflow:hidden}
+body.noside #sideSplit{display:none}
+#vsplit{display:none} /* nur Handy: Höhe ziehen (s. Media-Query) */
+body.read #leftCol,body.read #split{display:none} /* Sidebar bleibt: Docs wechselbar, per ☰ klemmbar */
+body.read #syncBtn,body.editonly #syncBtn{display:none} /* Sync nur wenn beide da sind */
+body.read #preview{padding:28px 16px}
+body.read #preview canvas{max-width:820px;margin:0 auto 16px}
+#preview canvas{display:block;background:#fff;width:100%;height:auto;margin:0 auto 24px;box-shadow:0 1px 3px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.12);border-radius:6px}
+#preview .empty{max-width:420px;margin:15vh auto;text-align:center;color:var(--sub);font-size:14px}
+#sharePop{position:absolute;top:calc(100% + 6px);left:8px;width:320px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:12px;z-index:30;font-size:14px}
+#sharePop .sTop{display:flex;align-items:center;margin-bottom:8px}
+#sharePop .sTop b{flex:1;font-size:13px}
+#sharePop .sTop button{background:none;border:0;cursor:pointer;font-size:13px;padding:4px;color:var(--sub)}
+#sharePop .row button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:5px 12px;cursor:pointer;font-weight:600}
+#sharePop #shares{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+#sharePop #shares .who{font-size:12.5px;color:var(--text)}
+#sharePop #shares button{background:#f5f5f7;border:0;border-radius:6px;padding:2px 8px;cursor:pointer}
+.row{display:flex;gap:6px;margin-top:6px}
+.row input,.row select{flex:1;min-width:0;background:#f5f5f7;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.row button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600}
+#pop{position:absolute;left:60px;width:320px;max-height:70%;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.2);z-index:5;font-size:13.5px}
+#pop .bar{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--sub)}
+#pop .bar .ib{border-radius:50%;width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+#pop .th{padding:12px 14px;border-bottom:1px solid var(--line)}
+#pop .hd{display:flex;gap:6px;align-items:baseline}
+#pop .nm{font-weight:700;font-size:13px}
+#pop .tm{font-size:11.5px;color:var(--sub)}
+#pop .tx{margin:3px 0 0;overflow-wrap:anywhere}
+#pop .qt{margin:6px 0 0;font-size:12px;color:var(--sub);cursor:pointer;overflow-wrap:anywhere;background:#f5f5f7;border-radius:8px;padding:6px 10px}
+#cmWrap .cm-hl{background:rgba(255,204,0,.28);border-radius:3px}
+#cmWrap .cm-hl:hover{background:rgba(255,204,0,.45);cursor:pointer}
+#cmWrap .cm-find{background:rgba(0,113,227,.25);border-radius:3px}
+#cmWrap .cm-find-cur{background:rgba(255,149,0,.55);border-radius:3px}
+#cmWrap .cm-err{position:relative;background:rgba(215,0,21,.13)}
+#cmWrap .cm-err::after{content:'';position:absolute;left:100%;top:0;bottom:0;width:100vw;background:rgba(215,0,21,.13)} /* Rest der Zeile rot: abspos malt mit, misst nichts (kein Block, keine Extra-Zeile) */
+.cm-tooltip-lint{display:none} /* eine Meldung: der Zeilen-Hover zeigt den Lint-Text auf der ganzen Zeile */
+#find{display:flex;gap:6px;align-items:center;padding:6px 10px;background:rgba(255,255,255,.9);border-top:1px solid var(--line);font-size:13px}
+#find input{background:#f5f5f7;border:1px solid var(--line);border-radius:8px;padding:5px 8px;width:120px}
+#find .n{color:var(--sub);min-width:44px;text-align:center}
+#find button{background:#f5f5f7;border:0;border-radius:8px;padding:5px 9px;cursor:pointer}
+#find button.on{background:var(--sel);color:var(--acc);font-weight:700}
+#find .x{margin-left:auto}
+#pop .rp{margin:8px 0 0;padding:10px 12px;background:#f5f5f7;border-radius:10px}
+#pop .rr{display:flex;gap:8px;margin-top:8px}
+#pop .rr input{flex:1;min-width:0;background:#f5f5f7;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px}
+#pop .rr input:focus{border-color:var(--acc);outline:none}
+#pop .rr .ib{background:var(--acc);color:#fff;border-radius:10px;padding:8px 12px} /* Senden: blau statt grau */
+#pop .ib{background:rgba(0,0,0,.05);border:0;cursor:pointer;font-size:13px;padding:5px 9px;border-radius:7px}
+#pop .nw{padding:12px 14px}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.25);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:100}
+#mCard{width:min(360px,92vw);background:var(--card);border-radius:14px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.pk{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:#f5f5f7;cursor:pointer;text-align:left}
+.pk:hover{border-color:var(--acc);background:var(--sel)}
+.pk b{display:block;font-size:14px}
+.pk span{display:block;font-size:12.5px;color:var(--sub);font-weight:400;margin-top:2px}
+#mCard b{font-size:15px;letter-spacing:-.01em}
+#mInp{width:100%;box-sizing:border-box;margin:12px 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f5f7}
+#setPop .serr{background:#fee2e2;color:#991b1b;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:6px}
+.mRow{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.mRow button{border:0;border-radius:10px;padding:8px 16px;cursor:pointer;font-weight:600}
+#mNo{background:#f5f5f7;color:var(--text)}
+#mYes{background:var(--acc);color:#fff}
+#setPop{position:absolute;top:calc(100% + 6px);left:8px;width:340px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:12px;z-index:30;font-size:14px}
+#setPop .sTop{display:flex;align-items:center;margin-bottom:4px}
+#setPop .sTop b{flex:1;font-size:13px}
+#setPop .sTop button{background:none;border:0;cursor:pointer;font-size:13px;padding:4px;color:var(--sub)}
+#setPop h4{margin:10px 0 2px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sub)}
+#setPop .val{min-width:46px;text-align:center;color:var(--sub);font-size:13px}
+#setPop .sec{background:#f5f5f7;border-radius:10px;padding:2px 10px;margin:2px 0 6px}
+#setPop .sec .row{margin-top:6px;margin-bottom:6px}
+#setPop .sec input{background:#fff}
+#setPop .step{background:#fff;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:5px 12px;cursor:pointer;font-weight:600}
+#setPop img.av{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#e8e8ed;flex:none}
+#tplPop{position:absolute;top:calc(100% + 6px);left:8px;width:280px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30}
+#tplPop button{display:block;width:100%;height:auto;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer}
+#tplPop button:hover{background:rgba(0,0,0,.05)}
+#tplPop .use{display:block;font-weight:600;font-size:13.5px}
+#tplPop .ins{display:block;font-size:12px;color:var(--sub);font-weight:400}
+#tplPop{max-width:calc(100vw - 32px)}
+#histPop{position:absolute;top:calc(100% + 6px);left:8px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30;font-size:13px}
+#histPop .srow{display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:8px}
+#histPop .srow:hover{background:rgba(0,0,0,.04)}
+#histPop .srow .t{flex:1;min-width:0;font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#histPop .srow button{background:#f5f5f7;border:0;border-radius:7px;padding:4px 9px;cursor:pointer;font-size:12px;white-space:nowrap}
+#histPop pre.diff{margin:4px 8px 8px;padding:8px 10px;background:#1c1c1e;color:#e5e5ea;border-radius:8px;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+#histPop pre.diff .a{color:#ff9d9d}#histPop pre.diff .b{color:#9df0b8}
+#histPop .save{display:flex;align-items:center;width:100%;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:600;margin-bottom:4px;text-align:left}
+.mbox{position:absolute;top:100%;left:0;min-width:140px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:20}
+.mbox button{display:block;width:100%;text-align:left;background:none;border:0;padding:6px 10px;cursor:pointer;font-size:13px;color:var(--text)}
+.mbox button:hover{background:var(--sel)}
+#symPop{position:absolute;top:calc(100% + 6px);left:8px;width:300px;max-width:calc(100vw - 32px);background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30}
+#symPop input{width:100%;box-sizing:border-box;background:#f5f5f7;border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px}
+#symPop .grid{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;max-height:220px;overflow:auto}
+#symPop .grid button{background:none;border:0;border-radius:7px;padding:6px 0;cursor:pointer;font-size:16px}
+#symPop .grid button:hover{background:var(--sel)}
+#tplPop .trow{display:flex;gap:4px}
+#tplPop .fh{margin:8px 10px 2px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sub)}
+#tplPop .trow .go{flex:1;min-width:0}
+#tplPop .x{flex:none;width:auto;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer;color:var(--sub)}
+#tplPop .x:hover{background:rgba(215,0,21,.1);color:#d70015}
+#tabs{display:flex;gap:4px;padding:6px 10px;background:rgba(255,255,255,.8);border-bottom:1px solid var(--line);overflow-x:auto;font-size:12.5px}
+#tabs button{background:#f5f5f7;border:0;border-radius:9px;padding:5px 12px;cursor:pointer;white-space:nowrap;color:var(--sub)}
+#tabs button.on{background:var(--sel);color:var(--acc);font-weight:700}
+#ol .doc{cursor:pointer}
+#viewSeg{display:flex;gap:0;background:#f5f5f7;border-radius:8px;overflow:hidden;padding:2px}
+#viewSeg button{min-width:28px;padding:4px 7px;border-radius:6px!important;display:inline-flex;align-items:center;justify-content:center}
+#viewSeg button svg{display:block}
+#viewSeg button.on{background:var(--card);color:var(--acc);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+body.editonly #rightCol,body.editonly #split,body.editonly #vsplit{display:none}
+body.editonly #leftCol{width:100%!important} /* Sidebar bleibt, Editor breitet sich ueber die Preview-Flaeche aus */
+#cBadge{background:var(--sel);color:var(--acc);border:0;border-radius:20px;padding:2px 9px;cursor:pointer;font-weight:700;font-size:12px}
+#emptyCard{max-width:420px;margin:12vh auto;text-align:center;background:var(--card);border-radius:16px;padding:28px;box-shadow:0 8px 32px rgba(0,0,0,.12)}
+#emptyCard h2{margin:0 0 8px;font-size:18px;letter-spacing:-.02em}
+#emptyCard p{margin:6px 0;color:var(--sub);font-size:13.5px}
+#emptyCard button{margin-top:12px;background:var(--acc);color:#fff;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;font-weight:600}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--card:#2c2c2e;--line:rgba(255,255,255,.12);--text:#f5f5f7;--sub:#a1a1a6;--acc:#0a84ff;--sel:rgba(10,132,255,.25)}aside{background:rgba(28,28,30,.9)}header,#tools,#pvTools,#media,#tabs,#find{background:rgba(44,44,46,.8)}#tools button,#pvTools button{color:#e5e5ea}#login input,.row input,.row select,#find input{background:#1c1c1e}#media .chip,#media button,#find button,#setPop .sec,#pop .qt,#pop .rp,#pop .rr input,#viewSeg,#mCard .pk{background:#1c1c1e}#tabs button,#setPop .step,#sharePop #shares button,#mInp,#setPop .sec input{background:#1c1c1e;color:#e5e5ea}#preview{background:#111}#histPop .srow button,#symPop input,#symPop .grid button{color:#e5e5ea}#histPop .srow button,#symPop input{background:#1c1c1e}#histPop .srow:hover{background:rgba(255,255,255,.06)}#symPop .grid button:hover{background:var(--sel)}#cmWrap .cm-activeLine{background:rgba(255,255,255,.04)}aside .doc:hover,#tools button:hover,#pvTools button:hover,aside h3:hover,aside .fhd:hover,#tplPop button:hover{background:rgba(255,255,255,.08)}}
+@media (max-width:720px){#mid{flex-direction:column}#leftCol{width:100%!important;flex:1;min-height:0}#rightCol{flex:1;min-height:0}#split{display:none}#vsplit{display:block;flex:none;height:11px;cursor:row-resize;position:relative;touch-action:none}#vsplit::after{content:'';position:absolute;left:0;right:0;top:5px;height:1px;background:rgba(0,0,0,.12)}#vsplit:hover::after{background:var(--acc);top:4px;height:3px;border-radius:2px}header{flex-wrap:wrap;height:auto;min-height:48px;padding:6px 12px}#tools{flex-wrap:wrap}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+<div id="booterr" style="display:none;margin:8px;padding:10px;background:#fee2e2;color:#991b1b;border:1px solid #f87171;border-radius:8px;font:13px system-ui"></div>
+<script>
+window.addEventListener('error', function (e) {
+  var m = (e.message || 'Ladefehler') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '?')
+  var d = document.getElementById('booterr')
+  if (d) { d.style.display = ''; d.textContent = 'JS-Fehler: ' + m }
+})
+</script>
+
+<form id="login">
+  <h2>Typst Editor</h2>
+  <input id="u" placeholder="Benutzername" autocomplete="username">
+  <input id="p" type="password" placeholder="Passwort" autocomplete="current-password">
+  <button id="go">Anmelden</button>
+  <a class="mode" id="mode">Noch kein Konto? Registrieren</a>
+  <div id="err" style="color:#f88"></div>
+</form>
+
+<div id="app">
+  <aside id="side">
+    <div class="row"><input id="q" placeholder="Alle Docs suchen" autocomplete="off"><button id="new" style="flex:none">+ Neu</button><button id="upDoc" title=".typ als neues Dokument hochladen" style="flex:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3"/><path d="M5 5.5L8 2.5l3 3"/><path d="M2.5 10.5v3h11v-3"/></svg></button></div><input type="file" id="docPick" accept=".typ" style="display:none">
+    <div id="nav">
+      <h3 id="ownH" title="Hierher ziehen = ohne Ordner">Dokumente</h3><div id="own"></div>
+      <h3 id="tplH">Vorlagen</h3><div id="tpls"></div>
+      <h3 id="sharedH">Mit mir geteilt</h3><div id="shared"></div>
+      <h3 id="trashH" style="display:none">Papierkorb</h3><div id="trash"></div>
+      <h3 id="olH">Gliederung</h3><div id="ol"></div>
+    </div>
+    <div id="userBox"><span id="meDot" class="dot"></span><span id="who"></span><button id="out">Abmelden</button></div>
+  </aside>
+  <div id="sideSplit" title="Sidebar-Breite"></div>
+  <main>
+    <header>
+      <button id="navToggle" title="Sidebar ein-/ausblenden">☰</button>
+      <b id="title">Kein Dokument</b><button id="renBtn" title="Umbenennen" style="display:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg></button><span id="role"></span><span id="save"></span><button id="cBadge" title="Offene Kommentare: zum nächsten springen" style="display:none"></button>
+      <span style="flex:1"></span><span id="peers"></span><span id="viewSeg"><button id="vEdit" title="Nur Editor"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M6.5 2.5v11" stroke-width="2.6"/></svg></button><button id="vSplit" title="Editor + Preview" class="on"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M8 2.5v11"/></svg></button><button id="vRead" title="Nur Preview"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M9.5 2.5v11" stroke-width="2.6"/></svg></button></span><div id="setPop" style="display:none"></div><input type="file" id="avPick" accept="image/*" style="display:none">
+    </header>
+    <div id="mid">
+      <div id="leftCol">
+      <div id="tools"><button id="cNew" title="Markierten Text kommentieren"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3h11v7h-5.5L4.5 13v-3H2.5z"/></svg></button><button id="imgBtn" title="Datei einfügen (.typ/.bib als Tab, Bild als #image)" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 11.5l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></button><input type="file" id="imgPick" accept=".png,.jpg,.jpeg,.svg,.gif,.webp,.pdf,.typ,.bib,.csv" style="display:none"><button id="mediaBtn" title="Medien-Manager" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h2l1.5 2H12a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5z"/></svg></button><button id="tplBtn" title="Typst-Template einfügen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.5h5.5L12.5 4.5V14.5h-8.5z"/><path d="M9.5 1.5v3h3"/><path d="M8 8v4M6 10h4"/></svg></button><button id="shareBtn" title="Teilen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L8.5 7.5"/><path d="M6 4H3.5v8.5h8.5V10"/></svg></button><button id="histBtn" title="Verlauf: Stände sichern/wiederherstellen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg></button><button id="symBtn" title="Symbol einfügen" style="display:none;font-weight:700">Ω</button><input type="color" id="colPick" title="Textfarbe: Auswahl einrahmen" value="#d70015" style="display:none;width:26px;height:22px;padding:0;border:0;background:none;cursor:pointer"><button id="del" title="Dokument löschen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg></button><button id="dlTyp" title="Als .typ laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.typ</button><button id="dlPdf" title="Als PDF laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.pdf</button><button id="dlPng" title="Erste Seite als PNG laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.png</button><button id="dlSvg" title="Als SVG laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.svg</button><span class="grp">Schrift <button id="fMinus" title="Editor kleiner">A−</button><button id="fPlus" title="Editor größer">A+</button></span><div id="sharePop" style="display:none"></div><div id="tplPop" style="display:none"></div><div id="histPop" style="display:none"></div><div id="symPop" style="display:none"></div><input type="file" id="tplPick" accept=".typ" style="display:none"></div>
+      <div id="media" style="display:none"></div>
+      <div id="tabs" style="display:none"></div>
+        <div id="editWrap">
+        <div id="cmWrap" title="Enter = Umbruch, Tab = Übernehmen"><div id="cm"></div></div>
+        <div id="pop" style="display:none"></div>
+      </div>
+        <div id="find" style="display:none"><input id="fQ" placeholder="Suchen"><input id="fR" placeholder="Ersetzen"><span class="n" id="fN"></span><button id="fPrev" title="Vorheriges (Shift+Enter)">↑</button><button id="fNext" title="Nächstes (Enter)">↓</button><button id="fRep" title="Dieses Vorkommen ersetzen">Ersetzen</button><button id="fAll" title="Alle Vorkommen ersetzen">Alle ersetzen</button><button id="fCase" title="Groß/Klein beachten">Aa</button><button id="fX" class="x" title="Schließen (Esc)">✕</button></div>
+      </div>
+      <div id="split"></div><div id="vsplit" title="Höhe ziehen"></div>
+      <div id="rightCol">
+        <div id="pvTools"><button id="syncBtn" class="on" title="Editor + Preview folgen einander">⇄</button><span class="grp">Zoom <button id="fitBtn" title="Papier einpassen"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button><button id="zMinus" title="Preview kleiner">−</button><button id="zPlus" title="Preview größer">+</button></span></div>
+        <div id="preview"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal" style="display:none"><div id="mCard"><b id="mHead"></b><input id="mInp"><div class="mRow"><button id="mNo">Abbrechen</button><button id="mYes">OK</button></div></div></div>
+<script type="module">
+import * as Y from 'https://esm.sh/yjs@13.6.27'
+import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
+import { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, forEachDiagnostic } from './vendor-cm.js' // lokal gebündelt: eine Instanz, kein CDN-Risiko
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+const $ = id => document.getElementById(id)
+const api = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then(async r => {
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText)
+  return r.json()
+})
+
+let token = localStorage.getItem('typst_token') || ''
+let lastC = '' // letzter Kommentar-Stand, Poll rendert nur bei Änderung
+let user = '', docId = '', docRole = '', ydoc = null, prov = null, ytext = null, shadow = '', saveT = 0
+const SAVE_MS = 2000, RENDER_MS = 300, POLL_MS = 5000, SYNC_MS = 150, CLICK_PX = 130, SYNC_PX = 40 // Debounce/Intervalle + Klick-Radius (Canvas-px) + Scroll-Ruhe (px)
+const SEARCH_MS = 350, DIFF_MAX = 400, DIFF_OUT = 120 // Suche-Debounce, Diff-Zeilen-Caps
+function clampSplit(w) { return Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, w)) } // fn statt const: Top-Init läuft früher (TDZ-Fix)
+const QUOTE_MAX = 120, AV_SIZE = 64 // Kommentar-Zitat, Avatar-px
+const SPLIT_MIN = 15, SPLIT_MAX = 85 // Editor-Breite in %
+const ED_MIN = 10, ED_MAX = 24, ED_STEP = 1 // Editor-Schrift
+const PV_MIN = 30, PV_MAX = 200, PV_STEP = 10 // Preview-Zoom
+const SIDE_MIN = 150, SIDE_MAX = 420 // Sidebar-Breite in px
+let edSize = 14, pvZoom = 110 // Editor-Schrift + Preview-Zoom
+try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MAX) edSize = e } catch (err) {}
+try { const z = +localStorage.getItem('typst_pv'); if (z >= PV_MIN && z <= PV_MAX) pvZoom = z } catch (err) {}
+const saveSet = () => { try { localStorage.setItem('typst_ed', edSize); localStorage.setItem('typst_pv', pvZoom) } catch (err) {} }
+
+// --- CodeMirror: Coloring per Lezer, Autocomplete + Hover aus statischen Listen (deterministisch) ---
+const T_KEYS = ('let set show import include context if else for while return break continue in as and or not ' +
+  'align alignment angle block box bibliography cite circle clip cos document ellipse emph enum figure footnote grid heading image item ' +
+  'length line link list lower math measure move outline pad page par path place polygon quote rect ref regex rotate ' +
+  'scale sin skew square stack strong styled sub super sum table tan terms text upper highlight overline underline smallcaps strike ' +
+  'author date title caption placement float wrap columns gutter rows cell hline vline ' +
+  'numbering counter state query label metadata sys inputs calc min max abs round ceil floor even odd range zip ' +
+  'fill stroke inset outset radius width height none auto left right center top bottom horizon start end ' +
+  'paper margin binding header footer pagebreak parbreak raw code upright italic bold vec mat cases binom frac over under attach ' +
+  'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi pi rho sigma tau upsilon phi chi psi omega ' +
+  'Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega forall exists emptyset infty partial nabla degree ' +
+  'arrow larr rarr uarr darr harr quad dots cdots ldots vdots integral oint prod cbrt display inline equation supplement ' +
+   'cetz canvas draw hide csv json read ' +
+  'supplement outlined body header footer row gutter cell placement float wrap tight leading indent hanging justify hyphenate kerning tracking ligatures overhang variant weight stretch script features lang region fallback delimiters depth paint axis step major minor from to control tension close smooth offset separator layout style fit cover ' +
+  'dot ddots hat tilde bar underbrace overbrace cancel hbar ell mid parallel perp equiv approx propto ast circ cdot times div pm mp le ge neq subset supset cap cup vee wedge neg therefore because prime partial aleph emptyset oint oplus otimes implies iff notin angle dots colon coloneq succ prec sim cong triangle diamond square star flat natural sharp ' +
+   'group content mark anchor h v linebreak colbreak smartquote repeat numbering datetime lorem str int float bool array').split(' ')
+const T_DOC = {
+  set: '#set page(..) / #set text(..) — Regel für alles Folgende; erstes Argument nackt (page, text)',
+  show: '#show heading: it => .. — Aussehen umdefinieren',
+  page: '#set page(paper: "a4", margin: 2cm) — Seite',
+  figure: '#figure(caption: [..])[..] — Bild/Tabelle mit Caption',
+  table: '#table(columns: (1fr, 1fr))[..][..] — Tabelle',
+  image: '#image("datei.png", width: 80%) — Bild einbetten',
+  heading: '= Titel / == Abschnitt — Überschrift',
+  ref: '#ref(<label>) — Querverweis, Ziel mit <label> markieren',
+  cite: '#cite(<key>) — Zitat aus bibliography()',
+  sqrt: '#sqrt(x) oder $sqrt(x)$ — Wurzel',
+  sum: '$sum_(i=0)^n x_i$ — Summe in Math',
+  align: '#align(center)[..] — Ausrichtung',
+  grid: '#grid(columns: (1fr, 1fr))[..] — Raster-Layout',
+  link: '#link("https://..")[Text] — Hyperlink',
+  list: '- Punkt — Aufzählung, + nummeriert, / Begriffe',
+  text: '#text(fill: red)[..] — Schriftfarbe/-größe',
+  rect: '#rect(fill: .., stroke: ..)[..] — Rechteck',
+  circle: '#circle(radius: 1cm) — Kreis',
+  line: '#line(length: 100%) — Linie',
+  box: '#box(..)[..] — Inline-Container',
+  block: '#block(..)[..] — Block-Container',
+  footnote: '#footnote[..] — Fußnote',
+  outline: '#outline() — Inhaltsverzeichnis',
+  bibliography: '#bibliography("lit.bib") — Literatur',
+  quote: '#quote[..] — Zitatblock',
+  par: '#par(leading: 0.6em)[..] — Absatz',
+  raw: '```code``` — Codeblock',
+  math: '$x^2$ — Mathe inline, $ .. $ Block',
+  frac: '$frac(a, b)$ — Bruch',
+  stack: '#stack(dir: ttb, spacing: 1em)[..] — Stapeln',
+  cetz: '#import "@preview/cetz:0.5.2" — Zeichnen (braucht Typst 0.14+)',
+  import: '#import "utils.typ": * — Datei/Template einbinden',
+  include: '#include "kapitel.typ" — Datei an dieser Stelle einfügen',
+  label: '<name> — Marke setzen, #ref(<name>) springt hin',
+  counter: '#counter(heading).display() — Zählerstand',
+  state: '#state("key", 0) — Zustand für Queries',
+  query: '#query(<label>) — Elemente finden',
+  context: '#context .. — Werte erst nach Layout lesen',
+  place: '#place(top + right)[..] — frei platzieren',
+  move: '#move(dx: 1cm)[..] — verschieben',
+  pad: '#pad(left: 1em)[..] — Innenabstand',
+  hide: '#hide[..] — unsichtbar, behält Platz',
+  terms: '/ Begriff: Erklärung — Begriffsliste',
+  enum: '+ eins — nummerierte Liste',
+  pagebreak: '#pagebreak() — neue Seite',
+  parbreak: '#parbreak() — Absatz erzwingen',
+  h: '#h(1em) / #v(1em) — horizontaler/vertikaler Abstand',
+  linebreak: '#linebreak() — Zeilenumbruch ohne neuen Absatz',
+  colbreak: '#colbreak() — Spaltenumbruch',
+  smartquote: '".." — schlaue Anführungszeichen',
+  repeat: '#repeat[—] — wiederholen (Linienmuster)',
+  numbering: '#set heading(numbering: "1.") — Nummerierung',
+}
+// Vorlagen: global pro Account (API), ins Doc kopiert + Import/Include an Cursor
+let myTpl = [], tplFolders = []
+async function loadTpl() {
+  try {
+    myTpl = (await api('GET', '/api/templates')).templates
+    tplFolders = (await api('GET', '/api/tplfolders')).folders
+  } catch (e) { myTpl = []; tplFolders = [] }
+  paintTpls()
+}
+const groupBy = list => { // oben ohne Ordner + Ordner-Map (leere Ordner legt der Aufrufer dazu)
+  const top = [], byF = new Map()
+  list.forEach(t => {
+    const f = t.folder || ''
+    if (!f) top.push(t)
+    else { if (!byF.has(f)) byF.set(f, []); byF.get(f).push(t) }
+  })
+  return { top, byF }
+}
+function typstComplete(ctx) {
+  const w = ctx.matchBefore(/[#\\]?[\w.]+/)
+  if (!w && !ctx.explicit) return null
+  const raw = w ? w.text : ''
+  const pre = raw.replace(/^[#\\]/, '').toLowerCase()
+  const seen = new Set(), opts = []
+  const before = ctx.state.doc.sliceString(Math.max(0, (w ? w.from : ctx.pos) - 24), w ? w.from : ctx.pos)
+  const bare = !/^[#\\]/.test(raw) && /#(set|show)\s+[^\s]*$/.test(before) // nach #set/#show: nackte Namen (page statt #page)
+  const imp = before.match(/(import|include|image|bibliography|read|csv|json)\s*[( ]"([^"]*)$/)
+  if (imp) { // nach import/include/#image(": Vorlagen (global) + Dateien aus Manager
+    const q = imp[2].toLowerCase()
+    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => n.toLowerCase().startsWith(q))
+    return files.length ? { from: ctx.pos - imp[2].length, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
+  }
+  const rf = before.match(/#ref\s*\(<?([^)>]*)$/)
+  if (rf) { // nach #ref(: Labels aus dem Doc
+    const q = rf[1].toLowerCase(), out = [], seenL = new Set()
+    for (const m of getT().matchAll(/<([\w-]+)>/g))
+      if (!seenL.has(m[1]) && m[1].toLowerCase().startsWith(q)) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
+    return out.length ? { from: ctx.pos - rf[1].length, options: out.slice(0, 50) } : null
+  }
+  const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": Keys aus allen .bib (s. shadowAll)
+  if (ct && bibKeys.length) {
+    const q = ct[1].toLowerCase()
+    const out = bibKeys.filter(k => k.toLowerCase().startsWith(q)).map(k => ({ label: k, type: 'variable' }))
+    return out.length ? { from: ctx.pos - ct[1].length, options: out.slice(0, 50) } : null
+  }
+  const hash = /^[#\\]/.test(raw)
+  if (ctx.explicit && !hash && !bare) { // Tab/Ctrl-Space ohne #: Dateien/Vorlagen, keine #-Befehle
+    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => n.toLowerCase().startsWith(pre))
+    return files.length ? { from: w ? w.from : ctx.pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
+  }
+  if (!hash && !bare) return null // normaler Text: kein #-Vorschlag (kein #Spaghetti mehr)
+  const fmt = k => raw[0] === '\\' ? '\\' + k : bare ? k : '#' + k
+  for (const k of T_KEYS)
+    if (k.startsWith(pre)) { seen.add(k); opts.push({ label: fmt(k), type: 'keyword', apply: fmt(k) }) }
+  if (!bare) for (const n of mediaNames)
+    if (!seen.has(n) && n.toLowerCase().startsWith(pre)) { seen.add(n); opts.push({ label: n, type: 'file' }) }
+  if (pre) for (const m of getT().matchAll(/[A-Za-z_][\w]{2,}/g))
+    if (!seen.has(m[0]) && m[0].toLowerCase().startsWith(pre)) { seen.add(m[0]); opts.push({ label: bare ? m[0] : '#' + m[0], type: 'variable' }) }
+  return opts.length ? { from: w ? w.from : ctx.pos, options: opts.slice(0, 50) } : null
+}
+function typstHover(view, pos) {
+  const w = view.state.wordAt(pos)
+  if (!w) return null
+  const d = T_DOC[view.state.doc.sliceString(w.from, w.to)]
+  if (!d) return null
+  return { pos: w.from, end: w.to, above: false, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover'; div.textContent = d; return { dom: div } } }
+}
+function docNear(view, pos, a, b) { // Befehl-Doku zum nächsten Wort (auch bei Klammer/Leerzeichen)
+  for (let o = 0; o <= 8; o++) {
+    for (const p of o ? [pos - o, pos + o] : [pos]) {
+      if (p < a || p > b) continue
+      const w = view.state.wordAt(p)
+      if (w) { const d = T_DOC[view.state.doc.sliceString(w.from, w.to)]; if (d) return d }
+    }
+  }
+  return null
+}
+function commentHover(view, pos) { // volle Kommentar-Ansicht + Befehl-Doku darunter, Klick öffnet Karte
+  const list = threads.filter(t => t.a != null && t.b != null && pos >= t.a && pos <= t.b)
+  if (!list.length) return null
+  const a = Math.min(...list.map(t => t.a)), b = Math.max(...list.map(t => t.b))
+  return { pos: a, end: b, above: true, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover full'
+    for (const t of list.slice(0, 3)) {
+      const h = document.createElement('div'); h.style.marginBottom = '6px'
+      const nm = document.createElement('b'); nm.textContent = t.username; nm.style.color = colOf(t.username)
+      h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(t.created_at)))
+      const p = document.createElement('div'); p.textContent = t.text; h.appendChild(p)
+      if (t.replies && t.replies.length) {
+        const r = document.createElement('div'); r.style.color = 'var(--sub)'; r.style.fontSize = '12px'
+        r.textContent = '+' + t.replies.length + ' Antworten'; h.appendChild(r)
+      }
+      div.appendChild(h)
+    }
+    if (list.length > 3) {
+      const m = document.createElement('div'); m.style.color = 'var(--sub)'; m.style.fontSize = '12px'
+      m.textContent = '+' + (list.length - 3) + ' weitere'; div.appendChild(m)
+    }
+    const d = docNear(view, pos, a, b)
+    if (d) {
+      const s = document.createElement('div')
+      s.style.borderTop = '1px solid var(--line)'; s.style.marginTop = '6px'; s.style.paddingTop = '6px'; s.style.color = 'var(--sub)'
+      s.textContent = d; div.appendChild(s)
+    }
+    div.style.cursor = 'pointer'; div.onclick = () => openPop(list[0].anchor, false)
+    return { dom: div } } }
+}
+const hoverAll = (v, p) => errHover(v, p) || commentHover(v, p) || typstHover(v, p)
+const editableComp = new Compartment(), hlComp = new Compartment()
+const setHl = StateEffect.define() // Kommentar-Stellen im Text hinterlegen, wandern per Mapping mit
+const hlField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setHl)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setFind = StateEffect.define() // Such-Treffer, wandern per Mapping mit
+const findField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setFind)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setErr = StateEffect.define() // echte Fehler-Stelle (kein Warning), wandert per Mapping mit
+const errField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setErr)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setPeer = StateEffect.define() // Fremd-Cursor: farbiger Strich, kein Blinken
+const peerField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setPeer)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setMarks = StateEffect.define() // Gutter-Punkte je Kommentar-Zeile
+const markField = StateField.define({
+  create: () => RangeSet.empty,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setMarks)) v = e.value; return v.map(tr.changes) },
+  provide: f => gutterLineClass.from(f),
+})
+class ThreadDot extends GutterMarker {
+  get elementClass() { return 'hasThread' }
+  eq(o) { return o instanceof ThreadDot }
+}
+class PeerCaret extends WidgetType {
+  constructor(c, n) { super(); this.c = c; this.n = n }
+  eq(o) { return o.c === this.c && o.n === this.n }
+  toDOM() {
+    const w = document.createElement('span'); w.className = 'peerW'; w.title = this.n
+    const bar = document.createElement('span'); bar.className = 'peer'; bar.style.borderLeftColor = this.c
+    const lab = document.createElement('span'); lab.className = 'peerName'; lab.textContent = this.n
+    lab.style.color = this.c; lab.style.borderColor = this.c
+    w.append(bar, lab); return w
+  }
+}
+const posOfLine = (t, line) => { // Zeichenposition einer 1-basierten Zeile
+  let p = 0
+  for (let l = 1; l < line; l++) { p = t.indexOf('\n', p) + 1; if (!p) return t.length }
+  return p
+}
+function locateQuote(t, q, hintLine) { // exakt, sonst Hälften/Prefix in alter Nähe; -1 = behalten, nie löschen
+  if (!q) return -1
+  let i = t.indexOf(q)
+  if (i >= 0) return i
+  const cands = []
+  const pushAll = sub => {
+    if (sub.length < 10) return
+    let p = -1, n = 0
+    while ((p = t.indexOf(sub, p + 1)) >= 0 && n++ < 20) cands.push(p)
+  }
+  if (q.length >= 16) { const h = q.length >> 1; pushAll(q.slice(0, h)); pushAll(q.slice(h)) }
+  else pushAll(q.slice(0, Math.min(10, q.length)))
+  if (!cands.length && q.length > 10) pushAll(q.slice(0, 10))
+  if (!cands.length) return -1
+  const hint = posOfLine(t, hintLine)
+  cands.sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint))
+  return cands[0]
+}
+function refreshHl() { // Highlight aus gespeicherten Bereichen: bricht nie, egal was man tippt
+  const t = getT(), rs = []
+  for (const th of threads) {
+    if (th.a == null || th.b == null) continue
+    const a = Math.max(0, Math.min(t.length, th.a)), b = Math.max(0, Math.min(t.length, th.b))
+    if (b > a) rs.push(Decoration.mark({ class: 'cm-hl' }).range(a, b))
+  }
+  cm.dispatch({ effects: setHl.of(RangeSet.of(rs, true)) }) // true: CM sortiert (gleiche from-Positionen möglich)
+}
+let threads = [], marks = new Set(), popAnchor = 0 // vor cm: Gutter-Mapper läuft schon beim Aufbau
+let applying = false // Remote-Sync schreibt: löst keinen Push aus
+const cm = new EditorView({
+  parent: $('cm'),
+  extensions: [keymap.of([ // ganz vorne: höchste Priorität vor minimalSetup-Defaults
+      { key: 'ArrowDown', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(true)(v); return false } }, // Creator-Aufruf: (forward)(view), sonst läuft der Cursor mit
+      { key: 'ArrowUp', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(false)(v); return false } },
+      { key: 'Escape', run: v => { if (currentCompletions(v.state).length) { closeCompletion(v); return true } return false } },
+      { key: 'ArrowLeft', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } }, // Box zu, Cursor läuft normal weiter
+      { key: 'ArrowRight', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
+      { key: 'Home', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
+      { key: 'End', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
+      { // Tab wie IDE: Auswahl/Zeilenanfang = Einzug, offene Box = übernehmen, sonst Autocomplete
+      key: 'Tab',
+      run: v => {
+        const m = v.state.selection.main
+        if (!m.empty) return indentMore(v)
+        if (currentCompletions(v.state).length) { acceptCompletion(v); return true }
+        const line = v.state.doc.lineAt(m.head)
+        if (/^\s*$/.test(line.text.slice(0, m.head - line.from))) return indentMore(v)
+        return startCompletion(v)
+      },
+      shift: v => indentLess(v),
+    }, { key: 'Ctrl-Space', run: startCompletion }]),
+    minimalSetup, typst_lezer(), EditorView.lineWrapping,
+    autocompletion({ override: [typstComplete], defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // Enter bleibt Zeilenumbruch, nur Tab übernimmt; Pfeile navigieren die Box
+    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errField,
+    markField, lineNumbers(),
+    EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
+    EditorView.updateListener.of(u => {
+      if (u.docChanged && !applying) onEdit((p) => u.changes.mapPos(p, 1)) // beide Enden rechts: davor tippen bleibt draußen, dahinter/innen wird gelb
+      if (u.docChanged && findOpen) markFind() // Treffer neu zählen, Mark wandert von selbst mit
+      paintErr() // Lint+Compile: Rot + Hover folgen dem Text (Key stoppt Schleifen)
+      if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
+      if (u.selectionSet || u.docChanged) queueSyncPv() // Cursor folgt in die Vorschau (⇄ an)
+    })]
+})
+cm.scrollDOM.addEventListener('scroll', () => {
+  if (popAnchor) movePop()
+})
+let redir = false // Event-Umleitung läuft (keine Schleife)
+cm.scrollDOM.addEventListener('mousemove', e => { // Leere rechts vom Fehler: aufs Textende umleiten, CM zeigt den Hover
+  if (redir || e.target.closest?.('.cm-tooltip,.typ-hover')) return
+  const row = errLines.find(x => {
+    if (x.line < 1 || x.line > cm.state.doc.lines) return false // nach Löschen: Zeile gibt es nicht mehr
+    const s = cm.coordsAtPos(cm.state.doc.line(x.line).from)
+    return s && e.clientY >= s.top && e.clientY <= s.bottom
+  })
+  if (!row) return
+  const end = cm.coordsAtPos(cm.state.doc.line(row.line).to)
+  if (!end || e.clientX <= end.right) return // Text: CM trifft selbst
+  let span = null // Ziel muss Text sein (Zeilen-Target mappt CM daneben)
+  for (const s of document.querySelectorAll('#cmWrap .cm-err')) {
+    const r = s.getBoundingClientRect()
+    if (e.clientY >= r.top && e.clientY <= r.bottom) { span = s; break }
+  }
+  redir = true
+  e.stopImmediatePropagation() // Event1 erreicht CM nicht (würde den Hover clobbern), nur das umgeleitete
+  ;(span || e.target).dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: end.right - 2, clientY: e.clientY }))
+  redir = false
+})
+$('cm').addEventListener('mousedown', e => { // Klick auf Zeilennummer oder gelbes Highlight öffnet die Karte
+  const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
+  if (g && marks.has(+g.textContent)) { openPop(+g.textContent, false); return }
+  const hl = e.target.closest('.cm-hl') // Hover-Tooltip ist zu fragil zum Klicken: direkt per Position
+  if (hl) {
+    const p = cm.posAtDOM(hl)
+    const th = threads.find(t => t.a != null && p >= t.a && p <= t.b)
+    if (th) openPop(th.anchor, false)
+  }
+})
+const getT = () => cm.state.doc.toString()
+const setT = v => { applying = true; cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: v } }); applying = false }
+function onEdit(mapPos) {
+  gutter()
+  if (tplName) { queueTplSave(); return } // Vorlage: direkt speichern, kein Sync/Render
+  if (docRole === 'reviewer' || !ytext) return
+  paintOutline()
+  if (activeFile) { queueFileSave(); return } // Datei-Tab: nur Datei + Preview, kein Yjs
+  pushLocal(); queueRender(); queueSave()
+  if (mapPos) mapThreads(mapPos)
+  reanchor()
+  if (threads.length) refreshHl()
+}
+let anchorT = 0
+const anchorDirty = new Set()
+function dirtyAnchor(th) { // Anker-Saves bündeln: Tippen erzeugt einen Request, nicht hundert
+  anchorDirty.add(th.id)
+  clearTimeout(anchorT)
+  anchorT = setTimeout(() => {
+    for (const id of anchorDirty) {
+      const t = threads.find(x => x.id === id)
+      if (t) api('POST', `/api/docs/${docId}/comments/${t.id}/anchor`, { anchor: t.anchor }).catch(() => {})
+    }
+    anchorDirty.clear()
+  }, SAVE_MS)
+}
+function mapThreads(mapPos, paint = true) { // beide Enden rechts: davor tippen bleibt draußen, dahinter/innen wächst mit
+  const t = activeFile ? shadow : getT() // Datei-Tab: Anker leben in main, nicht im Datei-Text (Fix #5)
+  for (const th of threads) {
+    if (th.a == null || th.b == null) continue
+    const a = Math.max(0, Math.min(t.length, mapPos(th.a, true)))
+    const b = Math.max(0, Math.min(t.length, mapPos(th.b, true)))
+    th.a = Math.min(a, b); th.b = Math.max(a, b)
+    const line = t.slice(0, th.a).split('\n').length
+    if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+  }
+  if (!paint) return
+  gutter(); refreshHl()
+  if (popAnchor) movePop()
+}
+function initRanges() { // Bereiche aus Quote bestimmen (einmalig; danach lebt der Bereich vom Mapping)
+  const t = getT()
+  if (!t) return
+  for (const th of threads) {
+    if (th.a != null) continue
+    const i = th.quote ? locateQuote(t, th.quote, th.anchor) : -1
+    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + th.quote.length) }
+    else { th.a = posOfLine(t, th.anchor); th.b = th.a + t.slice(th.a).split('\n')[0].length }
+  }
+}
+
+// --- Editor <-> Y.Text: nur Prefix/Suffix-Diff übertragen (Quelle: getT/setT = CodeMirror) ---
+function pushLocal() {
+  const v = getT()
+  let a = 0; while (a < Math.min(shadow.length, v.length) && shadow[a] === v[a]) a++
+  let b = 0; while (b < Math.min(shadow.length - a, v.length - a) && shadow[shadow.length - 1 - b] === v[v.length - 1 - b]) b++
+  if (a + b === shadow.length && a + b === v.length) return
+  ydoc.transact(() => {
+    if (a + b < shadow.length) ytext.delete(a, shadow.length - a - b)
+    if (a + b < v.length) ytext.insert(a, v.slice(a, v.length - b))
+  }, 'local') // eigene Edits: pullRemote über Observer überspringen (s. unten)
+  shadow = v
+}
+function pullRemote() {
+  const v = ytext.toString()
+  synced = true // Server-Text ist da: Saves schreiben ab jetzt echten Inhalt
+  if (v === shadow) { jumpWant(); return }
+  const s = cm.state.selection.main.head, old = shadow
+  let a = 0; while (a < Math.min(old.length, v.length) && old[a] === v[a]) a++
+  let b = 0; while (b < Math.min(old.length - a, v.length - a) && old[old.length - 1 - b] === v[v.length - 1 - b]) b++
+  const d = v.length - old.length
+  const map = (p, end) => p <= a ? p : p >= old.length - b ? p + d : end ? a + (v.length - b - a) : a
+  shadow = v
+  if (activeFile) { // Datei-Tab offen: nur Main puffern, Editor zeigt die Datei
+    if (threads.length) mapThreads(map, false) // Werte ja (Main-relativ), Malen nein (Fix #5)
+    queueRender()
+    return
+  }
+  setT(v)
+  cm.dispatch({ selection: { anchor: Math.min(s, v.length) } })
+  jumpWant() // Such-Treffer nach dem Öffnen anspringen
+  if (threads.length) mapThreads(map)
+  reanchor()
+  paintOutline()
+  queueRender()
+}
+// --- Typst-Vorschau: Hauptdatei + hochgeladene Bilder als Shadow-Files im Compiler ---
+let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // Text-Anker je Seite: Klick trifft exact (auch Tabellen)
+let cmpWait = 0, lastInfra = false // Compiler fehlt / letzter Render Infra-Fehler (Watchdog heilt)
+const typstReady = () => !!window.$typst?.resetShadow // true sobald das Lazy-Bundle da ist
+let typstPm = null // Compiler lädt async nach: UI bleibt klickbar während WASM lädt
+function ensureTypst() {
+  if (typstPm) return typstPm
+  typstPm = new Promise((res, rej) => {
+    const s = document.createElement('script')
+    s.type = 'module'; s.id = 'typst'
+    s.src = 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.7.0/dist/esm/index.js'
+    s.onload = () => res()
+    s.onerror = () => { typstPm = null; rej(new Error('Compiler lädt nicht')) } // Retry ohne Reload: nächster render lädt neu
+    document.head.appendChild(s)
+  })
+  return typstPm
+}
+let typstQueued = false // ein Nachhol-Render reicht: kein Compile-Stapel beim Tippen
+function queueTypstRender() {
+  if (typstQueued) return
+  typstQueued = true
+  ensureTypst().then(() => { typstQueued = false; if (typstReady() && docId) render() }).catch(() => { typstQueued = false })
+}
+let typstT0 = 0 // Load-Start: Hinweis erst bei echtem Hänger, nicht bei langsamem Netz
+function noteCompiler(preview) { // Hinweis statt ewigem „Rendert…" (nur bei Hänger, nicht bei langsamem Netz)
+  if (!typstT0) typstT0 = Date.now()
+  if (++cmpWait >= 8 && Date.now() - typstT0 > 25000 && !preview.querySelector('canvas'))
+    preview.innerHTML = '<p class="empty">Compiler lädt nicht – Netz/adblock prüfen.</p>'
+}
+setInterval(() => { // Watchdog: toter Render (Init-Race, verworfener Retry) heilt sich selbst
+  if (docId && !tplName && lastInfra && !$('preview').querySelector('canvas')) render()
+}, 3000)
+const fileCache = new Map() // name -> {mtime, bytes}: Binaries nur bei Änderung neu laden
+function queueRender() { clearTimeout(renderT); renderT = setTimeout(render, RENDER_MS) }
+async function shadowAll(main) { // Dateien + Vorlagen als Shadow: Preview und PDF-Export teilen sich das
+  let files = []
+  try { files = (await api('GET', `/api/docs/${docId}/files`)).files } catch (e) {}
+  mediaNames = files.map(f => f.name)
+  const sig = files.map(f => f.name + f.size + ':' + f.mtime).join('|')
+  if (sig !== lastMedia) { lastMedia = sig; renderMediaChips(files) } // Manager-Chips nur bei Änderung neu
+  const seen = new Set()
+  await Promise.all(files.map(async f => { // parallel: kein Nacheinander bei vielen Dateien
+    seen.add(f.name)
+    const c = fileCache.get(f.name)
+    if (!c || c.mtime !== f.mtime) {
+      const rr = await fetch(`/api/docs/${docId}/files/` + encodeURIComponent(f.name))
+      if (!rr.ok) return // weg oder 403: alten Shadow behalten, kein Fehler-Blob
+      fileCache.set(f.name, { mtime: f.mtime, bytes: new Uint8Array(await rr.arrayBuffer()) })
+    }
+  }))
+  for (const k of [...fileCache.keys()]) if (!seen.has(k)) fileCache.delete(k)
+  bibKeys = [] // #cite-Quellen aus allen .bib neu einsammeln
+  for (const [n, c] of fileCache) {
+    if (!/\.bib$/i.test(n)) continue
+    try {
+      for (const m of new TextDecoder().decode(c.bytes).matchAll(/@\w+\s*\{\s*([^,\s}]+)/g))
+        if (!bibKeys.includes(m[1])) bibKeys.push(m[1])
+    } catch (e) {}
+  }
+  await $typst.resetShadow()
+  await $typst.addSource('/main.typ', main)
+  for (const t of myTpl) await $typst.mapShadow('/' + t.name, new TextEncoder().encode(t.content)) // Vorlagen global, nicht im Manager
+  for (const [n, c] of fileCache) await $typst.mapShadow('/' + n, c.bytes)
+}
+async function render() {
+  const id = ++renderN, preview = $('preview')
+  if (!docId) return
+  if (!typstReady()) { noteCompiler(preview); lastInfra = true; queueTypstRender(); return } // lädt im Hintergrund, rendert nach
+  cmpWait = 0; typstT0 = 0
+  try {
+    await shadowAll(activeFile ? shadow : getT()) // Datei-Tab: Preview kompiliert weiter main.typ
+    if (id !== renderN) return // überholt: kein verschenkter Vollcompile
+    const doc = await pdfjsLib.getDocument({ data: await $typst.pdf({ mainFilePath: '/main.typ' }) }).promise
+    if (id !== renderN) { doc.destroy(); return }
+    oldPdf?.destroy(); oldPdf = doc
+    const st = preview.scrollTop // Scroll-Stand merken, sonst springt die Vorschau bei jedem Tippen nach oben
+    preview.innerHTML = ''
+    pvTexts = []
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p), v = page.getViewport({ scale: 2 }), c = document.createElement('canvas')
+      c.width = v.width; c.height = v.height // Backing = Viewport (Scale 2), nie anfassen
+      await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise
+      sizeCanvas(c) // nur CSS-Breite, kein canvas.width
+      const tc = await page.getTextContent() // Klick-Anker: jedes sichtbare Wort kennt seine Stelle
+      if (id !== renderN) return
+      const [a, b, cc, d, ee, ff] = v.transform // Textraum -> Canvas-px
+      const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
+      pvTexts.push(tc.items.map(it => {
+        const w = (it.width || 0) * ax, h = (it.height || 0) * ay
+        const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
+        return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2 }
+      }))
+      preview.appendChild(c)
+    }
+    if (!preview.scrollTop) preview.scrollTop = st // nur nach Reset: Hand-Scroll und Folgen bleiben
+    clearErr() // läuft wieder: Markierung weg
+    lastInfra = false
+  } catch (e) { if (id === renderN) { // Fehler: letzter Render bleibt, Zeilen rot, nie falscher Leer-Text
+    if (!$('preview').querySelector('canvas')) $('preview').innerHTML = '<p class="empty">Konnte nicht rendern.</p>' // noch nie gelungen
+    cmpDiags = await errDiags(); paintErr()
+    lastInfra = !cmpDiags.length && !$('preview').querySelector('canvas') // Infra (nicht Inhalt): Watchdog nochmal
+  } }
+}
+let errKey = '', errLines = [], cmpDiags = [] // Fehler-Zeilen: Lint sofort + Compile-Semantik, je Zeile ein Mark
+function clearErr() { errKey = ''; errLines = []; cmpDiags = []; cm.dispatch({ effects: setErr.of(RangeSet.of([])) }) }
+async function errDiags() { // Compile-Fehler für Semantik (Syntax kommt schneller aus dem Lint)
+  if (!typstReady()) return []
+  try {
+    const r = await (await $typst.getCompiler()).compile({ mainFilePath: '/main.typ', diagnosticFormat: 'human' })
+    return (r.diagnostics || []).filter(d => d.severity === 'error')
+  } catch (err) { return [] }
+}
+function paintErr() { // ein Mark + eine Meldung je Zeile, Lint-Text zuerst (gut), Compile füllt auf
+  const byLine = new Map(), t = getT()
+  forEachDiagnostic(cm.state, (d, from) => { // Lint: schnell, gute Texte, wandert schon gemappt mit
+    const l = cm.state.doc.lineAt(from).number
+    if (!byLine.has(l)) byLine.set(l, (d.message || 'Typst-Fehler') + (d.source ? '\n' + d.source : ''))
+  })
+  for (const d of cmpDiags) {
+    const m = d && d.path === '/main.typ' && String(d.range || '').match(/(\d+):(\d+)-(\d+):(\d+)/)
+    if (!m) continue
+    const l = +m[1] + 1
+    if (!byLine.has(l)) byLine.set(l, (d.message || 'Typst-Fehler') + ' · Zeile ' + l)
+  }
+  const list = [...byLine].map(([line, msg]) => ({ line, msg })).sort((a, b) => a.line - b.line)
+  const key = list.map(e => e.line + ':' + e.msg).join('|')
+  if (key === errKey) return // nichts Neues: kein Dispatch, keine Schleife
+  errKey = key; errLines = list
+  const marks = []
+  for (const e of list) {
+    if (e.line < 1 || e.line > cm.state.doc.lines) continue // stale Compile-Zeile nach Löschen: kein Überhang (Fix)
+    const ls = posOfLine(t, e.line), le = t.indexOf('\n', ls) // ganze Zeile, inline: kein Block, keine Extra-Zeile
+    marks.push(Decoration.mark({ class: 'cm-err' }).range(ls, Math.max(ls + 1, le < 0 ? t.length : le)))
+  }
+  cm.dispatch({ effects: setErr.of(RangeSet.of(marks)) })
+} // kein Cursor-Klau: wer tippt, bleibt wo er ist
+function errHover(view, pos) { // Fehler-Zeile zeigt die gute Meldung (Leere kommt umgeleitet rein)
+  const e = errLines.find(x => x.line === view.state.doc.lineAt(pos).number)
+  if (!e) return null
+  return { pos, end: pos, above: false, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover err'; div.textContent = e.msg; return { dom: div } } }
+}
+// --- Docs ---
+let folders = [], lastOwn = [], lastShared = [], hits = [], findQ = '', findT = 0, wantPos = -1
+let shut = new Set() // zugeklappte Ordner (doc: Name, tpl: "tpl:…", geteilt: "share:…")
+try { shut = new Set(JSON.parse(localStorage.getItem('typst_shut') || '[]')) } catch (e) {}
+const saveShut = () => { try { localStorage.setItem('typst_shut', JSON.stringify([...shut])) } catch (e) {} }
+let secShut = new Set() // zugeklappte Sidebar-Sektionen (Header-IDs)
+try { secShut = new Set(JSON.parse(localStorage.getItem('typst_sec') || '[]')) } catch (e) {}
+const saveSec = () => { try { localStorage.setItem('typst_sec', JSON.stringify([...secShut])) } catch (e) {} }
+const SECS = [['ownH', 'own', 'Dokumente', 'doc'], ['tplH', 'tpls', 'Vorlagen', 'tpl'], ['sharedH', 'shared', 'Mit mir geteilt'], ['olH', 'ol', 'Gliederung']]
+function paintSecs() { // alle Sektionen einklappbar, + legt direkt einen Ordner an
+  for (const [h, box, label, plus] of SECS) {
+    const H = $(h), B = $(box)
+    if (!H || !B) continue
+    H.innerHTML = ''
+    const l = el('span', 'lbl', (secShut.has(h) ? '▸ ' : '▾ ') + label)
+    l.title = 'Ein-/ausklappen'
+    l.onclick = () => { secShut.has(h) ? secShut.delete(h) : secShut.add(h); saveSec(); paintSecs() }
+    H.appendChild(l)
+    if (plus) {
+      const p = el('button', 'mini', '+'); p.title = plus === 'doc' ? 'Neuer Ordner' : 'Neuer Vorlagen-Ordner'
+      p.onclick = e => { e.stopPropagation(); plus === 'doc' ? newFolder() : newTplFolder() }
+      H.appendChild(p)
+    }
+    B.style.display = secShut.has(h) ? 'none' : ''
+  }
+}
+async function newFolder() {
+  const n = await ask('Neuer Ordner', { ph: 'Name' })
+  if (n === null || !n.trim()) return
+  try { await api('POST', '/api/folders', { folder: n.trim() }); sidebar() } catch (e) { alert(e.message) }
+}
+async function newTplFolder() {
+  const n = await ask('Neuer Vorlagen-Ordner', { ph: 'Name' })
+  if (n === null || !n.trim()) return
+  try { await api('POST', '/api/tplfolders', { folder: n.trim() }); await loadTpl(); paintSecs() } catch (e) { alert(e.message) }
+}
+function jumpWant() { // Such-Treffer anspringen (einmalig nach dem Öffnen)
+  if (wantPos < 0) return
+  const p = Math.max(0, Math.min(cm.state.doc.length, wantPos))
+  wantPos = -1
+  cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
+}
+async function sidebar() {
+  let d
+  try {
+    d = await api('GET', '/api/docs')
+    folders = (await api('GET', '/api/folders')).folders
+  }
+  catch (e) {
+    if (/401|logged|Login/i.test(e.message)) { localStorage.removeItem('typst_token'); location.reload(); return }
+    return // offline o.ä.: alte Liste stehen lassen
+  }
+  lastOwn = d.own; lastShared = d.shared
+  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
+  paintTpls()
+}
+function docRow(x, shared, bare) { // Zeile: Klick öffnet, ⧉ dupliziert, Tonne (eigene), Drag in Ordner
+  const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
+  div.appendChild(el('span', 't', shared && !bare ? x.owner + '/' + x.title : x.title))
+  div.title = shared ? x.owner + '/' + x.title + ' (' + x.role + ')' : x.title
+  div.onclick = () => openDoc(x.id)
+  if (!shared) {
+    div.draggable = true
+    div.ondragstart = e => e.dataTransfer.setData('text/plain', x.id)
+    const dup = el('button', 'mini', '⧉'); dup.title = 'Duplizieren'
+    dup.onclick = e => { e.stopPropagation(); api('POST', `/api/docs/${x.id}/duplicate`)
+      .then(r => openDoc(r.id)).catch(e => alert(e.message)) } // openDoc malt die Liste selbst neu
+    div.appendChild(dup)
+    const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = 'In den Papierkorb'
+    del.onclick = async e => {
+      e.stopPropagation()
+      if (!await ask(`„${x.title}“ in den Papierkorb verschieben?`, { noInput: true, ok: 'OK' })) return
+      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { alert(err.message); return }
+      if (x.id === docId) closeView()
+      sidebar()
+    }
+    div.appendChild(del)
+  }
+  return div
+}
+function paintOwn() { // oben ohne Ordner, dann Ordner (A-Z); Suche ersetzt die Liste
+  const box = $('own'); box.innerHTML = ''
+  if (findQ.length >= 2) {
+    if (!hits.length) box.appendChild(el('div', 'doc', 'Nichts gefunden'))
+    hits.forEach(h => {
+      const div = el('div', 'doc')
+      div.appendChild(el('span', 't', h.title))
+      div.title = h.snippet || 'Titel-Treffer'
+      div.onclick = () => { wantPos = h.pos; $('q').value = ''; findQ = ''; openDoc(h.id) }
+      box.appendChild(div)
+    })
+    return
+  }
+  const byF = new Map()
+  lastOwn.forEach(x => {
+    if (!x.folder) box.appendChild(docRow(x))
+    else { if (!byF.has(x.folder)) byF.set(x.folder, []); byF.get(x.folder).push(x) }
+  })
+  folders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) }) // leere Ordner zeigen
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintFolder(box, f, byF.get(f)))
+}
+function paintShared(list) { // pro Person ein Ordner; eine Datei = user/file wie VSCode
+  const box = $('shared'); box.innerHTML = ''
+  const byO = new Map()
+  list.forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
+  ;[...byO.keys()].sort((a, b) => a.localeCompare(b)).forEach(o => {
+    const docs = byO.get(o)
+    if (docs.length === 1) { box.appendChild(docRow(docs[0], true)); return }
+    const h = el('div', 'fhd'), k = 'share:' + o
+    const t = el('b', null, (shut.has(k) ? '▸ ' : '▾ ') + o)
+    t.title = 'Ein-/ausklappen'
+    t.onclick = () => { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut(); paintShared(lastShared) }
+    h.appendChild(t); box.appendChild(h)
+    if (!shut.has(k)) docs.forEach(x => { const r = docRow(x, true, true); r.classList.add('sub'); box.appendChild(r) })
+  })
+}
+function paintFolder(box, f, docs) { // Kopf: Klick klappt, ✎ benennt um, ✕ löst auf; Drop sortiert ein
+  const h = el('div', 'fhd')
+  const t = el('b', null, (shut.has(f) ? '▸ ' : '▾ ') + f)
+  t.title = 'Ein-/ausklappen'
+  t.onclick = () => {
+    shut.has(f) ? shut.delete(f) : shut.add(f)
+    saveShut()
+    paintOwn()
+  }
+  const rn = el('button', 'mini', '✎'); rn.title = 'Ordner umbenennen'
+  rn.onclick = async e => {
+    e.stopPropagation()
+    const n = await ask('Ordner umbenennen', { value: f })
+    if (n === null || !n.trim() || n.trim() === f) return
+    api('POST', '/api/folders/rename', { old: f, new: n.trim() }).then(sidebar).catch(e => alert(e.message))
+  }
+  const x = el('button', 'mini', '✕'); x.title = 'Ordner auflösen (Docs bleiben)'
+  x.onclick = async e => {
+    e.stopPropagation()
+    if (await ask(`Ordner „${f}“ auflösen?`, { noInput: true, ok: 'OK' }))
+      api('DELETE', '/api/folders/' + encodeURIComponent(f)).then(sidebar).catch(e => alert(e.message))
+  }
+  h.append(t, rn, x)
+  h.ondragover = e => e.preventDefault()
+  h.ondrop = e => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (!id || id.startsWith('tpl:')) return // Vorlagen gehören in Vorlagen-Ordner
+    api('POST', `/api/docs/${id}/folder`, { folder: f }).then(sidebar).catch(e => alert(e.message))
+  }
+  box.appendChild(h)
+  if (!shut.has(f)) docs.forEach(x => { const r = docRow(x); r.classList.add('sub'); box.appendChild(r) })
+}
+function paintTrash(trash) { // Klick schaut rein (Papierkorb-Ansicht), ↩ stellt her, ✕ löscht endgültig
+  const h = $('trashH')
+  h.style.display = trash.length ? '' : 'none'
+  if (!trash.length) { $('trash').innerHTML = ''; return }
+  h.innerHTML = ''
+  const l = el('span', 'lbl', (secShut.has('trashH') ? '▸ ' : '▾ ') + 'Papierkorb')
+  l.title = 'Ein-/ausklappen'
+  l.onclick = () => { secShut.has('trashH') ? secShut.delete('trashH') : secShut.add('trashH'); saveSec(); paintTrash(trash) }
+  h.appendChild(l)
+  const empty = el('button', 'mini', 'Leeren'); empty.title = 'Papierkorb leeren (endgültig)'
+  empty.onclick = async () => {
+    if (!await ask(`${trash.length} Doc(s) endgültig löschen?`, { noInput: true, ok: 'Löschen', danger: true })) return
+    for (const x of trash) { try { await api('DELETE', `/api/docs/${x.id}`) } catch (e) { alert(e.message); break } }
+    if (trash.some(x => x.id === docId)) closeView()
+    sidebar()
+  }
+  h.appendChild(empty)
+  const box = $('trash'); box.innerHTML = ''
+  box.style.display = secShut.has('trashH') ? 'none' : ''
+  trash.forEach(x => {
+    const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
+    div.appendChild(el('span', 't', x.title))
+    div.title = x.title + ' (Papierkorb – klicken zum Ansehen)'
+    div.onclick = () => openDoc(x.id)
+    const back = el('button', 'mini', '↩'); back.title = 'Wiederherstellen'
+    back.onclick = e => { e.stopPropagation(); api('POST', `/api/docs/${x.id}/restore`).then(sidebar).catch(e => alert(e.message)) }
+    const kill = el('button', 'mini', '✕'); kill.title = 'Endgültig löschen'
+    kill.onclick = async e => {
+      e.stopPropagation()
+      if (!await ask(`„${x.title}“ endgültig löschen?`, { noInput: true, ok: 'Löschen', danger: true })) return
+      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { alert(err.message); return }
+      if (x.id === docId) closeView()
+      sidebar()
+    }
+    div.append(back, kill); box.appendChild(div)
+  })
+}
+$('q').oninput = () => { clearTimeout(findT); findT = setTimeout(runSearch, SEARCH_MS) }
+$('ownH').ondragover = e => e.preventDefault()
+$('ownH').ondrop = e => { // Drop auf „Dokumente" = aus dem Ordner nehmen
+  e.preventDefault()
+  const id = e.dataTransfer.getData('text/plain')
+  if (!id || id.startsWith('tpl:')) return
+  api('POST', `/api/docs/${id}/folder`, { folder: '' }).then(sidebar).catch(e => alert(e.message))
+}
+$('tplH').ondragover = e => e.preventDefault()
+$('tplH').ondrop = e => { // Drop auf „Vorlagen" = aus dem Ordner nehmen
+  e.preventDefault()
+  const id = e.dataTransfer.getData('text/plain')
+  if (!id || !id.startsWith('tpl:')) return
+  api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: '' })
+    .then(() => { loadTpl() }).catch(e => alert(e.message))
+}
+let searchN = 0
+async function runSearch() {
+  findQ = $('q').value.trim()
+  if (findQ.length < 2) { hits = []; paintOwn(); return }
+  const n = ++searchN
+  try { hits = (await api('GET', '/api/search?q=' + encodeURIComponent(findQ))).hits }
+  catch (e) { hits = [] }
+  if (n !== searchN) return // überholt: neuere Suche läuft schon
+  paintOwn()
+}
+function tplRow(t) { // Klick öffnet im Editor, Drag sortiert in Ordner
+  const div = document.createElement('div')
+  div.className = 'doc' + (t.name === tplName ? ' cur' : '')
+  div.appendChild(el('span', 't', t.name)); div.title = t.name
+  div.onclick = () => openTpl(t.name)
+  div.draggable = true
+  div.ondragstart = e => e.dataTransfer.setData('text/plain', 'tpl:' + t.name)
+  const dup = el('button', 'mini', '⧉'); dup.title = 'Duplizieren'
+  dup.onclick = async e => {
+    e.stopPropagation()
+    const n = await ask('Vorlage duplizieren', { value: t.name })
+    if (n === null || !n.trim()) return
+    let nn = n.trim().replace(/\.typ$/i, '.typ')
+    if (!nn.endsWith('.typ')) nn += '.typ'
+    nn = nn.split(/[/\\]/).pop().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 100) // wie Backend: Check trifft exakt
+    await loadTpl() // frisch: Upsert täte sonst still überschreiben
+    const src = myTpl.find(x => x.name === t.name) || t // kein stale Closure: Stand nach Frisch-Ladung
+    if (myTpl.some(x => x.name === nn)) { alert('Name gibt es schon'); return }
+    try { await api('POST', '/api/templates', { name: nn, content: src.content, folder: src.folder || '' }); await loadTpl(); sidebar() }
+    catch (err) { alert(err.message) }
+  }
+  div.appendChild(dup)
+  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = 'Vorlage löschen'
+  del.onclick = async e => {
+    e.stopPropagation()
+    if (!await ask(`Vorlage „${t.name}“ löschen?`, { noInput: true, ok: 'Löschen', danger: true })) return
+    try { await api('DELETE', '/api/templates/' + encodeURIComponent(t.name)) } catch (err) { alert(err.message); return }
+    if (t.name === tplName) { clearTimeout(saveT); closeView(); $('viewSeg').style.display = '' } // offene Vorlage weg: kein Zombie-Save, zurück auf leer
+    await loadTpl(); sidebar()
+  }
+  div.appendChild(del)
+  return div
+}
+function paintTplFolder(box, f, docs) { // wie paintFolder, nur für Vorlagen
+  const h = el('div', 'fhd'), k = 'tpl:' + f
+  const t = el('b', null, (shut.has(k) ? '▸ ' : '▾ ') + f)
+  t.title = 'Ein-/ausklappen'
+  t.onclick = () => { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut(); paintTpls() }
+  const rn = el('button', 'mini', '✎'); rn.title = 'Ordner umbenennen'
+  rn.onclick = async e => {
+    e.stopPropagation()
+    const n = await ask('Ordner umbenennen', { value: f })
+    if (n === null || !n.trim() || n.trim() === f) return
+    api('POST', '/api/tplfolders/rename', { old: f, new: n.trim() }).then(loadTpl).catch(e => alert(e.message))
+  }
+  const x = el('button', 'mini', '✕'); x.title = 'Ordner auflösen (Vorlagen bleiben)'
+  x.onclick = async e => {
+    e.stopPropagation()
+    if (await ask(`Ordner „${f}“ auflösen?`, { noInput: true, ok: 'OK' }))
+      api('DELETE', '/api/tplfolders/' + encodeURIComponent(f)).then(loadTpl).catch(e => alert(e.message))
+  }
+  h.append(t, rn, x)
+  h.ondragover = e => e.preventDefault()
+  h.ondrop = e => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (!id || !id.startsWith('tpl:')) return
+    api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: f })
+      .then(loadTpl).catch(e => alert(e.message))
+  }
+  box.appendChild(h)
+  if (!shut.has(k)) docs.forEach(t => { const r = tplRow(t); r.classList.add('sub'); box.appendChild(r) })
+}
+function paintTpls() { // Vorlagen-Sektion: Klick = im Editor öffnen
+  const box = $('tpls'); if (!box) return
+  box.innerHTML = ''
+  const { top, byF } = groupBy(myTpl)
+  top.forEach(t => box.appendChild(tplRow(t)))
+  tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintTplFolder(box, f, byF.get(f)))
+}
+let tplName = '' // Vorlage im Editor (kein Doc): Preview n/a, kein Lese-Modus
+function leaveDoc() { // Sync/Peers/Threads/Medien zurücksetzen (openTpl/openDoc/del)
+  wantPos = -1 // alter Such-Sprung darf nicht im nächsten Doc anspringen
+  openedTrashed = false
+  if (activeFile && docId) { // wartender Datei-Save: still mitnehmen (keepalive)
+    clearTimeout(fileT)
+    fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: getT() }),
+      keepalive: true }).catch(() => {})
+  }
+  prov?.destroy(); ydoc?.destroy(); prov = ydoc = ytext = null
+  threads = []; marks = new Set(); syncPage = 0 // Klick-Seite nicht ins naechste Doc tragen
+  activeFile = ''; clearTimeout(fileT); bibKeys = [] // Tabs zu (s. paintTabs)
+  $('tabs').style.display = 'none'
+  fileCache.clear(); mediaNames = []; lastMedia = ''; lastFiles = []; mediaOpen = false
+  $('media').style.display = 'none'; closePop()
+  cm.dispatch({ effects: setPeer.of(RangeSet.of([])) })
+  $('peers').innerHTML = ''
+  $('cBadge').style.display = 'none'
+}
+async function openTpl(name) {
+  const t = myTpl.find(x => x.name === name)
+  if (!t) return
+  leaveDoc()
+  docId = ''; tplName = name; docRole = ''
+  hidePops()
+  setView('split') // Segment versteckt: Ansicht zurücksetzen, sonst klemmt editonly
+  $('title').textContent = name
+  $('role').textContent = 'Vorlage'; $('renBtn').style.display = ''
+  $('viewSeg').style.display = 'none'; $('cNew').style.display = 'none'
+  $('shareBtn').style.display = 'none'; $('imgBtn').style.display = 'none'; $('mediaBtn').style.display = 'none'
+  $('del').style.display = ''; $('dlPdf').style.display = 'none'; $('dlPng').style.display = 'none'; $('dlSvg').style.display = 'none' // Vorlage: Löschen geht, Export nicht
+  $('dlTyp').style.display = ''; $('tplBtn').style.display = ''
+  $('histBtn').style.display = 'none'; $('symBtn').style.display = ''; $('colPick').style.display = ''
+  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(true)) })
+  gutter()
+  setT(t.content)
+  paintOutline() // alte Gliederung vom Doc davor weg (Vorlage hat keine)
+  $('preview').innerHTML = '<p class="empty">Vorschau für Vorlagen nicht verfügbar.</p>'
+  $('save').textContent = ''
+  sidebar()
+}
+function queueTplSave() {
+  clearTimeout(saveT)
+  $('save').textContent = '…'
+  saveT = setTimeout(async () => {
+    try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = 'gespeichert' + wc(); loadTpl() }
+    catch (e) { $('save').textContent = 'Fehler: ' + e.message }
+  }, SAVE_MS)
+}
+let openN = 0, synced = false // Sync-Stand da? Sonst darf kein Save '' in die DB (Fix #2)
+let openedTrashed = false // Papierkorb-Ansicht: lesen ja, schreiben nein
+async function restoreOpen() { // Klick auf „Papierkorb": zurück ins Leben, dann live verbinden
+  const id = docId
+  try { await api('POST', `/api/docs/${id}/restore`, {}) } catch (e) { alert(e.message); return }
+  openDoc(id)
+}
+function closeView() { // kein Doc mehr offen: Knöpfe aus, Leere rein
+  leaveDoc()
+  docId = ''; tplName = ''; lastC = ''
+  for (const b of ['shareBtn', 'histBtn', 'symBtn', 'colPick', 'imgBtn', 'mediaBtn', 'tplBtn', 'del', 'renBtn', 'dlTyp', 'dlPdf', 'dlPng', 'dlSvg']) $(b).style.display = 'none'
+  hidePops()
+  $('title').textContent = 'Kein Dokument'; $('role').textContent = ''; $('role').onclick = null; $('role').title = ''
+  paintEmpty()
+  setT(''); gutter(); paintOutline()
+}
+async function openDoc(id) {
+  const n = ++openN, wp = wantPos // Such-Sprung über leaveDoc retten (s. docRow-Suche)
+  leaveDoc()
+  wantPos = wp
+  if (tplName) setView('split') // nur aus Vorlage zurück: Ansicht war weg, sonst bleibt der Modus wie er war
+  hidePops()
+  let d
+  try { d = await api('GET', `/api/docs/${id}`) }
+  catch (e) { alert(e.message); sidebar(); return }
+  if (n !== openN) return // überholt: neueres openDoc läuft schon
+  docId = id; docRole = d.role; tplName = ''
+  openedTrashed = !!d.trashed
+  const ro = d.role === 'reviewer' || openedTrashed // Papierkorb: lesen ja, schreiben nein
+  $('title').textContent = d.title
+  $('renBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
+  $('viewSeg').style.display = ''; $('cNew').style.display = ro ? 'none' : ''
+  const rl = $('role')
+  rl.textContent = openedTrashed ? 'Papierkorb' : d.role
+  rl.title = openedTrashed ? 'Klicken = wiederherstellen' : ''
+  rl.style.cursor = openedTrashed ? 'pointer' : ''
+  rl.onclick = openedTrashed ? restoreOpen : null
+  $('del').style.display = d.role === 'owner' ? '' : 'none'
+  $('del').title = openedTrashed ? 'Endgültig löschen' : 'In den Papierkorb verschieben'
+  lastC = ''; synced = false
+  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(!ro)) })
+  $('shareBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
+  $('histBtn').style.display = ro ? 'none' : '' // Verlauf schreibt: Reviewer/Müll außen vor
+  $('imgBtn').style.display = ro ? 'none' : ''
+  $('mediaBtn').style.display = ro ? 'none' : ''
+  $('tplBtn').style.display = ro ? 'none' : ''
+  $('symBtn').style.display = ro ? 'none' : ''
+  $('colPick').style.display = ro ? 'none' : ''
+  $('dlTyp').style.display = ''; $('dlPdf').style.display = ''; $('dlPng').style.display = ''; $('dlSvg').style.display = ''
+  hidePops()
+  $('leftCol').style.width = clampSplit(parseFloat($('leftCol').style.width) || 50) + '%'
+  shares = d.shares
+  setT(''); shadow = ''
+  if (!openedTrashed) {
+    const yy = new Y.Doc(), yt = yy.getText('typst') // leer starten, Server-Stand kommt per Sync
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const pp = new WebsocketProvider(`${wsProto}://${location.host}/ws`, id, yy, { params: { token } })
+    if (n !== openN) { pp.destroy(); yy.destroy(); return } // zwischenzeitlich überholt
+    ydoc = yy; ytext = yt; prov = pp
+    ytext.observe((e, tx) => { if (tx.origin !== 'local') pullRemote() }) // nur echte Remote-Updates fassen den Editor an
+    prov.awareness.on('change', renderPeers)
+    pushPresence()
+  } else {
+    setT(d.content || ''); shadow = d.content || ''; synced = true // kein Yjs im Müll: Stand aus der DB
+  }
+  gutter()
+  $('preview').innerHTML = '<p class="empty">Rendert…</p>' // kein alter Leer-Text während des ersten Renders
+  queueRender()
+  paintOutline()
+  sidebar(); loadComments().catch(() => {}); loadMembers()
+}
+function queueSave() {
+  clearTimeout(saveT)
+  $('save').textContent = '…'
+  saveT = setTimeout(saveNow, SAVE_MS)
+}
+async function saveNow() { // Ctrl+S: sofort, ohne Autosave abzuwarten
+  clearTimeout(saveT)
+  if (docId && !tplName && !activeFile && !synced) { saveT = setTimeout(saveNow, SAVE_MS); return } // Sync läuft: später nochmal statt '' (Fix #2)
+  if (tplName) {
+    try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = 'gespeichert' + wc() }
+    catch (e) { $('save').textContent = 'Fehler: ' + e.message }
+    return
+  }
+  if (activeFile && docId) { // Datei-Tab: Datei sichern, nicht Main
+    try {
+      await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() })
+      fileCache.delete(activeFile)
+      $('save').textContent = 'gespeichert' + wc()
+      queueRender()
+    } catch (e) { $('save').textContent = 'Fehler: ' + e.message }
+    return
+  }
+  if (!docId || docRole === 'reviewer' || !ytext) return
+  try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString() }); $('save').textContent = 'gespeichert' + wc() }
+  catch (e) { $('save').textContent = 'Fehler: ' + e.message }
+}
+// --- Inline-Kommentare: Markieren -> Karte an der Zeile ---
+const cols = ['#c2410c', '#059669', '#7c3aed', '#0369a1', '#be123c']
+const colOf = n => cols[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % cols.length]
+function pushPresence() { // u/sel immer (online-Punkt), active nur bei Editor-Fokus (Cursor-Strich)
+  if (!prov || !prov.awareness) return
+  const m = cm.state.selection.main
+  const active = cm.hasFocus && document.hasFocus()
+  prov.awareness.setLocalStateField('u', { name: user, color: colOf(user || '?') })
+  prov.awareness.setLocalStateField('sel', { h: m.head })
+  prov.awareness.setLocalStateField('active', !!active)
+}
+function renderPeers() { // Strich nur bei aktivem Editor, Punkt für alle online im Doc (Hover = Name)
+  if (!prov || !prov.awareness) return
+  const rs = [], dots = $('peers')
+  dots.innerHTML = ''
+  const own = document.createElement('span'); own.className = 'dot'
+  own.style.background = avBg(user || '?', colOf(user || '?')); own.title = 'you - ' + (user || '?')
+  dots.appendChild(own) // eigener Blob immer zuerst
+  for (const [id, st] of prov.awareness.getStates()) {
+    if (id === prov.awareness.clientID) continue
+    const c = (st.u && st.u.color) || '#ff5f57', n = (st.u && st.u.name) || '?'
+    const s = document.createElement('span'); s.className = 'dot'; s.style.background = avBg(n, c); s.title = n
+    dots.appendChild(s)
+    if (!st.active || !st.sel) continue
+    const p = Math.max(0, Math.min(getT().length, st.sel.h || 0))
+    rs.push(Decoration.widget({ widget: new PeerCaret(c, n), side: 1 }).range(p))
+  }
+  rs.sort((a, b) => a.from - b.from)
+  cm.dispatch({ effects: setPeer.of(RangeSet.of(rs)) })
+}
+cm.dom.addEventListener('focusin', pushPresence)
+cm.dom.addEventListener('focusout', () => { pushPresence(); renderPeers() })
+addEventListener('blur', pushPresence)
+addEventListener('focus', () => { pushPresence(); renderPeers() })
+document.addEventListener('visibilitychange', () => { pushPresence(); renderPeers() })
+function ago(iso) {
+  const m = Math.max(0, (Date.now() - new Date(iso)) / 60000)
+  if (m < 1) return 'gerade eben'
+  if (m < 60) return `${m | 0} Min.`
+  if (m < 1440) return `${m / 60 | 0} Std.`
+  return `${m / 1440 | 0} Tage`
+}
+const el = (tag, cls, text) => {
+  const d = document.createElement(tag)
+  if (cls) d.className = cls
+  if (text !== undefined) d.textContent = text
+  return d
+}
+let askRes = null // offenes Modal: neues ask löst das alte mit null auf (kein hängendes Promise)
+function ask(head, o = {}) { // eigenes Modal statt prompt/confirm (String|null, ohne Input: true/false)
+  const { value = '', ph = '', ok = 'OK', danger = false, noInput = false } = o
+  return new Promise(res => {
+    if (askRes) askRes(null)
+    askRes = res
+    const ov = $('modal'); ov.style.display = 'flex'
+    document.querySelector('#mCard .mRow').style.display = '' // nach askPick wieder zeigen
+    $('mHead').textContent = head
+    const inp = $('mInp'); inp.style.display = noInput ? 'none' : ''
+    inp.value = noInput ? '' : value; inp.placeholder = ph
+    const yes = $('mYes'); yes.textContent = ok
+    yes.style.background = danger ? '#d70015' : 'var(--acc)'
+    const done = v => { ov.style.display = 'none'; askRes = null; res(v) }
+    $('mNo').onclick = () => done(noInput ? false : null)
+    yes.onclick = () => done(noInput ? true : inp.value)
+    inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
+    setTimeout(() => (noInput ? yes : inp).focus(), 30)
+  })
+}
+const STARTERS = [ // B6: Leer, Bericht, Folien zur Auswahl bei „Neu"
+  '',
+  '#set page(paper: "a4", margin: 2cm)\n#set text(size: 11pt)\n#set heading(numbering: "1.")\n\n= Einleitung\n\nText hier …\n',
+  '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Folie 1\n\n- Punkt eins\n- Punkt zwei\n\n= Folie 2\n\nText hier …\n',
+]
+function askPick(head, opts) { // Auswahl-Karten im Modal (Index|-1), opts: [Titel, Beschreibung]
+  return new Promise(res => {
+    if (askRes) askRes(null)
+    const ov = $('modal'); ov.style.display = 'flex'
+    $('mHead').textContent = head
+    $('mInp').style.display = 'none'
+    const row = document.querySelector('#mCard .mRow')
+    row.style.display = 'none'
+    const box = document.createElement('div')
+    const done = v => {
+      ov.style.display = 'none'; row.style.display = ''; box.remove(); askRes = null; res(v)
+    }
+    askRes = () => done(-1)
+    opts.forEach((o, i) => {
+      const b = document.createElement('button')
+      b.className = 'pk'
+      b.append(el('b', null, o[0]), el('span', null, o[1]))
+      b.onclick = () => done(i)
+      box.appendChild(b)
+    })
+    $('mCard').appendChild(box)
+    $('mNo').onclick = () => done(-1)
+  })
+}
+$('modal').onclick = e => { if (e.target === $('modal')) $('mNo').click() } // Klick daneben = Abbrechen
+// cleane SVG-Icons (keine Emojis)
+const ICO_TRASH = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg>'
+const ICO_BOOK = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.2C6.2 2.2 4.2 2 2.8 2.4v10c1.4-.4 3.4-.2 5.2.8 1.8-1 3.8-1.2 5.2-.8v-10C11.8 2 9.8 2.2 8 3.2z"/><path d="M8 3.2v9.6"/></svg>'
+function paintOutline() { // = -Zeilen sammeln, Klick springt in die Zeile
+  const box = $('ol')
+  if (!box) return
+  box.innerHTML = ''
+  if (!docId || tplName) return
+  getT().split('\n').forEach((ln, i) => {
+    const m = ln.match(/^(=+)\s+(.+)$/)
+    if (!m) return
+    const line = i + 1, d = document.createElement('div')
+    d.className = 'doc'
+    d.appendChild(el('span', 't', '–'.repeat(Math.min(m[1].length, 3)) + ' ' + m[2].slice(0, 60)))
+    d.title = 'Zeile ' + line
+    d.onclick = () => {
+      const p = posOfLine(getT(), line)
+      cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
+      cm.focus()
+    }
+    box.appendChild(d)
+  })
+}
+function wc() { // Wortzähler für die #save-Anzeige
+  const t = getT().trim()
+  return t ? ' · ' + t.split(/\s+/).length + ' W' : ''
+}
+function paintEmpty() { // Onboarding-Karte statt „Wähle links…"
+  $('preview').innerHTML = '<div id="emptyCard"><h2>Leg los</h2><p>1. Links ein Dokument wählen oder neu erstellen</p><p>2. Rechts lebt die Vorschau</p><p>3. Teilen per Username oder Link</p><button id="emptyNew">+ Neues Dokument</button></div>'
+  $('emptyNew').onclick = () => $('new').click()
+}
+const lineOf = pos => getT().slice(0, pos).split('\n').length
+function gutter() { // Marker nachziehen: Nummern malt CM selbst (wrap-sicher), nur neue Marks brauchen Refresh
+  let m = new Set()
+  if (docId && !tplName && !activeFile) m = new Set(threads.map(x => x.anchor)) // Datei-Tab/Vorlage: keine Main-Marker (Fix #5)
+  let same = m.size === marks.size
+  if (same) for (const x of m) if (!marks.has(x)) { same = false; break }
+  if (!same) {
+    marks = m
+    const rs = []
+    for (const line of m) {
+      if (line < 1 || line > cm.state.doc.lines) continue
+      rs.push(new ThreadDot().range(cm.state.doc.line(line).from))
+    }
+    cm.dispatch({ effects: setMarks.of(RangeSet.of(rs, true)) })
+  }
+}
+let popFresh = false, popQuote = '', popT = 0
+function openPop(anchor, fresh, quote = '') {
+  popAnchor = anchor; popFresh = !!fresh; popQuote = quote || ''
+  popT = Date.now() // Klick, der oeffnet, darf nicht sofort wieder schliessen
+  $('pop').style.display = ''
+  renderPop()
+  movePop()
+}
+function closePop() { popAnchor = 0; $('pop').style.display = 'none' }
+function hidePops() { // alle Header-Popups zu (Share/Tpl/Verlauf/Symbole/Settings)
+  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) $(p).style.display = 'none'
+}
+function showPop(id) { // ein Popup toggeln, Rest zu (ein Helper statt 5x Toggle-Block)
+  const p = $(id), open = p.style.display === 'none'
+  hidePops()
+  p.style.display = open ? '' : 'none'
+  return open
+}
+function movePop() { // Karte an die Zeile hängen (echte Koordinate, wrap-sicher)
+  const p = Math.min(getT().length, posOfLine(getT(), popAnchor))
+  const r = cm.coordsAtPos(p), w = $('editWrap').getBoundingClientRect()
+  const top = (r ? r.top - w.top : 8) + 4
+  const max = $('editWrap').clientHeight - $('pop').offsetHeight - 8
+  $('pop').style.top = Math.max(8, Math.min(top, Math.max(8, max))) + 'px'
+}
+function renderPop() {
+  const pop = $('pop'); pop.innerHTML = ''
+  const bar = el('div', 'bar') // fixe Kopfleiste: X überlappt nichts mehr
+  bar.append(el('b', null, 'Zeile ' + popAnchor))
+  const x = el('button', 'ib', '✕'); x.title = 'Schließen'; x.onclick = closePop
+  bar.appendChild(x); pop.appendChild(bar)
+  const list = threads.filter(t => t.anchor === popAnchor)
+  if ((popFresh || !list.length) && !openedTrashed) {
+    pop.appendChild(newBox())
+    document.getElementById('popNew')?.focus()
+  }
+  list.forEach(t => pop.appendChild(threadCard(t)))
+}
+function newBox() { // nur für neue Threads, nicht unter fertige Diskussionen
+  const box = el('div', 'nw'), row = el('div', 'rr')
+  const inp = el('input'); inp.id = 'popNew'; inp.placeholder = 'Kommentieren… (@ für Mention)'
+  wireMentions(inp)
+  const ok = el('button', 'ib', '✓')
+  const post = () => inp.value.trim() && api('POST', `/api/docs/${docId}/comments`,
+    { anchor: popAnchor, text: inp.value, quote: popQuote }).then(() => { popFresh = false; popQuote = ''; refresh('') })
+  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post() }
+  row.append(inp, ok); box.appendChild(row)
+  return box
+}
+function threadCard(t) {
+  const d = el('div', 'th')
+  if (t.resolved) d.style.opacity = '.55' // erledigt: verblasst, bleibt lesbar
+  const hd = el('div', 'hd')
+  const nm = el('b', 'nm', t.username); nm.style.color = colOf(t.username)
+  hd.append(nm, el('span', 'tm', ago(t.created_at)))
+  if (!openedTrashed) { // Müll-Ansicht: Knöpfe weg, nur lesen
+    const fin = el('button', 'ib', t.resolved ? '↩' : '✓'); fin.title = t.resolved ? 'Wieder öffnen' : 'Erledigt'
+    fin.onclick = () => api('POST', `/api/docs/${docId}/comments/${t.id}/resolve`, { resolved: !t.resolved }).then(() => refresh(''))
+    hd.appendChild(fin)
+  }
+  if (t.username === user && !openedTrashed) { // nur der Autor ändert (Owner löscht)
+    const ed = el('button', 'ib', '✎'); ed.title = 'Bearbeiten'
+    ed.onclick = async () => {
+      const v = await ask('Kommentar bearbeiten', { value: t.text })
+      if (v !== null && v.trim()) api('POST', `/api/docs/${docId}/comments/${t.id}/edit`, { text: v }).then(() => refresh(''))
+    }
+    hd.appendChild(ed)
+  }
+  const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = 'Thread löschen'
+  del.onclick = () => api('DELETE', `/api/docs/${docId}/comments/${t.id}`).then(() => refresh('').then(() => {
+    if (!threads.some(x => x.anchor === popAnchor)) closePop()
+  }))
+  if (!openedTrashed) hd.appendChild(del)
+  d.appendChild(hd)
+  d.appendChild(richText(t.text))
+  if (t.quote) { // Bezug zeigen, Klick springt zur Stelle
+    const q = el('p', 'qt', '„' + (t.quote.length > 80 ? t.quote.slice(0, 80) + '…' : t.quote) + '“')
+    q.title = 'Zur Stelle springen'
+    q.onclick = () => jumpThread(t)
+    d.appendChild(q)
+  }
+  t.replies.forEach(r => {
+    const rd = el('div', 'rp'), rh = el('div', 'hd')
+    const rn = el('b', 'nm', r.username); rn.style.color = colOf(r.username)
+    rh.append(rn, el('span', 'tm', ago(r.created_at)))
+    rd.append(rh, richText(r.text)); d.appendChild(rd)
+  })
+  const row = el('div', 'rr')
+  if (!openedTrashed) { // Müll-Ansicht: lesen, nicht schreiben
+    const inp = el('input'); inp.id = 'r_' + t.id; inp.placeholder = 'Antworten…'
+    wireMentions(inp)
+    const ok = el('button', 'ib', '✓')
+    const send = () => inp.value.trim() && api('POST', `/api/docs/${docId}/comments`,
+      { anchor: t.anchor, text: inp.value, parent_id: t.id }).then(() => refresh('r_' + t.id))
+    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
+    row.append(inp, ok)
+  }
+  d.appendChild(row)
+  return d
+}
+async function loadComments(force) {
+  const d = await api('GET', `/api/docs/${docId}/comments`)
+  const s = JSON.stringify(d.comments)
+  if (s === lastC) return // Poll: nichts neu, Eingaben nicht anfassen
+  lastC = s; threads = d.comments
+  if (!activeFile) { initRanges(); reanchor(); gutter(); refreshHl() } // Datei-Tab: Main-Anker anfassen verboten (Fix #4/#5)
+  paintBadge()
+  const draft = [...$('pop').querySelectorAll('input')].some(i => i.value.trim())
+  if (popAnchor && !draft && (force || !$('pop').contains(document.activeElement))) renderPop() // Entwurf + Blur: Text bleibt
+}
+function paintBadge() { // offene Threads zählen, Klick springt zum nächsten
+  const b = $('cBadge'), open = threads.filter(t => !t.resolved)
+  if (!docId || !open.length) { b.style.display = 'none'; return }
+  b.style.display = ''
+  b.textContent = open.length + ' offen'
+}
+$('cBadge').onclick = () => {
+  const open = threads.filter(t => !t.resolved)
+  if (!open.length) return
+  jumpThread(open[(open.findIndex(t => t.anchor === popAnchor) + 1) % open.length])
+}
+function reanchor() { // Quote suchen: wandert mit; nicht gefunden = alte Zeile behalten, kein Löschen
+  const t = getT()
+  if (!docId || !ytext || !t || activeFile) return // Datei-Tab: Anker gehören zu main (Fix #4)
+  initRanges() // Nachsync: Bereiche nachziehen, die beim Laden noch keinen Text hatten
+  let moved = false
+  for (const th of threads) {
+    if (!th.quote) continue
+    const i = locateQuote(t, th.quote, th.anchor)
+    if (i < 0) continue
+    if (th.a == null || th.a >= th.b) { th.a = i; th.b = Math.min(t.length, i + th.quote.length) } // kollabiert: neu fassen
+    const line = t.slice(0, i).split('\n').length
+    if (line !== th.anchor) {
+      th.anchor = line; moved = true
+      dirtyAnchor(th)
+    }
+  }
+  if (moved) { // Icon sofort nachziehen, nicht erst beim Speichern
+    gutter(); refreshHl()
+    if (popAnchor) movePop()
+  }
+}
+async function jumpThread(t) {
+  if (activeFile) await switchTab('') // Sprung lebt in main, nicht im Datei-Tab
+  const doc = getT()
+  let a = t.a ?? -1, b = t.b ?? -1
+  if (a < 0 || b <= a || a > doc.length) { // Fallback: Quote suchen
+    a = t.quote ? locateQuote(doc, t.quote, t.anchor) : -1
+    if (a < 0) return
+    b = Math.min(doc.length, a + t.quote.length)
+  }
+  b = Math.min(doc.length, b)
+  cm.dispatch({ selection: { anchor: a, head: b },
+    effects: EditorView.scrollIntoView(b, { y: 'center' }) })
+  cm.focus()
+}
+async function refresh(focusId) {
+  await loadComments(true)
+  if (popAnchor && focusId) document.getElementById(focusId)?.focus()
+}
+$('cNew').onclick = () => {
+  if (!docId) return
+  const m = cm.state.selection.main // markierte Stelle wird mitgespeichert
+  openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, QUOTE_MAX))
+}
+// --- Bilder: Upload pro Dokument, #image() an Cursor, Preview kennt die Dateien ---
+let mediaOpen = false, lastMedia = '', lastFiles = [], mediaNames = []
+let activeFile = '', fileT = 0, bibKeys = [] // '' = main.typ (Yjs-Sync), sonst Text-Datei (.typ/.bib/.csv) aus dem Manager
+const mediaAuto = new Set() // einmal pro Doc automatisch aufklappen, sobald Dateien da sind
+function renderMediaChips(files) {
+  lastFiles = files
+  paintTabs() // Tabs folgen der Datei-Liste (nur bei Änderung neu, s. shadowAll)
+  const bar = $('media'); bar.innerHTML = ''
+  if (docRole === 'reviewer' || openedTrashed) { bar.style.display = 'none'; return } // Reviewer/Müll: kein Manager
+  if (files.length && !mediaAuto.has(docId)) { mediaAuto.add(docId); mediaOpen = true }
+  bar.style.display = mediaOpen ? '' : 'none'
+  if (!mediaOpen) return
+  const add = el('button', null, '+ Hochladen')
+  add.onclick = () => $('imgPick').click()
+  bar.appendChild(add)
+  files.forEach(f => {
+    const c = el('span', 'chip')
+    const n = el('b', null, f.name); n.title = 'An Cursor einfügen'
+    n.onclick = () => {
+      const m = cm.state.selection.main
+      const ins = /\.typ$/i.test(f.name) ? `#include "${f.name}"` : /\.bib$/i.test(f.name) ? `#bibliography("${f.name}")` : `#image("${f.name}", width: 80%)`
+      cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
+      cm.focus()
+    }
+    c.appendChild(n)
+    c.appendChild(el('span', 'sz', Math.round(f.size / 1024) + ' KB'))
+    const x = el('button', null, '✕'); x.title = 'Löschen'
+    x.onclick = () => api('DELETE', `/api/docs/${docId}/files/${encodeURIComponent(f.name)}`)
+      .then(() => { if (f.name === activeFile) switchTab('', true); queueRender() }).catch(e => alert(e.message))
+    c.appendChild(x)
+    bar.appendChild(c)
+  })
+}
+$('mediaBtn').onclick = () => { mediaOpen = !mediaOpen; renderMediaChips(lastFiles) }
+function paintTabs() { // main.typ + Text-Dateien als Tabs, Preview bleibt immer main
+  const bar = $('tabs')
+  if (!docId || tplName || openedTrashed) { bar.style.display = 'none'; return } // Reviewer sieht Tabs lesend mit
+  const files = lastFiles.filter(f => /\.(typ|bib|csv)$/i.test(f.name))
+  if (!files.length && !activeFile) { bar.style.display = 'none'; return }
+  if (activeFile && !files.some(f => f.name === activeFile)) activeFile = '' // gelöscht: zurück zu main
+  bar.style.display = ''
+  bar.innerHTML = ''
+  const mk = name => {
+    const b = el('button', null, name || 'main.typ')
+    if ((name || '') === activeFile) b.classList.add('on')
+    b.onclick = () => switchTab(name)
+    bar.appendChild(b)
+  }
+  mk('')
+  files.forEach(f => mk(f.name))
+}
+async function switchTab(name, nosave) {
+  if (name === activeFile || !docId) return
+  if (!nosave) await flushTab() // alten Stand erst sichern (Löschen ruft mit nosave)
+  activeFile = name
+  if (!name) { setT(shadow); paintTabs(); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); queueRender(); return }
+  try {
+    setT((await api('GET', `/api/docs/${docId}/files/${encodeURIComponent(name)}/text`)).content)
+  } catch (e) { alert(e.message); activeFile = ''; setT(shadow) }
+  paintTabs(); gutter(); closePop(); paintOutline(); queueRender()
+}
+async function flushTab() { // stiller Save beim Tab-Wechsel (kein Text in der Anzeige)
+  if (!activeFile || !docId || docRole === 'reviewer') return
+  try { await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() }) } catch (e) {}
+}
+function queueFileSave() { // Datei-Tab: nur Datei + Preview, kein Yjs
+  clearTimeout(fileT)
+  $('save').textContent = '…' + wc()
+  fileT = setTimeout(async () => {
+    try {
+      await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() })
+      fileCache.delete(activeFile) // Bytes veraltet: nächster Render holt frisch
+      $('save').textContent = 'gespeichert' + wc()
+      queueRender()
+    } catch (e) { $('save').textContent = 'Fehler: ' + e.message }
+  }, SAVE_MS)
+}
+let imgIns = false // nur per Bild-Button einfügen, nicht per Manager-Upload
+function insImage(name) { // #image() an Cursor
+  const m = cm.state.selection.main, ins = `#image("${name}", width: 80%)`
+  cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
+  cm.focus()
+}
+async function upFile(f) { // Upload, gibt Name zurück ('' bei Fehler)
+  const fd = new FormData(); fd.append('f', f)
+  const r = await fetch(`/api/docs/${docId}/files`, { method: 'POST', body: fd })
+  if (!r.ok) { alert('Upload fehlgeschlagen: ' + ((await r.json().catch(() => ({}))).detail || r.statusText)); return '' }
+  return (await r.json()).name
+}
+const TEXT_UP = /\.(typ|bib|csv)$/i // Text-Datei: speichern + als Tab öffnen (kein #image)
+async function upText(f) { // .typ/.bib/.csv direkt als Datei-Text (Backend legt neu an, max 200 KB)
+  const txt = await f.text()
+  if (txt.length > 200 * 1024) { alert('Max 200 KB als Text'); return '' }
+  const name = f.name.replace(/[^A-Za-z0-9._-]+/g, '_')
+  await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(name)}/text`, { content: txt })
+  return name
+}
+$('imgBtn').onclick = () => { imgIns = true; $('imgPick').click() }
+$('imgPick').onchange = async () => {
+  const f = $('imgPick').files[0]; $('imgPick').value = ''
+  if (!f || !docId) return
+  try {
+    if (TEXT_UP.test(f.name)) { const n = await upText(f); if (n) switchTab(n) }
+    else { const name = await upFile(f); if (name && imgIns) insImage(name) }
+  } catch (e) { alert(e.message) }
+  imgIns = false; queueRender()
+}
+$('editWrap').addEventListener('dragover', e => e.preventDefault()) // Drop auf Editor = Upload wie Manager
+$('editWrap').addEventListener('drop', async e => {
+  e.preventDefault()
+  if (!docId || docRole === 'reviewer' || !e.dataTransfer.files.length) return
+  let last = ''
+  for (const f of e.dataTransfer.files) {
+    try {
+      if (TEXT_UP.test(f.name)) { last = await upText(f) || last; continue }
+      const name = await upFile(f)
+      if (name && /\.(png|jpe?g|svg|gif|webp|pdf)$/i.test(name)) insImage(name)
+    } catch (err) { alert(err.message) }
+  }
+  if (last) switchTab(last) // Text-Drop: Datei sofort zeigen
+  queueRender()
+})
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return
+  if ($('modal').style.display !== 'none') { $('mNo').click(); return }
+  closePop(); hidePops()
+  if (findOpen) closeFind()
+})
+// --- Vorlagen: global verwalten (Icon), pro Doc nutzen (nur Zeile einfügen) ---
+function renderTpl() {
+  const p = $('tplPop'); p.innerHTML = ''
+  const mkRow = t => {
+    const row = el('div', 'trow')
+    const b = el('button', 'go', t.name); b.title = 'Ins Dokument einfügen'
+    b.onclick = () => addTpl(t.line)
+    const x = el('button', 'x', '✕'); x.title = 'Vorlage löschen'
+    x.onclick = async e => {
+      e.stopPropagation()
+      if (!await ask(`„${t.name}“ löschen?`, { noInput: true, ok: 'Löschen', danger: true })) return
+      try { await api('DELETE', '/api/templates/' + encodeURIComponent(t.name)); await loadTpl(); renderTpl(); sidebar() }
+      catch (err) { alert(err.message) }
+    }
+    row.append(b, x); return row
+  }
+  const { top, byF } = groupBy(myTpl)
+  top.forEach(t => p.appendChild(mkRow(t)))
+  tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => {
+    if (!byF.get(f).length) return // leere Ordner nur in der Sidebar, nicht im Einfügen-Popup
+    p.appendChild(el('div', 'fh', f))
+    byF.get(f).forEach(t => p.appendChild(mkRow(t)))
+  })
+  const nw = el('button')
+  nw.append(el('span', 'use', '+ Neue Vorlage'), el('span', 'ins', 'Editor-Text als Vorlage speichern'))
+  nw.onclick = newTemplate
+  p.appendChild(nw)
+  const up = el('button')
+  up.append(el('span', 'use', '+ Eigene hochladen'), el('span', 'ins', '.typ in Vorlagen speichern'))
+  up.onclick = () => $('tplPick').click()
+  p.appendChild(up)
+}
+async function newTemplate() { // Vorlage aus dem Editor-Text anlegen (nicht nur Upload)
+  const t = await ask('Neue Vorlage', { ph: 'name.typ' })
+  if (t === null || !t.trim()) return
+  let n = t.trim()
+  if (!n.toLowerCase().endsWith('.typ')) n += '.typ'
+  await loadTpl() // frisch: sonst überschreibt der Upsert eine fremd angelegte Vorlage
+  if (myTpl.some(x => x.name === n)) { alert('Name gibt es schon'); return }
+  if (!getT().trim()) { alert('Editor ist leer'); return }
+  const opts = [['Ohne Ordner', 'Oben in der Liste'],
+    ...tplFolders.map(f => [f.folder, f.n + (f.n === 1 ? ' Vorlage' : ' Vorlagen')]),
+    ['+ Neuer Ordner', 'Name danach eingeben']]
+  const fi = await askPick('Ordner wählen', opts)
+  if (fi < 0) return
+  let folder = fi > 0 && fi <= tplFolders.length ? tplFolders[fi - 1].folder : ''
+  if (fi === opts.length - 1) {
+    const nn = await ask('Neuer Vorlagen-Ordner', { ph: 'Name' })
+    if (nn === null) return
+    folder = (nn || '').trim()
+  }
+  try {
+    const r = await api('POST', '/api/templates', { name: n, content: getT(), folder })
+    hidePops()
+    await loadTpl(); renderTpl(); sidebar(); openTpl(r.name)
+  } catch (e) { alert(e.message) }
+}
+function addTpl(line) { // nur Zeile an Cursor: Inhalt kennt der Compiler als Shadow (s. render)
+  const m = cm.state.selection.main
+  cm.dispatch({ changes: { from: m.from, to: m.to, insert: line + '\n' }, selection: { anchor: m.from + line.length + 1 } })
+  cm.focus(); hidePops(); queueRender()
+}
+$('tplPick').onchange = async () => {
+  const f = $('tplPick').files[0]; $('tplPick').value = ''
+  if (!f) return
+  const text = await f.text()
+  if (!text.trim()) { alert('Leere Datei'); return }
+  try {
+    await api('POST', '/api/templates', { name: f.name, content: text })
+    await loadTpl(); renderTpl(); sidebar()
+  } catch (e) { alert(e.message) }
+}
+$('tplBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('tplPop')) renderTpl()
+}
+// --- Verlauf: Stand sichern, Diff ansehen, wiederherstellen ---
+$('histBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('histPop')) renderHist()
+}
+async function renderHist() {
+  const p = $('histPop'); p.innerHTML = ''
+  const save = el('button', 'save', '+ Stand jetzt sichern')
+  save.onclick = () => api('POST', `/api/docs/${docId}/snapshots`, {}).then(renderHist).catch(e => alert(e.message))
+  p.appendChild(save)
+  let list = []
+  try { list = (await api('GET', `/api/docs/${docId}/snapshots`)).snapshots }
+  catch (e) { p.appendChild(el('div', 'srow', 'Fehler: ' + e.message)); return }
+  if (!list.length) p.appendChild(el('div', 'srow', 'Noch keine Stände – Autos kommen beim Speichern'))
+  list.forEach(s => {
+    const row = el('div', 'srow')
+    const kb = Math.round(s.size / 1024)
+    row.appendChild(el('span', 't', ago(s.created_at) + (s.label ? ' · ' + s.label : '') + ' · ' + kb + ' KB'))
+    const df = el('button', null, 'Diff'); df.title = 'Änderungen gegen jetzt zeigen'
+    df.onclick = () => showDiff(s.id, row)
+    const rs = el('button', null, 'Herstellen'); rs.title = 'Diesen Stand wiederherstellen'
+    rs.onclick = async () => {
+      if (!await ask('Diesen Stand wiederherstellen?', { noInput: true, ok: 'OK' })) return
+      try { await api('POST', `/api/docs/${docId}/snapshots/${s.id}/restore`, {}); openDoc(docId) } // neu laden: Editor/Yjs folgen, kein alter Autosave
+      catch (e) { alert(e.message) }
+    }
+    const xx = el('button', null, '✕'); xx.title = 'Stand löschen'
+    xx.onclick = async () => {
+      if (!await ask('Diesen Stand löschen?', { noInput: true, ok: 'Löschen', danger: true })) return
+      try { await api('DELETE', `/api/docs/${docId}/snapshots/${s.id}`); renderHist() }
+      catch (e) { alert(e.message) }
+    }
+    row.append(df, rs, xx); p.appendChild(row)
+  })
+}
+function lineDiff(a, b) { // LCS auf Zeilen (Caps s. oben), Ausgabe max DIFF_OUT Zeilen
+  const A = a.split('\n').slice(0, DIFF_MAX), B = b.split('\n').slice(0, DIFF_MAX)
+  const cut = A.length === DIFF_MAX || B.length === DIFF_MAX
+  const n = A.length, m = B.length
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  const out = []
+  let i = 0, j = 0
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { i++; j++ }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(['a', A[i++]])
+    else out.push(['b', B[j++]])
+  }
+  while (i < n) out.push(['a', A[i++]])
+  while (j < m) out.push(['b', B[j++]])
+  if (cut || out.length > DIFF_OUT) out.push([' ', '… (gekürzt)'])
+  return out.slice(0, DIFF_OUT + 1)
+}
+async function showDiff(sid, row) {
+  const open = row.nextSibling && row.nextSibling.classList && row.nextSibling.classList.contains('diff')
+  row.parentNode.querySelectorAll('pre.diff').forEach(x => x.remove())
+  if (open) return // war offen: nur einklappen
+  let s
+  try { s = await api('GET', `/api/docs/${docId}/snapshots/${sid}`) } catch (e) { alert(e.message); return }
+  const d = lineDiff(s.content, activeFile ? shadow : getT())
+  const pre = el('pre', 'diff')
+  if (!d.length) pre.appendChild(el('span', null, 'Identisch mit jetzt'))
+  d.forEach(([k, ln]) => pre.appendChild(el('span', k, (k === 'a' ? '− ' : k === 'b' ? '+ ' : '') + ln.slice(0, 200) + '\n')))
+  row.after(pre)
+}
+// --- Symbole: suchen + an Cursor einfügen ---
+const SYMS = ('→ ← ↑ ↓ ⇒ ⇐ ⇔ ∀ ∃ ∅ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∧ ∨ ¬ ⊕ ⊗ ⊥ ∥ ∠ ° ′ ″ ∞ ∑ ∏ ∫ √ ∂ ∇ ≈ ≠ ≡ ≤ ≥ ≪ ≫ ± ∓ × ÷ ⋅ ⋆ ★ ☆ ♣ ♦ ♥ ♠ • ◦ ▪ ▲ ► ● ◆ ✓ ✕ ☐ ☑ § ¶ © ® ™ € £ ¥ … – — „ “ ” ‘ ’ « » † ‡ ⌘ ⏎ ⇥ ⎋ α β γ δ ε ζ η θ ι κ λ μ ν ξ π ρ σ τ υ φ χ ψ ω Γ Δ Θ Λ Ξ Π Σ Υ Φ Ψ Ω').split(' ')
+const SYN = { pfeil: '→←↑↓⇒⇐⇔', euro: '€', dollar: '$', alpha: 'α', beta: 'β', pi: 'π', summe: '∑', wurzel: '√', unendlich: '∞', kreuz: '✕✓', herz: '♥', stern: '★☆', strich: '–—', anfuhr: '„“”‘’«»', para: '§¶', copyright: '©®™' } // deutsche Suchworte
+function renderSym(q = '') {
+  const p = $('symPop'); p.innerHTML = ''
+  const inp = el('input'); inp.placeholder = 'Suchen …'; inp.value = q; inp.setAttribute('autocomplete', 'off')
+  inp.oninput = () => {
+    const v = inp.value
+    renderSym(v)
+    const ni = p.querySelector('input'); ni.focus(); ni.setSelectionRange(v.length, v.length)
+  }
+  p.appendChild(inp)
+  const g = el('div', 'grid')
+  const ql = q.toLowerCase()
+  SYMS.filter(s => !q || s.includes(q) || (SYN[ql] || '').includes(s)).slice(0, 120).forEach(s => {
+    const b = el('button', null, s); b.title = 'Einfügen: ' + s
+    b.onclick = () => {
+      const m = cm.state.selection.main
+      cm.dispatch({ changes: { from: m.from, to: m.to, insert: s }, selection: { anchor: m.from + s.length } })
+      cm.focus()
+    }
+    g.appendChild(b)
+  })
+  p.appendChild(g)
+}
+$('symBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('symPop')) { renderSym(); setTimeout(() => $('symPop').querySelector('input').focus(), 30) }
+}
+// --- Farbe: Auswahl mit #text(fill: rgb("…")) einrahmen ---
+$('colPick').onchange = () => {
+  const v = $('colPick').value, m = cm.state.selection.main
+  const ins = `#text(fill: rgb("${v}"))[${getT().slice(m.from, m.to) || 'Text'}]`
+  cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
+  cm.focus()
+}
+// --- @-Mentions: Vorschlag beim Tippen, farbiger Name in der Karte ---
+let members = []
+async function loadMembers() {
+  try { members = (await api('GET', `/api/docs/${docId}/members`)).members } catch (e) { members = [] }
+  if (popAnchor && !$('pop').contains(document.activeElement)
+      && ![...$('pop').querySelectorAll('input')].some(i => i.value.trim())) renderPop() // @-Farben nachziehen, Entwürfe nicht anfassen
+}
+function wireMentions(inp) {
+  let box = null
+  const close = () => { if (box) { box.remove(); box = null } }
+  inp.addEventListener('input', () => {
+    close()
+    const m = inp.value.slice(0, inp.selectionStart).match(/@([\w-]*)$/)
+    if (!m) return
+    const q = m[1].toLowerCase()
+    const list = members.filter(n => n.toLowerCase().startsWith(q) && n !== user).slice(0, 5)
+    if (!list.length) return
+    box = el('div', 'mbox')
+    list.forEach(n => {
+      const b = el('button', null, '@' + n)
+      b.onmousedown = e => {
+        e.preventDefault()
+        const s = inp.selectionStart
+        inp.value = inp.value.slice(0, s).replace(/@[\w-]*$/, '@' + n + ' ') + inp.value.slice(s)
+        inp.focus(); close()
+      }
+      box.appendChild(b)
+    })
+    inp.parentNode.style.position = 'relative'
+    inp.parentNode.appendChild(box)
+  })
+  inp.addEventListener('blur', () => setTimeout(close, 200))
+  inp.addEventListener('keydown', e => { if (e.key === 'Escape') close() })
+}
+function richText(text) { // @-Namen farbig, Rest Text (kein HTML vom User)
+  const p = el('p', 'tx')
+  text.split(/(@[A-Za-z0-9_-]+)/g).forEach(part => {
+    if (/^@[A-Za-z0-9_-]+$/.test(part) && members.includes(part.slice(1))) {
+      const b = el('b', null, part)
+      b.style.color = colOf(part.slice(1))
+      p.appendChild(b)
+    } else p.appendChild(document.createTextNode(part))
+  })
+  return p
+}
+// --- PWA: Shell-Cache (s. sw.js) ---
+try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}) } catch (e) {}
+// --- Teilen als Popup neben dem Kommentar-Button (statt Seitenleiste) ---
+let shares = []
+async function loadShares() {
+  shares = (await api('GET', `/api/docs/${docId}`)).shares
+  renderShares()
+}
+function renderShares() {
+  const p = $('sharePop'); p.innerHTML = ''
+  const top = el('div', 'sTop')
+  const close = el('button', null, '✕'); close.title = 'Schließen'
+  close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
+  top.append(el('b', null, 'Teilen'), close); p.appendChild(top)
+  const row = el('div', 'row')
+  const inp = el('input'); inp.placeholder = 'Benutzername'
+  const sel = el('select')
+  sel.innerHTML = '<option value="reviewer">Reviewer</option><option value="editor">Editor</option>'
+  const ok = el('button', null, 'OK')
+  const go = () => inp.value.trim() && api('POST', `/api/docs/${docId}/share`,
+    { username: inp.value.trim(), role: sel.value })
+    .then(() => { inp.value = ''; loadShares() }).catch(e => alert(e.message))
+  ok.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go() }
+  row.append(inp, sel, ok); p.appendChild(row)
+  const list = el('div'); list.id = 'shares'
+  shares.forEach(s => {
+    const div = el('div')
+    div.appendChild(el('span', 'who', s.username + ' '))
+    const rs = el('select') // Rolle direkt änderbar (gleicher Endpoint wie Einladen)
+    rs.innerHTML = '<option value="reviewer">Reviewer</option><option value="editor">Editor</option>'
+    rs.value = s.role
+    rs.onchange = () => api('POST', `/api/docs/${docId}/share`, { username: s.username, role: rs.value })
+      .then(loadShares).catch(e => alert(e.message))
+    const x = el('button', null, '✕')
+    x.onclick = () => api('DELETE', `/api/docs/${docId}/share/${s.username}`).then(loadShares)
+    div.append(rs, x); list.appendChild(div)
+  })
+  p.appendChild(list)
+  p.appendChild(el('b', null, 'Per Link einladen'))
+  const irow = el('div', 'row')
+  const isel = el('select')
+  isel.innerHTML = '<option value="reviewer">Reviewer</option><option value="editor">Editor</option>'
+  const ibtn = el('button', null, 'Link')
+  const ilink = el('input'); ilink.placeholder = 'Link erscheint hier'; ilink.readOnly = true
+  ilink.onclick = () => ilink.select()
+  ibtn.onclick = async () => {
+    try {
+      const r = await api('POST', `/api/docs/${docId}/invite`, { role: isel.value })
+      ilink.value = location.origin + '/?join=' + r.token
+      ilink.select()
+      loadInvites()
+    } catch (e) { alert(e.message) }
+  }
+  irow.append(isel, ibtn); p.appendChild(irow)
+  const lrow = el('div', 'row'); lrow.appendChild(ilink); p.appendChild(lrow)
+  const inv = el('div'); inv.id = 'invList'; p.appendChild(inv)
+  loadInvites(); loadMembers()
+}
+async function loadInvites() { // offene Links: kopieren oder zurückziehen
+  const box = $('invList')
+  if (!box || !docId) return
+  let list = []
+  try { list = (await api('GET', `/api/docs/${docId}/invites`)).invites } catch (e) { return }
+  box.innerHTML = ''
+  list.forEach(t => {
+    const div = el('div')
+    div.appendChild(el('span', 'who', t.role + ': ' + t.token.slice(0, 8) + '… '))
+    const cp = el('button', null, 'Kopieren')
+    cp.onclick = () => navigator.clipboard?.writeText(location.origin + '/?join=' + t.token)
+    const x = el('button', null, '✕'); x.title = 'Zurückziehen'
+    x.onclick = () => api('DELETE', `/api/docs/${docId}/invites/${t.token}`).then(loadInvites)
+    div.append(cp, x); box.appendChild(div)
+  })
+}
+async function checkJoin() { // ?join=TOKEN aus Einladungs-Link einlösen
+  const j = new URLSearchParams(location.search).get('join')
+  if (!j) return
+  try {
+    const id = (await api('POST', '/api/join/' + j)).id
+    history.replaceState(null, '', location.pathname) // erst nach Erfolg: sonst kein Retry per Reload
+    openDoc(id)
+  }
+  catch (e) { alert(e.message) }
+}
+$('shareBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('sharePop')) loadShares()
+}
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'tplBtn', histPop: 'histBtn', symPop: 'symBtn', setPop: 'who' }
+document.addEventListener('click', e => {
+  for (const [p, b] of Object.entries(POP_BTN)) { // Klick außerhalb schließt (ein Loop statt 5x Block)
+    const box = $(p)
+    if (box && box.style.display !== 'none' && !$(b).contains(e.target) && !box.contains(e.target))
+      box.style.display = 'none'
+  }
+  const pop = $('pop') // Klick außerhalb schließt, aber nie mit Text-Entwurf (Highlight/Tooltip öffnen, nicht schließen)
+  if (pop && popAnchor && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,.cm-tooltip')
+      && ![...pop.querySelectorAll('input')].some(i => i.value.trim()))
+    closePop()
+})
+// --- Einstellungen: Klick auf Namen (Schrift/Zoom, Profil, Passwort, Konto) ---
+$('who').onclick = e => {
+  e.stopPropagation()
+  if (showPop('setPop')) { setMsg = ''; renderSettings() }
+}
+let setMsg = '' // Settings-Fehler inline statt Browser-Alert
+function renderSettings() {
+  const p = $('setPop'); p.innerHTML = ''
+  const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
+  const top = el('div', 'sTop')
+  const close = el('button', null, '✕'); close.title = 'Schließen'
+  close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
+  top.append(el('b', null, 'Einstellungen'), close); p.appendChild(top)
+  if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }
+  p.appendChild(el('h4', null, 'Darstellung'))
+  const fr = el('div', 'row'); fr.append('Schrift ')
+  const fm = el('button', 'step', 'A−'); fm.title = 'Editor kleiner'
+  fm.onclick = () => { stepEd(-ED_STEP); renderSettings() }
+  fr.append(fm, el('span', 'val', edSize + 'px'))
+  const fp = el('button', 'step', 'A+'); fp.title = 'Editor größer'
+  fp.onclick = () => { stepEd(ED_STEP); renderSettings() }
+  fr.appendChild(fp)
+  const zr = el('div', 'row'); zr.append('Zoom ')
+  const zm = el('button', 'step', '−'); zm.title = 'Preview kleiner'
+  zm.onclick = () => { stepPv(-PV_STEP); renderSettings() }
+  zr.append(zm, el('span', 'val', pvZoom + ' %'))
+  const zp = el('button', 'step', '+'); zp.title = 'Preview größer'
+  zp.onclick = () => { stepPv(PV_STEP); renderSettings() }
+  zr.appendChild(zp)
+  p.appendChild(sec(fr, zr))
+  p.appendChild(el('h4', null, 'Profilbild'))
+  const ar = el('div', 'row')
+  const im = el('img', 'av'); im.alt = ''; im.src = `/api/avatar/${encodeURIComponent(user)}?v=${avatarV}`
+  im.onerror = () => im.style.display = 'none'
+  const pick = el('button', null, 'Wählen'); pick.onclick = () => $('avPick').click()
+  const rm = el('button', null, 'Entfernen')
+  rm.onclick = () => api('DELETE', '/api/me/avatar')
+    .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
+    .catch(e => { setMsg = e.message; renderSettings() })
+  ar.append(im, pick, rm); p.appendChild(sec(ar))
+  p.appendChild(el('h4', null, 'Name'))
+  const nr = el('div', 'row')
+  const nn = el('input'); nn.placeholder = 'Neuer Name'; nn.value = user
+  const npw = el('input'); npw.type = 'password'; npw.placeholder = 'Passwort'
+  const nok = el('button', null, 'OK')
+  nok.onclick = () => nn.value.trim() && npw.value && api('POST', '/api/me/name',
+    { name: nn.value.trim(), password: npw.value })
+    .then(d => { user = d.user; $('who').textContent = user; paintMe(); sidebar(); renderSettings() })
+    .catch(e => { setMsg = e.message; renderSettings() })
+  nr.append(nn, npw, nok); p.appendChild(sec(nr))
+  p.appendChild(el('h4', null, 'Passwort'))
+  const pr = el('div', 'row')
+  const po = el('input'); po.type = 'password'; po.placeholder = 'Altes Passwort'
+  const pn = el('input'); pn.type = 'password'; pn.placeholder = 'Neues Passwort'
+  const pok = el('button', null, 'OK')
+  pok.onclick = () => po.value && pn.value && api('POST', '/api/me/password', { old: po.value, new: pn.value })
+    .then(() => { po.value = pn.value = ''; alert('Passwort geändert') })
+    .catch(e => { setMsg = e.message; renderSettings() })
+  pr.append(po, pn, pok); p.appendChild(sec(pr))
+  p.appendChild(el('h4', null, 'Backup'))
+  const bk = el('div', 'row')
+  const bb = el('button', null, 'Alle Docs als .zip laden')
+  bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
+  bk.appendChild(bb); p.appendChild(sec(bk))
+  p.appendChild(el('h4', null, 'Konto'))
+  const dr = el('div', 'row')
+  const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = 'Passwort'
+  const db = el('button', null, 'Löschen'); db.style.background = '#d70015'
+  db.onclick = async () => {
+    if (!dpw.value) return
+    if (!await ask('Account + alle eigenen Docs löschen?', { noInput: true, ok: 'Löschen', danger: true })) return
+    api('POST', '/api/me/delete', { password: dpw.value })
+      .then(() => { localStorage.removeItem('typst_token'); location.reload() })
+      .catch(e => { setMsg = e.message; renderSettings() })
+  }
+  dr.append(dpw, db); p.appendChild(sec(dr))
+}
+$('avPick').onchange = () => { // quadratisch, AV_SIZE, Mitte
+  const f = $('avPick').files[0]; $('avPick').value = ''
+  if (!f) return
+  const im = new Image()
+  im.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = AV_SIZE
+    const s = Math.min(im.width, im.height)
+    c.getContext('2d').drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, AV_SIZE, AV_SIZE)
+    api('POST', '/api/me/avatar', { img: c.toDataURL('image/png') })
+      .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
+      .catch(e => { setMsg = e.message; renderSettings() })
+    URL.revokeObjectURL(im.src)
+  }
+  im.src = URL.createObjectURL(f)
+}
+// Bereichsgrenze ziehen (Position merkt sich der Browser)
+try { const w = +localStorage.getItem('typst_split'); if (w >= SPLIT_MIN && w <= SPLIT_MAX) $('leftCol').style.width = clampSplit(w) + '%' } catch (e) {}
+$('split').addEventListener('mousedown', e => {
+  e.preventDefault()
+  const r0 = $('mid').getBoundingClientRect(), x0 = e.clientX, w0 = $('leftCol').getBoundingClientRect().width
+  $('split').classList.add('drag')
+  const mv = ev => {
+    $('leftCol').style.width = clampSplit((w0 + ev.clientX - x0) / r0.width * 100) + '%'
+  }
+  const up = () => {
+    removeEventListener('mousemove', mv); removeEventListener('mouseup', up)
+    $('split').classList.remove('drag')
+    try { localStorage.setItem('typst_split', parseFloat($('leftCol').style.width)) } catch (err) {}
+  }
+  addEventListener('mousemove', mv); addEventListener('mouseup', up)
+})
+$('navToggle').onclick = () => document.body.classList.toggle('noside')
+const sideEl = $('side') // Sidebar-Breite ziehen, 150–420px
+try { const sw = +localStorage.getItem('typst_side'); if (sw >= SIDE_MIN && sw <= SIDE_MAX) sideEl.style.width = sw + 'px' } catch (e) {}
+$('sideSplit').addEventListener('mousedown', e => {
+  e.preventDefault()
+  document.body.classList.add('sideDrag')
+  $('sideSplit').classList.add('drag')
+  const x0 = e.clientX, w0 = sideEl.getBoundingClientRect().width
+  const mv = ev => { sideEl.style.width = Math.max(SIDE_MIN, Math.min(SIDE_MAX, w0 + ev.clientX - x0)) + 'px' }
+  const up = () => {
+    removeEventListener('mousemove', mv); removeEventListener('mouseup', up)
+    $('sideSplit').classList.remove('drag')
+    document.body.classList.remove('sideDrag')
+    try { localStorage.setItem('typst_side', parseFloat(sideEl.style.width)) } catch (err) {}
+  }
+  addEventListener('mousemove', mv); addEventListener('mouseup', up)
+})
+function vStart(y0) { // Handy: Editor-Höhe ziehen (Maus + Touch)
+  const r = $('mid').getBoundingClientRect(), h0 = $('leftCol').getBoundingClientRect().height
+  const set = dy => {
+    $('leftCol').style.flex = 'none'
+    $('leftCol').style.height = Math.max(120, Math.min(r.height - 120, h0 + dy)) + 'px'
+  }
+  const mm = e => set(e.clientY - y0), tm = e => set(e.touches[0].clientY - y0)
+  const up = () => {
+    removeEventListener('mousemove', mm); removeEventListener('mouseup', up)
+    removeEventListener('touchmove', tm); removeEventListener('touchend', up)
+  }
+  addEventListener('mousemove', mm); addEventListener('mouseup', up)
+  addEventListener('touchmove', tm, { passive: true }); addEventListener('touchend', up)
+}
+$('vsplit').addEventListener('mousedown', e => { e.preventDefault(); vStart(e.clientY) })
+$('vsplit').addEventListener('touchstart', e => vStart(e.touches[0].clientY), { passive: true })
+matchMedia('(max-width:720px)').onchange = m => { // zurück am PC: fixe Höhe weg
+  if (!m.matches) { $('leftCol').style.height = ''; $('leftCol').style.flex = '' }
+}
+function setView(m) { // 3er-Segment: editor | split | read (statt 1 Lesemodus-Button)
+  document.body.classList.toggle('read', m === 'read')
+  document.body.classList.toggle('editonly', m === 'editor')
+  for (const [id, on] of [['vEdit', m === 'editor'], ['vSplit', m === 'split'], ['vRead', m === 'read']])
+    $(id).classList.toggle('on', on)
+  if (popAnchor) movePop()
+}
+$('vEdit').onclick = () => setView('editor')
+$('vSplit').onclick = () => setView('split')
+$('vRead').onclick = () => setView('read')
+// Schriftgröße Editor + Zoom Preview (edSize/pvZoom oben deklariert)
+function stepEd(d) { edSize = Math.max(ED_MIN, Math.min(ED_MAX, edSize + d)); applyEd(); saveSet() }
+function stepPv(d) { pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, pvZoom + d)); applyPv(); saveSet() }
+function applyEd() {
+  const lh = Math.round(edSize * 1.5)
+  $('cmWrap').style.setProperty('--ed', edSize + 'px')
+  $('cmWrap').style.setProperty('--lh', lh + 'px')
+  $('editWrap').style.setProperty('--lh', lh + 'px')
+  if (popAnchor) movePop()
+}
+function applyPv() {
+  document.querySelectorAll('#preview canvas').forEach(sizeCanvas)
+}
+let syncOn = true, syncT = 0, syncPage = 0, pvT = 0 // Klick-Sync Editor<->Preview, letzte Treffer-Seite
+function queueSyncPv() { clearTimeout(syncT); syncT = setTimeout(syncToPv, SYNC_MS) }
+function syncToPv() { // Editor -> Preview: Seite mit den meisten Zeilen-Worten, Treffer mittig
+  if (!syncOn || !docId || tplName || activeFile || Date.now() - pvT < 1000) return // Preview-Klick: Papier bleibt fest
+  const pv = $('preview')
+  if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
+  const total = cm.state.doc.lines || 1
+  const line = cm.state.doc.lineAt(cm.state.selection.main.head).number
+  // Zeile normalisieren: trim, Markup grob weg, nur lange Worte zaehlen
+  const ank = cm.state.doc.line(line).text.trim().replace(/^[=+\-*#>]+/, '').replace(/[#*`_$[\](){}<>\/\\|=]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const words = [...new Set(ank.split(' ').filter(w => w.length >= 4))].slice(0, 6)
+  const n = pvTexts.length
+  if (words.length && n) {
+    let bi = -1, bs = 0 // beste Seite: meiste Treffer, Gleichstand bleibt auf syncPage
+    for (let pi = 0; pi < n; pi++) {
+      const items = pvTexts[pi] || []
+      let s = 0
+      for (const w of words) for (const it of items) {
+        if (it.s && it.s.toLowerCase().includes(w)) { s++; break }
+      }
+      if (s > bs || (s === bs && pi === syncPage)) { bs = s; bi = pi }
+    }
+    if (bi >= 0 && bs > 0) { // mind. ein Wort: sonst Fallback (kein Zufalls-Sprung)
+      const items = pvTexts[bi] || []
+      const long = words.slice().sort((a, b) => b.length - a.length)[0]
+      for (const it of items) {
+        if (it.s && it.s.toLowerCase().includes(long)) {
+          const cv = pv.querySelectorAll('canvas')[bi]
+          if (!cv) break
+          const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
+          const want = pv.scrollTop + (cr.top - pr.top) + it.y * (cr.width / cv.width) - pv.clientHeight / 2
+          syncPage = bi
+          if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want // Ruhe: kein Flackern
+          return
+        }
+      }
+    }
+  }
+  const want = (line - 1) / total * (pv.scrollHeight - pv.clientHeight) // Fallback: alte Anteil-Logik
+  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
+}
+function locateNear(t, s, hint) { // kürzester Treffer um die Hinweis-Zeile (auch kurze Zellen-Texte)
+  s = (s || '').trim()
+  if (s.length < 2) return -1
+  const hp = posOfLine(t, hint)
+  let best = -1, bd = 1e12, p = -1, n = 0
+  while ((p = t.indexOf(s, p + 1)) >= 0 && n++ < 50) {
+    const dd = Math.abs(p - hp)
+    if (dd < bd) { bd = dd; best = p }
+  }
+  return best
+}
+function jumpPos(pos) { // Editor-Sprung in die Bildschirmmitte (Preview scrollt nicht nach)
+  pvT = Date.now()
+  cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
+  cm.focus()
+}
+$('preview').addEventListener('click', e => { // Preview -> Editor: Text-Anker zuerst (Tabellen!), sonst Anteil
+  if (!syncOn || !docId || tplName || activeFile) return
+  const pv = $('preview')
+  const cv = e.target.closest ? e.target.closest('canvas') : null
+  if (cv && pvTexts.length) {
+    const pi = [...pv.querySelectorAll('canvas')].indexOf(cv) // nur Canvas zaehlen, .empty-Divs ignorieren
+    const items = pvTexts[pi] || []
+    const r = cv.getBoundingClientRect(), sx = cv.width / r.width, sy = cv.height / r.height // Canvas-px: Backing passt zu pvTexts
+    const x = (e.clientX - r.left) * sx, y = (e.clientY - r.top) * sy
+    let best = null, bd = CLICK_PX * CLICK_PX
+    for (const it of items) {
+      if (!it.s.trim()) continue
+      const dx = it.x - x, dy = it.y - y, dd = dx * dx + dy * dy
+      if (dd < bd) { bd = dd; best = it }
+    }
+    if (best) {
+      const total = cm.state.doc.lines || 1
+      let all = 0 // Hinweis aus Textmenge (statt Klick-Hoehe): Treffer-Anteil * Zeilen
+      for (const arr of pvTexts) all += arr.length
+      let before = 0
+      for (let k = 0; k < pi; k++) before += (pvTexts[k] || []).length
+      const hint = Math.max(1, Math.min(total, Math.round((before + items.indexOf(best)) / Math.max(1, all) * total) + 1))
+      const at = locateNear(getT(), best.s, hint)
+      if (at >= 0) {
+        const um = getT().slice(Math.max(0, at - 80), at + 80) // Treffer pruefen: Umgebung muss Klick-Wort enthalten
+        const w = (best.s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
+        if (w.length < 4 || um.includes(w) || um.includes(best.s.trim())) { syncPage = pi; jumpPos(at); return }
+      }
+    }
+    syncPage = pi // auch ohne Treffer: naechster Sync startet auf Klick-Seite
+  }
+  const r = pv.getBoundingClientRect() // Fallback: Anteil (Bilder, Ränder, Formeln ohne Text)
+  const ratio = Math.max(0, Math.min(1, (e.clientY - r.top + pv.scrollTop) / pv.scrollHeight))
+  const lines = getT().split('\n'), total = lines.length || 1
+  let line = Math.max(1, Math.min(total, Math.round(ratio * total) + 1))
+  while (line > 1 && !lines[line - 1].trim()) line-- // auf Absatz-Anfang einrasten
+  jumpPos(posOfLine(getT(), line))
+})
+$('syncBtn').onclick = () => { syncOn = !syncOn; $('syncBtn').classList.toggle('on', syncOn) }
+function fitPv() { // Papier exakt auf Preview-Breite einpassen, mittig per margin
+  const c = document.querySelector('#preview canvas')
+  const avail = $('preview').clientWidth - 32
+  if (c && avail > 0) {
+    pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / (c.width / 2) * 100)))
+    applyPv(); saveSet()
+  }
+}
+function sizeCanvas(c) { // nur CSS-Breite aus Zoom, Backing (canvas.width) nie anfassen
+  c.style.width = (c.width / 2 * pvZoom / 100) + 'px'
+  c.style.maxWidth = document.body.classList.contains('read') ? (8.2 * pvZoom) + 'px' : 'none'
+}
+$('fMinus').onclick = () => stepEd(-ED_STEP)
+$('fPlus').onclick = () => stepEd(ED_STEP)
+$('zMinus').onclick = () => stepPv(-PV_STEP)
+$('zPlus').onclick = () => stepPv(PV_STEP)
+$('fitBtn').onclick = fitPv
+applyEd() // gespeicherte Schrift sofort anwenden
+paintEmpty() // Onboarding-Karte bis ein Doc offen ist
+// Downloads: Quelle als .typ, Preview als PDF
+const dlName = ext => (($('title').textContent || 'dokument').replace(/[^\wäöüÄÖÜß.-]+/g, '_')) + ext
+const dlBlob = (blob, name) => {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob); a.download = name; a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+}
+$('dlPng').onclick = () => { // erste Seite direkt vom Canvas (kein Compiler-API nötig)
+  if (!docId) return
+  const c = document.querySelector('#preview canvas')
+  if (!c) { alert('Kein Render'); return }
+  c.toBlob(b => b ? dlBlob(b, dlName('.png')) : alert('PNG-Fehler'))
+}
+$('dlSvg').onclick = async () => {
+  if (!docId) return
+  if (!typstReady()) { ensureTypst().catch(() => {}); alert('Compiler lädt noch'); return }
+  try {
+    if (!$typst.svg) throw new Error('SVG kennt das Bundle nicht')
+    await shadowAll(activeFile ? shadow : getT())
+    const svg = (await $typst.svg({ mainFilePath: '/main.typ' }))
+      .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;') // rohes & (Text/CSV/URL) macht XML kaputt
+    dlBlob(new Blob([svg], { type: 'image/svg+xml' }), dlName('.svg'))
+  } catch (e) { alert('SVG-Fehler: ' + e.message) }
+}
+$('dlTyp').onclick = () => {
+  if (!docId && !tplName) return
+  dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), activeFile || dlName('.typ')) // Datei-Tab: diese Datei
+}
+$('dlPdf').onclick = async () => {
+  if (!docId) return
+  if (!typstReady()) { ensureTypst().catch(() => {}); alert('Compiler lädt noch'); return }
+  try {
+    await shadowAll(activeFile ? shadow : getT()) // gleiche Shadows wie die Vorschau: Bilder/Vorlagen landen im PDF
+    dlBlob(new Blob([await $typst.pdf({ mainFilePath: '/main.typ' })], { type: 'application/pdf' }), dlName('.pdf'))
+  } catch (e) { alert('PDF-Fehler: ' + e.message) }
+}
+setInterval(() => { // heilt Sets ohne input-Event (Extensions, Autofill): Textarea -> Y.Text
+  if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {
+    pushLocal(); queueRender(); queueSave()
+  }
+}, SAVE_MS)
+// --- Suchen + Ersetzen: Leiste unten (Ctrl+F), Treffer als Mark, Enter = weiter ---
+let findOpen = false, findHits = [], findI = 0, findCase = false
+function openFind() {
+  if (!$('app').classList.contains('on')) return
+  findOpen = true; $('find').style.display = ''
+  const m = cm.state.selection.main
+  if (!m.empty) $('fQ').value = getT().slice(m.from, m.to).split('\n')[0].slice(0, 80) // Auswahl wird Suche
+  markFind(); $('fQ').focus(); $('fQ').select()
+}
+function closeFind() {
+  findOpen = false; $('find').style.display = 'none'
+  cm.dispatch({ effects: setFind.of(RangeSet.of([])) }); cm.focus()
+}
+function paintFind(sel) { // Treffer blau, aktueller orange; sel = zusätzlich hinspringen
+  const q = $('fQ').value
+  cm.dispatch({ effects: setFind.of(RangeSet.of(findHits.map((a, i) =>
+    Decoration.mark({ class: i === findI ? 'cm-find-cur' : 'cm-find' }).range(a, a + q.length)), true)) })
+  if (sel && findHits.length) {
+    const a = findHits[findI]
+    cm.dispatch({ selection: { anchor: a, head: a + q.length }, effects: EditorView.scrollIntoView(a, { y: 'center' }) })
+  }
+  $('fN').textContent = findHits.length ? (findI + 1) + '/' + findHits.length : (q ? '0' : '')
+}
+function markFind() {
+  findHits = []; findI = 0
+  const q = $('fQ').value
+  if (!q) { paintFind(false); return }
+  const t = findCase ? getT() : getT().toLowerCase(), n = findCase ? q : q.toLowerCase()
+  let p = -1
+  while ((p = t.indexOf(n, p + q.length)) >= 0 && findHits.length < 500) findHits.push(p) // ohne Überlapp: sonst sprengt Ersetzen-alle die Transaction
+  if (!findHits.length) { paintFind(false); return }
+  findI = findHits.findIndex(a => a >= cm.state.selection.main.head)
+  if (findI < 0) findI = 0
+  paintFind(true)
+}
+function stepFind(d) {
+  if (!findHits.length) return
+  findI = (findI + d + findHits.length) % findHits.length
+  paintFind(true)
+}
+function doRep(all) {
+  if (docRole === 'reviewer' || openedTrashed) return // lesen ja, ersetzen nein
+  const q = $('fQ').value, r = $('fR').value
+  if (!q || !findHits.length) return
+  const a = findHits[findI]
+  cm.dispatch(all
+    ? { changes: findHits.map(x => ({ from: x, to: x + q.length, insert: r })) }
+    : { changes: { from: a, to: a + q.length, insert: r }, selection: { anchor: a + r.length } })
+  markFind() // onEdit zählt eh neu, hier sofort für den Zähler
+}
+$('fQ').oninput = markFind
+$('fCase').onclick = () => { findCase = !findCase; $('fCase').classList.toggle('on', findCase); markFind(); $('fQ').focus() }
+$('fPrev').onclick = () => stepFind(-1)
+$('fNext').onclick = () => stepFind(1)
+$('fRep').onclick = () => doRep(false)
+$('fAll').onclick = () => doRep(true)
+$('fX').onclick = closeFind
+const findKeys = e => {
+  if (e.key === 'Enter') stepFind(e.shiftKey ? -1 : 1)
+  if (e.key === 'Escape') closeFind()
+}
+$('fQ').onkeydown = $('fR').onkeydown = findKeys
+addEventListener('keydown', e => { // Ctrl/Cmd+F = Leiste, Ctrl/Cmd+S = sofort speichern
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind() }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow() }
+})
+// --- Login / Buttons ---
+function paintMe() { // eigener Blob in UserBox (Bild statt Farbe, fehlt = Farbe)
+  $('meDot').style.background = avBg(user || '?', colOf(user || '?'))
+  $('meDot').title = 'you - ' + (user || '?')
+}
+let avatarV = 0
+const avBg = (n, c) => `${c} url("/api/avatar/${encodeURIComponent(n)}?v=${avatarV}") center/cover`
+let regMode = false
+$('mode').onclick = e => {
+  e.preventDefault(); regMode = !regMode
+  $('go').textContent = regMode ? 'Registrieren' : 'Anmelden'
+  $('mode').textContent = regMode ? 'Schon dabei? Anmelden' : 'Noch kein Konto? Registrieren'
+  $('err').textContent = ''
+}
+async function login(u, p) {
+  const d = await api('POST', regMode ? '/api/register' : '/api/login', { username: u, password: p })
+  token = d.token; user = d.user
+  localStorage.setItem('typst_token', token)
+  $('login').style.display = 'none'; $('app').classList.add('on')
+  cm.measure() // Konstruktion lief versteckt (Login): Maße jetzt sync neu, sonst Cursor/Klicks daneben
+  $('who').textContent = user
+  paintMe()
+  sidebar(); loadTpl(); checkJoin()
+}
+$('login').onsubmit = e => { e.preventDefault(); login($('u').value, $('p').value).catch(err => $('err').textContent = err.message) }
+$('out').onclick = () => api('POST', '/api/logout').finally(() => {
+  localStorage.removeItem('typst_token'); location.reload()
+})
+$('renBtn').onclick = async () => { // Stift hinter Titel (Owner only, Vorlage auch)
+  if (tplName) { // Vorlage: neu speichern + alt löschen (Upsert täte sonst überschreiben)
+    const t = await ask('Vorlage umbenennen', { value: tplName })
+    if (t === null || !t.trim() || t.trim() === tplName) return
+    await loadTpl() // frisch: sonst übersieht der Schutz fremd angelegte Namen
+    if (myTpl.some(x => x.name === t.trim())) { alert('Name gibt es schon'); return }
+    try {
+      const old = myTpl.find(x => x.name === tplName)
+      const r = await api('POST', '/api/templates', { name: t.trim(), content: getT(), folder: old && old.folder ? old.folder : '' })
+      await api('DELETE', '/api/templates/' + encodeURIComponent(tplName))
+      tplName = r.name; $('title').textContent = r.name
+      await loadTpl(); renderTpl(); sidebar()
+    } catch (e) { alert(e.message) }
+    return
+  }
+  if (!docId || docRole !== 'owner') return
+  const t = await ask('Dokument umbenennen', { value: $('title').textContent })
+  if (t === null || !t.trim()) return
+  api('POST', `/api/docs/${docId}/rename`, { title: t.trim() })
+    .then(() => { $('title').textContent = t.trim(); sidebar() })
+    .catch(e => alert(e.message))
+}
+$('new').onclick = async () => {
+  const t = await ask('Neues Dokument', { value: 'Neues Dokument', ph: 'Titel' })
+  if (t === null) return
+  const opts = [['Ohne Ordner', 'Oben in der Liste'],
+    ...folders.map(f => [f.folder, f.n + (f.n === 1 ? ' Dokument' : ' Dokumente')]),
+    ['+ Neuer Ordner', 'Name danach eingeben']]
+  const fi = await askPick('Ordner wählen', opts)
+  if (fi < 0) return
+  let folder = fi > 0 && fi <= folders.length ? folders[fi - 1].folder : ''
+  if (fi === opts.length - 1) {
+    const n = await ask('Neuer Ordner', { ph: 'Name' })
+    if (n === null) return
+    folder = (n || '').trim()
+  }
+  const p = await askPick('Vorlage wählen', [['Leer', 'Leeres Blatt zum Selbstgestalten'], ['Bericht', 'A4 mit Titel, Nummerierung und Einleitung'], ['Folien', 'Breitbild-Folien mit zwei Beispiel-Seiten']])
+  if (p < 0) return
+  try { openDoc((await api('POST', '/api/docs/create', { title: t, content: STARTERS[p], folder })).id) }
+  catch (e) { alert(e.message) }
+}
+let upBusy = false // Doppelklick: kein zweites Doc
+$('upDoc').onclick = () => $('docPick').click()
+$('docPick').onchange = async () => { // .typ als normales Doc (nicht Vorlage): Titel aus Dateiname
+  const f = $('docPick').files[0]; $('docPick').value = ''
+  if (!f || upBusy) return
+  if (!/\.typ$/i.test(f.name)) { alert('Nur .typ'); return }
+  if (f.size > 200 * 1024) { alert('Max 200 KB'); return }
+  upBusy = true
+  try {
+    const txt = await f.text()
+    if (!txt.trim()) { alert('Leere Datei'); return }
+    if (txt.length > 200 * 1024) { alert('Max 200 KB'); return }
+    const t = f.name.replace(/\.typ$/i, '').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Neues Dokument'
+    openDoc((await api('POST', '/api/docs/create', { title: t, content: txt })).id)
+  } catch (e) { alert(e.message) } finally { upBusy = false }
+}
+$('del').onclick = async () => {
+  if (tplName) { // offene Vorlage löschen
+    if (!await ask(`Vorlage „${tplName}“ löschen?`, { noInput: true, ok: 'Löschen', danger: true })) return
+    try { await api('DELETE', '/api/templates/' + encodeURIComponent(tplName)) }
+    catch (e) { alert(e.message); return }
+    tplName = ''
+    $('del').style.display = 'none'; $('dlTyp').style.display = 'none'; $('tplBtn').style.display = 'none'
+    $('symBtn').style.display = 'none'; $('colPick').style.display = 'none'; $('renBtn').style.display = 'none'
+    $('viewSeg').style.display = '' // Segment zurück: kein Doc, aber Ansicht wählbar
+    $('title').textContent = 'Kein Dokument'; $('role').textContent = ''
+    paintEmpty()
+    setT(''); gutter(); paintOutline(); await loadTpl(); sidebar()
+    return
+  }
+  if (openedTrashed) {
+    if (!await ask('Endgültig löschen? Weg ist weg.', { noInput: true, ok: 'Löschen', danger: true })) return
+  } else if (!await ask('In den Papierkorb verschieben?', { noInput: true, ok: 'OK' })) return
+  api('DELETE', `/api/docs/${docId}`).then(() => { closeView(); sidebar() })
+}
+setInterval(() => { if (docId) loadComments().catch(() => {}) }, POLL_MS)
+addEventListener('pagehide', () => { // letzte Edits mitnehmen, falls der 2s-Save noch aussteht
+  if ($('save').textContent !== '…') return
+  const head = { 'Content-Type': 'application/json' }
+  if (tplName)
+    fetch('/api/templates', { method: 'POST', headers: head,
+      body: JSON.stringify({ name: tplName, content: getT() }), keepalive: true })
+  else if (docId && activeFile)
+    fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST', headers: head,
+      body: JSON.stringify({ content: getT() }), keepalive: true })
+  else if (docId && ytext && synced && docRole !== 'reviewer')
+    fetch(`/api/docs/${docId}/save`, { method: 'POST', headers: head,
+      body: JSON.stringify({ content: ytext.toString() }), keepalive: true })
+})
+
+if (token) api('GET', '/api/me').then(d => {
+  user = d.user
+  $('login').style.display = 'none'; $('app').classList.add('on')
+  cm.measure() // s.o.: versteckt konstruiert -> sync neu vermessen
+  $('who').textContent = user
+  paintMe()
+  sidebar(); loadTpl(); checkJoin()
+}).catch(() => localStorage.removeItem('typst_token'))
+try { (window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => ensureTypst().catch(() => {})) } catch (e) {} // Compiler warm im Leerlauf: UI malt zuerst
+document.getElementById('booterr')?.remove() // Modul läuft: Boot-Fehlerbox weg
+</script>
+</body>
+</html>
