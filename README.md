@@ -4,9 +4,7 @@ Collaborative Typst editor in the browser: code on the left, live PDF on the rig
 
 One process, clean API, boring on purpose. FastAPI + live sync, SQLite storage, no Node needed at runtime.
 
-<!-- Screenshot vor Public: App starten, Bild als docs/screenshot.png speichern, dann einbetten:
 <img width="1280" height="640" alt="editor" src="docs/screenshot.png" />
--->
 
 ## ✨ Features
 
