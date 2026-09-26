@@ -763,6 +763,7 @@ function ensureTypst() {
     window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.7.0/pkg/typst_ts_web_compiler_bg.wasm' })
     window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.7.0/pkg/typst_ts_renderer_bg.wasm' })
   }).catch(e => {
+    typstPm = null // Retry erlauben: Watchdog versucht es erneut statt ins Leere zu laufen
     if (!typstWarned) { typstWarned = true; console.warn('Compiler lädt nicht – Netz/adblock prüfen.', e) }
     throw new Error('Compiler lädt nicht')
   })
@@ -819,6 +820,7 @@ async function render() {
   const id = ++renderN, preview = $('preview')
   if (!docId) return
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; queueTypstRender(); return } // lädt im Hintergrund, rendert nach
+  if (!window.pdfjsLib) { lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // cdnjs geblockt: spaeter nochmal
   cmpWait = 0; typstT0 = 0
   try {
     await shadowAll(activeFile ? shadow : getT()) // Datei-Tab: Preview kompiliert weiter main.typ
@@ -2610,7 +2612,7 @@ $('del').onclick = async () => {
 }
 setInterval(() => { if (docId) loadComments().catch(() => {}) }, POLL_MS)
 addEventListener('pagehide', () => { // letzte Edits mitnehmen, falls der 2s-Save noch aussteht
-  if ($('save').textContent !== '…') return
+  if ($('save').textContent.startsWith('gespeichert')) return // gespeichert: nichts zu tun (Fehler davor trotzdem sichern)
   const head = { 'Content-Type': 'application/json' }
   if (tplName)
     fetch('/api/templates', { method: 'POST', headers: head,

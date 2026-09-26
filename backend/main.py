@@ -29,7 +29,7 @@ INVITE_SECONDS = 7 * 86400  # Einladungs-Links laufen nach 7 Tagen ab
 EXPORT_MAX = 100 * 1024 * 1024  # Export-ZIP deckelt bei 100 MB
 RATE_SCOPES = {"login": (10, 60), "register": (20, 3600), "join": (30, 60),  # login/register: Defaults, config gewinnt
                "search": (60, 60), "files": (20, 60), "save": (30, 60), "comments": (30, 60),
-               "export": (5, 60)}  # save/comments/export: Spam-Deckel
+               "export": (5, 60), "pw": (10, 60)}  # save/comments/export: Spam-Deckel, pw: Passwort-Raten
 
 ROOT = Path(__file__).resolve().parent.parent
 try:
@@ -226,14 +226,14 @@ class Share(BaseModel):
 
 
 class CommentNew(BaseModel):
-    anchor: int = 0
+    anchor: int = Field(default=0, ge=0, le=10000000)
     text: str = Field(max_length=2001)  # +1: der 2000-Check im Code antwortet mit 400
     parent_id: str | None = Field(default=None, max_length=100)
     quote: str = Field(default="", max_length=2000)
 
 
 class AnchorSet(BaseModel):
-    anchor: int
+    anchor: int = Field(ge=0, le=10000000)  # device-pixel Anker: kein Overflow, kein negativ
 
 
 class CommentEdit(BaseModel):
@@ -372,6 +372,7 @@ def check_pw(user: str, password: str) -> None:
 
 @app.post("/api/me/password")
 async def change_password(b: PwChange, req: Request, user: str = Depends(me)):
+    limited(req, "pw")  # altes Passwort raten ist sonst frei
     check_pw(user, b.old)
     if not MIN_PW <= len(b.new) <= MAX_PW:
         raise HTTPException(400, "Passwort: 8-200 Zeichen")
@@ -388,7 +389,8 @@ async def change_password(b: PwChange, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/me/name")
-def rename_me(b: NameChange, user: str = Depends(me)):
+def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
+    limited(req, "pw")  # s. change_password
     new = b.name.strip()
     if not re.fullmatch(NAME_RE, new):
         raise HTTPException(400, "Name: 2-20 Zeichen, Buchstaben/Zahlen/_-")
@@ -470,6 +472,7 @@ def get_avatar(username: str, user: str = Depends(me)):
 
 @app.post("/api/me/delete")
 async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(me)):
+    limited(req, "pw")  # s. change_password
     check_pw(user, b.password)
     con = db.connect()
     try:
