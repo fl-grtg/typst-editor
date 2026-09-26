@@ -68,7 +68,7 @@ def room(doc_id: str) -> dict:
                 text = doc.get("typst", type=Text)
                 text += content  # Alt-Bestand ohne Bytes: einmalig, danach Bytes sichern
             db.save_room(doc_id, doc.get_update(), content)
-        r = {"doc": doc, "conns": set(), "saved": 0.0, "dirty": False}
+        r = {"doc": doc, "conns": set(), "users": {}, "saved": 0.0, "dirty": False}
         rooms[doc_id] = r
     return r
 
@@ -98,6 +98,20 @@ async def drop(doc_id: str) -> None:  # Room weg (Trash/Delete): sichern, poppen
             await c.close(code=4403)
         except Exception:
             pass
+
+
+async def kick_user(doc_id: str, username: str) -> None:
+    r = rooms.get(doc_id)
+    if not r:
+        return
+    for c in list(r["conns"]):
+        if r.get("users", {}).get(c) == username:
+            try:
+                await c.close(code=4403)
+            except Exception:
+                pass
+            r["conns"].discard(c)
+            r.get("users", {}).pop(c, None)
 
 
 def persist(doc_id: str) -> bool:  # HTTP-Save: Bytes sofort sichern (sonst Neustart-Fenster)
@@ -151,6 +165,7 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
     r = room(doc_id)  # Rolle steht pro Nachricht neu drin (Unshare/Downgrade kickt beim Tippen)
     doc: Doc = r["doc"]
     r["conns"].add(ws)
+    r.setdefault("users", {})[ws] = user
     try:
         sv = doc.get_state()  # eigener Step1 zuerst, wie y-websocket
         await ws.send_bytes(blob(write_var(MSG_SYNC), write_var(STEP1),
@@ -222,6 +237,7 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
         pass
     finally:
         r["conns"].discard(ws)
+        r.get("users", {}).pop(ws, None)
         if r.get("dirty"):  # Rest sichern, bevor der Room zugeht
             try:
                 db.save_room(doc_id, doc.get_update(), str(doc.get("typst", type=Text)))

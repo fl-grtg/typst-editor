@@ -3,10 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="manifest" href="/manifest.json">
+<link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#f5f5f7">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1d1d1f">
+<meta name="description" content="Collaborative Typst editor">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta property="og:title" content="Typst Editor">
+<meta property="og:description" content="Collaborative Typst editor">
+<meta property="og:type" content="website">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Typst Editor</title>
 <style>
 :root{--bg:#f5f5f7;--card:#fff;--line:rgba(0,0,0,.08);--text:#1d1d1f;--sub:#6e6e73;--acc:#0071e3;--sel:rgba(0,113,227,.12)}
@@ -292,11 +299,14 @@ import * as Y from 'https://esm.sh/yjs@13.6.27'
 import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
 import { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, forEachDiagnostic } from './vendor-cm.js' // lokal gebündelt: eine Instanz, kein CDN-Risiko
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 const $ = id => document.getElementById(id)
 const api = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then(async r => {
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText)
-  return r.json()
+  if (r.status === 204) return null
+  const t = await r.text()
+  const j = t ? JSON.parse(t) : null
+  if (!r.ok) throw new Error((j && j.detail) || r.statusText)
+  return j
 })
 
 let token = localStorage.getItem('typst_token') || ''
@@ -734,15 +744,14 @@ let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // Text-Anker je Seite
 let cmpWait = 0, lastInfra = false // Compiler fehlt / letzter Render Infra-Fehler (Watchdog heilt)
 const typstReady = () => !!window.$typst?.resetShadow // true sobald das Lazy-Bundle da ist
 let typstPm = null // Compiler lädt async nach: UI bleibt klickbar während WASM lädt
+let typstWarned = false // max 1 Warnung: kein Endlos-Retry bei geblocktem CDN
 function ensureTypst() {
   if (typstPm) return typstPm
-  typstPm = new Promise((res, rej) => {
-    const s = document.createElement('script')
-    s.type = 'module'; s.id = 'typst'
-    s.src = 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.7.0/dist/esm/index.js'
-    s.onload = () => res()
-    s.onerror = () => { typstPm = null; rej(new Error('Compiler lädt nicht')) } // Retry ohne Reload: nächster render lädt neu
-    document.head.appendChild(s)
+  typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.7.0/dist/esm/index.js').then(m => {
+    if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM-Bundle setzt kein Global: selbst übernehmen
+  }).catch(e => {
+    if (!typstWarned) { typstWarned = true; console.warn('Compiler lädt nicht – Netz/adblock prüfen.', e) }
+    throw new Error('Compiler lädt nicht')
   })
   return typstPm
 }
@@ -1964,7 +1973,7 @@ function richText(text) { // @-Namen farbig, Rest Text (kein HTML vom User)
   return p
 }
 // --- PWA: Shell-Cache (s. sw.js) ---
-try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}) } catch (e) {}
+try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {}) } catch (e) {}
 // --- Teilen als Popup neben dem Kommentar-Button (statt Seitenleiste) ---
 let shares = []
 async function loadShares() {
@@ -2031,7 +2040,7 @@ async function loadInvites() { // offene Links: kopieren oder zurückziehen
     const div = el('div')
     div.appendChild(el('span', 'who', t.role + ': ' + t.token.slice(0, 8) + '… '))
     const cp = el('button', null, 'Kopieren')
-    cp.onclick = () => navigator.clipboard?.writeText(location.origin + '/?join=' + t.token)
+    cp.onclick = () => { const s = location.origin + '/?join=' + t.token; if (navigator.clipboard) navigator.clipboard.writeText(s).catch(() => alert(s)); else alert(s) }
     const x = el('button', null, '✕'); x.title = 'Zurückziehen'
     x.onclick = () => api('DELETE', `/api/docs/${docId}/invites/${t.token}`).then(loadInvites)
     div.append(cp, x); box.appendChild(div)
@@ -2153,6 +2162,7 @@ $('avPick').onchange = () => { // quadratisch, AV_SIZE, Mitte
       .catch(e => { setMsg = e.message; renderSettings() })
     URL.revokeObjectURL(im.src)
   }
+  im.onerror = () => URL.revokeObjectURL(im.src)
   im.src = URL.createObjectURL(f)
 }
 // Bereichsgrenze ziehen (Position merkt sich der Browser)
@@ -2204,9 +2214,9 @@ function vStart(y0) { // Handy: Editor-Höhe ziehen (Maus + Touch)
 }
 $('vsplit').addEventListener('mousedown', e => { e.preventDefault(); vStart(e.clientY) })
 $('vsplit').addEventListener('touchstart', e => vStart(e.touches[0].clientY), { passive: true })
-matchMedia('(max-width:720px)').onchange = m => { // zurück am PC: fixe Höhe weg
+matchMedia('(max-width:720px)').addEventListener('change', m => { // zurück am PC: fixe Höhe weg
   if (!m.matches) { $('leftCol').style.height = ''; $('leftCol').style.flex = '' }
-}
+})
 function setView(m) { // 3er-Segment: editor | split | read (statt 1 Lesemodus-Button)
   document.body.classList.toggle('read', m === 'read')
   document.body.classList.toggle('editonly', m === 'editor')

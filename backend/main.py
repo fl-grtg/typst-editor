@@ -10,15 +10,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, UploadFile, WebSocket, status
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from backend import auth, db, sync
 
 COOKIE = auth.COOKIE
 NAME_RE = r"[A-Za-z0-9_-]{2,20}"  # Usernamen: 2-20 Zeichen, ohne Leerzeichen
-MIN_PW = 4
+MIN_PW = 8
 MAX_PW = 200  # Passwort-Deckel (KDF-DoS)
 MAX_TXT = 200_000  # Text-Limit (Template, Datei-Tab, Starter)
 TITLE_MAX = 100  # Doc-Titel: lesbar bleiben
@@ -74,9 +73,14 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 @app.middleware("http")
 async def no_cache_html(req: Request, call):
+    if req.url.path.startswith(("/backend", "/data", "/.git", "/tests", "/.github")):
+        return JSONResponse({"detail": "Not found"}, status_code=404)  # kein Source/DB-Leak via Static
     res = await call(req)
     if req.url.path == "/" or req.url.path.endswith((".html", ".js")):
         res.headers["Cache-Control"] = "no-store"  # altes Frontend/Bundle darf nie aus Cache leben
+    res.headers["X-Content-Type-Options"] = "nosniff"
+    res.headers["X-Frame-Options"] = "DENY"
+    res.headers["Referrer-Policy"] = "no-referrer"
     return res
 
 
@@ -210,7 +214,7 @@ def register(b: Login, res: Response, req: Request):
     if not re.fullmatch(NAME_RE, name):
         raise HTTPException(400, "Name: 2-20 Zeichen, Buchstaben/Zahlen/_-")
     if not MIN_PW <= len(b.password) <= MAX_PW:
-        raise HTTPException(400, "Passwort: 4-200 Zeichen")
+        raise HTTPException(400, "Passwort: 8-200 Zeichen")
     con = db.connect()
     try:
         if con.execute("SELECT 1 FROM users WHERE name=?", (name,)).fetchone():
@@ -220,6 +224,8 @@ def register(b: Login, res: Response, req: Request):
         con.execute("INSERT INTO docs (id, owner, title, content, created_at, updated_at) VALUES (?,?,?,?,?,?)",
                     (did, name, "Tutorial", TUTORIAL, now, now))
         con.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(400, "Name vergeben")
     finally:
         con.close()
     token = auth.mint(name)
@@ -256,13 +262,15 @@ def check_pw(user: str, password: str) -> None:
 
 
 @app.post("/api/me/password")
-def change_password(b: PwChange, user: str = Depends(me)):
+def change_password(b: PwChange, req: Request, user: str = Depends(me)):
     check_pw(user, b.old)
     if not MIN_PW <= len(b.new) <= MAX_PW:
-        raise HTTPException(400, "Passwort: 4-200 Zeichen")
+        raise HTTPException(400, "Passwort: 8-200 Zeichen")
     con = db.connect()
     try:
         con.execute("UPDATE users SET hash=? WHERE name=?", (auth.hash_password(b.new), user))
+        cur = auth.sha(req.cookies.get(COOKIE, ""))
+        con.execute("DELETE FROM sessions WHERE username=? AND token_hash!=?", (user, cur))
         con.commit()
         return {"ok": True}
     finally:
@@ -282,6 +290,8 @@ def rename_me(b: NameChange, user: str = Depends(me)):
         if new == user:
             return {"user": user}
         row = con.execute("SELECT hash, avatar FROM users WHERE name=?", (user,)).fetchone()
+        if not row:
+            raise HTTPException(404, "User weg")
         try:
             con.execute("INSERT INTO users (name, hash, avatar) VALUES (?,?,?)",  # erst neuer Parent ...
                         (new, row["hash"], row["avatar"]))
@@ -307,7 +317,7 @@ def set_avatar(b: AvatarSet, user: str = Depends(me)):
         raise HTTPException(400, "Nur PNG/JPEG/WebP als Data-URL (max 200 KB)")
     con = db.connect()
     try:
-        con.execute("UPDATE users SET avatar=? WHERE name=?", (m.group(2), user))
+        con.execute("UPDATE users SET avatar=? WHERE name=?", (m.group(1) + ":" + m.group(2), user))
         con.commit()
         return {"ok": True}
     finally:
@@ -332,11 +342,18 @@ def get_avatar(username: str, user: str = Depends(me)):
         r = con.execute("SELECT avatar FROM users WHERE name=?", (username,)).fetchone()
         if not r or not r["avatar"]:
             raise HTTPException(404, "Kein Bild")
+        val = r["avatar"]
+        if ":" in val:
+            kind, b64 = val.split(":", 1)
+            mime = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}.get(kind, "image/png")
+        else:
+            b64, mime = val, "image/png"
         try:
-            raw = base64.b64decode(r["avatar"])
+            raw = base64.b64decode(b64)
         except Exception:
             raise HTTPException(404, "Kein Bild")
-        return Response(content=raw, media_type="image/png", headers={"Cache-Control": "no-store"})
+        return Response(content=raw, media_type=mime,
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
     finally:
         con.close()
 
@@ -491,6 +508,8 @@ def save_doc(doc_id: str, b: DocSave, user: str = Depends(me)):
     need_edit(user, doc_id)
     live = sync.room_text(doc_id)  # Room ist neuer als der einzelne Save ("" ist gültig, nur None heißt kein Room)
     content = live if live is not None else b.content
+    if len(content) > MAX_TXT:
+        raise HTTPException(400, "Doc zu groß (max 200 KB)")
     con = db.connect()
     try:
         con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
@@ -637,7 +656,10 @@ async def delete_doc(doc_id: str, user: str = Depends(me)):
         raise HTTPException(403, "Nur Owner kann löschen")
     con = db.connect()
     try:
-        trashed = con.execute("SELECT trashed FROM docs WHERE id=?", (doc_id,)).fetchone()["trashed"]
+        row = con.execute("SELECT trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Doc weg")
+        trashed = row["trashed"]
         if not trashed:  # 1. Löschen = Papierkorb, 2. = endgültig
             con.execute("UPDATE docs SET trashed=1, updated_at=? WHERE id=?", (db.now_iso(), doc_id))
             con.commit()
@@ -765,16 +787,17 @@ def share_doc(doc_id: str, b: Share, user: str = Depends(me)):
 
 
 @app.delete("/api/docs/{doc_id}/share/{username}")
-def unshare_doc(doc_id: str, username: str, user: str = Depends(me)):
+async def unshare_doc(doc_id: str, username: str, user: str = Depends(me)):
     if need_access(user, doc_id) != "owner":
         raise HTTPException(403, "Nur Owner kann entfernen")
     con = db.connect()
     try:
         con.execute("DELETE FROM shares WHERE doc_id=? AND username=?", (doc_id, username))
         con.commit()
-        return {"ok": True}
     finally:
         con.close()
+    await sync.kick_user(doc_id, username)
+    return {"ok": True}
 
 
 @app.get("/api/docs/{doc_id}/comments")
@@ -1072,7 +1095,10 @@ def make_snap(doc_id: str, b: SnapNew, user: str = Depends(me)):
     live = sync.room_text(doc_id)  # manueller Stand: Room ist neuer als DB
     con = db.connect()
     try:
-        cur = live if live is not None else con.execute("SELECT content FROM docs WHERE id=?", (doc_id,)).fetchone()["content"]
+        row = con.execute("SELECT content FROM docs WHERE id=?", (doc_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Doc weg")
+        cur = live if live is not None else row["content"]
         sid = db.new_id("s_")
         con.execute("INSERT INTO snapshots (id, doc_id, content, label, created_at) VALUES (?,?,?,?,?)",
                     (sid, doc_id, cur, b.label.strip()[:80], db.now_iso()))
@@ -1136,6 +1162,8 @@ def list_members(doc_id: str, user: str = Depends(me)):
     con = db.connect()
     try:
         d = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
+        if not d:
+            raise HTTPException(404, "Doc weg")
         rows = con.execute("SELECT username FROM shares WHERE doc_id=? ORDER BY username", (doc_id,)).fetchall()
         return {"members": [d["owner"], *[r["username"] for r in rows]]}
     finally:
@@ -1207,5 +1235,23 @@ def api_fallback(full_path: str):
     raise HTTPException(404, "API weg")
 
 
-if (ROOT / "index.html").exists():
-    app.mount("/", StaticFiles(directory=str(ROOT), html=True), name="frontend")
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
+FRONT_FILES = {"vendor-cm.js", "manifest.json", "sw.js", "icon-192.png", "icon-512.png", "icon.svg"}
+
+
+@app.get("/")
+def frontend_root():
+    return FileResponse(str(ROOT / "index.html"))
+
+
+@app.get("/{name}")
+def frontend_file(name: str):
+    if name in FRONT_FILES:
+        p = ROOT / name
+        if p.is_file():
+            return FileResponse(str(p))
+    raise HTTPException(404, "Not found")

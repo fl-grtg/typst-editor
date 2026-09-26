@@ -16,7 +16,7 @@ def now_iso() -> str:
 
 
 def new_id(prefix: str = "") -> str:
-    return f"{prefix}{secrets.token_urlsafe(9)}"
+    return f"{prefix}{secrets.token_urlsafe(16)}"
 
 
 def connect() -> sqlite3.Connection:
