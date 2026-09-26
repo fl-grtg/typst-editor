@@ -51,6 +51,10 @@ aside .doc.sub{margin-left:20px} /* Doc im Ordner/Gruppe: weiter eingerückt */
 aside .mini{visibility:hidden;background:none;border:0;cursor:pointer;color:var(--sub);padding:1px 3px;font-size:12px;border-radius:6px;min-width:22px;min-height:22px;display:inline-flex;align-items:center;justify-content:center} /* 22px: Touch-Fehlklicks weg, Desktop gleich schlank */
 aside .doc:hover .mini,aside .fhd:hover .mini{visibility:visible} /* visibility statt display: Zeile springt nicht */
 @media (hover:none){aside .mini{visibility:visible}} /* Touch: kein Hover, Buttons immer da */
+aside .doc:focus-within .mini,aside .fhd:focus-within .mini{visibility:visible}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+aside .mini,#tools button{min-height:24px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d1d1f;color:#fff;padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:0 8px 28px rgba(0,0,0,.25);z-index:200;display:none;max-width:calc(100vw - 32px)}
 aside .mini:hover{background:rgba(0,0,0,.06);color:var(--text)}
 aside .row button{flex:1;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:7px 8px;cursor:pointer;font-weight:600;font-size:13px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 main{flex:1;display:flex;flex-direction:column;min-width:0}
@@ -193,6 +197,7 @@ body.read #preview canvas{max-width:820px;margin:0 auto 16px}
 #tplPop .use{display:block;font-weight:600;font-size:13.5px}
 #tplPop .ins{display:block;font-size:12px;color:var(--sub);font-weight:400}
 #tplPop{max-width:calc(100vw - 32px)}
+#sharePop,#setPop{max-width:calc(100vw - 32px)}
 #histPop{position:absolute;top:calc(100% + 6px);left:8px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30;font-size:13px}
 #histPop .srow{display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:8px}
 #histPop .srow:hover{background:rgba(0,0,0,.04)}
@@ -247,8 +252,8 @@ window.addEventListener('error', function (e) {
 
 <form id="login">
   <h2>Typst Editor</h2>
-  <input id="u" placeholder="Benutzername" autocomplete="username">
-  <input id="p" type="password" placeholder="Passwort" autocomplete="current-password">
+  <label class="sr-only" for="u">Benutzername</label><input id="u" placeholder="Benutzername" autocomplete="username">
+  <label class="sr-only" for="p">Passwort</label><input id="p" type="password" placeholder="Passwort" autocomplete="current-password">
   <button id="go">Anmelden</button>
   <a class="mode" id="mode">Noch kein Konto? Registrieren</a>
   <div id="err" style="color:#f88"></div>
@@ -256,7 +261,7 @@ window.addEventListener('error', function (e) {
 
 <div id="app">
   <aside id="side">
-    <div class="row"><input id="q" placeholder="Alle Docs suchen" autocomplete="off"><button id="new" style="flex:none">+ Neu</button><button id="upDoc" title=".typ als neues Dokument hochladen" style="flex:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3"/><path d="M5 5.5L8 2.5l3 3"/><path d="M2.5 10.5v3h11v-3"/></svg></button></div><input type="file" id="docPick" accept=".typ" style="display:none">
+    <div class="row"><label class="sr-only" for="q">Alle Docs suchen</label><input id="q" placeholder="Alle Docs suchen" autocomplete="off"><button id="new" style="flex:none">+ Neu</button><button id="upDoc" aria-label=".typ als neues Dokument hochladen" title=".typ als neues Dokument hochladen" style="flex:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3"/><path d="M5 5.5L8 2.5l3 3"/><path d="M2.5 10.5v3h11v-3"/></svg></button></div><input type="file" id="docPick" accept=".typ" style="display:none">
     <div id="nav">
       <h3 id="ownH" title="Hierher ziehen = ohne Ordner">Dokumente</h3><div id="own"></div>
       <h3 id="tplH">Vorlagen</h3><div id="tpls"></div>
@@ -269,13 +274,13 @@ window.addEventListener('error', function (e) {
   <div id="sideSplit" title="Sidebar-Breite"></div>
   <main>
     <header>
-      <button id="navToggle" title="Sidebar ein-/ausblenden">☰</button>
-      <b id="title">Kein Dokument</b><button id="renBtn" title="Umbenennen" style="display:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg></button><span id="role"></span><span id="save"></span><button id="cBadge" title="Offene Kommentare: zum nächsten springen" style="display:none"></button>
-      <span style="flex:1"></span><span id="peers"></span><span id="viewSeg"><button id="vEdit" title="Nur Editor"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M6.5 2.5v11" stroke-width="2.6"/></svg></button><button id="vSplit" title="Editor + Preview" class="on"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M8 2.5v11"/></svg></button><button id="vRead" title="Nur Preview"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M9.5 2.5v11" stroke-width="2.6"/></svg></button></span><div id="setPop" style="display:none"></div><input type="file" id="avPick" accept="image/*" style="display:none">
+      <button id="navToggle" aria-label="Sidebar ein-/ausblenden" title="Sidebar ein-/ausblenden">☰</button>
+      <b id="title">Kein Dokument</b><button id="renBtn" title="Umbenennen" style="display:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg></button><span id="role"></span><span id="save" aria-live="polite"></span><button id="cBadge" title="Offene Kommentare: zum nächsten springen" style="display:none"></button>
+      <span style="flex:1"></span><span id="peers"></span><span id="viewSeg"><button id="vEdit" aria-label="Nur Editor" title="Nur Editor"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M6.5 2.5v11" stroke-width="2.6"/></svg></button><button id="vSplit" aria-label="Editor + Preview" title="Editor + Preview" class="on"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M8 2.5v11"/></svg></button><button id="vRead" aria-label="Nur Preview" title="Nur Preview"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M9.5 2.5v11" stroke-width="2.6"/></svg></button></span><div id="setPop" style="display:none"></div><input type="file" id="avPick" accept="image/*" style="display:none">
     </header>
     <div id="mid">
       <div id="leftCol">
-      <div id="tools"><button id="cNew" title="Markierten Text kommentieren"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3h11v7h-5.5L4.5 13v-3H2.5z"/></svg></button><button id="imgBtn" title="Datei einfügen (.typ/.bib als Tab, Bild als #image)" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 11.5l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></button><input type="file" id="imgPick" accept=".png,.jpg,.jpeg,.svg,.gif,.webp,.pdf,.typ,.bib,.csv" style="display:none"><button id="mediaBtn" title="Medien-Manager" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h2l1.5 2H12a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5z"/></svg></button><button id="tplBtn" title="Typst-Template einfügen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.5h5.5L12.5 4.5V14.5h-8.5z"/><path d="M9.5 1.5v3h3"/><path d="M8 8v4M6 10h4"/></svg></button><button id="shareBtn" title="Teilen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L8.5 7.5"/><path d="M6 4H3.5v8.5h8.5V10"/></svg></button><button id="histBtn" title="Verlauf: Stände sichern/wiederherstellen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg></button><button id="symBtn" title="Symbol einfügen" style="display:none;font-weight:700">Ω</button><input type="color" id="colPick" title="Textfarbe: Auswahl einrahmen" value="#d70015" style="display:none;width:26px;height:22px;padding:0;border:0;background:none;cursor:pointer"><button id="del" title="Dokument löschen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg></button><button id="dlTyp" title="Als .typ laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.typ</button><button id="dlPdf" title="Als PDF laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.pdf</button><button id="dlPng" title="Erste Seite als PNG laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.png</button><button id="dlSvg" title="Als SVG laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.svg</button><span class="grp">Schrift <button id="fMinus" title="Editor kleiner">A−</button><button id="fPlus" title="Editor größer">A+</button></span><div id="sharePop" style="display:none"></div><div id="tplPop" style="display:none"></div><div id="histPop" style="display:none"></div><div id="symPop" style="display:none"></div><input type="file" id="tplPick" accept=".typ" style="display:none"></div>
+      <div id="tools"><button id="cNew" aria-label="Markierten Text kommentieren" title="Markierten Text kommentieren"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3h11v7h-5.5L4.5 13v-3H2.5z"/></svg></button><button id="imgBtn" title="Datei einfügen (.typ/.bib als Tab, Bild als #image)" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 11.5l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></button><input type="file" id="imgPick" accept=".png,.jpg,.jpeg,.svg,.gif,.webp,.pdf,.typ,.bib,.csv" style="display:none"><button id="mediaBtn" title="Medien-Manager" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h2l1.5 2H12a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5z"/></svg></button><button id="tplBtn" title="Typst-Template einfügen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.5h5.5L12.5 4.5V14.5h-8.5z"/><path d="M9.5 1.5v3h3"/><path d="M8 8v4M6 10h4"/></svg></button><button id="shareBtn" aria-label="Teilen" title="Teilen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L8.5 7.5"/><path d="M6 4H3.5v8.5h8.5V10"/></svg></button><button id="histBtn" aria-label="Verlauf: Stände sichern/wiederherstellen" title="Verlauf: Stände sichern/wiederherstellen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg></button><button id="symBtn" title="Symbol einfügen" style="display:none;font-weight:700">Ω</button><input type="color" id="colPick" title="Textfarbe: Auswahl einrahmen" value="#d70015" style="display:none;width:26px;height:22px;padding:0;border:0;background:none;cursor:pointer"><button id="del" aria-label="Dokument löschen" title="Dokument löschen" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg></button><button id="dlTyp" title="Als .typ laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.typ</button><button id="dlPdf" title="Als PDF laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.pdf</button><button id="dlPng" title="Erste Seite als PNG laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.png</button><button id="dlSvg" title="Als SVG laden" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.svg</button><span class="grp">Schrift <button id="fMinus" title="Editor kleiner">A−</button><button id="fPlus" title="Editor größer">A+</button></span><div id="sharePop" style="display:none"></div><div id="tplPop" style="display:none"></div><div id="histPop" style="display:none"></div><div id="symPop" style="display:none"></div><input type="file" id="tplPick" accept=".typ" style="display:none"></div>
       <div id="media" style="display:none"></div>
       <div id="tabs" style="display:none"></div>
         <div id="editWrap">
@@ -286,14 +291,14 @@ window.addEventListener('error', function (e) {
       </div>
       <div id="split"></div><div id="vsplit" title="Höhe ziehen"></div>
       <div id="rightCol">
-        <div id="pvTools"><button id="syncBtn" class="on" title="Editor + Preview folgen einander">⇄</button><span class="grp">Zoom <button id="fitBtn" title="Papier einpassen"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button><button id="zMinus" title="Preview kleiner">−</button><button id="zPlus" title="Preview größer">+</button></span></div>
+        <div id="pvTools"><button id="syncBtn" aria-label="Editor + Preview folgen einander" class="on" title="Editor + Preview folgen einander">⇄</button><span class="grp">Zoom <button id="fitBtn" aria-label="Papier einpassen" title="Papier einpassen"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button><button id="zMinus" aria-label="Preview kleiner" title="Preview kleiner">−</button><button id="zPlus" aria-label="Preview größer" title="Preview größer">+</button></span></div>
         <div id="preview"></div>
       </div>
     </div>
   </main>
 </div>
 
-<div id="modal" style="display:none"><div id="mCard"><b id="mHead"></b><input id="mInp"><div class="mRow"><button id="mNo">Abbrechen</button><button id="mYes">OK</button></div></div></div>
+<div id="modal" style="display:none" role="dialog" aria-modal="true"><div id="mCard"><b id="mHead"></b><input id="mInp"><div class="mRow"><button id="mNo">Abbrechen</button><button id="mYes">OK</button></div></div></div>
 <script type="module">
 import * as Y from 'https://esm.sh/yjs@13.6.27'
 import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
@@ -301,6 +306,8 @@ import { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSe
 
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 const $ = id => document.getElementById(id)
+let toastT = 0
+function toast(m) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 3000) }
 const api = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then(async r => {
   if (r.status === 204) return null
   const t = await r.text()
@@ -2040,7 +2047,7 @@ async function loadInvites() { // offene Links: kopieren oder zurückziehen
     const div = el('div')
     div.appendChild(el('span', 'who', t.role + ': ' + t.token.slice(0, 8) + '… '))
     const cp = el('button', null, 'Kopieren')
-    cp.onclick = () => { const s = location.origin + '/?join=' + t.token; if (navigator.clipboard) navigator.clipboard.writeText(s).catch(() => alert(s)); else alert(s) }
+    cp.onclick = () => { const s = location.origin + '/?join=' + t.token; if (navigator.clipboard) navigator.clipboard.writeText(s).catch(() => toast(s)); else toast(s) }
     const x = el('button', null, '✕'); x.title = 'Zurückziehen'
     x.onclick = () => api('DELETE', `/api/docs/${docId}/invites/${t.token}`).then(loadInvites)
     div.append(cp, x); box.appendChild(div)
@@ -2180,6 +2187,10 @@ $('split').addEventListener('mousedown', e => {
     try { localStorage.setItem('typst_split', parseFloat($('leftCol').style.width)) } catch (err) {}
   }
   addEventListener('mousemove', mv); addEventListener('mouseup', up)
+})
+$('split').addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return
+  $('split').dispatchEvent(new MouseEvent('mousedown', { clientX: e.clientX }))
 })
 $('navToggle').onclick = () => document.body.classList.toggle('noside')
 const sideEl = $('side') // Sidebar-Breite ziehen, 150–420px
@@ -2355,6 +2366,7 @@ $('zPlus').onclick = () => stepPv(PV_STEP)
 $('fitBtn').onclick = fitPv
 applyEd() // gespeicherte Schrift sofort anwenden
 paintEmpty() // Onboarding-Karte bis ein Doc offen ist
+try { if (matchMedia('(max-width:720px)').matches) document.body.classList.add('noside') } catch (e) {} // Handy: Sidebar zu
 // Downloads: Quelle als .typ, Preview als PDF
 const dlName = ext => (($('title').textContent || 'dokument').replace(/[^\wäöüÄÖÜß.-]+/g, '_')) + ext
 const dlBlob = (blob, name) => {
@@ -2365,19 +2377,19 @@ const dlBlob = (blob, name) => {
 $('dlPng').onclick = () => { // erste Seite direkt vom Canvas (kein Compiler-API nötig)
   if (!docId) return
   const c = document.querySelector('#preview canvas')
-  if (!c) { alert('Kein Render'); return }
-  c.toBlob(b => b ? dlBlob(b, dlName('.png')) : alert('PNG-Fehler'))
+  if (!c) { toast('Kein Render'); return }
+  c.toBlob(b => b ? dlBlob(b, dlName('.png')) : toast('PNG-Fehler'))
 }
 $('dlSvg').onclick = async () => {
   if (!docId) return
-  if (!typstReady()) { ensureTypst().catch(() => {}); alert('Compiler lädt noch'); return }
+  if (!typstReady()) { ensureTypst().catch(() => {}); toast('Compiler lädt noch'); return }
   try {
     if (!$typst.svg) throw new Error('SVG kennt das Bundle nicht')
     await shadowAll(activeFile ? shadow : getT())
     const svg = (await $typst.svg({ mainFilePath: '/main.typ' }))
       .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;') // rohes & (Text/CSV/URL) macht XML kaputt
     dlBlob(new Blob([svg], { type: 'image/svg+xml' }), dlName('.svg'))
-  } catch (e) { alert('SVG-Fehler: ' + e.message) }
+  } catch (e) { toast('SVG-Fehler: ' + e.message) }
 }
 $('dlTyp').onclick = () => {
   if (!docId && !tplName) return
@@ -2385,11 +2397,11 @@ $('dlTyp').onclick = () => {
 }
 $('dlPdf').onclick = async () => {
   if (!docId) return
-  if (!typstReady()) { ensureTypst().catch(() => {}); alert('Compiler lädt noch'); return }
+  if (!typstReady()) { ensureTypst().catch(() => {}); toast('Compiler lädt noch'); return }
   try {
     await shadowAll(activeFile ? shadow : getT()) // gleiche Shadows wie die Vorschau: Bilder/Vorlagen landen im PDF
     dlBlob(new Blob([await $typst.pdf({ mainFilePath: '/main.typ' })], { type: 'application/pdf' }), dlName('.pdf'))
-  } catch (e) { alert('PDF-Fehler: ' + e.message) }
+  } catch (e) { toast('PDF-Fehler: ' + e.message) }
 }
 setInterval(() => { // heilt Sets ohne input-Event (Extensions, Autofill): Textarea -> Y.Text
   if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {
