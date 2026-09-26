@@ -15,6 +15,9 @@ def clear() -> None:
 def allow(key: str, limit: int, window_s: int) -> bool:
     now = time.monotonic()
     with _lock:
+        if len(_hits) > 20000:  # Notbremse: aelteste Haelfte raus statt alles (weniger Reset-Fläche)
+            for k in list(_hits)[:10000]:
+                del _hits[k]
         lst = [t for t in _hits.get(key, []) if now - t < window_s]
         if len(lst) >= limit:
             _hits[key] = lst

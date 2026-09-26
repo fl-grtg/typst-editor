@@ -56,3 +56,15 @@ def test_expired_invite_404(c):
     _old_invite(tok)
     login(c, "carol")
     assert c.post(f"/api/join/{tok}").status_code == 404
+
+
+def test_invite_kein_upgrade(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, "Einladung5")
+    assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"}).status_code == 200
+    tok = c.post(f"/api/docs/{did}/invite", json={"role": "editor"}).json()["token"]
+    login(c, "bob")
+    assert c.post(f"/api/join/{tok}").json()["id"] == did
+    assert c.post(f"/api/docs/{did}/save", json={"content": "x"}).status_code == 403  # Rolle bleibt reviewer

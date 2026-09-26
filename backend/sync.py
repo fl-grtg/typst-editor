@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from urllib.parse import urlparse
 
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
@@ -111,13 +112,12 @@ def cached_trashed(r: dict, doc_id: str) -> bool:
 
 
 async def bcast(conns: set, mine: WebSocket, data: bytes) -> None:
-    for c in list(conns):
-        if c is mine:
-            continue
+    async def send(c):  # einzeln senden: Fehler wirft nur diesen Client raus
         try:
             await asyncio.wait_for(c.send_bytes(data), 5.0)  # langsamster Client blockiert nicht alle
         except Exception:
             conns.discard(c)  # tot/langsam: beim nächsten Close komplett weg
+    await asyncio.gather(*(send(c) for c in list(conns) if c is not mine))
 
 
 async def drop(doc_id: str) -> None:  # Room weg (Trash/Delete): sichern, poppen, Sockets zu
@@ -152,6 +152,11 @@ async def kick_user(doc_id: str, username: str) -> None:
     r.get("role_cache", {}).pop(username, None)  # Cache weg: Rejoin liest die Rolle frisch
     if not r["conns"]:
         rooms.pop(doc_id, None)  # leer: kein Memory-Leak
+
+
+async def kick_all(username: str) -> None:  # alle Sockets eines Users zu (z.B. nach Passwortwechsel)
+    for doc_id in list(rooms):
+        await kick_user(doc_id, username)
 
 
 def persist(doc_id: str) -> bool:  # HTTP-Save: Bytes sofort sichern (sonst Neustart-Fenster)
@@ -215,6 +220,11 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
         await ws.close(code=4403)  # kein Zugriff: erst annehmen, dann mit Code schließen
         return
     await ws.accept()
+    origin = ws.headers.get("origin", "")  # leer = Test/nativ: erlaubt
+    host = ws.headers.get("host", "")  # Browser-Origin muss zum Host passen
+    if origin and urlparse(origin).netloc.lower() != host.split(",")[0].strip().lower():
+        await ws.close(code=4403)  # fremde Seite: kein Hijack
+        return
     r = room(doc_id)  # Rolle steht pro Nachricht neu drin (Unshare/Downgrade kickt beim Tippen)
     doc: Doc = r["doc"]
     r["conns"].add(ws)

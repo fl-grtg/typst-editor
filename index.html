@@ -256,7 +256,7 @@ window.addEventListener('error', function (e) {
   <label class="sr-only" for="p">Passwort</label><input id="p" type="password" placeholder="Passwort" autocomplete="current-password">
   <button id="go">Anmelden</button>
   <a class="mode" id="mode">Noch kein Konto? Registrieren</a>
-  <div id="err" style="color:#f88"></div>
+  <div id="err" style="color:#f88" role="alert"></div>
 </form>
 
 <div id="app">
@@ -309,7 +309,7 @@ if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.clo
 setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {} }, 2000) // defer-Race: Worker notfalls spaet setzen
 const $ = id => document.getElementById(id)
 let toastT = 0
-function toast(m) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 3000) }
+function toast(m) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.appendChild(t) } t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 3000) }
 const api = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then(async r => {
   if (r.status === 204) return null
   const t = await r.text()

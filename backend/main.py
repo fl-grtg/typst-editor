@@ -28,7 +28,8 @@ SNAP_MAX = 50  # Verlaufstiefe pro Doc
 INVITE_SECONDS = 7 * 86400  # Einladungs-Links laufen nach 7 Tagen ab
 EXPORT_MAX = 100 * 1024 * 1024  # Export-ZIP deckelt bei 100 MB
 RATE_SCOPES = {"login": (10, 60), "register": (20, 3600), "join": (30, 60),  # login/register: Defaults, config gewinnt
-               "search": (60, 60), "files": (20, 60)}
+               "search": (60, 60), "files": (20, 60), "save": (30, 60), "comments": (30, 60),
+               "export": (5, 60)}  # save/comments/export: Spam-Deckel
 
 ROOT = Path(__file__).resolve().parent.parent
 try:
@@ -155,7 +156,7 @@ def limited(req: Request, scope: str) -> None:
 def user_bytes(user: str) -> int:
     con = db.connect()
     try:
-        r = con.execute("SELECT COALESCE(SUM(LENGTH(content)),0) AS n FROM docs WHERE owner=?", (user,)).fetchone()
+        r = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))),0) AS n FROM docs WHERE owner=?", (user,)).fetchone()
         total = int(r["n"] or 0)
         ids = [x["id"] for x in con.execute("SELECT id FROM docs WHERE owner=?", (user,)).fetchall()]
     finally:
@@ -370,7 +371,7 @@ def check_pw(user: str, password: str) -> None:
 
 
 @app.post("/api/me/password")
-def change_password(b: PwChange, req: Request, user: str = Depends(me)):
+async def change_password(b: PwChange, req: Request, user: str = Depends(me)):
     check_pw(user, b.old)
     if not MIN_PW <= len(b.new) <= MAX_PW:
         raise HTTPException(400, "Passwort: 8-200 Zeichen")
@@ -380,9 +381,10 @@ def change_password(b: PwChange, req: Request, user: str = Depends(me)):
         cur = auth.sha(req.cookies.get(COOKIE, ""))
         con.execute("DELETE FROM sessions WHERE username=? AND token_hash!=?", (user, cur))
         con.commit()
-        return {"ok": True}
     finally:
         con.close()
+    await sync.kick_all(user)  # offene Sockets zu: alte Session tippt nicht weiter
+    return {"ok": True}
 
 
 @app.post("/api/me/name")
@@ -619,7 +621,8 @@ def auto_snap(doc_id: str, content: str, label: str = "") -> None:
 
 
 @app.post("/api/docs/{doc_id}/save")
-def save_doc(doc_id: str, b: DocSave, user: str = Depends(me)):
+def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me)):
+    limited(req, "save")  # Save-Spam deckeln
     need_edit(user, doc_id)
     live = sync.room_text(doc_id)  # Room ist neuer als der einzelne Save ("" ist gültig, nur None heißt kein Room)
     content = live if live is not None else b.content
@@ -907,6 +910,9 @@ def share_doc(doc_id: str, b: Share, user: str = Depends(me)):
         if b.role == "reviewer" and prev and prev["role"] == "editor":
             con.execute("DELETE FROM invites WHERE doc_id=? AND role='editor'",  # offene Editor-Links sterben mit
                         (doc_id,))  # dem Downgrade, sonst lädt der Link die Rechte wieder hoch
+            r = sync.rooms.get(doc_id)
+            if r:  # Rollen-Cache weg: Downgrade wirkt sofort statt erst nach 10s
+                r.get("role_cache", {}).pop(b.username, None)
         con.commit()
         return {"ok": True}
     finally:
@@ -948,7 +954,8 @@ def list_comments(doc_id: str, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/comments")
-def add_comment(doc_id: str, b: CommentNew, user: str = Depends(me)):
+def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me)):
+    limited(req, "comments")  # Kommentar-Spam deckeln
     need_access(user, doc_id)  # jede Rolle darf kommentieren
     if not b.text.strip() or len(b.text) > 2000:
         raise HTTPException(400, "Kommentar: 1-2000 Zeichen")
@@ -1225,7 +1232,8 @@ def join_doc(token: str, req: Request, user: str = Depends(me)):
             raise HTTPException(404, "Einladung ungültig")
         cut = (datetime.now(timezone.utc) - timedelta(seconds=INVITE_SECONDS)).isoformat()
         if (inv["created_at"] or "") < cut:
-            con.execute("DELETE FROM invites WHERE token=?", (auth.sha(token),))
+            con.execute("DELETE FROM invites WHERE token=? OR token=?",  # Hash + Klartext: Legacy-Leichen weg
+                        (auth.sha(token), token))
             con.commit()
             raise HTTPException(404, "Einladung ungültig")
         d = con.execute("SELECT owner, trashed FROM docs WHERE id=?", (inv["doc_id"],)).fetchone()
@@ -1235,7 +1243,7 @@ def join_doc(token: str, req: Request, user: str = Depends(me)):
             raise HTTPException(410, "Im Papierkorb – erst wiederherstellen")
         if d["owner"] != user:
             con.execute("INSERT INTO shares (doc_id, username, role) VALUES (?,?,?) "
-                        "ON CONFLICT (doc_id, username) DO UPDATE SET role=excluded.role",  # Link bestimmt die Rolle
+                        "ON CONFLICT (doc_id, username) DO NOTHING",  # Link gibt Zugang, aber kein Upgrade
                         (inv["doc_id"], user, inv["role"]))
             con.commit()
         return {"id": inv["doc_id"]}
@@ -1370,7 +1378,8 @@ def zip_name(s: str, ext: str = "") -> str:
 
 
 @app.get("/api/export.zip")
-def export_zip(user: str = Depends(me)):
+def export_zip(req: Request, user: str = Depends(me)):
+    limited(req, "export")  # ZIP baut alles: eng deckeln
     con = db.connect()
     try:
         docs = con.execute("SELECT id, title, content, folder FROM docs WHERE owner=? AND trashed=0 "
