@@ -759,6 +759,9 @@ function ensureTypst() {
   if (typstPm) return typstPm
   typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.7.0/dist/esm/index.js').then(m => { // gepinnt, CSP serverseitig (s. oben)
     if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM-Bundle setzt kein Global: selbst übernehmen
+    // Bundle-Default zeigt auf WASM, das es im Paket nicht gibt (404): explizit pinnen (s. Doku-Beispiel)
+    window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.7.0/pkg/typst_ts_web_compiler_bg.wasm' })
+    window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.7.0/pkg/typst_ts_renderer_bg.wasm' })
   }).catch(e => {
     if (!typstWarned) { typstWarned = true; console.warn('Compiler lädt nicht – Netz/adblock prüfen.', e) }
     throw new Error('Compiler lädt nicht')

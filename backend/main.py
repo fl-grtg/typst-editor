@@ -100,8 +100,8 @@ async def no_cache_html(req: Request, call):
     res.headers["X-Frame-Options"] = "DENY"
     res.headers["Referrer-Policy"] = "no-referrer"
     res.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://esm.sh https://cdn.jsdelivr.net; "
-        "connect-src 'self' https://esm.sh wss: ws:; worker-src 'self' blob:; img-src 'self' data: blob:; "
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://esm.sh https://cdn.jsdelivr.net; "
+        "connect-src 'self' https://esm.sh https://cdn.jsdelivr.net https://cdnjs.cloudflare.com wss: ws:; worker-src 'self' blob:; img-src 'self' data: blob:; "
         "style-src 'self' 'unsafe-inline'; font-src 'self' data:")
     proto = req.url.scheme
     fwd_proto = (req.headers.get("x-forwarded-proto", "") or "").split(",")[0].strip().lower()

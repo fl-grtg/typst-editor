@@ -1,6 +1,6 @@
 // App-Shell offline: nur eigenes Statik, API/WS immer Netz (kein Stale-Risiko).
 // V bei Shell-Änderungen (index.html, vendor-cm.js) erhöhen, sonst sehen Clients das Update nie.
-const V = 'typst-5'
+const V = 'typst-6'
 const SHELL = ['./', './index.html', './vendor-cm.js', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png']
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()).catch(e => console.warn('sw install', e)))
