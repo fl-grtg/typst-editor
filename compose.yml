@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    env_file: [{path: .env, required: false}]
+    environment:
+      DATA_DIR: /app/data
+      PORT: "8978" # Container-Port fix; lokalen Host-Port ueber Mapping unten aendern
+      # TRUST_PROXY: "true" # nur mit Reverse-Proxy davor (Caddy/nginx-Beispiele)
+    volumes:
+      - ${COMPOSE_DATA_PATH:-./data}:/app/data
+    restart: unless-stopped
+    # Loopback: kein direkter Internet-Zugriff. Proxy laeuft auf demselben Host.
+    ports:
+      - "127.0.0.1:8978:8978"

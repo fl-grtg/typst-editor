@@ -1,0 +1,8 @@
+# Example: use as Caddyfile, replace {$DOMAIN} (e.g. DOMAIN=editor.example.com).
+# Caddy gets and renews TLS automatically.
+{$DOMAIN} {
+	reverse_proxy 127.0.0.1:8978
+	# request_body { max_size 12MB } # same cap as nginx client_max_body_size below
+	# encode gzip
+	# log
+}

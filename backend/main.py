@@ -6,14 +6,15 @@ import re
 import shutil
 import sqlite3
 import zipfile
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response, UploadFile, WebSocket, status
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from backend import auth, db, sync
+from backend import auth, config, db, ratelimit, sync
 
 COOKIE = auth.COOKIE
 NAME_RE = r"[A-Za-z0-9_-]{2,20}"  # Usernamen: 2-20 Zeichen, ohne Leerzeichen
@@ -24,9 +25,17 @@ TITLE_MAX = 100  # Doc-Titel: lesbar bleiben
 FOLDER_MAX = 40  # Ordnername: kurz halten (Sidebar)
 SNAP_EVERY = 900  # Auto-Snapshot höchstens alle 15 Min
 SNAP_MAX = 50  # Verlaufstiefe pro Doc
+INVITE_SECONDS = 7 * 86400  # Einladungs-Links laufen nach 7 Tagen ab
+EXPORT_MAX = 100 * 1024 * 1024  # Export-ZIP deckelt bei 100 MB
+RATE_SCOPES = {"login": (10, 60), "register": (20, 3600), "join": (30, 60),  # login/register: Defaults, config gewinnt
+               "search": (60, 60), "files": (20, 60)}
 
 ROOT = Path(__file__).resolve().parent.parent
-FILES_DIR = ROOT / "data" / "files"
+try:
+    FILES_DIR = config.load().DATA_DIR / "files"
+except Exception:
+    FILES_DIR = ROOT / "data" / "files"
+# run: uvicorn backend.main:app --host 127.0.0.1 --port 8978 --workers 1
 ALLOWED_IMG = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".pdf", ".typ", ".bib", ".csv"}
 TEXT_SUFFIX = {".typ", ".bib", ".csv"}  # Tabs: als Text editierbar, Rest nur Binär/Shadow
 
@@ -68,7 +77,15 @@ Mehr steht in der #link("https://typst.app/docs")[Typst-Doku] – viel Spaß!
 """
 
 db.init_db()
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # Shutdown: dirty Rooms sichern (sonst bis 2s Tippen weg)
+    yield
+    sync.flush_all()
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -81,6 +98,15 @@ async def no_cache_html(req: Request, call):
     res.headers["X-Content-Type-Options"] = "nosniff"
     res.headers["X-Frame-Options"] = "DENY"
     res.headers["Referrer-Policy"] = "no-referrer"
+    res.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://esm.sh https://cdn.jsdelivr.net; "
+        "connect-src 'self' https://esm.sh wss: ws:; worker-src 'self' blob:; img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline'; font-src 'self' data:")
+    proto = req.url.scheme
+    fwd_proto = (req.headers.get("x-forwarded-proto", "") or "").split(",")[0].strip().lower()
+    if proto == "https" or fwd_proto == "https":  # sonst localhost bricken
+        res.headers["Strict-Transport-Security"] = "max-age=31536000"
+    res.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return res
 
 
@@ -91,11 +117,68 @@ def me(session: str | None = Cookie(default=None, alias=COOKIE)) -> str:
     return user
 
 
-def need_access(user: str, doc_id: str) -> str:
+def need_access(user: str, doc_id: str, allow_trashed: bool = False) -> str:
     r = db.doc_role(user, doc_id)
     if not r:
         raise HTTPException(404, "Doc not found")
+    if not allow_trashed and db.is_trashed(doc_id):
+        raise HTTPException(410, "Im Papierkorb – erst wiederherstellen")
     return r
+
+
+def client_ip(req: Request) -> str:
+    try:
+        if config.load().TRUST_PROXY:
+            fwd = req.headers.get("x-forwarded-for", "")
+            if fwd.strip():
+                return fwd.split(",")[0].strip()
+    except Exception:
+        pass
+    return req.client.host if req.client else "?"
+
+
+def limited(req: Request, scope: str) -> None:
+    # gleiche Antworten, nur seltener: kein Rate-Limit-Orakel als Enumerations-Hilfe
+    lim, win = RATE_SCOPES[scope]
+    try:
+        cfg = config.load()
+        if scope == "login":
+            lim = cfg.RATE_LOGIN_PER_MIN
+        elif scope == "register":
+            lim = cfg.RATE_REGISTER_PER_HOUR
+    except Exception:
+        pass
+    if not ratelimit.allow(f"{scope}:{client_ip(req)}", lim, win):
+        raise HTTPException(429, "Too many requests")
+
+
+def user_bytes(user: str) -> int:
+    con = db.connect()
+    try:
+        r = con.execute("SELECT COALESCE(SUM(LENGTH(content)),0) AS n FROM docs WHERE owner=?", (user,)).fetchone()
+        total = int(r["n"] or 0)
+        ids = [x["id"] for x in con.execute("SELECT id FROM docs WHERE owner=?", (user,)).fetchall()]
+    finally:
+        con.close()
+    for did in ids:
+        d = FILES_DIR / did
+        if d.is_dir():
+            for p in d.iterdir():
+                if p.is_file():
+                    try:
+                        total += p.stat().st_size
+                    except OSError:
+                        pass
+    return total
+
+
+def check_quota(user: str, extra: int) -> None:
+    try:
+        cap = config.load().MAX_BYTES_PER_USER
+    except Exception:
+        cap = 524288000
+    if user_bytes(user) + extra > cap:
+        raise HTTPException(413, "Quota voll")
 
 
 def need_edit(user: str, doc_id: str) -> None:
@@ -106,40 +189,46 @@ def need_edit(user: str, doc_id: str) -> None:
 
 
 class Login(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=20)
+    password: str = Field(max_length=200)  # KDF-Deckel: Riesen-Passwort bremst den Hash nicht aus
+
+
+class Register(BaseModel):
+    username: str = Field(max_length=20)
+    password: str = Field(max_length=200)
+    invite: str = Field(default="", max_length=200)
 
 
 class DocCreate(BaseModel):
-    title: str = "Neues Dokument"
-    content: str = ""  # Starter-Inhalt (leer = leeres Doc)
-    folder: str = ""  # Ordner in der Sidebar
+    title: str = Field(default="Neues Dokument", max_length=100)
+    content: str = Field(default="", max_length=200001)  # +1: der 200k-Check im Code antwortet mit 400
+    folder: str = Field(default="", max_length=40)  # Ordner in der Sidebar
 
 
 class DocSave(BaseModel):
-    content: str
+    content: str = Field(max_length=200001)
 
 
 class TitleSet(BaseModel):
-    title: str
+    title: str = Field(max_length=100)
 
 
 class TplSave(BaseModel):
-    name: str
-    content: str = ""
-    folder: str = ""  # nur bei Neuanlage gesetzt, Update fasst den Ordner nicht an
+    name: str = Field(max_length=100)
+    content: str = Field(default="", max_length=200001)
+    folder: str = Field(default="", max_length=40)  # nur bei Neuanlage gesetzt, Update fasst den Ordner nicht an
 
 
 class Share(BaseModel):
-    username: str
-    role: str = "reviewer"  # editor | reviewer
+    username: str = Field(max_length=20)
+    role: str = Field(default="reviewer", max_length=20)  # editor | reviewer
 
 
 class CommentNew(BaseModel):
     anchor: int = 0
-    text: str
-    parent_id: str | None = None
-    quote: str = ""
+    text: str = Field(max_length=2001)  # +1: der 2000-Check im Code antwortet mit 400
+    parent_id: str | None = Field(default=None, max_length=100)
+    quote: str = Field(default="", max_length=2000)
 
 
 class AnchorSet(BaseModel):
@@ -147,7 +236,7 @@ class AnchorSet(BaseModel):
 
 
 class CommentEdit(BaseModel):
-    text: str
+    text: str = Field(max_length=2001)
 
 
 class ResolveSet(BaseModel):
@@ -155,46 +244,47 @@ class ResolveSet(BaseModel):
 
 
 class FolderSet(BaseModel):
-    folder: str = ""
+    folder: str = Field(default="", max_length=40)
 
 
 class FolderRename(BaseModel):
-    old: str
-    new: str
+    old: str = Field(max_length=40)
+    new: str = Field(max_length=40)
 
 
 class SnapNew(BaseModel):
-    label: str = ""
+    label: str = Field(default="", max_length=80)
 
 
 class FileText(BaseModel):
-    content: str = ""
+    content: str = Field(default="", max_length=200001)
 
 
 class InviteNew(BaseModel):
-    role: str = "reviewer"  # editor | reviewer
+    role: str = Field(default="reviewer", max_length=20)  # editor | reviewer
 
 
 class PwChange(BaseModel):
-    old: str
-    new: str
+    old: str = Field(max_length=200)
+    new: str = Field(max_length=200)
 
 
 class NameChange(BaseModel):
-    name: str
-    password: str
+    name: str = Field(max_length=20)
+    password: str = Field(max_length=200)
 
 
 class PwOnly(BaseModel):
-    password: str
+    password: str = Field(max_length=200)
 
 
 class AvatarSet(BaseModel):
-    img: str = ""  # data:image/png;base64,... (Frontend skaliert auf 64px)
+    img: str = Field(default="", max_length=300000)  # data:image/png;base64,... (Frontend skaliert auf 64px)
 
 
 @app.post("/api/login")
 def login(b: Login, res: Response, req: Request):
+    limited(req, "login")
     name = b.username.strip()  # wie Register: Leerzeichen außen zählen nicht
     token = auth.create_session(name, b.password)
     if not token:
@@ -204,12 +294,30 @@ def login(b: Login, res: Response, req: Request):
 
 
 def set_cookie(res: Response, req: Request, token: str) -> None:
+    cfg = config.load()
+    if cfg.COOKIE_SECURE == "true":
+        secure = True
+    elif cfg.COOKIE_SECURE == "false":
+        secure = False
+    else:
+        proto = req.url.scheme
+        if cfg.TRUST_PROXY:
+            proto = (req.headers.get("x-forwarded-proto", "") or proto).split(",")[0].strip() or proto
+        secure = proto == "https"
     res.set_cookie(COOKIE, token, max_age=auth.SESSION_SECONDS, httponly=True,
-                   samesite="lax", secure=req.url.scheme == "https")
+                   samesite="lax", secure=secure)
 
 
 @app.post("/api/register")
-def register(b: Login, res: Response, req: Request):
+def register(b: Register, res: Response, req: Request):
+    limited(req, "register")
+    cfg = config.load()
+    if cfg.REGISTRATION not in ("open", "invite-only", "closed"):
+        raise HTTPException(403, "Registration disabled")  # fail closed bei Tippfehlern
+    if cfg.REGISTRATION == "closed":
+        raise HTTPException(403, "Registration disabled")
+    if cfg.REGISTRATION == "invite-only" and (not cfg.REGISTRATION_INVITE_TOKEN or b.invite != cfg.REGISTRATION_INVITE_TOKEN):
+        raise HTTPException(403, "Invalid invite")
     name = b.username.strip()
     if not re.fullmatch(NAME_RE, name):
         raise HTTPException(400, "Name: 2-20 Zeichen, Buchstaben/Zahlen/_-")
@@ -450,9 +558,16 @@ def create_doc(b: DocCreate, user: str = Depends(me)):
         raise HTTPException(400, f"Titel: 1-{TITLE_MAX} Zeichen")
     if len(b.content) > MAX_TXT:
         raise HTTPException(400, "Doc zu groß (max 200 KB)")
+    check_quota(user, len(b.content))
     did, now = db.new_id("d_"), db.now_iso()
     con = db.connect()
     try:
+        try:
+            max_docs = config.load().MAX_DOCS_PER_USER
+        except Exception:
+            max_docs = 100
+        if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
+            raise HTTPException(400, "Zu viele Docs")
         con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
                     "VALUES (?,?,?,?,?,?,?)",
                     (did, user, t, b.content,
@@ -510,6 +625,7 @@ def save_doc(doc_id: str, b: DocSave, user: str = Depends(me)):
     content = live if live is not None else b.content
     if len(content) > MAX_TXT:
         raise HTTPException(400, "Doc zu groß (max 200 KB)")
+    check_quota(user, len(content))
     con = db.connect()
     try:
         con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
@@ -557,6 +673,7 @@ def save_template(b: TplSave, user: str = Depends(me)):
     n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(b.name or "").name.strip().lstrip("."))[:100]
     if not n.endswith(".typ") or not b.content.strip() or len(b.content) > MAX_TXT:
         raise HTTPException(400, "Nur .typ mit Inhalt (max 200 KB)")
+    check_quota(user, len(b.content))
     con = db.connect()
     try:
         con.execute("INSERT INTO templates (owner, name, content, line, folder, updated_at) VALUES (?,?,?,?,?,?) "
@@ -651,7 +768,7 @@ def drop_tpl_folder(name: str, user: str = Depends(me)):
 
 @app.delete("/api/docs/{doc_id}")
 async def delete_doc(doc_id: str, user: str = Depends(me)):
-    r = need_access(user, doc_id)
+    r = need_access(user, doc_id, allow_trashed=True)
     if r != "owner":
         raise HTTPException(403, "Nur Owner kann löschen")
     con = db.connect()
@@ -676,7 +793,7 @@ async def delete_doc(doc_id: str, user: str = Depends(me)):
 
 @app.post("/api/docs/{doc_id}/restore")
 def restore_doc(doc_id: str, user: str = Depends(me)):
-    if need_access(user, doc_id) != "owner":
+    if need_access(user, doc_id, allow_trashed=True) != "owner":
         raise HTTPException(403, "Nur Owner kann wiederherstellen")
     con = db.connect()
     try:
@@ -734,11 +851,15 @@ def rename_folder(b: FolderRename, user: str = Depends(me)):
 
 @app.post("/api/docs/{doc_id}/duplicate")
 def duplicate_doc(doc_id: str, user: str = Depends(me)):
-    need_access(user, doc_id)  # lesen darf jeder im Doc: Kopie landet beim Duplizierenden
-    if db.is_trashed(doc_id):
-        raise HTTPException(410, "Im Papierkorb – erst wiederherstellen")
+    need_edit(user, doc_id)  # lesen reicht nicht: reviewer darf schauen, aber nicht kopieren
+    try:
+        max_docs = config.load().MAX_DOCS_PER_USER
+    except Exception:
+        max_docs = 100
     con = db.connect()
     try:
+        if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
+            raise HTTPException(400, "Zu viele Docs")
         d = con.execute("SELECT title, content, folder FROM docs WHERE id=?", (doc_id,)).fetchone()
         if not d:
             raise HTTPException(404, "Doc weg")
@@ -752,6 +873,7 @@ def duplicate_doc(doc_id: str, user: str = Depends(me)):
         nid, now = db.new_id("d_"), db.now_iso()
         live = sync.room_text(doc_id)  # bis 2s Tippen steckt nur im Room, nicht in der DB
         text = live if live is not None else d["content"]
+        check_quota(user, len(text))
         try:
             con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
                         "VALUES (?,?,?,?,?,?,?)",
@@ -777,9 +899,14 @@ def share_doc(doc_id: str, b: Share, user: str = Depends(me)):
     try:
         if not con.execute("SELECT 1 FROM users WHERE name=?", (b.username,)).fetchone():
             raise HTTPException(404, "User gibt es nicht")
+        prev = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
+                           (doc_id, b.username)).fetchone()
         con.execute("INSERT INTO shares (doc_id, username, role) VALUES (?,?,?) "
                     "ON CONFLICT (doc_id, username) DO UPDATE SET role=excluded.role",
                     (doc_id, b.username, b.role))
+        if b.role == "reviewer" and prev and prev["role"] == "editor":
+            con.execute("DELETE FROM invites WHERE doc_id=? AND role='editor'",  # offene Editor-Links sterben mit
+                        (doc_id,))  # dem Downgrade, sonst lädt der Link die Rechte wieder hoch
         con.commit()
         return {"ok": True}
     finally:
@@ -793,6 +920,7 @@ async def unshare_doc(doc_id: str, username: str, user: str = Depends(me)):
     con = db.connect()
     try:
         con.execute("DELETE FROM shares WHERE doc_id=? AND username=?", (doc_id, username))
+        con.execute("DELETE FROM invites WHERE doc_id=?", (doc_id,))  # raus ist raus: alte Links sterben mit
         con.commit()
     finally:
         con.close()
@@ -873,8 +1001,13 @@ def move_comment(doc_id: str, cid: str, b: AnchorSet, user: str = Depends(me)):
         raise HTTPException(400, "Anker < 0")
     con = db.connect()
     try:
-        con.execute("UPDATE comments SET anchor=? WHERE id=? AND doc_id=? AND parent_id IS NULL",
-                    (b.anchor, cid, doc_id))
+        r = con.execute("SELECT username FROM comments WHERE id=? AND doc_id=? AND parent_id IS NULL",
+                        (cid, doc_id)).fetchone()
+        if not r:
+            raise HTTPException(404, "Kommentar weg")
+        if r["username"] != user:
+            raise HTTPException(403, "Nur Autor")
+        con.execute("UPDATE comments SET anchor=? WHERE id=?", (b.anchor, cid))
         con.commit()
         return {"ok": True}
     finally:
@@ -942,17 +1075,31 @@ def list_files(doc_id: str, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/files")
-def upload_file(doc_id: str, f: UploadFile, user: str = Depends(me)):
+def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(me)):
+    limited(req, "files")
     need_edit(user, doc_id)
     n = safe_name(f.filename or "")
-    data = f.file.read(10 * 1024 * 1024 + 1)
-    if len(data) > 10 * 1024 * 1024:
-        raise HTTPException(400, "Max 10 MB")
+    try:
+        max_files = config.load().MAX_FILES_PER_DOC
+    except Exception:
+        max_files = 200
     d = FILES_DIR / doc_id
     d.mkdir(parents=True, exist_ok=True)
-    (d / n).write_bytes(data)
+    if sum(1 for p in d.iterdir() if p.is_file() and p.name != n) >= max_files:
+        raise HTTPException(400, "Zu viele Dateien")
+    size, chunks = 0, []
+    while True:
+        blk = f.file.read(64 * 1024)
+        if not blk:
+            break
+        size += len(blk)
+        if size > 10 * 1024 * 1024:
+            raise HTTPException(400, "Max 10 MB")
+        chunks.append(blk)
+    check_quota(user, size)
+    (d / n).write_bytes(b"".join(chunks))
     touch_doc(doc_id)
-    return {"name": n, "size": len(data)}
+    return {"name": n, "size": size}
 
 
 @app.get("/api/docs/{doc_id}/files/{name}")
@@ -1007,6 +1154,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, user: str = Depends(me))
     need_edit(user, doc_id)
     if len(b.content) > MAX_TXT:
         raise HTTPException(400, "Max 200 KB")
+    check_quota(user, len(b.content))
     p = FILES_DIR / doc_id / need_text(name)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(b.content, encoding="utf-8")
@@ -1023,8 +1171,8 @@ def make_invite(doc_id: str, b: InviteNew, user: str = Depends(me)):
     tok = db.new_id("")
     con = db.connect()
     try:
-        con.execute("INSERT INTO invites (token, doc_id, role, created_at) VALUES (?,?,?,?)",
-                    (tok, doc_id, b.role, db.now_iso()))
+        con.execute("INSERT INTO invites (token, doc_id, role, hint, created_at) VALUES (?,?,?,?,?)",
+                    (auth.sha(tok), doc_id, b.role, tok[:8], db.now_iso()))  # nur der Hash liegt in der DB
         con.commit()
         return {"token": tok}
     finally:
@@ -1037,20 +1185,20 @@ def list_invites(doc_id: str, user: str = Depends(me)):
         raise HTTPException(403, "Nur Owner")
     con = db.connect()
     try:
-        rows = con.execute("SELECT token, role, created_at FROM invites WHERE doc_id=? ORDER BY created_at",
+        rows = con.execute("SELECT hint, role, created_at FROM invites WHERE doc_id=? ORDER BY created_at",
                            (doc_id,)).fetchall()
         return {"invites": [dict(r) for r in rows]}
     finally:
         con.close()
 
 
-@app.delete("/api/docs/{doc_id}/invites/{token}")
-def drop_invite(doc_id: str, token: str, user: str = Depends(me)):
+@app.delete("/api/docs/{doc_id}/invites/{hint}")
+def drop_invite(doc_id: str, hint: str, user: str = Depends(me)):
     if need_access(user, doc_id) != "owner":
         raise HTTPException(403, "Nur Owner")
     con = db.connect()
-    try:
-        con.execute("DELETE FROM invites WHERE token=? AND doc_id=?", (token, doc_id))
+    try:  # per hint: löscht alle Treffer im Doc (8 Zeichen können kollidieren, Risiko vernachlässigbar)
+        con.execute("DELETE FROM invites WHERE doc_id=? AND hint=?", (doc_id, hint))
         con.commit()
         return {"ok": True}
     finally:
@@ -1058,15 +1206,33 @@ def drop_invite(doc_id: str, token: str, user: str = Depends(me)):
 
 
 @app.post("/api/join/{token}")
-def join_doc(token: str, user: str = Depends(me)):
+def join_doc(token: str, req: Request, user: str = Depends(me)):
+    limited(req, "join")
     con = db.connect()
     try:
-        inv = con.execute("SELECT doc_id, role FROM invites WHERE token=?", (token,)).fetchone()
+        inv = con.execute("SELECT doc_id, role, created_at FROM invites WHERE token=?",
+                          (auth.sha(token),)).fetchone()
+        if not inv:  # alte DB: Klartext-Token einmalig auf Hash heben
+            inv = con.execute("SELECT doc_id, role, created_at FROM invites WHERE token=?",
+                              (token,)).fetchone()
+            if inv:
+                try:
+                    con.execute("UPDATE invites SET token=? WHERE token=?", (auth.sha(token), token))
+                    con.commit()
+                except Exception:
+                    pass
         if not inv:
             raise HTTPException(404, "Einladung ungültig")
-        d = con.execute("SELECT owner FROM docs WHERE id=?", (inv["doc_id"],)).fetchone()
+        cut = (datetime.now(timezone.utc) - timedelta(seconds=INVITE_SECONDS)).isoformat()
+        if (inv["created_at"] or "") < cut:
+            con.execute("DELETE FROM invites WHERE token=?", (auth.sha(token),))
+            con.commit()
+            raise HTTPException(404, "Einladung ungültig")
+        d = con.execute("SELECT owner, trashed FROM docs WHERE id=?", (inv["doc_id"],)).fetchone()
         if not d:
             raise HTTPException(404, "Doc weg")
+        if d["trashed"]:
+            raise HTTPException(410, "Im Papierkorb – erst wiederherstellen")
         if d["owner"] != user:
             con.execute("INSERT INTO shares (doc_id, username, role) VALUES (?,?,?) "
                         "ON CONFLICT (doc_id, username) DO UPDATE SET role=excluded.role",  # Link bestimmt die Rolle
@@ -1146,7 +1312,8 @@ async def restore_snap(doc_id: str, sid: str, user: str = Depends(me)):
 
 @app.delete("/api/docs/{doc_id}/snapshots/{sid}")
 def delete_snap(doc_id: str, sid: str, user: str = Depends(me)):
-    need_edit(user, doc_id)
+    if need_access(user, doc_id) != "owner":
+        raise HTTPException(403, "Nur Owner kann Stände löschen")
     con = db.connect()
     try:
         con.execute("DELETE FROM snapshots WHERE id=? AND doc_id=?", (sid, doc_id))
@@ -1171,7 +1338,8 @@ def list_members(doc_id: str, user: str = Depends(me)):
 
 
 @app.get("/api/search")
-def search_docs(q: str = "", user: str = Depends(me)):
+def search_docs(req: Request, q: str = "", user: str = Depends(me)):
+    limited(req, "search")
     q = q.strip()[:50]
     if len(q) < 2:
         return {"hits": []}
@@ -1209,6 +1377,7 @@ def export_zip(user: str = Depends(me)):
                            "ORDER BY folder, title", (user,)).fetchall()
         buf = io.BytesIO()
         used = set()  # doppelte Titel: nummerieren statt überschreiben
+        total = 0
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             for d in docs:
                 pre = (zip_name(d["folder"]) + "/") if d["folder"] else ""
@@ -1218,11 +1387,18 @@ def export_zip(user: str = Depends(me)):
                     name, i = f"{base} {i}", i + 1
                 used.add((pre + name + ".typ").lower())
                 live = sync.room_text(d["id"])  # Room neuer als DB (s. duplicate/snapshot)
-                z.writestr(pre + name + ".typ", live if live is not None else d["content"])
+                txt = live if live is not None else d["content"]
+                total += len(txt)
+                if total > EXPORT_MAX:
+                    raise HTTPException(413, "Export zu groß (max 100 MB)")
+                z.writestr(pre + name + ".typ", txt)
                 fdir = FILES_DIR / d["id"]
                 if fdir.is_dir():
                     for p in sorted(fdir.iterdir()):
                         if p.is_file() and p.stat().st_size <= 10 * 1024 * 1024:
+                            total += p.stat().st_size
+                            if total > EXPORT_MAX:
+                                raise HTTPException(413, "Export zu groß (max 100 MB)")
                             z.writestr(pre + name + "-dateien/" + p.name, p.read_bytes())
         return Response(content=buf.getvalue(), media_type="application/zip",
                         headers={"Content-Disposition": "attachment; filename=typst-backup.zip"})

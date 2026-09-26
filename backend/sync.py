@@ -9,6 +9,7 @@ Reviewer bekommen alles live, ihre Updates werden verworfen.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
 from fastapi import WebSocket
@@ -18,6 +19,9 @@ from pycrdt import Doc, Text
 from backend import auth, db
 
 SAVE_EVERY = 2.0  # DB-Write höchstens alle 2s pro Room (Tippen sonst = Dauerfeuer)
+MAX_TXT = 200_000  # Duplikat aus backend.main (kein Import: main importiert sync -> Zyklus)
+AWARE_MAX = 64 * 1024  # Awareness ist nur Cursor-Deko: größer wird gedroppt
+CACHE_TTL = 10.0  # Rollen/Trash-Cache pro Room: DB nur bei Ablauf neu lesen
 
 COOKIE = auth.COOKIE  # Session-Name (eine Quelle in auth)
 
@@ -62,15 +66,48 @@ def room(doc_id: str) -> dict:
         doc = Doc()
         yjs, content = db.get_room_state(doc_id)
         if yjs:
-            doc.apply_update(yjs)  # gleiche IDs wie vorher: Sync ist idempotent
+            try:
+                doc.apply_update(yjs)  # gleiche IDs wie vorher: Sync ist idempotent
+            except Exception:
+                doc = Doc()  # korruptes yjs: aus content neu aufbauen statt Crash + hängende WS
+                if content:
+                    with doc.transaction():
+                        text = doc.get("typst", type=Text)
+                        text += content
+                try:
+                    db.save_room(doc_id, doc.get_update(), content)
+                except Exception:
+                    pass
         elif content:
             with doc.transaction():
                 text = doc.get("typst", type=Text)
                 text += content  # Alt-Bestand ohne Bytes: einmalig, danach Bytes sichern
             db.save_room(doc_id, doc.get_update(), content)
-        r = {"doc": doc, "conns": set(), "users": {}, "saved": 0.0, "dirty": False}
+        r = {"doc": doc, "conns": set(), "users": {}, "saved": 0.0, "dirty": False,
+             "role_cache": {}, "trashed_cache": (False, 0.0)}
         rooms[doc_id] = r
     return r
+
+
+def cached_role(r: dict, user: str, doc_id: str) -> str | None:
+    """Rolle pro Keystroke aus dem Cache (TTL 10s): Downgrade wirkt verzögert, Unshare kickt sofort."""
+    now = time.monotonic()
+    hit = r.get("role_cache", {}).get(user)
+    if hit and now - hit[1] < CACHE_TTL:
+        return hit[0]
+    role = db.doc_role(user, doc_id)
+    r.setdefault("role_cache", {})[user] = (role, now)
+    return role
+
+
+def cached_trashed(r: dict, doc_id: str) -> bool:
+    now = time.monotonic()
+    val, ts = r.get("trashed_cache", (False, 0.0))
+    if now - ts < CACHE_TTL:
+        return val
+    val = db.is_trashed(doc_id)
+    r["trashed_cache"] = (val, now)
+    return val
 
 
 async def bcast(conns: set, mine: WebSocket, data: bytes) -> None:
@@ -78,9 +115,9 @@ async def bcast(conns: set, mine: WebSocket, data: bytes) -> None:
         if c is mine:
             continue
         try:
-            await c.send_bytes(data)
+            await asyncio.wait_for(c.send_bytes(data), 5.0)  # langsamster Client blockiert nicht alle
         except Exception:
-            conns.discard(c)  # tot: beim nächsten Close komplett weg
+            conns.discard(c)  # tot/langsam: beim nächsten Close komplett weg
 
 
 async def drop(doc_id: str) -> None:  # Room weg (Trash/Delete): sichern, poppen, Sockets zu
@@ -112,6 +149,9 @@ async def kick_user(doc_id: str, username: str) -> None:
                 pass
             r["conns"].discard(c)
             r.get("users", {}).pop(c, None)
+    r.get("role_cache", {}).pop(username, None)  # Cache weg: Rejoin liest die Rolle frisch
+    if not r["conns"]:
+        rooms.pop(doc_id, None)  # leer: kein Memory-Leak
 
 
 def persist(doc_id: str) -> bool:  # HTTP-Save: Bytes sofort sichern (sonst Neustart-Fenster)
@@ -121,9 +161,22 @@ def persist(doc_id: str) -> bool:  # HTTP-Save: Bytes sofort sichern (sonst Neus
     try:
         db.save_room(doc_id, r["doc"].get_update(), str(r["doc"].get("typst", type=Text)))
         r["dirty"] = False
+        r["saved"] = time.monotonic()  # sonst spart persist nichts: nächster Keystroke speichert doppelt
     except Exception:
         r["dirty"] = True
     return True
+
+
+def flush_all() -> None:  # Shutdown: alle dirty Rooms sichern, Fehler schlucken
+    for doc_id, r in list(rooms.items()):
+        if not r.get("dirty"):
+            continue
+        try:
+            db.save_room(doc_id, r["doc"].get_update(), str(r["doc"].get("typst", type=Text)))
+            r["dirty"] = False
+            r["saved"] = time.monotonic()
+        except Exception:
+            pass
 
 
 def room_text(doc_id: str) -> str | None:  # neuster Stand aus dem Live-Room (None = keiner da)
@@ -172,7 +225,7 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
                                  write_var(len(sv)), sv))
         while True:
             data = await ws.receive_bytes()
-            if db.is_trashed(doc_id):
+            if cached_trashed(r, doc_id):
                 try:
                     await ws.close(code=4403)
                 except Exception:
@@ -205,8 +258,8 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
                     await ws.send_bytes(blob(write_var(MSG_SYNC), write_var(STEP2),
                                              write_var(len(diff)), diff))
                 elif st in (STEP2, UPDATE) and payload:
-                    role_now = db.doc_role(user or "", doc_id)  # Unshare/Downgrade kickt beim nächsten Tippen
-                    if not role_now or db.is_trashed(doc_id):
+                    role_now = cached_role(r, user or "", doc_id)  # Unshare/Downgrade kickt beim nächsten Tippen
+                    if not role_now or cached_trashed(r, doc_id):
                         try:
                             await ws.close(code=4403)
                         except Exception:
@@ -214,10 +267,20 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
                         break
                     if role_now == "reviewer":
                         continue  # runtergestuft: parsen, aber verwerfen
-                    try:
-                        doc.apply_update(payload)
+                    try:  # erst probieren: kaputtes Update wirft, Room bleibt sauber
+                        trial = Doc()
+                        trial.apply_update(doc.get_update())
+                        trial.apply_update(payload)
+                        cur_len = len(str(trial.get("typst", type=Text)))
                     except Exception:
                         continue  # kaputtes Update: ignorieren, Verbindung lebt
+                    if cur_len > MAX_TXT:  # aufgebläht: weder speichern noch funken, Verursacher raus
+                        try:
+                            await ws.close(code=4409)
+                        except Exception:
+                            pass
+                        break
+                    doc.apply_update(payload)  # Trial war ok: jetzt echt uebernehmen
                     now = time.monotonic()  # bündeln: Text sofort weiter, DB höchstens alle SAVE_EVERY
                     if now - r.get("saved", 0.0) >= SAVE_EVERY:
                         try:
@@ -232,7 +295,12 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
                                                      write_var(len(payload)), payload))
                 # Reviewer-Update: parsen, aber verwerfen
             elif t == MSG_AWARENESS:
-                await bcast(r["conns"], ws, data)
+                if len(data) > AWARE_MAX:
+                    continue  # Riesen-Cursor: droppen statt an alle funken
+                try:
+                    await bcast(r["conns"], ws, data)
+                except Exception:
+                    pass
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

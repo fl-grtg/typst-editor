@@ -5,7 +5,7 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from backend import db
+from backend import config, db
 
 SESSION_SECONDS = 14 * 24 * 3600
 COOKIE = "typst_session"  # eine Quelle (main + sync nutzen diese)
@@ -26,7 +26,7 @@ def check_password(password: str, stored: str) -> bool:
         salt = bytes.fromhex(salt_hex)
         digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, int(rounds))
         return hmac.compare_digest(digest.hex(), expected)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return False
 
 
@@ -36,7 +36,11 @@ def sha(token: str) -> str:
 
 def mint(username: str) -> str:  # Session ohne Passwort: nach Register/Verify
     token = secrets.token_urlsafe(32)
-    expires = (datetime.now(timezone.utc) + timedelta(seconds=SESSION_SECONDS)).isoformat()
+    try:
+        seconds = config.load().SESSION_SECONDS
+    except Exception:
+        seconds = SESSION_SECONDS
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
     con = db.connect()
     try:
         con.execute("INSERT INTO sessions (token_hash, username, expires) VALUES (?,?,?)",
@@ -54,6 +58,11 @@ def create_session(username: str, password: str) -> str | None:
         real = row["hash"] if row else DUMMY_HASH
         if not row or not check_password(password, real):
             return None
+        try:  # abgelaufene Sessions kehren nicht wieder: 1 Delete pro Login hält die Tabelle klein
+            con.execute("DELETE FROM sessions WHERE expires < ?", (datetime.now(timezone.utc).isoformat(),))
+            con.commit()
+        except Exception:
+            pass
     finally:
         con.close()
     return mint(username)

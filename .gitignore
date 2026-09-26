@@ -15,3 +15,17 @@ node_modules/
 Thumbs.db
 .vscode/
 .idea/
+dist/
+build/
+coverage/
+coverage.xml
+*.cover
+*.lcov
+*.log
+.mypy_cache/
+.ruff_cache/
+.cache/
+*.egg-info/
+.eggs/
+config.toml
+!.env.example

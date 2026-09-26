@@ -1,0 +1,55 @@
+import pytest
+from fastapi.websockets import WebSocketDisconnect
+from pycrdt import Doc
+
+from backend import sync
+from conftest import login, make_doc, register_user
+
+
+def _step1(sv=None):
+    if sv is None:
+        sv = Doc().get_state()  # leeres b"" antwortet der Server nie (continue) -> valider Vektor nötig
+    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.STEP1),
+                     sync.write_var(len(sv)), sv)
+
+
+def _parse(data):
+    t, p = sync.read_var(data, 0)
+    st, p = sync.read_var(data, p)
+    ln, p = sync.read_var(data, p)
+    return t, st, data[p:p + ln]
+
+
+def test_no_token_4403(c):
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "WS")
+    c.post("/api/logout")
+    with c.websocket_connect(f"/ws/{did}") as ws:
+        with pytest.raises(WebSocketDisconnect) as e:
+            ws.receive_bytes()
+    assert e.value.code == 4403
+
+
+def test_editor_step1_step2(c):
+    register_user(c, "alice")
+    tok = login(c, "alice")["token"]
+    did = make_doc(c, "WS2")
+    with c.websocket_connect(f"/ws/{did}?token={tok}") as ws:
+        t, st, _ = _parse(ws.receive_bytes())
+        assert (t, st) == (sync.MSG_SYNC, sync.STEP1)
+        ws.send_bytes(_step1())
+        t, st, _ = _parse(ws.receive_bytes())
+        assert (t, st) == (sync.MSG_SYNC, sync.STEP2)
+
+
+def test_reviewer_connects(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, "WS3")
+    c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"})
+    tok = login(c, "bob")["token"]
+    with c.websocket_connect(f"/ws/{did}?token={tok}") as ws:
+        t, st, _ = _parse(ws.receive_bytes())
+        assert (t, st) == (sync.MSG_SYNC, sync.STEP1)

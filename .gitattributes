@@ -1,0 +1,12 @@
+* text=auto
+*.png binary
+*.ico binary
+*.wasm binary
+*.db binary
+*.sqlite binary
+Dockerfile text eol=lf
+compose.yml text eol=lf
+Caddyfile.example text eol=lf
+nginx.example.conf text eol=lf
+*.sh text eol=lf
+*.toml text eol=lf

@@ -1,0 +1,14 @@
+data/
+.venv
+venv/
+node_modules/
+__pycache__
+.pytest_cache
+.git
+.env
+config.toml
+*.db
+*.sqlite*
+tests/
+.github/
+cm-build/

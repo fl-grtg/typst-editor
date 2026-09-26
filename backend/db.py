@@ -8,7 +8,11 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent
 ROOT = BACKEND_DIR.parent
 SCHEMA_PATH = BACKEND_DIR / "schema.sql"
-DB_PATH = ROOT / "data" / "app.db"
+try:
+    from backend.config import load as _load
+    DB_PATH = _load().DATA_DIR / "app.db"
+except Exception:
+    DB_PATH = ROOT / "data" / "app.db"
 
 
 def now_iso() -> str:
@@ -55,6 +59,9 @@ def init_db() -> None:
         con.execute("CREATE TABLE IF NOT EXISTS invites ("  # Link-Einladungen pro Doc
                     "token TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
                     "role TEXT NOT NULL DEFAULT 'reviewer', created_at TEXT NOT NULL)")
+        icols = [r["name"] for r in con.execute("PRAGMA table_info(invites)").fetchall()]
+        if "hint" not in icols:  # alte DB: Kurz-Hinweis nachziehen (Hash allein ist in der Liste nutzlos)
+            con.execute("ALTER TABLE invites ADD COLUMN hint TEXT NOT NULL DEFAULT ''")
         con.execute("CREATE TABLE IF NOT EXISTS folders ("  # explizite Ordner (auch leer), kind doc/tpl
                     "owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, "
                     "kind TEXT NOT NULL DEFAULT 'doc', name TEXT NOT NULL, created_at TEXT NOT NULL, "

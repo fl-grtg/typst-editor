@@ -3,7 +3,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import backend.main as main
-from backend import db
+from backend import db, ratelimit
+
+
+@pytest.fixture(autouse=True)
+def _clear_ratelimit():
+    ratelimit.clear()
+    yield
+    ratelimit.clear()
 
 
 @pytest.fixture()
