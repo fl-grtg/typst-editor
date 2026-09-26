@@ -22,7 +22,7 @@ def test_create_list_reply(c):
 def test_invalid_400(c):
     did, cid = _setup(c)
     assert c.post(f"/api/docs/{did}/comments", json={"anchor": 0, "text": "   "}).status_code == 400
-    assert c.post(f"/api/docs/{did}/comments", json={"anchor": -1, "text": "x"}).status_code == 400
+    assert c.post(f"/api/docs/{did}/comments", json={"anchor": -1, "text": "x"}).status_code in (400, 422)  # Pydantic-Bound oder Code-Check
     rid = c.post(f"/api/docs/{did}/comments", json={"anchor": 0, "text": "r", "parent_id": cid}).json()["id"]
     assert c.post(f"/api/docs/{did}/comments", json={"anchor": 0, "text": "rr", "parent_id": rid}).status_code == 400
 
