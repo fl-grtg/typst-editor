@@ -6,7 +6,7 @@ services:
       DATA_DIR: /app/data
       PORT: "8978"
     volumes:
-      - ${COMPOSE_DATA_PATH:-./data}:/app/data
+      - ${COMPOSE_DATA_PATH:-typst-data}:/app/data
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -30,3 +30,6 @@ services:
     mem_limit: 512m
     ports:
       - "127.0.0.1:8978:8978"
+
+volumes:
+  typst-data:

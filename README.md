@@ -28,10 +28,10 @@ One process, clean API, boring on purpose. FastAPI serves the API, Yjs syncs the
 With Docker (under 5 minutes, no config files needed):
 
 ```bash
-mkdir -p data # Linux: chown 999:999 data
 docker compose pull && docker compose up -d
 docker compose logs app | grep "invite code"
 ```
+Data lives in a managed Docker volume (zero setup). Host path instead: set `COMPOSE_DATA_PATH` (needs `chown 999:999` on that dir).
 
 Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Only needed for custom setups: `cp .env.example .env` (proxy, other data path).
 Lokal bauen statt ziehen: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
@@ -56,7 +56,7 @@ File plus env overrides; env wins. Full list with defaults in `.env.example` (or
 | ENV | Default | Notes |
 | --- | --- | --- |
 | `DATA_DIR` | `./data` | SQLite plus uploads; `/app/data` in the container. Needs restart when changed. |
-| `COMPOSE_DATA_PATH` | `./data` | Compose-only host path, e.g. `/srv/typst-data`. |
+| `COMPOSE_DATA_PATH` | managed volume | Optional host path instead, e.g. `/srv/typst-data`. |
 | `TRUST_PROXY` | `false` | Required `true` behind a proxy, else cookies break. Set only in `.env`. |
 | `REGISTRATION` | `invite-only` | `closed`, `invite-only`, or `open`. |
 | `REGISTRATION_INVITE_TOKEN` | empty | `openssl rand -hex 32`. |
@@ -113,7 +113,7 @@ Unshare wipes all pending invite links for the doc (they carry no username). Pre
 - Single worker only (`--workers 1`, also as CLI flag). Multi-worker exits on purpose.
 - Behind proxy set `TRUST_PROXY=true`, overwrite `X-Forwarded-For`, never append.
 - Port `8978` loopback-only; TLS via proxy.
-- Root-owned volume: `chown -R 999:999 data`.
+- Permissions: managed volume needs nothing. Host path only: `chown -R 999:999` on it.
 - `429` on reads: the shared `files_list` bucket (120/min) — slow down polling.
 
 ### 📦 Changelog
