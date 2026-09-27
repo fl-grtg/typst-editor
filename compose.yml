@@ -1,7 +1,6 @@
 services:
   app:
     image: ghcr.io/fl-grtg/typst-editor:main
-    build: .
     env_file: [{path: .env, required: false}]
     environment:
       DATA_DIR: /app/data

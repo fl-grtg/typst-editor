@@ -34,7 +34,7 @@ docker compose logs app | grep "invite code"
 ```
 
 Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Only needed for custom setups: `cp .env.example .env` (proxy, other data path).
-Lokal bauen statt ziehen: `docker compose up --build`.
+Lokal bauen statt ziehen: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
 
 Open `http://127.0.0.1:8978` and create the first account (no invite needed).
 
