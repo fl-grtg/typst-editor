@@ -28,15 +28,13 @@ One process, clean API, boring on purpose. FastAPI serves the API, Yjs syncs the
 With Docker (under 5 minutes, no config files needed):
 
 ```bash
-docker compose pull && docker compose up -d
+docker compose up -d
 docker compose logs app | grep "invite code"
 ```
-Data lives in a managed Docker volume (zero setup). Host path instead: set `COMPOSE_DATA_PATH` (needs `chown 999:999` on that dir).
+Pulls the image automatically (`pull_policy: always`). Data lives in a managed Docker volume (zero setup). Host path instead: set `COMPOSE_DATA_PATH` (needs `chown 999:999` on that dir).
 
 Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Only needed for custom setups: `cp .env.example .env` (proxy, other data path).
 Lokal bauen statt ziehen: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
-
-Open `http://127.0.0.1:8978` and create the first account (no invite needed).
 
 Or locally with Python 3.11:
 

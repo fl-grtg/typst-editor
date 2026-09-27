@@ -1,13 +1,15 @@
 services:
   app:
     image: ghcr.io/fl-grtg/typst-editor:main
+    container_name: typst-editor
+    pull_policy: always
     env_file: [{path: .env, required: false}]
     environment:
       DATA_DIR: /app/data
       PORT: "8978"
     volumes:
       - ${COMPOSE_DATA_PATH:-typst-data}:/app/data
-    restart: unless-stopped
+    restart: on-failure:5
     deploy:
       replicas: 1
     healthcheck:

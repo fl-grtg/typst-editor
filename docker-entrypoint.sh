@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then chown app "${DATA_DIR:-/app/data}" || echo "warn: 
 touch "${DATA_DIR:-/app/data}/.writetest" 2>/dev/null || {
   echo "top-level not writable, trying recursive chown (root-owned subdirs)" >&2
   if [ "$(id -u)" = "0" ]; then chown -R app "${DATA_DIR:-/app/data}" || echo "warn: chown -R failed" >&2; fi
-  touch "${DATA_DIR:-/app/data}/.writetest" 2>/dev/null || { echo "data dir not writable, fix with: mkdir -p data; chown -R 999:999 data" >&2; exit 1; }
+  touch "${DATA_DIR:-/app/data}/.writetest" 2>/dev/null || { echo "data dir not writable (uid $(id -u)). Fix: unset COMPOSE_DATA_PATH to use the managed volume, or host-side: mkdir -p data; chown -R 999:999 data" >&2; exit 1; }
 }
 rm -f "${DATA_DIR:-/app/data}/.writetest"
 if [ -z "${REGISTRATION_INVITE_TOKEN:-}" ] && [ ! -f "${DATA_DIR:-/app/data}/app.db" ]; then
