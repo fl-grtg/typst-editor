@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    env_file: [{path: .env, required: false}]
+    environment:
+      # environment wins over env_file, .env values for these keys are ignored here.
+      DATA_DIR: /app/data # Fixed container path, do not change.
+      PORT: "8978" # Fixed container port, change the host port in the mapping below.
+      # TRUST_PROXY is set in .env, not here (single source).
+    volumes:
+      # Create the host dir first with 999:999 ownership, or start once as root.
+      - ${COMPOSE_DATA_PATH:-./data}:/app/data
+    restart: unless-stopped
+    # Single worker: sync rooms live in memory, do not scale.
+    # --scale app=1 is ignored without swarm, do not scale.
+    deploy:
+      replicas: 1
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8978')+'/healthz', timeout=4)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Hardening: enabled without breakage. read_only stays off: needs writable /tmp
+    # (Python/export temp) + /app/data (SQLite/WAL). For read_only: add tmpfs
+    # for /tmp and test first, only then enable.
+    user: "999:999" # Same as Dockerfile USER, defense in depth in case it is ever removed.
+    # read_only: true # needs tmpfs for /tmp, see above
+    # tmpfs: [/tmp:size=64m] # only with read_only: true, test first
+    cap_drop: [ALL]
+    pids_limit: 100
+    cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m # 512m minimum, 1G recommended.
+    # Loopback only: no direct internet access. The proxy runs on the same host.
+    ports:
+      - "127.0.0.1:8978:8978"

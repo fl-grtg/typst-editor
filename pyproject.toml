@@ -1,0 +1,24 @@
+[project]
+name = "typst-editor"
+version = "0.1.0"
+license = "Apache-2.0" # SPDX (PEP 639), must match LICENSE
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]  # CI runs pytest directly: backend not importable otherwise
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "B904", "UP031"] # B904: raise-from churn, UP031: logging % is idiomatic
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+explicit_package_bases = true
+show_error_codes = true
+
+

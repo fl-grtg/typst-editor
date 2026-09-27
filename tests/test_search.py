@@ -1,0 +1,50 @@
+from conftest import login, make_doc, register_user
+
+
+def test_short_query_empty(c):
+    register_user(c, "alice")
+    assert c.get("/api/search", params={"q": "x"}).json() == {"hits": []}
+
+
+def test_hit_found(c):
+    register_user(c, "alice")
+    did = make_doc(c, "Suche", content="Zebrafruechte sind lecker")
+    hits = c.get("/api/search", params={"q": "zebrafr"}).json()["hits"]
+    assert [h["id"] for h in hits] == [did]
+
+
+def test_no_foreign_hits(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    make_doc(c, "Geheim", content="Quastenflosser schwimmt")
+    login(c, "bob")
+    assert c.get("/api/search", params={"q": "quasten"}).json()["hits"] == []
+
+
+def test_no_trashed_hits(c):
+    register_user(c, "alice")
+    did = make_doc(c, "Weg", content="Marmeladenglasdeckel")
+    c.delete(f"/api/docs/{did}")
+    assert c.get("/api/search", params={"q": "marmelade"}).json()["hits"] == []
+
+
+def test_query_truncated_50(c):
+    register_user(c, "alice")
+    prefix = "q" * 50
+    make_doc(c, "Lang", content=prefix + " extra")
+    long_q = prefix + "ZZZ_nicht_im_doc_12345"
+    assert len(long_q) > 50
+    hits = c.get("/api/search", params={"q": long_q}).json()["hits"]
+    assert [h["title"] for h in hits] == ["Lang"]
+
+
+def test_shared_visible(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, "Geteilt", content="GemeinsamXYZ123 geheim")
+    c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"})
+    login(c, "bob")
+    hits = c.get("/api/search", params={"q": "gemeinsamxyz"}).json()["hits"]
+    assert [h["id"] for h in hits] == [did]

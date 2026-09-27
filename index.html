@@ -1,0 +1,2954 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<link rel="manifest" href="./manifest.json">
+<!-- theme_color light/dark: keep in sync with manifest.json theme_color -->
+<meta name="theme-color" content="#f5f5f7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1d1d1f">
+<meta name="description" content="Collaborative Typst editor with live preview – self-hostable">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta property="og:title" content="Typst Editor">
+<meta property="og:description" content="Collaborative Typst editor with live preview – self-hostable">
+<meta property="og:type" content="website">
+<meta property="og:image" content="./screenshot.png">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<title>Typst Editor</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f5f7;--card:#fff;--line:rgba(0,0,0,.08);--text:#1d1d1f;--sub:#6e6e73;--acc:#0071e3;--sel:rgba(0,113,227,.12)}
+html,body{height:100%;margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{transition:background-color .15s ease}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+[tabindex]:focus-visible,[role=button]:focus-visible,[role=separator]:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#login{max-width:300px;margin:14vh auto;display:flex;flex-direction:column;gap:10px;background:var(--card);padding:28px;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.12)}
+#login h2{margin:0 0 4px;font-size:20px;font-weight:700;letter-spacing:-.02em}
+#login .vp{margin:0 0 2px;font-size:13px;color:var(--sub)}
+#login input{padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f5f7}
+#login button{padding:9px;background:var(--acc);color:#fff;border:0;border-radius:10px;cursor:pointer;font-weight:600}
+#login .mode{background:none;border:0;text-align:center;font-size:13px;color:var(--acc);cursor:pointer;padding:4px}
+input[type=checkbox]{accent-color:var(--acc);width:16px;height:16px}
+#app{display:none;height:100vh}
+#app.on{display:flex}
+aside{width:232px;box-sizing:border-box;background:rgba(242,242,247,.9);padding:12px;overflow:hidden;border-right:1px solid var(--line);flex:none;display:flex;flex-direction:column;transition:width .25s ease,padding .25s ease}
+#nav{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(to bottom,#000 0,#000 calc(100% - 28px),transparent 100%);mask-image:linear-gradient(to bottom,#000 0,#000 calc(100% - 28px),transparent 100%)} /* middle scrolls (wheel), no bar */
+#nav::-webkit-scrollbar{display:none} /* Chrome/Edge: no bar, still scrolls */
+#nav.at-end{-webkit-mask-image:none;mask-image:none} /* scrolled to bottom: no fade, clean edge */
+#userBox{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;font-size:13px}
+#userBox #who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:600;cursor:pointer}
+#userBox #who:hover{color:var(--acc)}
+#userBox button{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;color:var(--sub)}
+aside h3{box-sizing:border-box;height:32px;margin:8px 0 0;padding:7px 4px;border-radius:8px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sub);display:flex;align-items:center;gap:2px;cursor:pointer} /* sections: same 32px row, gap only above */
+aside #nav>h3:first-child{margin-top:0} /* first section starts at top, no extra gap */
+aside h3:hover,aside .fhd:hover{background:rgba(0,0,0,.05)}
+aside h3 .lbl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+aside h3:hover .mini{visibility:visible}
+aside .doc{display:flex;align-items:center;gap:2px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13.5px}
+aside .doc .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* text truncates, buttons stay visible */
+aside .doc .mini{flex:none}
+aside .doc:hover{background:rgba(0,0,0,.05)}
+aside .doc.cur{background:var(--sel);font-weight:600}
+aside .fhd{display:flex;gap:2px;align-items:center;margin:0 0 0 10px;font-size:12.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--sub)} /* folder: same 32px row, indent only, no extra gaps */
+aside .fhd b{flex:1;min-width:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+aside .doc.sub{margin-left:20px} /* doc in folder/group: indented more */
+aside .mini{visibility:hidden;background:none;border:0;cursor:pointer;color:var(--sub);padding:1px 3px;font-size:12px;border-radius:6px;min-width:32px;min-height:32px;display:inline-flex;align-items:center;justify-content:center} /* 32px: min touch target, same slim on desktop */
+aside .doc:hover .mini,aside .fhd:hover .mini{visibility:visible} /* visibility not display: row keeps height */
+@media (hover:none){aside .mini{visibility:visible}} /* touch: no hover, always show */
+aside .doc:focus-within .mini,aside .fhd:focus-within .mini,aside .mini:focus-visible{visibility:visible} /* keyboard: Tab focus shows minis, no layout change */
+aside .doc,aside .fhd{box-sizing:border-box;height:32px;overflow:hidden;padding:7px 10px;line-height:18px} /* rows: fixed height like ol (ref 32px) */
+aside .empty{box-sizing:border-box;min-height:32px;padding:7px 10px;line-height:18px} /* single-line empties match, with-button grows */
+aside h3 .mini,aside .doc .mini,aside .fhd .mini{width:24px;height:24px;min-width:24px;min-height:24px;padding:0;flex:none} /* WCAG 2.5.8 minimum, fits 32px row */
+aside .empty button{margin-top:6px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:7px 10px;cursor:pointer;font-weight:600;font-size:13px} /* same look as row buttons, no native gray */
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#tools button,#pvTools button{min-height:32px;min-width:32px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:0 8px 28px rgba(0,0,0,.25);z-index:200;display:none;max-width:calc(100vw - 32px);white-space:pre-line;transition:opacity .4s ease} /* var(): contrast-safe toast in both themes */
+aside .mini:hover{background:rgba(0,0,0,.06);color:var(--text)}
+aside .row button{flex:1;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:7px 8px;cursor:pointer;font-weight:600;font-size:13px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+header{display:flex;gap:8px;align-items:center;padding:0 12px;height:48px;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);position:relative;z-index:30}
+header{padding-top:env(safe-area-inset-top);padding-left:calc(12px + env(safe-area-inset-left));padding-right:calc(12px + env(safe-area-inset-right))}
+#toast{bottom:calc(24px + env(safe-area-inset-bottom))}
+header button{background:none;border:0;border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--text);font-size:15px}
+header button:hover{background:rgba(0,0,0,.06)}
+#title{font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#role{font-size:12.5px;background:var(--sel);color:var(--acc);border-radius:20px;padding:2px 9px;font-weight:600}
+#save{font-size:13px;color:var(--text)}
+#peers{display:flex;gap:4px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+#userBox .dot{width:18px;height:18px} /* account avatar: slightly larger */
+#peers .dot{width:18px;height:18px} /* active on top: same size as below */
+header .grp{display:flex;gap:2px;align-items:center;color:var(--sub);font-size:12.5px}
+#tools{display:flex;gap:2px;padding:6px 10px;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);position:relative;z-index:20;align-items:center;overflow-x:visible;scrollbar-width:none}
+#tools button{background:none;border:0;border-radius:8px;min-width:32px;height:32px;padding:4px 8px;cursor:pointer;color:var(--text);box-shadow:none;display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+#tools button:hover{background:rgba(0,0,0,.06)}
+#tools .grp{display:flex;gap:2px;align-items:center;margin-left:auto;color:var(--sub);font-size:12.5px}
+#tools .sep{width:1px;align-self:stretch;background:var(--line);margin:4px 6px}
+#tools button svg,header button svg,#pop button svg{display:block}
+#tools::-webkit-scrollbar{display:none} /* no bar, still scrolls (like #nav) */
+#tools input[type=color]{width:20px;height:20px;border:0;border-radius:6px;padding:0;background:none;cursor:pointer;align-self:center;flex:none}
+#media{display:flex;gap:8px;padding:8px 12px;background:rgba(255,255,255,.8);border-bottom:1px solid var(--line);align-items:center;overflow-x:auto;font-size:13px}
+#media .chip{display:flex;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:4px 6px 4px 12px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+#media .chip b{cursor:pointer;font-weight:600;font-size:12.5px}
+#media .chip b:hover{color:var(--acc)}
+#media .chip .sz{color:var(--sub);font-size:12px}
+#media button{background:#f5f5f7;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:12.5px}
+#media .chip button{padding:0 6px;color:var(--sub)}
+#mid{flex:1;display:flex;min-height:0}
+#leftCol{width:50%;display:flex;flex-direction:column;min-width:0;min-height:0}
+#rightCol{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+#pvTools{display:flex;gap:2px;padding:6px 10px;background:rgba(255,255,255,.8);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);align-items:center;justify-content:flex-end}
+#pvTools button{background:none;border:0;border-radius:8px;min-width:32px;height:32px;padding:4px 8px;cursor:pointer;color:var(--text);display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+#pvTools button:hover{background:rgba(0,0,0,.06)}
+#pvTools button.on{color:var(--acc);font-weight:700}
+#pvTools .grp{display:flex;gap:2px;align-items:center;color:var(--sub);font-size:12.5px}
+#editWrap{flex:1;display:flex;position:relative;background:var(--card);min-width:0;min-height:0}
+#cmWrap .cm-gutters{background:var(--card);border:0;color:#aeaeb2}
+#cmWrap .cm-lineNumbers .cm-gutterElement{padding:0 8px 0 2px;font-size:calc(var(--ed) - 1px);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#cmWrap .cm-lineNumbers .cm-gutterElement.hasThread{color:var(--acc);font-weight:700;cursor:pointer}
+#cmWrap{flex:1;min-width:0;position:relative;background:var(--card);--ed:14px;--lh:21px;padding:0 12px;box-sizing:border-box}
+#cm{height:100%;overflow:hidden}
+#cm .cm-editor{height:100%}
+#cmWrap .cm-content{font:var(--ed)/var(--lh) ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;color:var(--text);caret-color:var(--acc)}
+#cmWrap .cm-cursor{border-left-color:var(--acc)}
+#cmWrap .cm-selectionBackground{background:rgba(0,113,227,.15)}
+#cmWrap .cm-tooltip{border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.14);overflow:hidden;background:var(--card)}
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected]{background:var(--acc);color:#fff}
+.typ-hover{max-width:280px;padding:8px 11px;font:12.5px/1.5 -apple-system,system-ui,sans-serif;color:var(--text);white-space:pre-line}
+.typ-hover.err{background:rgba(215,0,21,.07);border-left:3px solid rgba(215,0,21,.6)} /* error box: red tint */
+.typ-hover.full{max-width:320px}
+.typ-hover b{font-weight:700}
+#cmWrap .cm-line{padding:0 2px} /* 2px sides: keeps pos-0 cursor visible */
+#cmWrap .cm-activeLine{background:rgba(0,0,0,.03)}
+.peer{display:inline-block;width:0;height:1.2em;margin-left:-1px;vertical-align:text-top;border-left:3px solid #ff5f57;cursor:default}
+.peerName{font:600 12px/1.5 -apple-system,system-ui,sans-serif;background:var(--card);border:1px solid;border-radius:6px;padding:0 5px;margin-left:4px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15);vertical-align:text-top;cursor:default} /* var(): readable in dark, same in light */
+#preview{flex:1;min-width:0;overflow:auto;padding:16px;background:#e8e8ed}
+#split{flex:none;width:11px;cursor:col-resize;position:relative;touch-action:none}
+#split::after{content:'';position:absolute;top:0;bottom:0;left:5px;width:1px;background:rgba(0,0,0,.12)}
+#split:hover::after,#split.drag::after{background:var(--acc);left:4px;width:3px;border-radius:2px}
+#sideSplit{flex:none;width:11px;cursor:col-resize;position:relative;touch-action:none}
+#sideSplit::after{content:'';position:absolute;top:0;bottom:0;left:5px;width:1px;background:rgba(0,0,0,.12)}
+#sideSplit:hover::after,#sideSplit.drag::after{background:var(--acc);left:4px;width:3px;border-radius:2px}
+body.sideDrag aside{transition:none}
+body.noside aside{width:0!important;padding-left:0;padding-right:0;border-right:0;overflow:hidden}
+body.noside #sideSplit{display:none}
+#vsplit{display:none} /* mobile only: drag height (see media query) */
+body.read #leftCol,body.read #split{display:none} /* sidebar stays: switch docs, collapsible via menu */
+body.read #syncBtn,body.editonly #syncBtn{display:none} /* sync only when both panes show */
+body.read #preview{padding:28px 16px}
+body.read #preview canvas{max-width:820px;margin:0 auto 16px}
+#preview canvas{display:block;background:#fff;width:100%;height:auto;margin:0 auto 24px;box-shadow:0 1px 3px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.12);border-radius:6px}
+#preview .empty{max-width:420px;margin:15vh auto;text-align:center;color:var(--sub);font-size:14px}
+#sharePop{position:absolute;top:calc(100% + 6px);left:8px;width:320px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:12px;z-index:30;font-size:14px}
+#sharePop .sTop{display:flex;align-items:center;margin-bottom:8px}
+#sharePop .sTop b{flex:1;font-size:13px}
+#sharePop .sTop button{background:none;border:0;cursor:pointer;font-size:13px;padding:4px;color:var(--sub)}
+#sharePop .row button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:5px 12px;cursor:pointer;font-weight:600}
+#sharePop #shares{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+#sharePop #shares .who{font-size:12.5px;color:var(--text)}
+#sharePop #shares button{background:#f5f5f7;border:0;border-radius:6px;padding:2px 8px;cursor:pointer}
+.row{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.row input,.row select{flex:1;min-width:0;background:#f5f5f7;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.row button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600}
+#pop{position:absolute;left:60px;width:320px;max-width:calc(100vw - 32px);max-height:70%;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.2);z-index:5;font-size:13.5px} /* max-width like sharePop/setPop: no mobile overflow */
+#pop .bar{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--sub)}
+#pop .bar .ib{border-radius:50%;width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+#pop .th{padding:12px 14px;border-bottom:1px solid var(--line)}
+#pop .hd{display:flex;gap:6px;align-items:baseline}
+#pop .nm{font-weight:700;font-size:13px}
+#pop .tm{font-size:12.5px;color:var(--sub)}
+#pop .tx{margin:3px 0 0;overflow-wrap:anywhere}
+#pop .qt{margin:6px 0 0;font-size:12px;color:var(--sub);cursor:pointer;overflow-wrap:anywhere;background:#f5f5f7;border-radius:8px;padding:6px 10px}
+#cmWrap .cm-hl{background:rgba(255,204,0,.28);border-radius:3px}
+#cmWrap .cm-hl:hover{background:rgba(255,204,0,.45);cursor:pointer}
+#cmWrap .cm-find{background:rgba(0,113,227,.25);border-radius:3px}
+#cmWrap .cm-find-cur{background:rgba(255,149,0,.55);border-radius:3px}
+#cmWrap .cm-err{position:relative;background:rgba(215,0,21,.13)}
+#cmWrap .cm-err::after{content:'';position:absolute;left:100%;top:0;bottom:0;width:100vw;background:rgba(215,0,21,.13)} /* rest of line red: paints only, no layout shift */
+.cm-tooltip-lint{display:none} /* one message: line hover shows lint text */
+#find{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:rgba(255,255,255,.9);border-top:1px solid var(--line);font-size:13px} /* wrap: mobile wraps instead of clipping */
+#find input{background:#f5f5f7;border:1px solid var(--line);border-radius:8px;padding:5px 8px;width:120px}
+#find .n{color:var(--sub);min-width:44px;text-align:center}
+#find button{background:#f5f5f7;border:0;border-radius:8px;padding:5px 9px;cursor:pointer}
+#find button.on{background:var(--sel);color:var(--acc);font-weight:700}
+#find .x{margin-left:auto}
+#pop .rp{margin:8px 0 0;padding:10px 12px;background:#f5f5f7;border-radius:10px}
+#pop .rr{display:flex;gap:8px;margin-top:8px}
+#pop .rr input{flex:1;min-width:0;background:#f5f5f7;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px}
+#pop .rr input:focus{border-color:var(--acc);outline:2px solid var(--acc);outline-offset:1px}
+#pop .rr .ib{background:var(--acc);color:#fff;border-radius:10px;padding:8px 12px} /* send: blue not gray */
+#pop .ib{background:rgba(0,0,0,.05);border:0;cursor:pointer;font-size:13px;padding:5px 9px;border-radius:7px;color:var(--text)}
+#pop .nw{padding:12px 14px}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.25);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:100}
+#mCard{width:min(360px,92vw);background:var(--card);border-radius:14px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.pk{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:#f5f5f7;cursor:pointer;text-align:left}
+.pk:hover{border-color:var(--acc);background:var(--sel)}
+.pk.on{border-color:var(--acc);background:var(--sel);box-shadow:0 0 0 1px var(--acc)}
+.pk b{display:block;font-size:14px}
+.pk span{display:block;font-size:12.5px;color:var(--sub);font-weight:400;margin-top:2px}
+#mCard b{font-size:15px;letter-spacing:-.01em}
+#mInp{width:100%;box-sizing:border-box;margin:12px 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f5f7}
+#setPop .serr{background:#fee2e2;color:#991b1b;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:6px}
+.mRow{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.mRow button{border:0;border-radius:10px;padding:8px 16px;cursor:pointer;font-weight:600}
+#mNo{background:#e8e8ed;color:#1d1d1f}
+@media (prefers-color-scheme:dark){#mNo{background:#48484a;color:#f5f5f7}}
+#mYes{background:var(--acc);color:#fff}
+#setPop{position:absolute;top:calc(100% + 6px);left:8px;width:340px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:12px;z-index:30;font-size:14px}
+#setPop .sTop{display:flex;align-items:center;margin-bottom:4px}
+#setPop .sTop b{flex:1;font-size:13px}
+#setPop .sTop button{background:none;border:0;cursor:pointer;font-size:13px;padding:4px;color:var(--sub)}
+#setPop h4{margin:10px 0 2px;font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sub)}
+#setPop .val{min-width:46px;text-align:center;color:var(--sub);font-size:13px}
+#setPop .sec{background:#f5f5f7;border-radius:10px;padding:2px 10px;margin:2px 0 6px}
+#setPop .sec .row{margin-top:6px;margin-bottom:6px}
+#setPop .sec input{background:#fff}
+#setPop .step{background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:5px 12px;cursor:pointer;font-weight:600} /* var(): dark fix, same in light */
+#setPop img.av{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#e8e8ed;flex:none}
+#tplPop{position:absolute;top:calc(100% + 6px);left:8px;width:280px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30}
+#tplPop button{display:block;width:100%;height:auto;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer}
+#tplPop button:hover{background:rgba(0,0,0,.05)}
+#tplPop .use{display:block;font-weight:600;font-size:13.5px}
+#tplPop .ins{display:block;font-size:12px;color:var(--sub);font-weight:400}
+#tplPop{max-width:calc(100vw - 32px)}
+#sharePop,#setPop{max-width:calc(100vw - 32px);max-height:70vh;overflow:auto}
+#tplPop,#symPop{max-width:calc(100vw - 32px);max-height:70vh;overflow:auto}
+#histPop{position:absolute;top:calc(100% + 6px);left:8px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30;font-size:13px}
+#histPop .srow{display:flex;gap:6px;align-items:center;padding:6px 8px;border-radius:8px}
+#histPop .srow:hover{background:rgba(0,0,0,.04)}
+#histPop .srow .t{flex:1;min-width:0;font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#histPop .srow button{background:#f5f5f7;border:0;border-radius:7px;padding:4px 9px;cursor:pointer;font-size:12px;white-space:nowrap}
+#histPop pre.diff{margin:4px 8px 8px;padding:8px 10px;background:#1c1c1e;color:#e5e5ea;border-radius:8px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+#histPop pre.diff .a{color:#ff9d9d}#histPop pre.diff .b{color:#9df0b8}
+#histPop .save{display:flex;align-items:center;width:100%;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:600;margin-bottom:4px;text-align:left}
+.mbox{position:absolute;top:100%;left:0;min-width:140px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:20}
+.mbox button{display:block;width:100%;text-align:left;background:none;border:0;padding:6px 10px;cursor:pointer;font-size:13px;color:var(--text)}
+.mbox button:hover{background:var(--sel)}
+#symPop{position:absolute;top:calc(100% + 6px);left:8px;width:300px;max-width:calc(100vw - 32px);background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.16);padding:8px;z-index:30}
+#symPop input{width:100%;box-sizing:border-box;background:#f5f5f7;border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px}
+#symPop .grid{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;max-height:220px;overflow:auto}
+#symPop .grid button{background:none;border:0;border-radius:7px;padding:6px 0;cursor:pointer;font-size:16px}
+#symPop .grid button:hover{background:var(--sel)}
+#tplPop .trow{display:flex;gap:4px}
+#tplPop .fh{margin:8px 10px 2px;font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sub)}
+#tplPop .trow .go{flex:1;min-width:0}
+#tplPop .x{flex:none;width:auto;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer;color:var(--sub)}
+#tplPop .x:hover{background:rgba(215,0,21,.1);color:#d70015}
+#tabs{display:flex;gap:4px;padding:6px 10px;background:rgba(255,255,255,.8);border-bottom:1px solid var(--line);overflow-x:auto;font-size:12.5px}
+#tabs button{background:#f5f5f7;border:0;border-radius:9px;padding:5px 12px;cursor:pointer;white-space:nowrap;color:var(--sub)}
+#tabs button.on{background:var(--sel);color:var(--acc);font-weight:700}
+#ol .doc{cursor:pointer}
+#viewSeg{display:flex;gap:0;background:#f5f5f7;border-radius:8px;overflow:hidden;padding:2px}
+#viewSeg button{min-width:32px;min-height:32px;padding:4px 7px;border-radius:6px!important;display:inline-flex;align-items:center;justify-content:center}
+#viewSeg button svg{display:block}
+#viewSeg button.on{background:var(--card);color:var(--acc);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+body.editonly #rightCol,body.editonly #split,body.editonly #vsplit{display:none}
+body.editonly #leftCol{width:100%!important} /* sidebar stays, editor spans preview area */
+#cBadge{background:var(--sel);color:var(--acc);border:0;border-radius:20px;padding:2px 9px;cursor:pointer;font-weight:700;font-size:12.5px}
+#eBadge{background:rgba(215,0,21,.1);color:#d70015;border:0;border-radius:20px;padding:2px 9px;cursor:pointer;font-weight:700;font-size:12.5px}
+@media (prefers-color-scheme:dark){#eBadge{background:rgba(255,69,58,.2);color:#ff6961}}
+#emptyCard{max-width:420px;margin:12vh auto;text-align:center;background:var(--card);border-radius:16px;padding:28px;box-shadow:0 8px 32px rgba(0,0,0,.12)}
+#emptyCard h2{margin:0 0 8px;font-size:18px;letter-spacing:-.02em}
+#emptyCard p{margin:6px 0;color:var(--sub);font-size:13.5px}
+#emptyCard button{margin-top:12px;background:var(--acc);color:#fff;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;font-weight:600}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--card:#2c2c2e;--line:rgba(255,255,255,.12);--text:#f5f5f7;--sub:#a1a1a6;--acc:#0a84ff;--sel:rgba(10,132,255,.25)}aside{background:rgba(28,28,30,.9)}header,#tools,#pvTools,#media,#tabs,#find{background:rgba(44,44,46,.8)}#tools button,#pvTools button{color:#e5e5ea}#login input,.row input,.row select,#find input{background:#1c1c1e}#media .chip,#media button,#find button,#setPop .sec,#pop .qt,#pop .rp,#pop .rr input,#viewSeg,#mCard .pk{background:#1c1c1e}#tabs button,#setPop .step,#sharePop #shares button,#mInp,#setPop .sec input{background:#1c1c1e;color:#e5e5ea}#preview{background:#111}#histPop .srow button,#symPop input,#symPop .grid button{color:#e5e5ea}#histPop .srow button,#symPop input{background:#1c1c1e}#histPop .srow:hover{background:rgba(255,255,255,.06)}#symPop .grid button:hover{background:var(--sel)}#cmWrap .cm-activeLine{background:rgba(255,255,255,.04)}aside .doc:hover,#tools button:hover,#pvTools button:hover,aside h3:hover,aside .fhd:hover,#tplPop button:hover{background:rgba(255,255,255,.08)}#pop .ib{background:rgba(255,255,255,.12);color:#e5e5ea}}
+@media (max-width:720px){#mid{flex-direction:column}#leftCol{width:100%!important;flex:1;min-height:0}#rightCol{flex:1;min-height:0}#split{display:none}#vsplit{display:block;flex:none;height:11px;cursor:row-resize;position:relative;touch-action:none}#vsplit::after{content:'';position:absolute;left:0;right:0;top:5px;height:1px;background:rgba(0,0,0,.12)}#vsplit:hover::after{background:var(--acc);top:4px;height:3px;border-radius:2px}header{flex-wrap:wrap;height:auto;min-height:48px;padding:6px 12px}#tools{flex-wrap:wrap}aside .mini{min-width:36px;min-height:36px}body:not(.noside) aside{position:fixed;left:0;top:0;bottom:0;z-index:60;width:min(280px,84vw)!important;box-shadow:0 8px 32px rgba(0,0,0,.25)}#scrim{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:50}body.noside #scrim{display:none}#pop{left:8px;right:8px;width:auto}}
+@media (prefers-color-scheme:dark){#booterr{background:#3a0d0d!important;color:#ffb4ab!important;border-color:#7f1d1d!important}#login #err{color:#ff8080}}
+#offline{display:none;margin:8px;padding:8px 10px;background:#fff8e1;color:#5d4037;border:1px solid #ffe082;border-radius:8px;font:13px system-ui;text-align:center}
+@media (prefers-color-scheme:dark){#offline{background:#3a2f0d;color:#ffe082}}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite;display:inline-block;vertical-align:-2px;margin-right:8px}
+@keyframes sp{to{transform:rotate(360deg)}}
+#toast button{margin-left:10px;background:var(--bg);color:var(--text);border:0;border-radius:6px;padding:3px 10px;cursor:pointer;font-weight:600}
+#emptyCard .ghost{background:#e8e8ed;color:#1d1d1f;margin-left:6px}
+#emptyCard .hint{margin:14px 0 0;font-size:12.5px}
+#mExtra label{display:block;margin-top:10px;font-size:13px;color:var(--sub)}
+#mExtra input[type=text]{width:100%;box-sizing:border-box;margin-top:6px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#f5f5f7}
+@media (prefers-color-scheme:dark){#emptyCard .ghost,#mExtra input[type=text]{background:#1c1c1e;color:#e5e5ea}}
+</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script> <!-- defer: non-blocking; pinned + SRI. Worker/ESM have no SRI: workerSrc set by this trusted script, ESM pinned via CSP -->
+</head>
+<body>
+
+<div id="booterr" style="display:none;margin:8px;padding:10px;background:#fee2e2;color:#991b1b;border:1px solid #f87171;border-radius:8px;font:13px system-ui"></div>
+<div id="offline" role="status">Offline — app shell cached, preview needs internet on first load, saving needs network</div>
+<script>
+window.addEventListener('error', function (e) {
+  console.error(e.error || e.message || e)
+  var d = document.getElementById('booterr')
+  if (d) { d.style.display = ''; d.textContent = 'Something went wrong – please reload' }
+})
+</script>
+
+<form id="login">
+  <h2>Typst Editor</h2>
+  <p class="vp">Collaborative Typst editor with live preview – self-hostable.</p>
+  <label class="sr-only" for="u">Username</label><input id="u" placeholder="Username" autocomplete="username">
+  <label class="sr-only" for="p">Password</label><input id="p" type="password" placeholder="Password (min 8 chars)" autocomplete="current-password" minlength="8">
+  <label class="sr-only" for="inv">Invite code (optional)</label><input id="inv" placeholder="Invite code (optional)" autocomplete="off" style="display:none">
+  <p class="vp" id="regHint" style="display:none">Ask someone already on this server for an invite code — you can't sign up without one (the very first account excepted).</p>
+  <div style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--sub)"><input type="checkbox" id="showPw" style="width:auto"><label for="showPw">Show password</label><span style="flex:1"></span><span>min 8 chars</span></div>
+  <button id="go" type="submit">Sign in</button>
+  <button class="mode" id="mode" type="button">No account yet? Sign up</button>
+  <div id="err" style="color:#d70015" role="alert"></div>
+</form>
+
+<div id="app">
+  <aside id="side">
+    <div class="row"><label class="sr-only" for="q">Search all documents</label><input id="q" placeholder="Search all documents (min 2 chars)" autocomplete="off" aria-describedby="qCount"><span id="qCount" class="sr-only" role="status" aria-live="polite"></span><button id="new" style="flex:none">+ New</button><button id="upDoc" aria-label="Upload .typ as new document" title="Upload .typ as new document" style="flex:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3"/><path d="M5 5.5L8 2.5l3 3"/><path d="M2.5 10.5v3h11v-3"/></svg></button></div><input type="file" id="docPick" accept=".typ" style="display:none">
+    <div id="nav">
+      <h3 id="ownH" title="Drop here = no folder" role="button" tabindex="0" aria-expanded="true" aria-controls="own">Documents</h3><div id="own"></div>
+      <h3 id="tplH" role="button" tabindex="0" aria-expanded="true" aria-controls="tpls">Templates</h3><div id="tpls"></div>
+      <h3 id="sharedH" role="button" tabindex="0" aria-expanded="true" aria-controls="shared">Shared with me</h3><div id="shared"></div>
+      <h3 id="trashH" role="button" tabindex="0" aria-expanded="true" aria-controls="trash">Trash</h3><div id="trash"></div>
+      <h3 id="olH" role="button" tabindex="0" aria-expanded="true" aria-controls="ol">Outline</h3><div id="ol"></div>
+    </div>
+    <div id="userBox"><span id="meDot" class="dot"></span><span id="who" role="button" tabindex="0" title="Settings" aria-label="Settings: open settings"></span><button id="out">Sign out</button></div>
+  </aside>
+  <div id="scrim" style="display:none" aria-hidden="true"></div>
+  <div id="sideSplit" title="Sidebar width" role="separator" tabindex="0" aria-label="Sidebar width" aria-orientation="vertical"></div>
+  <main>
+    <header>
+      <button id="navToggle" aria-label="Toggle sidebar" aria-pressed="false" title="Toggle sidebar">☰</button>
+      <b id="title">No document</b><button id="renBtn" aria-label="Rename" title="Rename" style="display:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg></button><span id="role"></span><span id="wsDot" class="dot" title="Offline" aria-label="Connection: offline" style="background:#aaa"></span><span id="wsTxt" style="font-size:12.5px;color:var(--sub)"></span><span id="save" aria-live="polite"></span><span id="roBanner" style="display:none;font-size:12.5px;background:var(--sel);color:var(--acc);border-radius:20px;padding:2px 9px;font-weight:600">Read-only</span><button id="cBadge" title="Open comments: jump to next" aria-label="Open comments: jump to next" style="display:none"></button><button id="eBadge" title="Show errors" aria-label="Show errors" style="display:none"></button>
+      <span style="flex:1"></span><span id="peers" role="list" aria-label="People in this document"></span><button id="helpBtn" aria-label="Help: tutorial and shortcuts (shift+click: GitHub)" title="Help: tutorial and shortcuts (shift+click: GitHub)">?</button><span id="viewSeg"><button id="vEdit" aria-label="Editor only" title="Editor only" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M6.5 2.5v11" stroke-width="2.6"/></svg></button><button id="vSplit" aria-label="Editor + Preview" title="Editor + Preview" class="on" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M8 2.5v11"/></svg></button><button id="vRead" aria-label="Preview only" title="Preview only" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M9.5 2.5v11" stroke-width="2.6"/></svg></button></span><div id="setPop" style="display:none" role="dialog" aria-label="Settings"></div><input type="file" id="avPick" accept="image/*" style="display:none">
+    </header>
+    <div id="mid">
+      <div id="leftCol">
+      <div id="tools"><button id="cNew" aria-label="Comment on selected text" title="Comment on selected text"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3h11v7h-5.5L4.5 13v-3H2.5z"/></svg></button><button id="imgBtn" aria-label="Add a picture or file" title="Add a picture or file to your document" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 11.5l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></button><input type="file" id="imgPick" accept=".png,.jpg,.jpeg,.svg,.gif,.webp,.pdf,.typ,.bib,.csv" style="display:none"><button id="mediaBtn" aria-label="Media manager" title="Media manager" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h2l1.5 2H12a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5z"/></svg></button><button id="tplBtn" aria-label="Insert Typst template" title="Insert Typst template" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.5h5.5L12.5 4.5V14.5h-8.5z"/><path d="M9.5 1.5v3h3"/><path d="M8 8v4M6 10h4"/></svg></button><button id="shareBtn" aria-label="Share" title="Share" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L8.5 7.5"/><path d="M6 4H3.5v8.5h8.5V10"/></svg></button><button id="histBtn" aria-label="History: save, compare, restore" title="History: save, compare, restore" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg></button><button id="symBtn" aria-label="Insert symbol" title="Insert symbol" style="display:none;font-weight:700">Ω</button><input type="color" id="colPick" title="Text color: wrap selection" aria-label="Text color: wrap selection" value="#d70015" style="display:none"><button id="del" aria-label="Delete document" title="Delete document" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg></button><button id="dlTyp" aria-label="Download the open document as .typ" title="Download the open document as .typ" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.typ</button><button id="dlPdf" aria-label="Download the open document as PDF" title="Download the open document as PDF" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.pdf</button><button id="dlPng" aria-label="Download the first page of the open document as PNG" title="Download the first page of the open document as PNG" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.png</button><button id="dlSvg" aria-label="Download the open document as SVG" title="Download the open document as SVG" style="display:none;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace">.svg</button><span class="grp">Font <button id="fMinus" aria-label="Smaller editor" title="Smaller editor">A−</button><button id="fPlus" aria-label="Larger editor" title="Larger editor">A+</button></span><div id="sharePop" style="display:none" role="dialog" aria-label="Share"></div><div id="tplPop" style="display:none" role="dialog" aria-label="Templates"></div><div id="histPop" style="display:none" role="dialog" aria-label="History"></div><div id="symPop" style="display:none" role="dialog" aria-label="Symbols"></div><input type="file" id="tplPick" accept=".typ" style="display:none"></div>
+      <div id="media" style="display:none"></div>
+      <div id="tabs" style="display:none"></div>
+        <div id="editWrap">
+        <div id="cmWrap"><div id="cm"></div></div>
+        <div id="pop" style="display:none" role="dialog" aria-label="Comments"></div>
+      </div>
+        <div id="find" style="display:none"><label class="sr-only" for="fQ">Find</label><input id="fQ" placeholder="Find" aria-label="Find"><label class="sr-only" for="fR">Replace</label><input id="fR" placeholder="Replace" aria-label="Replace"><span class="n" id="fN"></span><button id="fPrev" aria-label="Previous (Shift+Enter)" title="Previous (Shift+Enter)">↑</button><button id="fNext" aria-label="Next (Enter)" title="Next (Enter)">↓</button><button id="fRep" title="Replace this occurrence" aria-label="Replace this occurrence">Replace</button><button id="fAll" title="Replace all occurrences" aria-label="Replace all occurrences">Replace all</button><button id="fCase" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button><button id="fX" class="x" title="Close (Esc)" aria-label="Close (Esc)">✕</button></div>
+      </div>
+      <div id="split" role="separator" tabindex="0" title="Drag to resize width (arrows)" aria-label="Drag to resize width (arrows)" aria-orientation="vertical"></div><div id="vsplit" title="Drag to resize height" role="separator" tabindex="0" aria-label="Drag to resize height" aria-orientation="horizontal"></div>
+      <div id="rightCol">
+        <div id="pvTools"><button id="syncBtn" aria-label="Follow between editor and preview" class="on" aria-pressed="true" title="Follow between editor and preview">⇄</button><span class="grp">Zoom <span id="zoomV" aria-live="polite">110%</span> <button id="fitBtn" aria-label="Fit page" title="Fit page"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button><button id="zMinus" aria-label="Smaller preview" title="Smaller preview">−</button><button id="zPlus" aria-label="Larger preview" title="Larger preview">+</button></span></div>
+        <div id="cdnLine" role="status" style="display:none;padding:6px 12px;font-size:12.5px;color:var(--sub);background:rgba(255,255,255,.8);border-bottom:1px solid var(--line)">Loading preview… (needs internet on first load)</div>
+        <div id="preview"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="mHead"><div id="mCard"><b id="mHead"></b><input id="mInp"><div class="mRow"><button id="mNo">Cancel</button><button id="mYes">OK</button></div></div></div>
+<script type="module">
+import * as Y from 'https://esm.sh/yjs@13.6.27'
+import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
+import { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, forEachDiagnostic } from './vendor-cm.js' // bundled locally: single instance, no CDN risk
+// CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
+
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' // pinned as above
+setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
+const $ = id => document.getElementById(id)
+let toastT = 0
+function toast(m, retry, label, ms) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.appendChild(t) } t.innerHTML = ''; t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
+const api = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then(async r => {
+  if (r.status === 204) return null
+  const t = await r.text()
+  let j = null; try { j = t ? JSON.parse(t) : null } catch (e) { j = null } // HTML error page: no crash
+  if (!r.ok) throw new Error((j && j.detail) || r.statusText)
+  return j
+})
+
+let lastC = '' // last comment state, poll renders only on change
+let user = '', docId = '', docRole = '', ydoc = null, prov = null, ytext = null, shadow = '', saveT = 0, tplT = 0 // separate timers: doc vs template save (no race)
+const SAVE_MS = 2500, RENDER_MS = 300, POLL_MS = 5000, SYNC_MS = 150, CLICK_PX = 130, SYNC_PX = 40 // debounce/intervals + click radius (canvas px) + scroll quiet (px)
+const SEARCH_MS = 350, DIFF_MAX = 400, DIFF_OUT = 120 // search debounce, diff line caps
+function clampSplit(w) { return Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, w)) } // fn not const: top init runs first (TDZ fix)
+const QUOTE_MAX = 120, AV_SIZE = 64 // comment quote, avatar px
+const SPLIT_MIN = 15, SPLIT_MAX = 85 // editor width in %
+const ED_MIN = 10, ED_MAX = 24, ED_STEP = 1 // editor font
+const PV_MIN = 30, PV_MAX = 200, PV_STEP = 10 // preview zoom
+const SIDE_MIN = 150, SIDE_MAX = 420 // sidebar width in px
+let edSize = 14, pvZoom = 110 // editor font + preview zoom
+try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MAX) edSize = e } catch (err) {}
+try { const z = +localStorage.getItem('typst_pv'); if (z >= PV_MIN && z <= PV_MAX) pvZoom = z } catch (err) {}
+const saveSet = () => { try { localStorage.setItem('typst_ed', edSize); localStorage.setItem('typst_pv', pvZoom) } catch (err) {} }
+
+// --- CodeMirror: Lezer highlight, autocomplete + hover from static lists (deterministic) ---
+const T_KEYS = ('let set show import include context if else for while return break continue in as and or not ' +
+  'align alignment angle block box bibliography cite circle clip cos document ellipse emph enum figure footnote grid heading image item ' +
+  'length line link list lower math measure move outline pad page par path place polygon quote rect ref regex rotate ' +
+  'scale sin skew square stack strong styled sub super sum table tan terms text upper highlight overline underline smallcaps strike ' +
+  'author date title caption placement float wrap columns gutter rows cell hline vline ' +
+  'numbering counter state query label metadata sys inputs calc min max abs round ceil floor even odd range zip ' +
+  'fill stroke inset outset radius width height none auto left right center top bottom horizon start end ' +
+  'paper margin binding header footer pagebreak parbreak raw code upright italic bold vec mat cases binom frac over under attach ' +
+  'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi pi rho sigma tau upsilon phi chi psi omega ' +
+  'Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega forall exists emptyset infty partial nabla degree ' +
+  'arrow larr rarr uarr darr harr quad dots cdots ldots vdots integral oint prod cbrt display inline equation supplement ' +
+   'cetz canvas draw hide csv json read ' +
+  'supplement outlined body header footer row gutter cell placement float wrap tight leading indent hanging justify hyphenate kerning tracking ligatures overhang variant weight stretch script features lang region fallback delimiters depth paint axis step major minor from to control tension close smooth offset separator layout style fit cover ' +
+  'dot ddots hat tilde bar underbrace overbrace cancel hbar ell mid parallel perp equiv approx propto ast circ cdot times div pm mp le ge neq subset supset cap cup vee wedge neg therefore because prime partial aleph emptyset oint oplus otimes implies iff notin angle dots colon coloneq succ prec sim cong triangle diamond square star flat natural sharp ' +
+   'group content mark anchor h v linebreak colbreak smartquote repeat numbering datetime lorem str int float bool array').split(' ')
+const T_DOC = {
+  set: '#set page(..) / #set text(..) - rule for following content; first arg bare (page, text)',
+  show: '#show heading: it => .. - restyle elements',
+  page: '#set page(paper: "a4", margin: 2cm) - page',
+  figure: '#figure(caption: [..])[..] - figure/table with caption',
+  table: '#table(columns: (1fr, 1fr))[..][..] - table',
+  image: '#image("file.png", width: 80%) - embed image',
+  heading: '= Title / == Section - heading',
+  ref: '#ref(<label>) - cross-ref, mark target with <label>',
+  cite: '#cite(<key>) - citation from bibliography()',
+  sqrt: '#sqrt(x) or $sqrt(x)$ - square root',
+  sum: '$sum_(i=0)^n x_i$ - sum in math',
+  align: '#align(center)[..] - alignment',
+  grid: '#grid(columns: (1fr, 1fr))[..] - grid layout',
+  link: '#link("https://..")[Text] - hyperlink',
+  list: '- bullet - list, + numbered, / terms',
+  text: '#text(fill: red)[..] - font color/size',
+  rect: '#rect(fill: .., stroke: ..)[..] - rectangle',
+  circle: '#circle(radius: 1cm) - circle',
+  line: '#line(length: 100%) - line',
+  box: '#box(..)[..] - inline container',
+  block: '#block(..)[..] - block container',
+  footnote: '#footnote[..] - footnote',
+  outline: '#outline() - table of contents',
+  bibliography: '#bibliography("lit.bib") - bibliography',
+  quote: '#quote[..] - block quote',
+  par: '#par(leading: 0.6em)[..] - paragraph',
+  raw: '```code``` - code block',
+  math: '$x^2$ - math inline, $ .. $ block',
+  frac: '$frac(a, b)$ - fraction',
+  stack: '#stack(dir: ttb, spacing: 1em)[..] - stack',
+  cetz: '#import "@preview/cetz:0.5.2" - drawing (needs Typst 0.14+)',
+  import: '#import "utils.typ": * - include file/template',
+  include: '#include "chapter.typ" - insert file here',
+  label: '<name> - set mark, #ref(<name>) jumps there',
+  counter: '#counter(heading).display() - counter value',
+  state: '#state("key", 0) - state for queries',
+  query: '#query(<label>) - find elements',
+  context: '#context .. - read values after layout',
+  place: '#place(top + right)[..] - place freely',
+  move: '#move(dx: 1cm)[..] - move',
+  pad: '#pad(left: 1em)[..] - padding',
+  hide: '#hide[..] - hidden, keeps space',
+  terms: '/ Term: explanation - term list',
+  enum: '+ one - numbered list',
+  pagebreak: '#pagebreak() - new page',
+  parbreak: '#parbreak() - force paragraph',
+  h: '#h(1em) / #v(1em) - horizontal/vertical space',
+  linebreak: '#linebreak() - line break without new paragraph',
+  colbreak: '#colbreak() - column break',
+  smartquote: '".." - smart quotes',
+  repeat: '#repeat[-] - repeat (line pattern)',
+  numbering: '#set heading(numbering: "1.") - numbering',
+}
+// Templates: global per account (API), copied into doc + import/include at cursor
+let myTpl = [], tplFolders = []
+async function loadTpl() {
+  try {
+    myTpl = (await api('GET', '/api/templates')).templates
+    tplFolders = (await api('GET', '/api/tplfolders')).folders
+  } catch (e) { myTpl = []; tplFolders = [] }
+  paintTpls()
+}
+const groupBy = list => { // top-level first + folder map (caller adds empty folders)
+  const top = [], byF = new Map()
+  list.forEach(t => {
+    const f = t.folder || ''
+    if (!f) top.push(t)
+    else { if (!byF.has(f)) byF.set(f, []); byF.get(f).push(t) }
+  })
+  return { top, byF }
+}
+function typstComplete(ctx) {
+  const w = ctx.matchBefore(/[#\\]?[\w.]+/)
+  if (!w && !ctx.explicit) return null
+  const raw = w ? w.text : ''
+  const pre = raw.replace(/^[#\\]/, '').toLowerCase()
+  const seen = new Set(), opts = []
+  const before = ctx.state.doc.sliceString(Math.max(0, (w ? w.from : ctx.pos) - 24), w ? w.from : ctx.pos)
+  const bare = !/^[#\\]/.test(raw) && /#(set|show)\s+[^\s]*$/.test(before) // after #set/#show: bare names (page not #page)
+  const imp = before.match(/(import|include|image|bibliography|read|csv|json)\s*[( ]"([^"]*)$/)
+  if (imp) { // after import/include/#image(": global templates + manager files
+    const q = imp[2].toLowerCase()
+    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => n.toLowerCase().startsWith(q))
+    return files.length ? { from: ctx.pos - imp[2].length, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
+  }
+  const rf = before.match(/#ref\s*\(<?([^)>]*)$/)
+  if (rf) { // after #ref(: labels from doc
+    const q = rf[1].toLowerCase(), out = [], seenL = new Set()
+    for (const m of getT().matchAll(/<([\w-]+)>/g))
+      if (!seenL.has(m[1]) && m[1].toLowerCase().startsWith(q)) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
+    return out.length ? { from: ctx.pos - rf[1].length, options: out.slice(0, 50) } : null
+  }
+  const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll)
+  if (ct && bibKeys.length) {
+    const q = ct[1].toLowerCase()
+    const out = bibKeys.filter(k => k.toLowerCase().startsWith(q)).map(k => ({ label: k, type: 'variable' }))
+    return out.length ? { from: ctx.pos - ct[1].length, options: out.slice(0, 50) } : null
+  }
+  const hash = /^[#\\]/.test(raw)
+  if (ctx.explicit && !hash && !bare) { // Tab/Ctrl-Space without #: files/templates, no #-commands
+    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => n.toLowerCase().startsWith(pre))
+    return files.length ? { from: w ? w.from : ctx.pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
+  }
+  if (!hash && !bare) return null // plain text: no #-suggest
+  const fmt = k => raw[0] === '\\' ? '\\' + k : bare ? k : '#' + k
+  for (const k of T_KEYS)
+    if (k.startsWith(pre)) { seen.add(k); opts.push({ label: fmt(k), type: 'keyword', apply: fmt(k) }) }
+  if (!bare) for (const n of mediaNames)
+    if (!seen.has(n) && n.toLowerCase().startsWith(pre)) { seen.add(n); opts.push({ label: n, type: 'file' }) }
+  if (pre) for (const m of getT().matchAll(/[A-Za-z_][\w]{2,}/g))
+    if (!seen.has(m[0]) && m[0].toLowerCase().startsWith(pre)) { seen.add(m[0]); opts.push({ label: bare ? m[0] : '#' + m[0], type: 'variable' }) }
+  return opts.length ? { from: w ? w.from : ctx.pos, options: opts.slice(0, 50) } : null
+}
+function typstHover(view, pos) {
+  const w = view.state.wordAt(pos)
+  if (!w) return null
+  const d = T_DOC[view.state.doc.sliceString(w.from, w.to)]
+  if (!d) return null
+  return { pos: w.from, end: w.to, above: false, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover'; div.textContent = d; return { dom: div } } }
+}
+function docNear(view, pos, a, b) { // command docs for nearest word (also at brackets/spaces)
+  for (let o = 0; o <= 8; o++) {
+    for (const p of o ? [pos - o, pos + o] : [pos]) {
+      if (p < a || p > b) continue
+      const w = view.state.wordAt(p)
+      if (w) { const d = T_DOC[view.state.doc.sliceString(w.from, w.to)]; if (d) return d }
+    }
+  }
+  return null
+}
+function commentHover(view, pos) { // full comment view + command docs below, click opens card
+  const list = threads.filter(t => t.a != null && t.b != null && pos >= t.a && pos <= t.b)
+  if (!list.length) return null
+  const a = Math.min(...list.map(t => t.a)), b = Math.max(...list.map(t => t.b))
+  return { pos: a, end: b, above: true, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover full'
+    for (const t of list.slice(0, 3)) {
+      const h = document.createElement('div'); h.style.marginBottom = '6px'
+      const nm = document.createElement('b'); nm.textContent = t.username; nm.style.color = colOf(t.username)
+      h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(t.created_at)))
+      const p = document.createElement('div'); p.textContent = t.text; h.appendChild(p)
+      if (t.replies && t.replies.length) {
+        const r = document.createElement('div'); r.style.color = 'var(--sub)'; r.style.fontSize = '12px'
+        r.textContent = '+' + t.replies.length + (t.replies.length === 1 ? ' reply' : ' replies'); h.appendChild(r)
+      }
+      div.appendChild(h)
+    }
+    if (list.length > 3) {
+      const m = document.createElement('div'); m.style.color = 'var(--sub)'; m.style.fontSize = '12px'
+      m.textContent = '+' + (list.length - 3) + ' more'; div.appendChild(m)
+    }
+    const d = docNear(view, pos, a, b)
+    if (d) {
+      const s = document.createElement('div')
+      s.style.borderTop = '1px solid var(--line)'; s.style.marginTop = '6px'; s.style.paddingTop = '6px'; s.style.color = 'var(--sub)'
+      s.textContent = d; div.appendChild(s)
+    }
+    div.style.cursor = 'pointer'; div.onclick = () => openPop(list[0].anchor, false)
+    return { dom: div } } }
+}
+const hoverAll = (v, p) => errHover(v, p) || commentHover(v, p) || typstHover(v, p)
+const editableComp = new Compartment(), hlComp = new Compartment()
+const setHl = StateEffect.define() // mark comment ranges, follow edits via mapping
+const hlField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setHl)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setFind = StateEffect.define() // search hits, follow edits via mapping
+const findField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setFind)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setErr = StateEffect.define() // real error spot (no warning), follows via mapping
+const errField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setErr)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setPeer = StateEffect.define() // remote cursor: colored bar, no blink
+const peerField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setPeer)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setMarks = StateEffect.define() // gutter dots per comment line
+const markField = StateField.define({
+  create: () => RangeSet.empty,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setMarks)) v = e.value; return v.map(tr.changes) },
+  provide: f => gutterLineClass.from(f),
+})
+class ThreadDot extends GutterMarker {
+  get elementClass() { return 'hasThread' }
+  eq(o) { return o instanceof ThreadDot }
+}
+class PeerCaret extends WidgetType {
+  constructor(c, n) { super(); this.c = c; this.n = n }
+  eq(o) { return o.c === this.c && o.n === this.n }
+  toDOM() {
+    const w = document.createElement('span'); w.className = 'peerW'; w.title = this.n
+    const bar = document.createElement('span'); bar.className = 'peer'; bar.style.borderLeftColor = this.c
+    const lab = document.createElement('span'); lab.className = 'peerName'; lab.textContent = this.n
+    lab.style.color = this.c; lab.style.borderColor = this.c
+    w.append(bar, lab); return w
+  }
+}
+const posOfLine = (t, line) => { // char pos of 1-based line
+  let p = 0
+  for (let l = 1; l < line; l++) { p = t.indexOf('\n', p) + 1; if (!p) return t.length }
+  return p
+}
+function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = keep, never delete
+  if (!q) return -1
+  const hint = posOfLine(t, hintLine)
+  const near = arr => arr.sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint))[0]
+  let p = -1; const exact = []
+  while ((p = t.indexOf(q, p + 1)) >= 0 && exact.length < 20) exact.push(p)
+  if (exact.length) return near(exact) // same text twice: keep the one at the cursor, not the first
+  const cands = []
+  const pushAll = sub => {
+    if (sub.length < 10) return
+    let p = -1, n = 0
+    while ((p = t.indexOf(sub, p + 1)) >= 0 && n++ < 20) cands.push(p)
+  }
+  if (q.length >= 16) { const h = q.length >> 1; pushAll(q.slice(0, h)); pushAll(q.slice(h)) }
+  else pushAll(q.slice(0, Math.min(10, q.length)))
+  if (!cands.length && q.length > 10) pushAll(q.slice(0, 10))
+  if (!cands.length) return -1
+  return near(cands)
+}
+function refreshHl() { // highlight from saved ranges: never breaks on typing
+  const t = getT(), rs = []
+  for (const th of threads) {
+    if (th.a == null || th.b == null) continue
+    const a = Math.max(0, Math.min(t.length, th.a)), b = Math.max(0, Math.min(t.length, th.b))
+    if (b > a) rs.push(Decoration.mark({ class: 'cm-hl' }).range(a, b))
+  }
+  cm.dispatch({ effects: setHl.of(RangeSet.of(rs, true)) }) // true: CM sorts (same from-pos allowed)
+}
+let threads = [], marks = new Set(), popAnchor = 0 // before cm: gutter mapper runs during setup
+let applying = false // remote sync writes: triggers no push
+const cm = new EditorView({
+  parent: $('cm'),
+  extensions: [keymap.of([ // first: highest priority before minimalSetup defaults
+      { key: 'ArrowDown', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(true)(v); return false } }, // creator call: (forward)(view), else cursor moves along
+      { key: 'ArrowUp', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(false)(v); return false } },
+      { key: 'Escape', run: v => { if (currentCompletions(v.state).length) { closeCompletion(v); return true } return false } },
+      { key: 'ArrowLeft', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } }, // box closes, cursor moves on
+      { key: 'ArrowRight', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
+      { key: 'Home', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
+      { key: 'End', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
+      { // Tab like IDE: selection/line-start indents, open box accepts, else autocomplete
+      key: 'Tab',
+      run: v => {
+        const m = v.state.selection.main
+        if (!m.empty) return indentMore(v)
+        if (currentCompletions(v.state).length) { acceptCompletion(v); return true }
+        const line = v.state.doc.lineAt(m.head)
+        if (/^\s*$/.test(line.text.slice(0, m.head - line.from))) return indentMore(v)
+        return startCompletion(v)
+      },
+      shift: v => indentLess(v),
+    }, { key: 'Ctrl-Space', run: startCompletion }]),
+    minimalSetup, typst_lezer(), EditorView.lineWrapping,
+    autocompletion({ override: [typstComplete], defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // Enter stays newline, only Tab accepts; arrows navigate
+    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errField,
+    markField, lineNumbers(),
+    EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
+    EditorView.updateListener.of(u => {
+      if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1)) // start left, end right: type before stays out, inside/after highlights
+      if (u.docChanged && findOpen) markFind() // recount hits, mark follows on its own
+      paintErr() // compile errors: red + hover follow text (key stops loops, no live lint)
+      if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
+      if (u.selectionSet) try { updCNewTip() } catch (e) {}
+      if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
+    })]
+})
+cm.scrollDOM.addEventListener('scroll', () => {
+  if (popAnchor) movePop()
+})
+let redir = false // event redirect active (no loop)
+cm.scrollDOM.addEventListener('mousemove', e => { // empty right of error: redirect to text end, CM shows hover
+  if (redir || e.target.closest?.('.cm-tooltip,.typ-hover')) return
+  const row = errLines.find(x => {
+    if (x.line < 1 || x.line > cm.state.doc.lines) return false // after delete: line no longer exists
+    const s = cm.coordsAtPos(cm.state.doc.line(x.line).from)
+    return s && e.clientY >= s.top && e.clientY <= s.bottom
+  })
+  if (!row) return
+  const end = cm.coordsAtPos(cm.state.doc.line(row.line).to)
+  if (!end || e.clientX <= end.right) return // text: CM hits on its own
+  let span = null // target must be text (CM misses line targets)
+  for (const s of document.querySelectorAll('#cmWrap .cm-err')) {
+    const r = s.getBoundingClientRect()
+    if (e.clientY >= r.top && e.clientY <= r.bottom) { span = s; break }
+  }
+  redir = true
+  e.stopImmediatePropagation() // first event skips CM (would clobber hover), only redirected one
+  ;(span || e.target).dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: end.right - 2, clientY: e.clientY }))
+  redir = false
+})
+$('cm').addEventListener('mousedown', e => { // click on line number or yellow highlight opens card
+  const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
+  if (g && marks.has(+g.textContent)) { openPop(+g.textContent, false); return }
+  const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
+  if (hl) {
+    const p = cm.posAtDOM(hl)
+    const th = threads.find(t => t.a != null && p >= t.a && p <= t.b)
+    if (th) openPop(th.anchor, false)
+  }
+})
+const getT = () => cm.state.doc.toString()
+const setT = v => { applying = true; cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: v } }); applying = false }
+function onEdit(mapPos) {
+  gutter()
+  if (tplName) { queueTplSave(); return } // template: save directly, no sync/render
+  if (docRole === 'reviewer' || !ytext) return
+  paintOutline()
+  if (activeFile) { queueFileSave(); return } // file tab: only file + preview, no Yjs
+  pushLocal(); queueRender(); queueSave()
+  if (mapPos) mapThreads(mapPos)
+  reanchor()
+  if (threads.length) refreshHl()
+}
+let anchorT = 0
+const anchorDirty = new Map()
+function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not many
+  anchorDirty.set(th.id, { doc: docId, anchor: th.anchor })
+  clearTimeout(anchorT)
+  anchorT = setTimeout(() => {
+    for (const [id, s] of anchorDirty) {
+      const t = threads.find(x => x.id === id)
+      if (t && s.doc) api('POST', `/api/docs/${s.doc}/comments/${t.id}/anchor`, { anchor: s.anchor }).catch(() => {})
+    }
+    anchorDirty.clear()
+  }, SAVE_MS)
+}
+function mapThreads(mapPos, paint = true) { // start left, end right: typing before stays out, inside/after grows
+  const t = activeFile ? shadow : getT() // file tab: anchors live in main, not in file text (Fix #5)
+  for (const th of threads) {
+    if (th.a == null || th.b == null) continue
+    const a = Math.max(0, Math.min(t.length, mapPos(th.a, false)))
+    const b = Math.max(0, Math.min(t.length, mapPos(th.b, true)))
+    th.a = Math.min(a, b); th.b = Math.max(a, b)
+    const line = t.slice(0, th.a).split('\n').length
+    if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+  }
+  if (!paint) return
+  gutter(); refreshHl()
+  if (popAnchor) movePop()
+}
+function initRanges() { // ranges from quote (once; then mapping keeps them alive)
+  const t = getT()
+  if (!t) return
+  for (const th of threads) {
+    if (th.a != null) continue
+    const i = th.quote ? locateQuote(t, th.quote, th.anchor) : -1
+    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + th.quote.length) }
+    else { th.a = posOfLine(t, th.anchor); th.b = th.a + t.slice(th.a).split('\n')[0].length }
+  }
+}
+
+// --- Editor <-> Y.Text: prefix/suffix diff only (source: getT/setT = CodeMirror) ---
+function pushLocal() {
+  const v = getT()
+  let a = 0; while (a < Math.min(shadow.length, v.length) && shadow[a] === v[a]) a++
+  let b = 0; while (b < Math.min(shadow.length - a, v.length - a) && shadow[shadow.length - 1 - b] === v[v.length - 1 - b]) b++
+  if (a + b === shadow.length && a + b === v.length) return
+  ydoc.transact(() => {
+    if (a + b < shadow.length) ytext.delete(a, shadow.length - a - b)
+    if (a + b < v.length) ytext.insert(a, v.slice(a, v.length - b))
+  }, 'local') // own edits: skip pullRemote via observer (see below)
+  shadow = v
+}
+function pullRemote() {
+  const v = ytext.toString()
+  synced = true // server text arrived: saves now write real content
+  if (v === shadow) { jumpWant(); return }
+  const s = cm.state.selection.main.head, old = shadow
+  let a = 0; while (a < Math.min(old.length, v.length) && old[a] === v[a]) a++
+  let b = 0; while (b < Math.min(old.length - a, v.length - a) && old[old.length - 1 - b] === v[v.length - 1 - b]) b++
+  const d = v.length - old.length
+  const map = (p, end) => p <= a ? p : p >= old.length - b ? p + d : end ? a + (v.length - b - a) : a
+  shadow = v
+  if (activeFile) { // file tab open: buffer main only, editor shows file
+    if (threads.length) mapThreads(map, false) // values yes (main-relative), paint no (Fix #5)
+    queueRender()
+    return
+  }
+  setT(v)
+  cm.dispatch({ selection: { anchor: Math.min(s, v.length) } })
+  jumpWant() // jump to search hit after open
+  if (threads.length) mapThreads(map)
+  reanchor()
+  paintOutline()
+  queueRender()
+}
+// --- Typst preview: main file + uploads as shadow files in compiler ---
+let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // text anchors per page: click hits exact (tables too)
+let cmpWait = 0, lastInfra = false // compiler missing / last render infra error (watchdog heals)
+const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived
+let typstPm = null // compiler loads async: UI stays clickable while WASM loads
+let typstWarned = false // max 1 warning: no endless retry on blocked CDN
+function ensureTypst() {
+  if (typstPm) return typstPm
+  typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.7.0/dist/esm/index.js').then(m => { // pinned, CSP server-side (see above)
+    if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM bundle sets no global: adopt it
+    // bundle default points to missing WASM (404): pin explicitly (see docs example)
+    window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.7.0/pkg/typst_ts_web_compiler_bg.wasm' })
+    window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.7.0/pkg/typst_ts_renderer_bg.wasm' })
+  }).catch(e => {
+    typstPm = null // allow retry: watchdog retries instead of stalling
+    if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
+    throw new Error('Compiler still loading')
+  })
+  return typstPm
+}
+setTimeout(() => {
+  if (!typstReady() || !window.pdfjsLib) $('cdnLine').style.display = ''
+  else $('cdnLine').style.display = 'none'
+}, 5000)
+function updExports() {
+  const r = typstReady(), t = r ? '' : 'Preview still loading'
+  for (const id of ['dlPdf', 'dlSvg']) { const b = $(id); if (!b) continue; b.disabled = !r; b.style.opacity = r ? '' : '.45'; b.title = r ? b.getAttribute('aria-label') : t }
+}
+setInterval(updExports, 2000)
+let typstQueued = false // one catch-up render: no compile queue while typing
+function queueTypstRender() {
+  if (typstQueued) return
+  typstQueued = true
+  ensureTypst().then(() => { typstQueued = false; $('cdnLine').style.display = 'none'; updExports(); if (typstReady() && docId) render() }).catch(() => { typstQueued = false })
+}
+let typstT0 = 0 // load start: hint only on real stall, not on slow net
+function noteCompiler(preview) { // hint instead of endless rendering note (only on stall)
+  if (!typstT0) typstT0 = Date.now()
+  $('cdnLine').style.display = ''
+  if (++cmpWait >= 8 && Date.now() - typstT0 > 25000 && !preview.querySelector('canvas')) {
+    preview.innerHTML = '<p class="empty">Preview not loading — needs internet. <button>Try again</button></p>'
+    preview.querySelector('button').onclick = () => render()
+  }
+}
+setInterval(() => { // watchdog: dead render (init race, dropped retry) heals itself
+  if (docId && !tplName && lastInfra && !$('preview').querySelector('canvas')) render()
+}, 3000)
+const fileCache = new Map() // name -> {mtime, bytes}: reload binaries only on change
+function queueRender() { clearTimeout(renderT); renderT = setTimeout(render, RENDER_MS) }
+async function shadowAll(main) { // files + templates as shadow: preview and PDF export share it
+  try {
+    const files = (await api('GET', `/api/docs/${docId}/files`)).files
+    lastFiles = files // only on success: failed list keeps old cache intact
+    mediaNames = files.map(f => f.name)
+    const sig = files.map(f => f.name + f.size + ':' + f.mtime).join('|')
+    if (sig !== lastMedia) { lastMedia = sig; renderMediaChips(files) } // manager chips only on change
+  } catch (e) {} // list failed (429/offline): reuse lastFiles below, no wipe
+  const files = lastFiles
+  const seen = new Set()
+  await Promise.all(files.map(async f => { // parallel: no serial fetch for many files
+    seen.add(f.name)
+    const c = fileCache.get(f.name)
+    if (!c || c.mtime !== f.mtime) {
+      const rr = await fetch(`/api/docs/${docId}/files/` + encodeURIComponent(f.name))
+      if (!rr.ok) return // gone or 403: keep old shadow, no error blob
+      fileCache.set(f.name, { mtime: f.mtime, bytes: new Uint8Array(await rr.arrayBuffer()) })
+    }
+  }))
+  for (const k of [...fileCache.keys()]) if (!seen.has(k)) fileCache.delete(k)
+  bibKeys = [] // recollect #cite sources from all .bib
+  for (const [n, c] of fileCache) {
+    if (!/\.bib$/i.test(n)) continue
+    try {
+      for (const m of new TextDecoder().decode(c.bytes).matchAll(/@\w+\s*\{\s*([^,\s}]+)/g))
+        if (!bibKeys.includes(m[1])) bibKeys.push(m[1])
+    } catch (e) {}
+  }
+  await $typst.resetShadow()
+  await $typst.addSource('/main.typ', main)
+  for (const t of myTpl) await $typst.mapShadow('/' + t.name, new TextEncoder().encode(t.content)) // templates global, not in manager
+  for (const [n, c] of fileCache) await $typst.mapShadow('/' + n, c.bytes)
+}
+async function render() {
+  const id = ++renderN, preview = $('preview')
+  if (!docId) return
+  if (!typstReady()) { noteCompiler(preview); lastInfra = true; queueTypstRender(); return } // loads in background, renders after
+  if (!window.pdfjsLib) { $('cdnLine').style.display = ''; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // cdnjs blocked: retry later
+  cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
+  try {
+    await shadowAll(activeFile ? shadow : getT()) // file tab: preview still compiles main.typ
+    if (id !== renderN) return // stale: skip wasted full compile
+    const doc = await pdfjsLib.getDocument({ data: await $typst.pdf({ mainFilePath: '/main.typ' }) }).promise
+    if (id !== renderN) { doc.destroy(); return }
+    oldPdf?.destroy(); oldPdf = doc
+    const st = preview.scrollTop // keep scroll pos, else preview jumps to top on typing
+    preview.innerHTML = ''
+    pvTexts = []
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p), v = page.getViewport({ scale: 2 }), c = document.createElement('canvas')
+      c.width = v.width; c.height = v.height // backing = viewport (scale 2), never touch
+      c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'Preview page ' + p)
+      await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise
+      sizeCanvas(c) // CSS width only, not canvas.width
+      const tc = await page.getTextContent() // click anchors: each visible word knows its spot
+      if (id !== renderN) return
+      const [a, b, cc, d, ee, ff] = v.transform // text space -> canvas px
+      const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
+      pvTexts.push(tc.items.map(it => {
+        const w = (it.width || 0) * ax, h = (it.height || 0) * ay
+        const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
+        return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2 }
+      }))
+      preview.appendChild(c)
+    }
+    if (!preview.scrollTop) preview.scrollTop = st // only after reset: keep manual scroll and follow
+    clearErr() // running again: clear marks
+    lastInfra = false
+  } catch (e) { if (id === renderN) { // error: keep last render, red lines, never wrong empty text
+    cmpDiags = await errDiags(); paintErr()
+    if (!$('preview').querySelector('canvas')) {
+      $('preview').innerHTML = '<p class="empty">Could not render. <button>Try again</button></p>' // never rendered yet
+      $('preview').querySelector('button').onclick = () => render()
+      if (cmpDiags.length) toast('Typst error: see red marks')
+      else toast('Preview failed to load — needs internet', () => render())
+    } else if (cmpDiags.length) toast('Typst error: see red marks')
+    lastInfra = !cmpDiags.length && !$('preview').querySelector('canvas') // infra (not content): watchdog retries
+  } }
+}
+let errKey = '', errLines = [], cmpDiags = [] // error lines: only after compile (no linter in extensions), one mark per line
+function clearErr() { errKey = ''; errLines = []; cmpDiags = []; cm.dispatch({ effects: setErr.of(RangeSet.of([])) }); updErrBadge() }
+async function errDiags() { // compile errors (no live lint: errors only after compile)
+  if (!typstReady()) return []
+  try {
+    const r = await (await $typst.getCompiler()).compile({ mainFilePath: '/main.typ', diagnosticFormat: 'human' })
+    return (r.diagnostics || []).filter(d => d.severity === 'error')
+  } catch (err) { return [] }
+}
+function paintErr() { // one mark + one message per line, compile only (no active linter)
+  const byLine = new Map(), t = getT()
+  forEachDiagnostic(cm.state, (d, from) => { // empty without linter, stays as hook
+    const l = cm.state.doc.lineAt(from).number
+    if (!byLine.has(l)) byLine.set(l, (d.message || 'Typst error') + (d.source ? '\n' + d.source : ''))
+  })
+  for (const d of cmpDiags) {
+    const m = d && d.path === '/main.typ' && String(d.range || '').match(/(\d+):(\d+)-(\d+):(\d+)/)
+    if (!m) continue
+    const l = +m[1] + 1
+    if (!byLine.has(l)) byLine.set(l, (d.message || 'Typst error') + ' · line ' + l)
+  }
+  const list = [...byLine].map(([line, msg]) => ({ line, msg })).sort((a, b) => a.line - b.line)
+  const key = list.map(e => e.line + ':' + e.msg).join('|')
+  if (key === errKey) return // nothing new: no dispatch, no loop
+  errKey = key; errLines = list
+  const marks = []
+  for (const e of list) {
+    if (e.line < 1 || e.line > cm.state.doc.lines) continue // stale compile line after delete: no overflow (Fix)
+    const ls = posOfLine(t, e.line), le = t.indexOf('\n', ls) // whole line, inline: no block, no extra line
+    marks.push(Decoration.mark({ class: 'cm-err' }).range(ls, Math.max(ls + 1, le < 0 ? t.length : le)))
+  }
+  cm.dispatch({ effects: setErr.of(RangeSet.of(marks)) })
+  updErrBadge()
+} // no cursor steal: typing stays put
+function errHover(view, pos) { // error line shows message (empty redirected in)
+  const e = errLines.find(x => x.line === view.state.doc.lineAt(pos).number)
+  if (!e) return null
+  return { pos, end: pos, above: false, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover err'; div.textContent = e.msg; return { dom: div } } }
+}
+function updErrBadge() { // error counter in header: touch-friendly, hover not needed
+  const b = $('eBadge')
+  if (!b) return
+  if (!errLines.length) { b.style.display = 'none'; return }
+  b.style.display = ''
+  b.textContent = errLines.length + (errLines.length === 1 ? ' error' : ' errors')
+  b.title = 'Show errors: ' + errLines.map(e => 'line ' + e.line).join(', ')
+  b.setAttribute('aria-label', b.title)
+}
+function showErrList() { // click badge: list errors, click row jumps to line
+  if (!errLines.length) return
+  const box = $('pop')
+  box.innerHTML = ''
+  box.appendChild(el('div', 'th', 'Errors (' + errLines.length + ')'))
+  errLines.forEach(e => {
+    const r = el('div', 'qt', 'Line ' + e.line + ': ' + e.msg.split('\n')[0])
+    r.style.cursor = 'pointer'
+    r.onclick = () => { closePop(); const p = posOfLine(getT(), e.line); cm.dispatch({ selection: { anchor: p } }); cm.focus() }
+    box.appendChild(r)
+  })
+  box.style.display = 'block'
+}
+// --- Docs ---
+let folders = [], lastOwn = [], lastShared = [], hits = [], findQ = '', findT = 0, wantPos = -1
+let shut = new Set() // collapsed folders (doc: name, tpl: "tpl:..", shared: "share:..")
+try { shut = new Set(JSON.parse(localStorage.getItem('typst_shut') || '[]')) } catch (e) {}
+const saveShut = () => { try { localStorage.setItem('typst_shut', JSON.stringify([...shut])) } catch (e) {} }
+let secShut = new Set() // collapsed sidebar sections (header IDs)
+try { secShut = new Set(JSON.parse(localStorage.getItem('typst_sec') || '[]')) } catch (e) {}
+const saveSec = () => { try { localStorage.setItem('typst_sec', JSON.stringify([...secShut])) } catch (e) {} }
+const SECS = [['ownH', 'own', 'Documents', 'doc'], ['tplH', 'tpls', 'Templates', 'tpl'], ['sharedH', 'shared', 'Shared with me'], ['olH', 'ol', 'Outline']]
+function paintSecs() { // all sections collapsible, + creates folder directly
+  for (const [h, box, label, plus] of SECS) {
+    const H = $(h), B = $(box)
+    if (!H || !B) continue
+    H.innerHTML = ''
+    const togSec = () => { secShut.has(h) ? secShut.delete(h) : secShut.add(h); saveSec(); paintSecs() }
+    const l = el('span', 'lbl', (secShut.has(h) ? '▸ ' : '▾ ') + label)
+    l.title = 'Expand/collapse'
+    l.onclick = togSec
+    kb(H, togSec) // h3 is the button (Enter/Space), aria-expanded see below
+    H.appendChild(l)
+    if (plus) {
+      const p = el('button', 'mini', '+'); p.title = plus === 'doc' ? 'New folder' : 'New template folder'; p.setAttribute('aria-label', p.title)
+      p.onclick = e => { e.stopPropagation(); plus === 'doc' ? newFolder() : newTplFolder() }
+      H.appendChild(p)
+    }
+    B.style.display = secShut.has(h) ? 'none' : ''
+    H.setAttribute('aria-expanded', String(!secShut.has(h)))
+  }
+  updNavFade() // content height changed
+}
+async function newFolder() {
+  const n = await ask('New folder', { ph: 'Name' })
+  if (n === null || !n.trim()) return
+  try { await api('POST', '/api/folders', { folder: n.trim() }); sidebar() } catch (e) { toast(e.message) }
+}
+async function newTplFolder() {
+  const n = await ask('New template folder', { ph: 'Name' })
+  if (n === null || !n.trim()) return
+  try { await api('POST', '/api/tplfolders', { folder: n.trim() }); await loadTpl(); paintSecs() } catch (e) { toast(e.message) }
+}
+function jumpWant() { // jump to search hit (once after open)
+  if (wantPos < 0) return
+  const p = Math.max(0, Math.min(cm.state.doc.length, wantPos))
+  wantPos = -1
+  cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
+}
+async function sidebar() {
+  let d
+  try {
+    d = await api('GET', '/api/docs')
+    folders = (await api('GET', '/api/folders')).folders
+  }
+  catch (e) {
+    if (/401|logged|Login/i.test(e.message)) { location.reload(); return }
+    return // offline etc: keep old list
+  }
+  lastOwn = d.own; lastShared = d.shared
+  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
+  paintTpls()
+  const nv = $('nav'); nv.onscroll = updNavFade; addEventListener('resize', updNavFade); updNavFade()
+}
+function updNavFade() { // bottom fade only while more content below
+  const n = $('nav')
+  n.classList.toggle('at-end', n.scrollHeight - n.scrollTop - n.clientHeight < 8)
+}
+function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
+  const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
+  div.setAttribute('role', 'button')
+  div.appendChild(el('span', 't', shared && !bare ? x.owner + '/' + x.title : x.title))
+  div.title = shared ? x.owner + '/' + x.title + ' (' + (({ owner: 'Owner', editor: 'Editor', reviewer: 'Reader' })[x.role] || x.role) + ')' : x.title
+  div.onclick = () => openDoc(x.id)
+  kb(div, () => openDoc(x.id)) // keyboard: Enter/Space opens
+  if (!shared) {
+    div.draggable = true
+    div.ondragstart = e => e.dataTransfer.setData('text/plain', x.id)
+    const dup = el('button', 'mini', '⧉'); dup.title = 'Duplicate'; dup.setAttribute('aria-label', dup.title)
+    dup.onclick = e => { e.stopPropagation(); if (dup.disabled) return; dup.disabled = true // upBusy pattern: no double doc
+      api('POST', `/api/docs/${x.id}/duplicate`).then(r => openDoc(r.id)).catch(e => toast(e.message)).finally(() => dup.disabled = false) } // openDoc repaints list itself
+    div.appendChild(dup)
+    const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = 'Move to trash'; del.setAttribute('aria-label', del.title)
+    del.onclick = async e => {
+      e.stopPropagation()
+      if (!await ask(`"${x.title}" Move to trash?`, { noInput: true, ok: 'OK' })) return
+      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
+      if (x.id === docId) closeView()
+      sidebar()
+    }
+    div.appendChild(del)
+  }
+  return div
+}
+function paintOwn() { // top-level first, then folders (A-Z); search replaces list
+  const box = $('own'); box.innerHTML = ''
+  const qc = $('qCount')
+  if (findQ.length >= 2) {
+    if (qc) qc.textContent = hits.length + ' results'
+    if (!hits.length) {
+      const e = el('div', 'empty', 'Nothing found ')
+      const b = el('button', null, 'Clear search')
+      b.onclick = () => { $('q').value = ''; findQ = ''; hits = []; if (qc) qc.textContent = ''; paintOwn() }
+      e.appendChild(b); box.appendChild(e)
+    }
+    hits.forEach(h => {
+      const div = el('div', 'doc')
+      div.setAttribute('role', 'button')
+      div.appendChild(el('span', 't', h.title))
+      div.title = (h.folder ? h.folder + '/' : '') + (h.snippet || 'Title hit')
+      const openH = () => { wantPos = h.pos; $('q').value = ''; findQ = ''; if (qc) qc.textContent = ''; openDoc(h.id) }
+      div.onclick = openH
+      kb(div, openH)
+      box.appendChild(div)
+    })
+    return
+  }
+  if (qc) qc.textContent = ''
+  const byF = new Map()
+  lastOwn.forEach(x => {
+    if (!x.folder) box.appendChild(docRow(x))
+    else { if (!byF.has(x.folder)) byF.set(x.folder, []); byF.get(x.folder).push(x) }
+  })
+  folders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) }) // show empty folders
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintFolder(box, f, byF.get(f)))
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', 'No documents yet – create one with + New'))
+}
+function paintShared(list) { // one folder per person; one file = user/file like VSCode
+  const box = $('shared'); box.innerHTML = ''
+  const byO = new Map()
+  list.forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
+  ;[...byO.keys()].sort((a, b) => a.localeCompare(b)).forEach(o => {
+    const docs = byO.get(o)
+    if (docs.length === 1) { box.appendChild(docRow(docs[0], true)); return }
+    const h = el('div', 'fhd'), k = 'share:' + o
+    const t = el('b', null, (shut.has(k) ? '▸ ' : '▾ ') + o)
+    t.title = 'Expand/collapse'
+    const togS = () => { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut(); paintShared(lastShared) }
+    t.onclick = togS
+    kb(t, togS)
+    h.appendChild(t); box.appendChild(h)
+    if (!shut.has(k)) docs.forEach(x => { const r = docRow(x, true, true); r.classList.add('sub'); box.appendChild(r) })
+  })
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', 'Nothing shared yet'))
+}
+function paintFolder(box, f, docs) { // header: click collapses, rename, dissolve; drop sorts in
+  const h = el('div', 'fhd')
+  const t = el('b', null, (shut.has(f) ? '▸ ' : '▾ ') + f)
+  t.title = 'Expand/collapse'
+  const tog = () => {
+    shut.has(f) ? shut.delete(f) : shut.add(f)
+    saveShut()
+    paintOwn()
+  }
+  t.onclick = tog
+  kb(t, tog)
+  const rn = el('button', 'mini', '✎'); rn.title = 'Rename folder'; rn.setAttribute('aria-label', rn.title)
+  rn.onclick = async e => {
+    e.stopPropagation()
+    const n = await ask('Rename folder', { value: f })
+    if (n === null || !n.trim() || n.trim() === f) return
+    api('POST', '/api/folders/rename', { old: f, new: n.trim() }).then(sidebar).catch(e => toast(e.message))
+  }
+  const x = el('button', 'mini', '✕'); x.title = 'Dissolve folder (docs stay)'; x.setAttribute('aria-label', x.title)
+  x.onclick = async e => {
+    e.stopPropagation()
+    if (await ask(`Dissolve folder "${f}"?`, { noInput: true, ok: 'OK' }))
+      api('DELETE', '/api/folders/' + encodeURIComponent(f)).then(sidebar).catch(e => toast(e.message))
+  }
+  h.append(t, rn, x)
+  h.ondragover = e => e.preventDefault()
+  h.ondrop = e => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (!id || id.startsWith('tpl:')) return // templates belong in template folders
+    api('POST', `/api/docs/${id}/folder`, { folder: f }).then(sidebar).catch(e => toast(e.message))
+  }
+  box.appendChild(h)
+  if (!shut.has(f)) docs.forEach(x => { const r = docRow(x); r.classList.add('sub'); box.appendChild(r) })
+}
+function paintTrash(trash) { // click peeks in (trash view), restore, delete permanently
+  const h = $('trashH')
+  h.innerHTML = ''
+  const togTrash = () => { secShut.has('trashH') ? secShut.delete('trashH') : secShut.add('trashH'); saveSec(); paintTrash(trash) }
+  const l = el('span', 'lbl', (secShut.has('trashH') ? '▸ ' : '▾ ') + 'Trash')
+  l.title = 'Expand/collapse'
+  l.onclick = togTrash
+  kb(h, togTrash)
+  h.setAttribute('aria-expanded', String(!secShut.has('trashH')))
+  h.appendChild(l)
+  if (!trash.length) { $('trash').innerHTML = ''; if (!secShut.has('trashH')) $('trash').appendChild(el('div', 'empty', 'Trash is empty')); return }
+  const empty = el('button', 'mini', 'Empty'); empty.title = 'Empty trash (permanent)'; empty.setAttribute('aria-label', empty.title)
+  empty.onclick = async () => {
+    if (!await ask(`${trash.length === 1 ? '1 document' : trash.length + ' documents'} delete permanently?`, { noInput: true, ok: 'Delete', danger: true })) return
+    const errs = []
+    for (const x of trash) { try { await api('DELETE', `/api/docs/${x.id}`) } catch (e) { errs.push(x.title + ': ' + e.message) } } // no break: try all
+    if (errs.length) toast(errs.join('\n'))
+    if (trash.some(x => x.id === docId)) closeView()
+    sidebar()
+  }
+  h.appendChild(empty)
+  const box = $('trash'); box.innerHTML = ''
+  box.style.display = secShut.has('trashH') ? 'none' : ''
+  trash.forEach(x => {
+    const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
+    div.setAttribute('role', 'button')
+    div.appendChild(el('span', 't', x.title))
+    div.title = x.title + ' (Trash – click to view)'
+    div.onclick = () => openDoc(x.id)
+    kb(div, () => openDoc(x.id))
+    const back = el('button', 'mini', '↩'); back.title = 'Restore'; back.setAttribute('aria-label', back.title)
+    back.onclick = e => { e.stopPropagation(); api('POST', `/api/docs/${x.id}/restore`).then(sidebar).catch(e => toast(e.message)) }
+    const kill = el('button', 'mini', '✕'); kill.title = 'Delete permanently'; kill.setAttribute('aria-label', kill.title)
+    kill.onclick = async e => {
+      e.stopPropagation()
+      if (!await ask(`Delete "${x.title}" permanently?`, { noInput: true, ok: 'Delete', danger: true })) return
+      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
+      if (x.id === docId) closeView()
+      sidebar()
+    }
+    div.append(back, kill); box.appendChild(div)
+  })
+}
+$('q').oninput = () => { clearTimeout(findT); findT = setTimeout(runSearch, SEARCH_MS) }
+$('ownH').ondragover = e => e.preventDefault()
+$('ownH').ondrop = e => { // drop on Documents = move out of folder
+  e.preventDefault()
+  const id = e.dataTransfer.getData('text/plain')
+  if (!id || id.startsWith('tpl:')) return
+  api('POST', `/api/docs/${id}/folder`, { folder: '' }).then(sidebar).catch(e => toast(e.message))
+}
+$('tplH').ondragover = e => e.preventDefault()
+$('tplH').ondrop = e => { // drop on Templates = move out of folder
+  e.preventDefault()
+  const id = e.dataTransfer.getData('text/plain')
+  if (!id || !id.startsWith('tpl:')) return
+  api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: '' })
+    .then(() => { loadTpl() }).catch(e => toast(e.message))
+}
+let searchN = 0
+async function runSearch() {
+  findQ = $('q').value.trim()
+  if (findQ.length < 2) { hits = []; paintOwn(); return }
+  const n = ++searchN
+  try { hits = (await api('GET', '/api/search?q=' + encodeURIComponent(findQ))).hits }
+  catch (e) { hits = [] }
+  if (n !== searchN) return // stale: newer search already running
+  paintOwn()
+}
+function tplRow(t) { // click opens in editor, drag sorts into folder
+  const div = document.createElement('div')
+  div.className = 'doc' + (t.name === tplName ? ' cur' : '')
+  div.setAttribute('role', 'button')
+  div.appendChild(el('span', 't', t.name)); div.title = t.name
+  div.onclick = () => openTpl(t.name)
+  kb(div, () => openTpl(t.name))
+  div.draggable = true
+  div.ondragstart = e => e.dataTransfer.setData('text/plain', 'tpl:' + t.name)
+  const dup = el('button', 'mini', '⧉'); dup.title = 'Duplicate'; dup.setAttribute('aria-label', dup.title)
+  dup.onclick = async e => {
+    e.stopPropagation()
+    const n = await ask('Duplicate template', { value: t.name })
+    if (n === null || !n.trim()) return
+    let nn = n.trim().replace(/\.typ$/i, '.typ')
+    if (!nn.endsWith('.typ')) nn += '.typ'
+    nn = nn.split(/[/\\]/).pop().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 100) // like backend: check matches exactly
+    await loadTpl() // fresh: else upsert would silently overwrite
+    const src = myTpl.find(x => x.name === t.name) || t // no stale closure: state after reload
+    if (myTpl.some(x => x.name === nn)) { toast('Name already exists'); return }
+    try { await api('POST', '/api/templates', { name: nn, content: src.content, folder: src.folder || '' }); await loadTpl(); sidebar() }
+    catch (err) { toast(err.message) }
+  }
+  div.appendChild(dup)
+  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = 'Delete template'; del.setAttribute('aria-label', del.title)
+  del.onclick = async e => {
+    e.stopPropagation()
+    if (!await ask(`Delete template "${t.name}"?`, { noInput: true, ok: 'Delete', danger: true })) return
+    try { await api('DELETE', '/api/templates/' + encodeURIComponent(t.name)) } catch (err) { toast(err.message); return }
+    if (t.name === tplName) { clearTimeout(tplT); closeView(); $('viewSeg').style.display = '' } // open template gone: no zombie save, back to empty
+    await loadTpl(); sidebar()
+  }
+  div.appendChild(del)
+  return div
+}
+function paintTplFolder(box, f, docs) { // like paintFolder, for templates only
+  const h = el('div', 'fhd'), k = 'tpl:' + f
+  const t = el('b', null, (shut.has(k) ? '▸ ' : '▾ ') + f)
+  t.title = 'Expand/collapse'
+  const togT = () => { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut(); paintTpls() }
+  t.onclick = togT
+  kb(t, togT)
+  const rn = el('button', 'mini', '✎'); rn.title = 'Rename folder'; rn.setAttribute('aria-label', rn.title)
+  rn.onclick = async e => {
+    e.stopPropagation()
+    const n = await ask('Rename folder', { value: f })
+    if (n === null || !n.trim() || n.trim() === f) return
+    api('POST', '/api/tplfolders/rename', { old: f, new: n.trim() }).then(loadTpl).catch(e => toast(e.message))
+  }
+  const x = el('button', 'mini', '✕'); x.title = 'Dissolve folder (templates stay)'; x.setAttribute('aria-label', x.title)
+  x.onclick = async e => {
+    e.stopPropagation()
+    if (await ask(`Dissolve folder "${f}"?`, { noInput: true, ok: 'OK' }))
+      api('DELETE', '/api/tplfolders/' + encodeURIComponent(f)).then(loadTpl).catch(e => toast(e.message))
+  }
+  h.append(t, rn, x)
+  h.ondragover = e => e.preventDefault()
+  h.ondrop = e => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (!id || !id.startsWith('tpl:')) return
+    api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: f })
+      .then(loadTpl).catch(e => toast(e.message))
+  }
+  box.appendChild(h)
+  if (!shut.has(k)) docs.forEach(t => { const r = tplRow(t); r.classList.add('sub'); box.appendChild(r) })
+}
+function paintTpls() { // templates section: click opens in editor
+  const box = $('tpls'); if (!box) return
+  box.innerHTML = ''
+  const { top, byF } = groupBy(myTpl)
+  top.forEach(t => box.appendChild(tplRow(t)))
+  tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintTplFolder(box, f, byF.get(f)))
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', 'No templates yet')) // create via + New above (type + folder step)
+}
+let tplName = '' // template in editor (no doc): preview n/a, no read mode
+function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
+  wantPos = -1 // old search jump must not fire in next doc
+  openedTrashed = false
+  clearTimeout(saveT); clearTimeout(tplT); clearTimeout(anchorT); anchorDirty.clear() // no zombie save into next doc
+  if (activeFile && docId) { // pending file save: take along silently (keepalive)
+    clearTimeout(fileT)
+    fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: getT() }),
+      keepalive: true }).catch(() => {})
+  }
+  prov?.destroy(); ydoc?.destroy(); prov = ydoc = ytext = null
+  const wd = $('wsDot'); if (wd) { wd.style.background = '#aaa'; wd.title = 'Offline'; wd.setAttribute('aria-label', 'Connection: offline') }; const wt0 = $('wsTxt'); if (wt0) wt0.textContent = 'Offline'
+  threads = []; marks = new Set(); syncPage = 0 // do not carry click page into next doc
+  activeFile = ''; clearTimeout(fileT); bibKeys = [] // tabs closed (see paintTabs)
+  $('tabs').style.display = 'none'
+  fileCache.clear(); mediaNames = []; lastMedia = ''; lastFiles = []; mediaOpen = false
+  $('media').style.display = 'none'; closePop()
+  cm.dispatch({ effects: setPeer.of(RangeSet.of([])) })
+  $('peers').innerHTML = ''
+  $('cBadge').style.display = 'none'
+  const eb = $('eBadge'); if (eb) eb.style.display = 'none'
+}
+async function openTpl(name) {
+  const t = myTpl.find(x => x.name === name)
+  if (!t) return
+  autoCloseDrawer()
+  leaveDoc()
+  docId = ''; tplName = name; docRole = ''
+  hidePops()
+  setView('split') // segment hidden: reset view, else editonly sticks
+  $('title').textContent = name
+  $('role').textContent = 'Template'; $('renBtn').style.display = ''
+  $('viewSeg').style.display = 'none'; $('cNew').style.display = 'none'
+  $('shareBtn').style.display = 'none'; $('imgBtn').style.display = 'none'; $('mediaBtn').style.display = 'none'
+  $('del').style.display = ''; $('dlPdf').style.display = 'none'; $('dlPng').style.display = 'none'; $('dlSvg').style.display = 'none' // template: delete yes, export no
+  $('dlTyp').style.display = ''; $('tplBtn').style.display = ''
+  $('histBtn').style.display = 'none'; $('symBtn').style.display = ''; $('colPick').style.display = ''
+  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(true)) })
+  gutter()
+  setT(t.content)
+  paintOutline() // clear old outline from previous doc (templates have none)
+  $('preview').innerHTML = '<p class="empty">Preview not available for templates.</p>'
+  $('save').style.display = '' // template: save feedback back (dots stay hidden, no sync)
+  $('save').textContent = ''
+  sidebar()
+}
+function queueTplSave() {
+  clearTimeout(tplT)
+  $('save').textContent = '…'
+  tplT = setTimeout(async () => {
+    try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = 'saved' + wc(); loadTpl() }
+    catch (e) { $('save').textContent = navigator.onLine === false ? 'Offline – will retry' : 'Error: ' + e.message }
+  }, SAVE_MS)
+}
+let openN = 0, synced = false // sync state ready? Else no empty save to DB (Fix #2)
+let openedTrashed = false // trash view: read yes, write no
+async function restoreOpen() { // click Trash: restore to life, then connect live
+  const id = docId
+  try { await api('POST', `/api/docs/${id}/restore`, {}) } catch (e) { toast(e.message); return }
+  openDoc(id)
+}
+function closeView() { // no doc open: buttons off, empty view in
+  leaveDoc()
+  docId = ''; tplName = ''; lastC = ''
+  for (const b of ['shareBtn', 'histBtn', 'symBtn', 'colPick', 'imgBtn', 'mediaBtn', 'tplBtn', 'del', 'renBtn', 'dlTyp', 'dlPdf', 'dlPng', 'dlSvg', 'cNew']) $(b).style.display = 'none'
+  for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = 'none' // no doc: no status blobs
+  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(false)) }) // no doc: read-only
+  hidePops()
+  $('title').textContent = 'No document'; $('role').textContent = ''; $('role').onclick = null; $('role').title = ''
+  $('roBanner').style.display = 'none'
+  paintEmpty()
+  setT(''); gutter(); paintOutline()
+}
+async function openDoc(id) {
+  const n = ++openN, wp = wantPos // keep search jump across leaveDoc (see docRow search)
+  autoCloseDrawer()
+  leaveDoc()
+  wantPos = wp
+  if (tplName) setView('split') // only back from template: view was gone, else keep mode
+  hidePops()
+  let d
+  try { d = await api('GET', `/api/docs/${id}`) }
+  catch (e) { toast(e.message); sidebar(); return }
+  if (n !== openN) return // stale: newer openDoc already running
+  docId = id; docRole = d.role; tplName = ''
+  openedTrashed = !!d.trashed
+  const ro = d.role === 'reviewer' || openedTrashed // trash: read yes, write no
+  $('title').textContent = d.title
+  $('renBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
+  $('viewSeg').style.display = ''; $('cNew').style.display = ro ? 'none' : ''
+  const rl = $('role')
+  rl.textContent = openedTrashed ? 'Trash' : ({ owner: 'Owner', editor: 'Editor', reviewer: 'Reader' })[d.role] || d.role
+  rl.title = openedTrashed ? 'Click = restore' : ''
+  rl.style.cursor = openedTrashed ? 'pointer' : ''
+  rl.onclick = openedTrashed ? restoreOpen : null
+  $('roBanner').style.display = ro ? '' : 'none'
+  updCNewTip()
+  $('del').style.display = d.role === 'owner' ? '' : 'none'
+  $('del').title = openedTrashed ? 'Delete permanently' : 'Move to trash'
+  $('del').setAttribute('aria-label', $('del').title)
+  lastC = ''; synced = false
+  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(!ro)) })
+  $('shareBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
+  for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = '' // doc open: status back
+  $('histBtn').style.display = ro ? 'none' : '' // history writes: reviewer/trash excluded
+  $('imgBtn').style.display = ro ? 'none' : ''
+  $('mediaBtn').style.display = ro ? 'none' : ''
+  $('tplBtn').style.display = ro ? 'none' : ''
+  $('symBtn').style.display = ro ? 'none' : ''
+  $('colPick').style.display = ro ? 'none' : ''
+  $('dlTyp').style.display = ''; $('dlPdf').style.display = ''; $('dlPng').style.display = ''; $('dlSvg').style.display = ''
+  hidePops()
+  $('leftCol').style.width = clampSplit(parseFloat($('leftCol').style.width) || 50) + '%'
+  shares = d.shares
+  setT(''); shadow = ''
+  if (!openedTrashed) {
+    const yy = new Y.Doc(), yt = yy.getText('typst') // start empty, server state arrives via sync
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const pp = new WebsocketProvider(`${wsProto}://${location.host}/ws`, id, yy, {}) // cookie is primary (HttpOnly); no ?token= in log
+    if (n !== openN) { pp.destroy(); yy.destroy(); return } // superseded meanwhile
+    ydoc = yy; ytext = yt; prov = pp
+    ytext.observe((e, tx) => { if (tx.origin !== 'local') pullRemote() }) // only real remote updates touch editor
+    prov.awareness.on('change', renderPeers)
+    const updWs = () => {
+      const on = pp.wsconnected
+      const dot = $('wsDot'); if (dot) { dot.style.background = on ? '#30d158' : '#aaa'; dot.title = on ? 'Live' : 'Offline'; dot.setAttribute('aria-label', 'Connection: ' + (on ? 'live' : 'offline')) }; const wt = $('wsTxt'); if (wt) wt.textContent = on ? 'Live' : 'Offline'
+    }
+    pp.on('status', updWs); pp.on('connection-close', updWs); pp.on('connection-error', updWs)
+    pp.on('synced', () => { synced = true }) // initial handshake done: save may persist (also when doc stays empty)
+    updWs()
+    pushPresence()
+  } else {
+    setT(d.content || ''); shadow = d.content || ''; synced = true // no Yjs in trash: state from DB
+  }
+  try { // pagehide backup: keepalive misses 409, restore stashed edits here
+    let pend = null; const raw = localStorage.getItem('typst-pending-' + id)
+    if (raw) {
+      try {
+        const o = JSON.parse(raw)
+        pend = (o && typeof o.c === 'string' && Date.now() - (o.t || 0) <= 24 * 60 * 60 * 1000) ? o.c : null
+      } catch (e) { pend = raw } // legacy plain text
+      if (pend === null) localStorage.removeItem('typst-pending-' + id)
+    }
+    if (pend !== null && pend !== (d.content || '') && !openedTrashed && docRole !== 'reviewer') {
+      const iv = setInterval(() => { // wait for live sync, then restore stashed stand
+        if (n !== openN || synced) {
+          clearInterval(iv)
+          if (n !== openN || !ytext) return
+          localStorage.removeItem('typst-pending-' + id)
+          if (!synced || pend === ytext.toString()) return // live WS sync already has it
+          ydoc.transact(() => { ytext.delete(0, ytext.length); ytext.insert(0, pend) }, 'local')
+          setT(pend); shadow = pend; queueSave(); queueRender()
+          toast('Unsaved changes from last session restored')
+        }
+      }, 400)
+      setTimeout(() => clearInterval(iv), 15000)
+    } else if (raw) localStorage.removeItem('typst-pending-' + id)
+  } catch (e) {}
+  gutter()
+  $('preview').innerHTML = '<p class="empty" role="status" aria-busy="true"><span class="spin"></span>Rendering…</p>' // no stale empty text during first render
+  queueRender()
+  paintOutline()
+  sidebar(); loadComments().catch(() => {}); loadMembers()
+}
+function queueSave() {
+  clearTimeout(saveT)
+  $('save').textContent = '…'
+  saveT = setTimeout(saveNow, SAVE_MS)
+}
+async function saveNow() { // Ctrl+S: at once, no autosave wait
+  clearTimeout(saveT); clearTimeout(tplT)
+  if (docId && !tplName && !activeFile && !synced) { saveT = setTimeout(saveNow, SAVE_MS); return } // sync running: retry later instead of '' (Fix #2)
+  if (tplName) {
+    try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = 'saved' + wc() }
+    catch (e) { $('save').textContent = navigator.onLine === false ? 'Offline – will retry' : 'Error: ' + e.message }
+    return
+  }
+  if (activeFile && docId) { // file tab: save file, not main
+    try {
+      await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() })
+      fileCache.delete(activeFile)
+      $('save').textContent = 'saved' + wc()
+      queueRender()
+    } catch (e) { $('save').textContent = navigator.onLine === false ? 'Offline – will retry' : 'Error: ' + e.message }
+    return
+  }
+  if (!docId || docRole === 'reviewer' || !ytext) return
+  try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString() }); $('save').textContent = 'saved' + wc() }
+  catch (e) { $('save').textContent = navigator.onLine === false ? 'Offline – will retry' : 'Error: ' + e.message }
+}
+// --- Inline comments: select -> card at line ---
+const cols = ['#c2410c', '#059669', '#7c3aed', '#0369a1', '#be123c']
+const colOf = n => cols[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % cols.length]
+function pushPresence() { // u/sel always (online dot), active only on editor focus (cursor bar)
+  if (!prov || !prov.awareness) return
+  const m = cm.state.selection.main
+  const active = cm.hasFocus && document.hasFocus()
+  prov.awareness.setLocalStateField('u', { name: user, color: colOf(user || '?') })
+  prov.awareness.setLocalStateField('sel', { h: m.head })
+  prov.awareness.setLocalStateField('active', !!active)
+}
+function renderPeers() { // bar only when editor active, dot for all online in doc (hover = name)
+  if (!prov || !prov.awareness) return
+  const rs = [], dots = $('peers')
+  dots.innerHTML = ''
+  const mkDot = (n, c, me) => {
+    const s = document.createElement('span'); s.className = 'dot'; s.setAttribute('role', 'listitem')
+    s.style.background = avBg(n, c); s.title = (me ? 'me - ' : '') + n; s.setAttribute('aria-label', (me ? 'me - ' : '') + n)
+    s.style.display = 'inline-flex'; s.style.alignItems = 'center'; s.style.justifyContent = 'center'
+    s.style.fontSize = '9px'; s.style.fontWeight = '700'; s.style.color = '#fff'
+    s.textContent = (n || '?').slice(0, 2).toUpperCase()
+    return s
+  }
+  dots.appendChild(mkDot(user || '?', colOf(user || '?'), true)) // own blob first
+  for (const [id, st] of prov.awareness.getStates()) {
+    if (id === prov.awareness.clientID) continue
+    const c = (st.u && st.u.color) || '#ff5f57', n = (st.u && st.u.name) || '?'
+    dots.appendChild(mkDot(n, c, false))
+    if (!st.active || !st.sel) continue
+    const p = Math.max(0, Math.min(getT().length, st.sel.h || 0))
+    rs.push(Decoration.widget({ widget: new PeerCaret(c, n), side: 1 }).range(p))
+  }
+  rs.sort((a, b) => a.from - b.from)
+  cm.dispatch({ effects: setPeer.of(RangeSet.of(rs)) })
+}
+cm.dom.addEventListener('focusin', pushPresence)
+cm.dom.addEventListener('focusout', () => { pushPresence(); renderPeers() })
+addEventListener('blur', pushPresence)
+addEventListener('focus', () => { pushPresence(); renderPeers() })
+document.addEventListener('visibilitychange', () => { pushPresence(); renderPeers() })
+function ago(iso) {
+  const m = Math.max(0, (Date.now() - new Date(iso)) / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m | 0} min`
+  if (m < 1440) return `${m / 60 | 0} h`
+  const d = m / 1440 | 0; return d === 1 ? '1 day' : d + ' days'
+}
+const el = (tag, cls, text) => {
+  const d = document.createElement(tag)
+  if (cls) d.className = cls
+  if (text !== undefined) d.textContent = text
+  return d
+}
+function kb(row, fn) { // rows via keyboard: Tab in, Enter/Space opens (minis via :focus-within)
+  row.tabIndex = 0
+  row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() } }
+  return row
+}
+let askRes = null // open modal: new ask resolves old with null (no hanging promise)
+function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no input: true/false)
+  const { value = '', ph = '', ok = 'OK', danger = false, noInput = false } = o
+  return new Promise(res => {
+    if (askRes) askRes(null)
+    askRes = res
+    const prev = document.activeElement
+    const ov = $('modal'); ov.style.display = 'flex'
+    document.querySelector('#mCard .mRow').style.display = '' // show again after askPick
+    $('mHead').textContent = head
+    const inp = $('mInp'); inp.style.display = noInput ? 'none' : ''
+    inp.value = noInput ? '' : value; inp.placeholder = ph; inp.setAttribute('aria-label', ph || head)
+    const yes = $('mYes'); yes.textContent = ok
+    yes.style.background = danger ? '#d70015' : 'var(--acc)'
+    const done = v => { ov.style.display = 'none'; askRes = null; prev?.focus?.(); res(v) }
+    $('mNo').onclick = () => done(noInput ? false : null)
+    yes.onclick = () => done(noInput ? true : inp.value)
+    inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
+    setTimeout(() => (noInput ? yes : inp).focus(), 30)
+  })
+}
+const STARTERS = [ // starters: blank, report, slides for New
+  '',
+  '#set page(paper: "a4", margin: 2cm)\n#set text(size: 11pt)\n#set heading(numbering: "1.")\n\n= Introduction\n\nText here …\n',
+  '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n= Slide 2\n\nText here …\n',
+]
+function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title, desc]
+  return new Promise(res => {
+    if (askRes) askRes(null)
+    const prev = document.activeElement
+    const ov = $('modal'); ov.style.display = 'flex'
+    $('mHead').textContent = head
+    $('mInp').style.display = 'none'
+    const row = document.querySelector('#mCard .mRow')
+    row.style.display = 'none'
+    const box = document.createElement('div')
+    const done = v => {
+      ov.style.display = 'none'; row.style.display = ''; box.remove(); askRes = null; prev?.focus?.(); res(v)
+    }
+    askRes = () => done(-1)
+    opts.forEach((o, i) => {
+      const b = document.createElement('button')
+      b.className = 'pk'
+      b.append(el('b', null, o[0]), el('span', null, o[1]))
+      b.onclick = () => done(i)
+      box.appendChild(b)
+    })
+    $('mCard').appendChild(box)
+    $('mNo').onclick = () => done(-1)
+    setTimeout(() => box.querySelector('button')?.focus(), 30) // initial focus like ask(); Esc closes globally via mNo
+  })
+}
+$('modal').onclick = e => { if (e.target === $('modal')) $('mNo').click() } // click outside = cancel
+$('modal').addEventListener('keydown', e => { // minimal focus trap: Tab cycles in card
+  if (e.key !== 'Tab') return
+  const f = [...$('mCard').querySelectorAll('button,input,select')].filter(x => x.style.display !== 'none' && !x.disabled)
+  if (!f.length) return
+  const i = f.indexOf(document.activeElement)
+  if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus() }
+  else if (!e.shiftKey && (i < 0 || i === f.length - 1)) { e.preventDefault(); f[0].focus() }
+})
+// clean SVG icons (no emojis)
+const ICO_TRASH = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg>'
+const ICO_BOOK = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.2C6.2 2.2 4.2 2 2.8 2.4v10c1.4-.4 3.4-.2 5.2.8 1.8-1 3.8-1.2 5.2-.8v-10C11.8 2 9.8 2.2 8 3.2z"/><path d="M8 3.2v9.6"/></svg>'
+function paintOutline() { // collect = lines, click jumps to line
+  const box = $('ol')
+  if (!box) return
+  box.innerHTML = ''
+  if (!docId || tplName) return
+  getT().split('\n').forEach((ln, i) => {
+    const m = ln.match(/^(=+)\s+(.+)$/)
+    if (!m) return
+    const line = i + 1, d = document.createElement('div')
+    d.className = 'doc'
+    d.setAttribute('role', 'button')
+    d.appendChild(el('span', 't', '–'.repeat(Math.min(m[1].length, 3)) + ' ' + m[2].slice(0, 60)))
+    d.title = 'Line ' + line
+    d.setAttribute('aria-label', 'Go to line ' + line + ': ' + m[2].slice(0, 60))
+    const goL = () => {
+      const p = posOfLine(getT(), line)
+      cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
+      cm.focus()
+    }
+    d.onclick = goL
+    kb(d, goL)
+    box.appendChild(d)
+  })
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', 'No headings'))
+}
+function wc() { // word count for #save display
+  const t = getT().trim()
+  if (!t) return ''
+  const n = t.split(/\s+/).length
+  return ' · ' + n + (n === 1 ? ' word' : ' words')
+}
+function openTutorial() { // help = tutorial doc (backend creates per account)
+  const t = lastOwn.find(x => x.title === 'Tutorial')
+  if (t) openDoc(t.id)
+  else window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
+}
+function paintEmpty() { // onboarding card instead of pick-left note
+  $('preview').innerHTML = '<div id="emptyCard"><h2>Get started</h2><p>1. Pick a document on the left or create a new one</p><p>2. Live preview on the right</p><p>3. Share via username or link</p><button id="emptyNew">+ New document</button><button id="emptyTut" class="ghost">Open tutorial</button><p class="hint">? = Help · Ctrl+F = Find · Ctrl+S = Save · Ctrl+Plus/Minus/0 = Preview zoom</p></div>'
+  $('emptyNew').onclick = () => $('new').click()
+  const tutGone = !lastOwn.some(x => x.title === 'Tutorial') || localStorage.getItem('typst_noTut') === '1'
+  if (tutGone) $('emptyTut').style.display = 'none'
+  $('emptyTut').onclick = openTutorial
+}
+const lineOf = pos => getT().slice(0, pos).split('\n').length
+function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), only new marks need refresh
+  let m = new Set()
+  if (docId && !tplName && !activeFile) m = new Set(threads.map(x => x.anchor)) // file tab/template: no main markers (Fix #5)
+  let same = m.size === marks.size
+  if (same) for (const x of m) if (!marks.has(x)) { same = false; break }
+  if (!same) {
+    marks = m
+    const rs = []
+    for (const line of m) {
+      if (line < 1 || line > cm.state.doc.lines) continue
+      rs.push(new ThreadDot().range(cm.state.doc.line(line).from))
+    }
+    cm.dispatch({ effects: setMarks.of(RangeSet.of(rs, true)) })
+  }
+}
+let popFresh = false, popQuote = '', popT = 0
+function openPop(anchor, fresh, quote = '') {
+  popAnchor = anchor; popFresh = !!fresh; popQuote = quote || ''
+  popT = Date.now() // opening click must not close at once
+  const pp = $('pop'); pp.style.display = ''; pp.setAttribute('role', 'dialog')
+  renderPop()
+  movePop()
+}
+function closePop() { if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = 0; $('pop').style.display = 'none' }
+function hidePops() { // close all header popups (share/tpl/history/symbols/settings)
+  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
+}
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'tplBtn', histPop: 'histBtn', symPop: 'symBtn', setPop: 'who' }
+function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
+  const p = $(id), open = p.style.display === 'none'
+  hidePops()
+  p.style.display = open ? '' : 'none'
+  if (open) {
+    p.setAttribute('role', 'dialog')
+    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', {sharePop:'Share',tplPop:'Templates',histPop:'History',symPop:'Symbols',setPop:'Settings'}[id]||id)
+    const f = p.querySelector('input,button')
+    if (f) setTimeout(() => { try { f.focus() } catch (e) {} }, 30)
+  }
+  return open
+}
+function movePop() { // attach card to line (real coords, wrap-safe)
+  const p = Math.min(getT().length, posOfLine(getT(), popAnchor))
+  const r = cm.coordsAtPos(p), w = $('editWrap').getBoundingClientRect()
+  const top = (r ? r.top - w.top : 8) + 4
+  const max = $('editWrap').clientHeight - $('pop').offsetHeight - 8
+  $('pop').style.top = Math.max(8, Math.min(top, Math.max(8, max))) + 'px'
+}
+function renderPop() {
+  const pop = $('pop'); pop.innerHTML = ''
+  const bar = el('div', 'bar') // fixed header: X overlaps nothing
+  bar.append(el('b', null, 'Line ' + popAnchor))
+  const x = el('button', 'ib', '✕'); x.title = 'Close'; x.setAttribute('aria-label', x.title); x.onclick = closePop
+  bar.appendChild(x); pop.appendChild(bar)
+  const list = threads.filter(t => t.anchor === popAnchor)
+  const roC = docRole === 'reviewer' || openedTrashed // cNew logic: reviewer/trash read, not write
+  if ((popFresh || !list.length) && !roC) {
+    pop.appendChild(newBox())
+    document.getElementById('popNew')?.focus()
+  }
+  list.forEach(t => pop.appendChild(threadCard(t)))
+}
+function newBox() { // only for new threads, not under done ones
+  const box = el('div', 'nw'), row = el('div', 'rr')
+  const inp = el('input'); inp.id = 'popNew'; inp.placeholder = 'Comment... (@ to mention)'; inp.setAttribute('aria-label', 'Comment')
+  wireMentions(inp)
+  const ok = el('button', 'ib', '✓'); ok.title = 'Send'; ok.setAttribute('aria-label', ok.title)
+  const post = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
+    api('POST', `/api/docs/${docId}/comments`,
+    { anchor: popAnchor, text: inp.value, quote: popQuote }).then(() => { popFresh = false; popQuote = ''; refresh(''); closePop() }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
+  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post() }
+  row.append(inp, ok); box.appendChild(row)
+  return box
+}
+function threadCard(t) {
+  const d = el('div', 'th')
+  if (t.resolved) d.style.opacity = '.55' // done: faded, stays readable
+  const hd = el('div', 'hd')
+  const nm = el('b', 'nm', t.username); nm.style.color = colOf(t.username)
+  hd.append(nm, el('span', 'tm', ago(t.created_at)))
+  const roC = docRole === 'reviewer' || openedTrashed // cNew logic reused: reviewer gets no buttons
+  if (!roC) { // trash/reviewer: no buttons, read only
+    const fin = el('button', 'ib', t.resolved ? '↩' : '✓'); fin.title = t.resolved ? 'Reopen' : 'Done'; fin.setAttribute('aria-label', fin.title)
+    fin.onclick = () => api('POST', `/api/docs/${docId}/comments/${t.id}/resolve`, { resolved: !t.resolved }).then(() => refresh(''))
+    hd.appendChild(fin)
+  }
+  if (t.username === user && !openedTrashed) { // only author edits (owner deletes)
+    const ed = el('button', 'ib', '✎'); ed.title = 'Edit'; ed.setAttribute('aria-label', ed.title)
+    ed.onclick = async () => {
+      const v = await ask('Edit comment', { value: t.text })
+      if (v !== null && v.trim()) api('POST', `/api/docs/${docId}/comments/${t.id}/edit`, { text: v }).then(() => refresh(''))
+    }
+    hd.appendChild(ed)
+  }
+  const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = 'Delete thread'; del.setAttribute('aria-label', del.title)
+  del.onclick = () => api('DELETE', `/api/docs/${docId}/comments/${t.id}`).then(() => refresh('').then(() => {
+    if (!threads.some(x => x.anchor === popAnchor)) closePop()
+  }))
+  if (!roC) hd.appendChild(del)
+  d.appendChild(hd)
+  d.appendChild(richText(t.text))
+  if (t.quote) { // show context, click jumps there
+    const q = el('p', 'qt', '"' + (t.quote.length > 80 ? t.quote.slice(0, 80) + '…' : t.quote) + '"')
+    q.title = 'Jump to position'
+    q.onclick = () => jumpThread(t)
+    d.appendChild(q)
+  }
+  t.replies.forEach(r => {
+    const rd = el('div', 'rp'), rh = el('div', 'hd')
+    const rn = el('b', 'nm', r.username); rn.style.color = colOf(r.username)
+    rh.append(rn, el('span', 'tm', ago(r.created_at)))
+    rd.append(rh, richText(r.text)); d.appendChild(rd)
+  })
+  const row = el('div', 'rr')
+  if (!roC) { // trash/reviewer: read, not write (cNew logic)
+    const inp = el('input'); inp.id = 'r_' + t.id; inp.placeholder = 'Reply...'; inp.setAttribute('aria-label', 'Reply')
+    wireMentions(inp)
+    const ok = el('button', 'ib', '✓'); ok.title = 'Send'; ok.setAttribute('aria-label', ok.title)
+    const send = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
+      api('POST', `/api/docs/${docId}/comments`,
+      { anchor: t.anchor, text: inp.value, parent_id: t.id }).then(() => refresh('r_' + t.id)).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
+    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
+    row.append(inp, ok)
+  }
+  d.appendChild(row)
+  return d
+}
+async function loadComments(force) {
+  const d = await api('GET', `/api/docs/${docId}/comments`)
+  const s = JSON.stringify(d.comments)
+  if (s === lastC) return // poll: nothing new, keep inputs untouched
+  lastC = s; threads = d.comments
+  if (!activeFile) { initRanges(); reanchor(); gutter(); refreshHl() } // file tab: do not touch main anchors (Fix #4/#5)
+  paintBadge()
+  const draft = [...$('pop').querySelectorAll('input')].some(i => i.value.trim())
+  if (popAnchor && !draft && (force || !$('pop').contains(document.activeElement))) renderPop() // draft + blur: keep text
+}
+function paintBadge() { // count open threads, click jumps to next
+  const b = $('cBadge'), open = threads.filter(t => !t.resolved)
+  if (!docId || !open.length) { b.style.display = 'none'; return }
+  b.style.display = ''
+  b.textContent = open.length + ' open'
+}
+$('cBadge').onclick = () => {
+  const open = threads.filter(t => !t.resolved)
+  if (!open.length) return
+  jumpThread(open[(open.findIndex(t => t.anchor === popAnchor) + 1) % open.length])
+}
+$('eBadge').onclick = showErrList
+function reanchor() { // find quote: moves along; not found = keep old line, no delete
+  const t = getT()
+  if (!docId || !ytext || !t || activeFile) return // file tab: anchors belong to main (Fix #4)
+  initRanges() // after sync: add ranges missing text at load
+  let moved = false
+  for (const th of threads) {
+    if (!th.quote) continue
+    const i = locateQuote(t, th.quote, th.anchor)
+    if (i < 0) continue
+    if (th.a == null || th.a >= th.b) { th.a = i; th.b = Math.min(t.length, i + th.quote.length) } // collapsed: refit
+    const line = t.slice(0, i).split('\n').length
+    if (line !== th.anchor) {
+      th.anchor = line; th.a = i; th.b = Math.min(t.length, i + th.quote.length); moved = true
+      dirtyAnchor(th)
+    }
+  }
+  if (moved) { // refresh icon at once, not only on save
+    gutter(); refreshHl()
+    if (popAnchor) movePop()
+  }
+}
+async function jumpThread(t) {
+  if (activeFile) await switchTab('') // jump lives in main, not in file tab
+  const doc = getT()
+  let a = t.a ?? -1, b = t.b ?? -1
+  if (a < 0 || b <= a || a > doc.length) { // fallback: find quote
+    a = t.quote ? locateQuote(doc, t.quote, t.anchor) : -1
+    if (a < 0) return
+    b = Math.min(doc.length, a + t.quote.length)
+  }
+  b = Math.min(doc.length, b)
+  cm.dispatch({ selection: { anchor: a, head: b },
+    effects: EditorView.scrollIntoView(b, { y: 'center' }) })
+  cm.focus()
+}
+async function refresh(focusId) {
+  await loadComments(true)
+  if (popAnchor && focusId) document.getElementById(focusId)?.focus()
+}
+function updCNewTip() {
+  const m = cm.state.selection.main
+  const t = m && !m.empty ? 'Comment on selected text' : 'Select text first to comment'
+  $('cNew').title = t; $('cNew').setAttribute('aria-label', t)
+}
+$('cNew').onclick = () => {
+  if (!docId) return
+  const m = cm.state.selection.main // save selected spot along
+  openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, QUOTE_MAX))
+}
+// --- Images: upload per doc, #image() at cursor, preview knows files ---
+let mediaOpen = false, lastMedia = '', lastFiles = [], mediaNames = []
+let activeFile = '', fileT = 0, bibKeys = [] // '' = main.typ (Yjs sync), else text file (.typ/.bib/.csv) from manager
+function renderMediaChips(files) {
+  lastFiles = files
+  paintTabs() // tabs follow file list (only on change, see shadowAll)
+  const bar = $('media'); bar.innerHTML = ''
+  if (docRole === 'reviewer' || openedTrashed) { bar.style.display = 'none'; return } // reviewer/trash: no manager
+  bar.style.display = mediaOpen ? '' : 'none'
+  if (!mediaOpen) return
+  const add = el('button', null, '+ Upload')
+  add.onclick = () => $('imgPick').click()
+  bar.appendChild(add)
+  files.forEach(f => {
+    const c = el('span', 'chip')
+    const n = el('b', null, f.name); n.title = 'Insert at cursor'
+    n.onclick = () => {
+      const m = cm.state.selection.main
+      const ins = /\.typ$/i.test(f.name) ? `#include "${f.name}"` : /\.bib$/i.test(f.name) ? `#bibliography("${f.name}")` : `#image("${f.name}", width: 80%)`
+      cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
+      cm.focus()
+    }
+    c.appendChild(n)
+    c.appendChild(el('span', 'sz', Math.round(f.size / 1024) + ' KB'))
+    const x = el('button', null, '✕'); x.title = 'Delete'; x.setAttribute('aria-label', 'Delete ' + f.name)
+    x.onclick = () => {
+      const cached = fileCache.get(f.name)
+      api('DELETE', `/api/docs/${docId}/files/${encodeURIComponent(f.name)}`)
+        .then(() => {
+          if (f.name === activeFile) switchTab('', true)
+          queueRender()
+          toast('File deleted', async () => {
+            try {
+              if (cached && cached.bytes) {
+                const fd = new FormData(); fd.append('f', new Blob([cached.bytes]), f.name)
+                await fetch(`/api/docs/${docId}/files`, { method: 'POST', body: fd })
+              } else if (cached) {
+                await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(f.name)}/text`, { content: '' })
+              }
+              queueRender()
+            } catch (e) { toast(e.message) }
+          }, 'Undo')
+        }).catch(e => toast(e.message))
+    }
+    c.appendChild(x)
+    bar.appendChild(c)
+  })
+}
+$('mediaBtn').onclick = () => { mediaOpen = !mediaOpen; renderMediaChips(lastFiles) }
+function paintTabs() { // main.typ + text files as tabs, preview stays main
+  const bar = $('tabs')
+  if (!docId || tplName || openedTrashed) { bar.style.display = 'none'; return } // reviewer sees tabs read-only
+  const files = lastFiles.filter(f => /\.(typ|bib|csv)$/i.test(f.name))
+  if (!files.length && !activeFile) { bar.style.display = 'none'; return }
+  if (activeFile && !files.some(f => f.name === activeFile)) activeFile = '' // deleted: back to main
+  bar.style.display = ''
+  bar.innerHTML = ''
+  const mk = name => {
+    const b = el('button', null, name || 'main.typ')
+    if ((name || '') === activeFile) b.classList.add('on')
+    b.title = name ? 'Edit ' + name + ' (preview stays main.typ)' : 'Edit main.typ'
+    b.onclick = () => switchTab(name)
+    bar.appendChild(b)
+  }
+  mk('')
+  files.forEach(f => mk(f.name))
+}
+async function switchTab(name, nosave) {
+  if (name === activeFile || !docId) return
+  if (!nosave) await flushTab() // save old state first (delete calls with nosave)
+  activeFile = name
+  if (!name) { setT(shadow); paintTabs(); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); queueRender(); return }
+  try {
+    setT((await api('GET', `/api/docs/${docId}/files/${encodeURIComponent(name)}/text`)).content)
+  } catch (e) { toast(e.message); activeFile = ''; setT(shadow) }
+  paintTabs(); gutter(); closePop(); paintOutline()
+  cm.dispatch({ effects: setHl.of(RangeSet.of([])) }) // file tab: no main highlights as ghosts
+  queueRender()
+}
+async function flushTab() { // silent save on tab switch (no display text)
+  if (!activeFile || !docId || docRole === 'reviewer') return
+  try { await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() }) } catch (e) {}
+}
+function queueFileSave() { // file tab: only file + preview, no Yjs
+  clearTimeout(fileT)
+  $('save').textContent = '…' + wc()
+  fileT = setTimeout(async () => {
+    try {
+      await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() })
+      fileCache.delete(activeFile) // bytes stale: next render refetches
+      $('save').textContent = 'saved' + wc()
+      queueRender()
+    } catch (e) { $('save').textContent = navigator.onLine === false ? 'Offline – will retry' : 'Error: ' + e.message }
+  }, SAVE_MS)
+}
+let imgIns = false // only via image button, not via manager upload
+function insImage(name) { // #image() at cursor
+  const m = cm.state.selection.main, ins = `#image("${name}", width: 80%)`
+  cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
+  cm.focus()
+}
+async function upFile(f) { // upload, returns name ('' on error)
+  const fd = new FormData(); fd.append('f', f)
+  const r = await fetch(`/api/docs/${docId}/files`, { method: 'POST', body: fd })
+  if (!r.ok) { toast('Upload failed: ' + ((await r.json().catch(() => ({}))).detail || r.statusText)); return '' }
+  return (await r.json()).name
+}
+const TEXT_UP = /\.(typ|bib|csv)$/i // text file: save + open as tab (no #image)
+async function upText(f) { // .typ/.bib/.csv as file text (backend creates, max 200 KB)
+  const txt = await f.text()
+  if (txt.length > 200 * 1024) { toast('Max 200 KB as text'); return '' }
+  const name = f.name.replace(/[^A-Za-z0-9._-]+/g, '_')
+  await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(name)}/text`, { content: txt })
+  return name
+}
+$('imgBtn').onclick = () => { imgIns = true; $('imgPick').click() }
+$('imgPick').onchange = async () => {
+  const f = $('imgPick').files[0]; $('imgPick').value = ''
+  if (!f || !docId) return
+  try {
+    if (TEXT_UP.test(f.name)) { const n = await upText(f); if (n) switchTab(n) }
+    else { const name = await upFile(f); if (name && imgIns) insImage(name) }
+  } catch (e) { toast(e.message) }
+  imgIns = false; queueRender()
+}
+$('editWrap').addEventListener('dragover', e => e.preventDefault()) // drop on editor = upload like manager
+$('editWrap').addEventListener('drop', async e => {
+  e.preventDefault()
+  if (!docId || docRole === 'reviewer' || !e.dataTransfer.files.length) return
+  let last = ''
+  for (const f of e.dataTransfer.files) {
+    try {
+      if (TEXT_UP.test(f.name)) { last = await upText(f) || last; continue }
+      const name = await upFile(f)
+      if (name && /\.(png|jpe?g|svg|gif|webp|pdf)$/i.test(name)) insImage(name)
+    } catch (err) { toast(err.message) }
+  }
+  if (last) switchTab(last) // text drop: show file at once
+  queueRender()
+})
+addEventListener('keydown', e => { // Esc: modal (ask + askPick via mNo) > pop > find > drawer
+  if (e.key !== 'Escape') return
+  if ($('modal').style.display !== 'none') { $('mNo').click(); return }
+  closePop(); hidePops()
+  if (findOpen) closeFind()
+  if ($('q').value && document.activeElement === $('q')) { $('q').value = ''; findQ = ''; hits = []; paintOwn(); return }
+  if (matchMedia('(max-width:720px)').matches && !document.body.classList.contains('noside')) { document.body.classList.add('noside'); updScrim() }
+})
+// --- Templates: manage globally (icon), use per doc (insert line only) ---
+function renderTpl() {
+  const p = $('tplPop'); p.innerHTML = ''
+  p.appendChild(el('div', null, 'Templates add one line to your document — manage and sort them into folders in the sidebar'))
+  const mkRow = t => {
+    const row = el('div', 'trow')
+    const b = el('button', 'go', t.name); b.title = 'Insert into document'; b.setAttribute('aria-label', b.title)
+    b.onclick = () => addTpl(t.line)
+    const x = el('button', 'x', '✕'); x.title = 'Delete template'; x.setAttribute('aria-label', x.title)
+    x.onclick = async e => {
+      e.stopPropagation()
+      if (!await ask(`Delete "${t.name}"?`, { noInput: true, ok: 'Delete', danger: true })) return
+      try { await api('DELETE', '/api/templates/' + encodeURIComponent(t.name)); await loadTpl(); renderTpl(); sidebar() }
+      catch (err) { toast(err.message) }
+    }
+    row.append(b, x); return row
+  }
+  const { top, byF } = groupBy(myTpl)
+  top.forEach(t => p.appendChild(mkRow(t)))
+  tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => {
+    if (!byF.get(f).length) return // empty folders only in sidebar, not in insert popup
+    p.appendChild(el('div', 'fh', f))
+    byF.get(f).forEach(t => p.appendChild(mkRow(t)))
+  })
+  const nw = el('button')
+  nw.append(el('span', 'use', '+ New template'), el('span', 'ins', 'Save editor text as template'))
+  nw.onclick = newTemplate
+  p.appendChild(nw)
+  const up = el('button')
+  up.append(el('span', 'use', '+ Upload own'), el('span', 'ins', 'Save .typ as template'))
+  up.onclick = () => $('tplPick').click()
+  p.appendChild(up)
+}
+async function newTemplate() { // one dialog: name + folder (like askNewDoc, not 3 cascades)
+  if (!getT().trim()) { toast('Editor is empty'); return }
+  await loadTpl() // fresh: else upsert overwrites foreign template
+  const r = await askNewTpl()
+  if (!r || !r.name || !r.name.trim()) return
+  let n = r.name.trim()
+  if (!n.toLowerCase().endsWith('.typ')) n += '.typ'
+  if (myTpl.some(x => x.name === n)) { toast('Name already exists'); return }
+  try {
+    const rr = await api('POST', '/api/templates', { name: n, content: getT(), folder: r.folder || '' })
+    hidePops()
+    await loadTpl(); renderTpl(); sidebar(); openTpl(rr.name)
+  } catch (e) { toast(e.message) }
+}
+function addTpl(line) { // line at cursor only: compiler knows content as shadow (see render)
+  const m = cm.state.selection.main
+  cm.dispatch({ changes: { from: m.from, to: m.to, insert: line + '\n' }, selection: { anchor: m.from + line.length + 1 } })
+  cm.focus(); hidePops(); queueRender()
+}
+$('tplPick').onchange = async () => {
+  const f = $('tplPick').files[0]; $('tplPick').value = ''
+  if (!f) return
+  const text = await f.text()
+  if (!text.trim()) { toast('Empty file'); return }
+  try {
+    await api('POST', '/api/templates', { name: f.name, content: text })
+    await loadTpl(); renderTpl(); sidebar()
+  } catch (e) { toast(e.message) }
+}
+$('tplBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('tplPop')) renderTpl()
+}
+// --- History: save state, view diff, restore ---
+$('histBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('histPop')) renderHist()
+}
+async function renderHist() {
+  const p = $('histPop'); p.innerHTML = ''
+  const save = el('button', 'save', '+ Save snapshot now')
+  save.onclick = async () => { save.disabled = true; const old = save.textContent; save.textContent = 'Saving...'; try { await api('POST', `/api/docs/${docId}/snapshots`, {}); renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
+  p.appendChild(save)
+  let list = []
+  try { list = (await api('GET', `/api/docs/${docId}/snapshots`)).snapshots }
+  catch (e) { p.appendChild(el('div', 'srow', 'Error: ' + e.message)); return }
+  if (!list.length) p.appendChild(el('div', 'srow', 'No snapshots yet — autos appear on save'))
+  list.forEach(s => {
+    const row = el('div', 'srow')
+    const kb = Math.round(s.size / 1024)
+    row.appendChild(el('span', 't', ago(s.created_at) + (s.label ? ' · ' + s.label : '') + ' · ' + kb + ' KB'))
+    const df = el('button', null, 'Compare'); df.title = 'Show changes vs current'; df.setAttribute('aria-label', df.title)
+    df.onclick = () => showDiff(s.id, row)
+    const rs = el('button', null, 'Restore'); rs.title = 'Restore this snapshot'; rs.setAttribute('aria-label', rs.title)
+    rs.onclick = async () => {
+      if (!await ask('Restore this snapshot?', { noInput: true, ok: 'OK' })) return
+      try { await api('POST', `/api/docs/${docId}/snapshots`, { label: 'before restore' }).catch(() => {}) // auto snapshot: never restore without way back
+        await api('POST', `/api/docs/${docId}/snapshots/${s.id}/restore`, {}); openDoc(docId) } // reload: editor/Yjs follow, no old autosave
+      catch (e) { toast(e.message) }
+    }
+    const xx = el('button', null, '✕'); xx.title = 'Delete snapshot'; xx.setAttribute('aria-label', xx.title)
+    xx.onclick = async () => {
+      if (!await ask('Delete this snapshot?', { noInput: true, ok: 'Delete', danger: true })) return
+      try { await api('DELETE', `/api/docs/${docId}/snapshots/${s.id}`); renderHist() }
+      catch (e) { toast(e.message) }
+    }
+    row.append(df, rs, xx); p.appendChild(row)
+  })
+}
+function lineDiff(a, b) { // LCS on lines (caps see above), output max DIFF_OUT lines
+  const A = a.split('\n').slice(0, DIFF_MAX), B = b.split('\n').slice(0, DIFF_MAX)
+  const cut = A.length === DIFF_MAX || B.length === DIFF_MAX
+  const n = A.length, m = B.length
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  const out = []
+  let i = 0, j = 0
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { i++; j++ }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(['a', A[i++]])
+    else out.push(['b', B[j++]])
+  }
+  while (i < n) out.push(['a', A[i++]])
+  while (j < m) out.push(['b', B[j++]])
+  if (cut || out.length > DIFF_OUT) out.push([' ', '… (truncated)'])
+  return out.slice(0, DIFF_OUT + 1)
+}
+async function showDiff(sid, row) {
+  const open = row.nextSibling && row.nextSibling.classList && row.nextSibling.classList.contains('diff')
+  row.parentNode.querySelectorAll('pre.diff').forEach(x => x.remove())
+  if (open) return // was open: just collapse
+  let s
+  try { s = await api('GET', `/api/docs/${docId}/snapshots/${sid}`) } catch (e) { toast(e.message); return }
+  const d = lineDiff(s.content, getT()) // file tab: diff against file content, not main shadow
+  const pre = el('pre', 'diff')
+  if (!d.length) pre.appendChild(el('span', null, 'Identical to current'))
+  d.forEach(([k, ln]) => pre.appendChild(el('span', k, (k === 'a' ? '− ' : k === 'b' ? '+ ' : '') + ln.slice(0, 200) + '\n')))
+  row.after(pre)
+}
+// --- Symbols: search + insert at cursor ---
+const SYMS = ('→ ← ↑ ↓ ⇒ ⇐ ⇔ ∀ ∃ ∅ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∧ ∨ ¬ ⊕ ⊗ ⊥ ∥ ∠ ° ′ ″ ∞ ∑ ∏ ∫ √ ∂ ∇ ≈ ≠ ≡ ≤ ≥ ≪ ≫ ± ∓ × ÷ ⋅ ⋆ ★ ☆ ♣ ♦ ♥ ♠ • ◦ ▪ ▲ ► ● ◆ ✓ ✕ ☐ ☑ § ¶ © ® ™ € £ ¥ … – — „ “ ” ‘ ’ « » † ‡ ⌘ ⏎ ⇥ ⎋ α β γ δ ε ζ η θ ι κ λ μ ν ξ π ρ σ τ υ φ χ ψ ω Γ Δ Θ Λ Ξ Π Σ Υ Φ Ψ Ω').split(' ')
+const SYN = { pfeil: '→←↑↓⇒⇐⇔', euro: '€', dollar: '$', alpha: 'α', beta: 'β', pi: 'π', summe: '∑', wurzel: '√', unendlich: '∞', kreuz: '✕✓', herz: '♥', stern: '★☆', strich: '–—', anfuhr: '„“”‘’«»', para: '§¶', copyright: '©®™' } // German search keys
+function renderSym(q = '') {
+  const p = $('symPop'); p.innerHTML = ''
+  const inp = el('input'); inp.placeholder = 'Search...'; inp.value = q; inp.setAttribute('autocomplete', 'off'); inp.setAttribute('aria-label', 'Search symbols')
+  inp.oninput = () => {
+    const v = inp.value
+    renderSym(v)
+    const ni = p.querySelector('input'); ni.focus(); ni.setSelectionRange(v.length, v.length)
+  }
+  p.appendChild(inp)
+  const g = el('div', 'grid')
+  const ql = q.toLowerCase()
+  SYMS.filter(s => !q || s.includes(q) || (SYN[ql] || '').includes(s)).slice(0, 120).forEach(s => {
+    const b = el('button', null, s); b.title = 'Insert: ' + s; b.setAttribute('aria-label', b.title)
+    b.onclick = () => {
+      const m = cm.state.selection.main
+      cm.dispatch({ changes: { from: m.from, to: m.to, insert: s }, selection: { anchor: m.from + s.length } })
+      cm.focus()
+    }
+    g.appendChild(b)
+  })
+  p.appendChild(g)
+}
+$('symBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('symPop')) { renderSym(); setTimeout(() => $('symPop').querySelector('input').focus(), 30) }
+}
+// --- Color: wrap selection with #text(fill: rgb("..")) ---
+$('colPick').onchange = () => {
+  const v = $('colPick').value, m = cm.state.selection.main
+  const ins = `#text(fill: rgb("${v}"))[${getT().slice(m.from, m.to) || 'Text'}]`
+  cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
+  cm.focus()
+}
+// --- @-mentions: suggest while typing, colored name in card ---
+let members = []
+async function loadMembers() {
+  try { members = (await api('GET', `/api/docs/${docId}/members`)).members } catch (e) { members = [] }
+  if (popAnchor && !$('pop').contains(document.activeElement)
+      && ![...$('pop').querySelectorAll('input')].some(i => i.value.trim())) renderPop() // refresh @-colors, keep drafts untouched
+}
+function wireMentions(inp) {
+  let box = null
+  const close = () => { if (box) { box.remove(); box = null } }
+  inp.addEventListener('input', () => {
+    close()
+    const m = inp.value.slice(0, inp.selectionStart).match(/@([\w-]*)$/)
+    if (!m) return
+    const q = m[1].toLowerCase()
+    const list = members.filter(n => n.toLowerCase().startsWith(q) && n !== user).slice(0, 5)
+    if (!list.length) return
+    box = el('div', 'mbox')
+    list.forEach(n => {
+      const b = el('button', null, '@' + n)
+      b.onmousedown = e => {
+        e.preventDefault()
+        const s = inp.selectionStart
+        inp.value = inp.value.slice(0, s).replace(/@[\w-]*$/, '@' + n + ' ') + inp.value.slice(s)
+        inp.focus(); close()
+      }
+      box.appendChild(b)
+    })
+    inp.parentNode.style.position = 'relative'
+    inp.parentNode.appendChild(box)
+  })
+  inp.addEventListener('blur', () => setTimeout(close, 200))
+  inp.addEventListener('keydown', e => { if (e.key === 'Escape') close() })
+}
+function richText(text) { // @-names colored, rest text (no user HTML)
+  const p = el('p', 'tx')
+  text.split(/(@[A-Za-z0-9_-]+)/g).forEach(part => {
+    if (/^@[A-Za-z0-9_-]+$/.test(part) && members.includes(part.slice(1))) {
+      const b = el('b', null, part)
+      b.style.color = colOf(part.slice(1))
+      p.appendChild(b)
+    } else p.appendChild(document.createTextNode(part))
+  })
+  return p
+}
+// --- PWA: shell cache (see sw.js) ---
+const offBar = $('offline'); const updOff = () => { offBar.style.display = navigator.onLine === false ? 'block' : 'none' }
+addEventListener('online', updOff); addEventListener('offline', updOff); updOff()
+try { if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); navigator.serviceWorker.addEventListener('controllerchange', () => toast('Update loaded', () => location.reload(), 'Reload')) } } catch (e) {}
+// --- Share as popup next to comment button (not sidebar) ---
+let shares = []
+async function loadShares() {
+  shares = (await api('GET', `/api/docs/${docId}`)).shares
+  renderShares()
+}
+function renderShares() {
+  const p = $('sharePop'); p.innerHTML = ''
+  const top = el('div', 'sTop')
+  const close = el('button', null, '✕'); close.title = 'Close'; close.setAttribute('aria-label', close.title)
+  close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
+  top.append(el('b', null, 'Share'), close); p.appendChild(top)
+  const row = el('div', 'row')
+  const inp = el('input'); inp.placeholder = 'Username'; inp.setAttribute('aria-label', 'Username')
+  const sel = el('select'); sel.setAttribute('aria-label', 'Role')
+  sel.innerHTML = '<option value="reviewer">Reader</option><option value="editor">Editor</option>'
+  const ok = el('button', null, 'OK')
+  const go = () => { if (ok.disabled || !inp.value.trim()) return; ok.disabled = true; api('POST', `/api/docs/${docId}/share`,
+    { username: inp.value.trim(), role: sel.value })
+    .then(() => { inp.value = ''; loadShares() }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
+  ok.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go() }
+  row.append(inp, sel, ok); p.appendChild(row)
+  const list = el('div'); list.id = 'shares'
+  shares.forEach(s => {
+    const div = el('div')
+    div.appendChild(el('span', 'who', s.username + ' '))
+    const rs = el('select'); rs.setAttribute('aria-label', 'Role for ' + s.username) // role editable inline (same endpoint as invite)
+    rs.innerHTML = '<option value="reviewer">Reader</option><option value="editor">Editor</option>'
+    rs.value = s.role
+    rs.onchange = async () => {
+      if (s.role === 'editor' && rs.value === 'reviewer' && !await ask('Downgrade to Reader? This wipes all Editor invite links for the doc.', { noInput: true, danger: true, ok: 'Downgrade' })) { rs.value = s.role; return }
+      api('POST', `/api/docs/${docId}/share`, { username: s.username, role: rs.value })
+        .then(loadShares).catch(e => toast(e.message))
+    }
+    const x = el('button', null, '✕'); x.title = 'Remove share'; x.setAttribute('aria-label', x.title)
+    x.onclick = async () => {
+      if (!await ask('Remove ' + s.username + '? This also wipes all invite links for the doc.', { noInput: true, danger: true, ok: 'Remove' })) return
+      api('DELETE', `/api/docs/${docId}/share/${s.username}`).then(loadShares).catch(e => toast(e.message))
+    }
+    div.append(rs, x); list.appendChild(div)
+  })
+  p.appendChild(list)
+  p.appendChild(el('b', null, 'Invite via link'))
+  p.appendChild(el('div', null, 'Copy this link now — you won\'t see it again; if you lose it, just make a new one'))
+  const irow = el('div', 'row')
+  const isel = el('select'); isel.setAttribute('aria-label', 'Role')
+  isel.innerHTML = '<option value="reviewer">Reader</option><option value="editor">Editor</option>'
+  const ibtn = el('button', null, 'Link')
+  const ilink = el('input'); ilink.placeholder = 'Link appears here'; ilink.setAttribute('aria-label', 'Invite link'); ilink.readOnly = true
+  ilink.onclick = () => ilink.select()
+  const cbtn = el('button', null, 'Copy link'); cbtn.style.display = 'none'
+  cbtn.onclick = async () => {
+    try { await navigator.clipboard.writeText(ilink.value); toast('Copied') }
+    catch (e) { ilink.select(); try { document.execCommand('copy') } catch (_) {} toast('Copied') }
+  }
+  ibtn.onclick = async () => {
+    ibtn.disabled = true; const old = ibtn.textContent; ibtn.textContent = 'Creating...'
+    try {
+      const r = await api('POST', `/api/docs/${docId}/invite`, { role: isel.value })
+      ilink.value = location.origin + '/?join=' + r.token
+      ilink.select()
+      cbtn.style.display = ''
+      loadInvites()
+    } catch (e) { toast(e.message) } finally { ibtn.disabled = false; ibtn.textContent = old }
+  }
+  irow.append(isel, ibtn, cbtn); p.appendChild(irow)
+  const lrow = el('div', 'row'); lrow.appendChild(ilink); p.appendChild(lrow)
+  const inv = el('div'); inv.id = 'invList'; p.appendChild(inv)
+  loadInvites(); loadMembers()
+}
+async function loadInvites() { // open links: display + revoke only (link only at creation)
+  const box = $('invList')
+  if (!box || !docId) return
+  let list = []
+  try { list = (await api('GET', `/api/docs/${docId}/invites`)).invites } catch (e) { return }
+  box.innerHTML = ''
+  if (list.length) box.appendChild(el('div', null, 'Links can only be copied when created'))
+  list.forEach(t => {
+    const div = el('div')
+    div.appendChild(el('span', 'who', (({ owner: 'Owner', editor: 'Editor', reviewer: 'Reader' })[t.role] || t.role) + ': ' + t.hint + '… (' + (t.created_at || '').slice(0, 10) + ') '))
+    const x = el('button', null, '✕'); x.title = 'Revoke'; x.setAttribute('aria-label', x.title)
+    x.onclick = () => api('DELETE', `/api/docs/${docId}/invites/${t.hint}`).then(loadInvites)
+    div.append(x); box.appendChild(div)
+  })
+}
+async function checkJoin() { // redeem ?join=TOKEN invite link via POST body (no token in URL/logs)
+  const j = new URLSearchParams(location.search).get('join')
+  if (!j) return
+  history.replaceState(null, '', location.pathname) // always clear: never leave token in URL/history, even on error
+  try {
+    const id = (await api('POST', '/api/join', { token: j })).id
+    openDoc(id)
+  }
+  catch (e) { toast(e.message) }
+}
+$('shareBtn').onclick = e => {
+  e.stopPropagation()
+  if (showPop('sharePop')) loadShares()
+}
+document.addEventListener('click', e => {
+  for (const [p, b] of Object.entries(POP_BTN)) { // click outside closes (one loop not 5 blocks)
+    const box = $(p)
+    if (box && box.style.display !== 'none' && !$(b).contains(e.target) && !box.contains(e.target))
+      box.style.display = 'none'
+  }
+  const pop = $('pop') // click outside closes, never with text draft (highlight/tooltip opens, not closes)
+  if (pop && popAnchor && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,.cm-tooltip')
+      && ![...pop.querySelectorAll('input')].some(i => i.value.trim()))
+    closePop()
+})
+// --- Settings: click on name (font/zoom, profile, password, account) ---
+$('who').onclick = e => {
+  e.stopPropagation()
+  if (showPop('setPop')) { setMsg = ''; renderSettings() }
+}
+kb($('who'), () => $('who').click())
+let setMsg = '' // settings error inline not browser alert
+function renderSettings() {
+  const p = $('setPop'); p.innerHTML = ''
+  const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
+  const top = el('div', 'sTop')
+  const close = el('button', null, '✕'); close.title = 'Close'; close.setAttribute('aria-label', close.title)
+  close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
+  top.append(el('b', null, 'Settings'), close); p.appendChild(top)
+  if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }
+  p.appendChild(el('h4', null, 'Appearance'))
+  const fr = el('div', 'row'); fr.append(el('label', null, 'Font '))
+  const fm = el('button', 'step', 'A−'); fm.title = 'Smaller editor'; fm.setAttribute('aria-label', fm.title)
+  fm.onclick = () => { stepEd(-ED_STEP); renderSettings() }
+  fr.append(fm, el('span', 'val', edSize + 'px'))
+  const fp = el('button', 'step', 'A+'); fp.title = 'Larger editor'; fp.setAttribute('aria-label', fp.title)
+  fp.onclick = () => { stepEd(ED_STEP); renderSettings() }
+  fr.appendChild(fp)
+  const zr = el('div', 'row'); zr.append(el('label', null, 'Zoom '))
+  const zm = el('button', 'step', '−'); zm.title = 'Smaller preview'; zm.setAttribute('aria-label', zm.title)
+  zm.onclick = () => { stepPv(-PV_STEP); renderSettings() }
+  zr.append(zm, el('span', 'val', pvZoom + ' %'))
+  const zp = el('button', 'step', '+'); zp.title = 'Larger preview'; zp.setAttribute('aria-label', zp.title)
+  zp.onclick = () => { stepPv(PV_STEP); renderSettings() }
+  zr.appendChild(zp)
+  p.appendChild(sec(fr, zr))
+  p.appendChild(el('h4', null, 'Avatar'))
+  const ar = el('div', 'row')
+  const im = el('img', 'av'); im.alt = ''
+  if (avatarV) im.src = `/api/avatar/${encodeURIComponent(user)}?v=${avatarV}`; else im.style.display = 'none'
+  im.onerror = () => im.style.display = 'none'
+  const pick = el('button', null, 'Choose'); pick.onclick = () => $('avPick').click()
+  const rm = el('button', null, 'Remove')
+  rm.onclick = () => api('DELETE', '/api/me/avatar')
+    .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
+    .catch(e => { setMsg = e.message; renderSettings() })
+  ar.append(im, pick, rm); p.appendChild(sec(ar))
+  p.appendChild(el('h4', null, 'Name'))
+  const nr = el('div', 'row')
+  const nn = el('input'); nn.placeholder = 'New name'; nn.setAttribute('aria-label', 'New name'); nn.value = user
+  const npw = el('input'); npw.type = 'password'; npw.placeholder = 'Password'; npw.setAttribute('aria-label', 'Password for name change')
+  const nok = el('button', null, 'OK')
+  nok.onclick = () => { if (nok.disabled || !nn.value.trim() || !npw.value) return; nok.disabled = true; api('POST', '/api/me/name',
+    { name: nn.value.trim(), password: npw.value })
+    .then(d => { user = d.user; $('who').textContent = user; paintMe(); sidebar(); renderSettings() })
+    .catch(e => { setMsg = e.message; renderSettings() }).finally(() => nok.disabled = false) }
+  nr.append(nn, npw, nok); p.appendChild(sec(nr))
+  p.appendChild(el('h4', null, 'Password'))
+  const pr = el('div', 'row')
+  const po = el('input'); po.type = 'password'; po.placeholder = 'Old password'; po.setAttribute('aria-label', 'Old password')
+  const pn = el('input'); pn.type = 'password'; pn.placeholder = 'New password'; pn.setAttribute('aria-label', 'New password')
+  const pok = el('button', null, 'OK')
+  pok.onclick = () => { if (pok.disabled || !po.value || !pn.value) return; pok.disabled = true; api('POST', '/api/me/password', { old: po.value, new: pn.value })
+    .then(() => { po.value = pn.value = ''; toast('Password changed') })
+    .catch(e => { setMsg = e.message; renderSettings() }).finally(() => pok.disabled = false) }
+  pr.append(po, pn, pok); p.appendChild(sec(pr))
+  p.appendChild(el('h4', null, 'Backup'))
+  const bk = el('div', 'row')
+  const bb = el('button', null, 'Download all documents as .zip')
+  bb.title = 'Download your documents, files and templates as .zip'
+  bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
+  bk.appendChild(bb); p.appendChild(sec(bk))
+  p.appendChild(el('h4', null, 'Account'))
+  const dr = el('div', 'row')
+  const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = 'Password'; dpw.setAttribute('aria-label', 'Password for account deletion')
+  const db = el('button', null, 'Delete'); db.style.background = '#d70015'
+  db.onclick = async () => {
+    if (db.disabled || !dpw.value) return
+    if (!await ask('Delete account + all your documents?', { noInput: true, ok: 'Delete', danger: true })) return
+    if (!await ask('Really sure? Type DELETE to confirm.', { ph: 'DELETE' }).then(v => v === 'DELETE')) return
+    db.disabled = true
+    api('POST', '/api/me/delete', { password: dpw.value })
+      .then(() => { location.reload() })
+      .catch(e => { setMsg = e.message; renderSettings() })
+  }
+  dr.append(dpw, db); p.appendChild(sec(dr))
+}
+$('avPick').onchange = () => { // square, AV_SIZE, center
+  const f = $('avPick').files[0]; $('avPick').value = ''
+  if (!f) return
+  const im = new Image()
+  im.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = AV_SIZE
+    const s = Math.min(im.width, im.height)
+    c.getContext('2d').drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, AV_SIZE, AV_SIZE)
+    api('POST', '/api/me/avatar', { img: c.toDataURL('image/png') })
+      .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
+      .catch(e => { setMsg = e.message; renderSettings() })
+    URL.revokeObjectURL(im.src)
+  }
+  im.onerror = () => URL.revokeObjectURL(im.src)
+  im.src = URL.createObjectURL(f)
+}
+// drag pane border (browser remembers pos)
+try { const w = +localStorage.getItem('typst_split'); if (w >= SPLIT_MIN && w <= SPLIT_MAX) $('leftCol').style.width = clampSplit(w) + '%' } catch (e) {}
+$('split').addEventListener('mousedown', e => {
+  e.preventDefault()
+  const r0 = $('mid').getBoundingClientRect(), x0 = e.clientX, w0 = $('leftCol').getBoundingClientRect().width
+  $('split').classList.add('drag')
+  const mv = ev => {
+    $('leftCol').style.width = clampSplit((w0 + ev.clientX - x0) / r0.width * 100) + '%'
+  }
+  const up = () => {
+    removeEventListener('mousemove', mv); removeEventListener('mouseup', up)
+    $('split').classList.remove('drag')
+    try { localStorage.setItem('typst_split', parseFloat($('leftCol').style.width)) } catch (err) {}
+  }
+  addEventListener('mousemove', mv); addEventListener('mouseup', up)
+})
+$('split').addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return
+  $('split').dispatchEvent(new MouseEvent('mousedown', { clientX: e.clientX }))
+})
+$('navToggle').onclick = () => { document.body.classList.toggle('noside'); updScrim(); $('navToggle').setAttribute('aria-pressed', document.body.classList.contains('noside')) }
+function updScrim() {
+  const mob = matchMedia('(max-width:720px)').matches
+  $('scrim').style.display = mob && !document.body.classList.contains('noside') ? '' : 'none'
+}
+$('scrim').onclick = () => { document.body.classList.add('noside'); updScrim() }
+function autoCloseDrawer() { if (matchMedia('(max-width:720px)').matches) { document.body.classList.add('noside'); updScrim() } }
+const sideEl = $('side') // drag sidebar width, 150-420px
+try { const sw = +localStorage.getItem('typst_side'); if (sw >= SIDE_MIN && sw <= SIDE_MAX) sideEl.style.width = sw + 'px' } catch (e) {}
+$('sideSplit').addEventListener('mousedown', e => {
+  e.preventDefault()
+  document.body.classList.add('sideDrag')
+  $('sideSplit').classList.add('drag')
+  const x0 = e.clientX, w0 = sideEl.getBoundingClientRect().width
+  const mv = ev => { sideEl.style.width = Math.max(SIDE_MIN, Math.min(SIDE_MAX, w0 + ev.clientX - x0)) + 'px' }
+  const up = () => {
+    removeEventListener('mousemove', mv); removeEventListener('mouseup', up)
+    $('sideSplit').classList.remove('drag')
+    document.body.classList.remove('sideDrag')
+    try { localStorage.setItem('typst_side', parseFloat(sideEl.style.width)) } catch (err) {}
+  }
+  addEventListener('mousemove', mv); addEventListener('mouseup', up)
+})
+function vStart(y0) { // mobile: drag editor height (mouse + touch)
+  const r = $('mid').getBoundingClientRect(), h0 = $('leftCol').getBoundingClientRect().height
+  const set = dy => {
+    $('leftCol').style.flex = 'none'
+    $('leftCol').style.height = Math.max(120, Math.min(r.height - 120, h0 + dy)) + 'px'
+  }
+  const mm = e => set(e.clientY - y0), tm = e => set(e.touches[0].clientY - y0)
+  const up = () => {
+    removeEventListener('mousemove', mm); removeEventListener('mouseup', up)
+    removeEventListener('touchmove', tm); removeEventListener('touchend', up)
+  }
+  addEventListener('mousemove', mm); addEventListener('mouseup', up)
+  addEventListener('touchmove', tm, { passive: true }); addEventListener('touchend', up)
+}
+$('vsplit').addEventListener('mousedown', e => { e.preventDefault(); vStart(e.clientY) })
+$('vsplit').addEventListener('touchstart', e => vStart(e.touches[0].clientY), { passive: true })
+kb($('sideSplit'), () => { document.body.classList.toggle('noside'); updScrim() }) // keyboard: like menu
+kb($('split'), () => { $('leftCol').style.width = '50%'; try { localStorage.setItem('typst_split', 50) } catch (err) {} }) // keyboard: reset width
+$('split').addEventListener('keydown', e => {
+  const cur = parseFloat($('leftCol').style.width) || 50
+  if (e.key === 'ArrowLeft') { $('leftCol').style.width = clampSplit(cur - 2) + '%'; e.preventDefault() }
+  if (e.key === 'ArrowRight') { $('leftCol').style.width = clampSplit(cur + 2) + '%'; e.preventDefault() }
+})
+kb($('vsplit'), () => { $('leftCol').style.height = ''; $('leftCol').style.flex = '' }) // keyboard: reset height
+matchMedia('(max-width:720px)').addEventListener('change', m => { // back on desktop: clear fixed height
+  if (!m.matches) { $('leftCol').style.height = ''; $('leftCol').style.flex = ''; document.body.classList.remove('noside') }
+  else document.body.classList.add('noside')
+  updScrim()
+})
+function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode button)
+  document.body.classList.toggle('read', m === 'read')
+  document.body.classList.toggle('editonly', m === 'editor')
+  for (const [id, on] of [['vEdit', m === 'editor'], ['vSplit', m === 'split'], ['vRead', m === 'read']]) {
+    $(id).classList.toggle('on', on)
+    $(id).setAttribute('aria-pressed', on)
+  }
+  if (popAnchor) movePop()
+}
+$('vEdit').onclick = () => setView('editor')
+$('vSplit').onclick = () => setView('split')
+$('vRead').onclick = () => setView('read')
+// editor font + preview zoom (edSize/pvZoom declared above)
+function stepPv(d) { pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, pvZoom + d)); applyPv(); saveSet() }
+function stepEd(d) { edSize = Math.max(ED_MIN, Math.min(ED_MAX, edSize + d)); applyEd(); saveSet() }
+function applyEd() {
+  const lh = Math.round(edSize * 1.5)
+  $('cmWrap').style.setProperty('--ed', edSize + 'px')
+  $('cmWrap').style.setProperty('--lh', lh + 'px')
+  $('editWrap').style.setProperty('--lh', lh + 'px')
+  if (popAnchor) movePop()
+}
+function applyPv() {
+  const z = $('zoomV'); if (z) z.textContent = pvZoom + '%'
+  document.querySelectorAll('#preview canvas').forEach(sizeCanvas)
+}
+let syncOn = true, syncT = 0, syncPage = 0, pvT = 0 // click sync editor<->preview, last hit page
+function queueSyncPv() { clearTimeout(syncT); syncT = setTimeout(syncToPv, SYNC_MS) }
+function syncToPv() { // editor -> preview: page with most line words, hit centered
+  if (!syncOn || !docId || tplName || activeFile || Date.now() - pvT < 1000) return // preview click: paper stays put
+  const pv = $('preview')
+  if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
+  const total = cm.state.doc.lines || 1
+  const line = cm.state.doc.lineAt(cm.state.selection.main.head).number
+  // normalize line: trim, strip markup roughly, count long words only
+  const ank = cm.state.doc.line(line).text.trim().replace(/^[=+\-*#>]+/, '').replace(/[#*`_$[\](){}<>\/\\|=]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const words = [...new Set(ank.split(' ').filter(w => w.length >= 4))].slice(0, 6)
+  const n = pvTexts.length
+  if (words.length && n) {
+    let bi = -1, bs = 0 // best page: most hits, tie stays on syncPage
+    for (let pi = 0; pi < n; pi++) {
+      const items = pvTexts[pi] || []
+      let s = 0
+      for (const w of words) for (const it of items) {
+        if (it.s && it.s.toLowerCase().includes(w)) { s++; break }
+      }
+      if (s > bs || (s === bs && pi === syncPage)) { bs = s; bi = pi }
+    }
+    if (bi >= 0 && bs > 0) { // min one word: else fallback (no random jump)
+      const items = pvTexts[bi] || []
+      const long = words.slice().sort((a, b) => b.length - a.length)[0]
+      for (const it of items) {
+        if (it.s && it.s.toLowerCase().includes(long)) {
+          const cv = pv.querySelectorAll('canvas')[bi]
+          if (!cv) break
+          const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
+          const want = pv.scrollTop + (cr.top - pr.top) + it.y * (cr.width / cv.width) - pv.clientHeight / 2
+          syncPage = bi
+          if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want // quiet: no flicker
+          return
+        }
+      }
+    }
+  }
+  const want = (line - 1) / total * (pv.scrollHeight - pv.clientHeight) // fallback: old ratio logic
+  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
+}
+function locateNear(t, s, hint) { // shortest hit near hint line (short cell texts too)
+  s = (s || '').trim()
+  if (s.length < 2) return -1
+  const hp = posOfLine(t, hint)
+  let best = -1, bd = 1e12, p = -1, n = 0
+  while ((p = t.indexOf(s, p + 1)) >= 0 && n++ < 50) {
+    const dd = Math.abs(p - hp)
+    if (dd < bd) { bd = dd; best = p }
+  }
+  return best
+}
+function jumpPos(pos) { // editor jump to screen center (preview does not follow)
+  pvT = Date.now()
+  cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
+  cm.focus()
+}
+$('preview').addEventListener('click', e => { // preview -> editor: text anchors first (tables!), else ratio
+  if (!syncOn || !docId || tplName || activeFile) return
+  const pv = $('preview')
+  const cv = e.target.closest ? e.target.closest('canvas') : null
+  if (cv && pvTexts.length) {
+    const pi = [...pv.querySelectorAll('canvas')].indexOf(cv) // count canvas only, ignore .empty divs
+    const items = pvTexts[pi] || []
+    const r = cv.getBoundingClientRect(), sx = cv.width / r.width, sy = cv.height / r.height // canvas px: backing matches pvTexts
+    const x = (e.clientX - r.left) * sx, y = (e.clientY - r.top) * sy
+    let best = null, bd = CLICK_PX * CLICK_PX
+    for (const it of items) {
+      if (!it.s.trim()) continue
+      const dx = it.x - x, dy = it.y - y, dd = dx * dx + dy * dy
+      if (dd < bd) { bd = dd; best = it }
+    }
+    if (best) {
+      const total = cm.state.doc.lines || 1
+      let all = 0 // hint from text volume (not click height): hit ratio * lines
+      for (const arr of pvTexts) all += arr.length
+      let before = 0
+      for (let k = 0; k < pi; k++) before += (pvTexts[k] || []).length
+      const hint = Math.max(1, Math.min(total, Math.round((before + items.indexOf(best)) / Math.max(1, all) * total) + 1))
+      const at = locateNear(getT(), best.s, hint)
+      if (at >= 0) {
+        const um = getT().slice(Math.max(0, at - 80), at + 80) // verify hit: context must contain click word
+        const w = (best.s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
+        if (w.length < 4 || um.includes(w) || um.includes(best.s.trim())) { syncPage = pi; jumpPos(at); return }
+      }
+    }
+    syncPage = pi // even without hit: next sync starts on click page
+  }
+  const r = pv.getBoundingClientRect() // fallback: ratio (images, margins, formulas without text)
+  const ratio = Math.max(0, Math.min(1, (e.clientY - r.top + pv.scrollTop) / pv.scrollHeight))
+  const lines = getT().split('\n'), total = lines.length || 1
+  let line = Math.max(1, Math.min(total, Math.round(ratio * total) + 1))
+  while (line > 1 && !lines[line - 1].trim()) line-- // snap to paragraph start
+  jumpPos(posOfLine(getT(), line))
+})
+$('syncBtn').onclick = () => { syncOn = !syncOn; $('syncBtn').classList.toggle('on', syncOn)
+  $('syncBtn').setAttribute('aria-pressed', syncOn) }
+function fitPv() { // fit paper exactly to preview width, centered via margin
+  const c = document.querySelector('#preview canvas')
+  const avail = $('preview').clientWidth - 32
+  if (c && avail > 0) {
+    pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / (c.width / 2) * 100)))
+    applyPv(); saveSet()
+  }
+}
+function sizeCanvas(c) { // CSS width from zoom only, never touch backing (canvas.width)
+  c.style.width = (c.width / 2 * pvZoom / 100) + 'px'
+  c.style.maxWidth = document.body.classList.contains('read') ? (8.2 * pvZoom) + 'px' : 'none'
+}
+$('fMinus').onclick = () => stepEd(-ED_STEP)
+$('fPlus').onclick = () => stepEd(ED_STEP)
+$('zMinus').onclick = () => stepPv(-PV_STEP)
+$('zPlus').onclick = () => stepPv(PV_STEP)
+$('fitBtn').onclick = fitPv
+applyEd() // apply saved font at once
+applyPv()
+updExports()
+closeView() // boot with no doc: onboarding card, no blobs, no comment button, read-only
+try { if (matchMedia('(max-width:720px)').matches) document.body.classList.add('noside') } catch (e) {} // mobile: sidebar closed
+updScrim()
+// downloads: source as .typ, preview as PDF
+const dlName = ext => (($('title').textContent || 'document').replace(/[^\w\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df.-]+/g, '_')) + ext
+const dlBlob = (blob, name) => {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob); a.download = name; a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+}
+$('dlPng').onclick = () => { // first page straight from canvas (no compiler API needed)
+  if (!docId) return
+  const c = document.querySelector('#preview canvas')
+  if (!c) { toast('No render yet', () => $('dlPng').click()); return }
+  c.toBlob(b => b ? dlBlob(b, dlName('.png')) : toast('PNG error', () => $('dlPng').click()))
+}
+$('dlSvg').onclick = async () => {
+  if (!docId) return
+  if (!typstReady()) { ensureTypst().catch(() => {}); toast('Compiler still loading', () => $('dlSvg').click()); return }
+  try {
+    if (!$typst.svg) throw new Error('SVG unknown to the bundle')
+    await shadowAll(activeFile ? shadow : getT())
+    const svg = (await $typst.svg({ mainFilePath: '/main.typ' }))
+      .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;') // raw & (text/CSV/URL) breaks XML
+    dlBlob(new Blob([svg], { type: 'image/svg+xml' }), dlName('.svg'))
+  } catch (e) { toast('SVG error: ' + e.message) }
+}
+$('dlTyp').onclick = () => {
+  if (!docId && !tplName) return
+  dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), activeFile || dlName('.typ')) // file tab: this file
+}
+$('dlPdf').onclick = async () => {
+  if (!docId) return
+  if (!typstReady()) { ensureTypst().catch(() => {}); toast('Compiler still loading', () => $('dlPdf').click()); return }
+  try {
+    await shadowAll(activeFile ? shadow : getT()) // same shadows as preview: images/templates land in PDF
+    dlBlob(new Blob([await $typst.pdf({ mainFilePath: '/main.typ' })], { type: 'application/pdf' }), dlName('.pdf'))
+  } catch (e) { toast('PDF error: ' + e.message) }
+}
+setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
+  if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {
+    pushLocal(); queueRender(); queueSave()
+  }
+}, SAVE_MS)
+// --- Find + replace: bottom bar (Ctrl+F), hits as marks, Enter = next ---
+let findOpen = false, findHits = [], findI = 0, findCase = false
+function openFind() {
+  if (!$('app').classList.contains('on')) return
+  findOpen = true; $('find').style.display = ''
+  const m = cm.state.selection.main
+  if (!m.empty) $('fQ').value = getT().slice(m.from, m.to).split('\n')[0].slice(0, 80) // selection becomes search
+  markFind(); $('fQ').focus(); $('fQ').select()
+}
+function closeFind() {
+  findOpen = false; $('find').style.display = 'none'
+  cm.dispatch({ effects: setFind.of(RangeSet.of([])) }); cm.focus()
+}
+function paintFind(sel) { // hits blue, current orange; sel = also jump
+  const q = $('fQ').value
+  cm.dispatch({ effects: setFind.of(RangeSet.of(findHits.map((a, i) =>
+    Decoration.mark({ class: i === findI ? 'cm-find-cur' : 'cm-find' }).range(a, a + q.length)), true)) })
+  if (sel && findHits.length) {
+    const a = findHits[findI]
+    cm.dispatch({ selection: { anchor: a, head: a + q.length }, effects: EditorView.scrollIntoView(a, { y: 'center' }) })
+  }
+  $('fN').textContent = findHits.length ? (findI + 1) + '/' + findHits.length : (q ? '0' : '')
+}
+function markFind() {
+  findHits = []; findI = 0
+  const q = $('fQ').value
+  if (!q) { paintFind(false); return }
+  const t = findCase ? getT() : getT().toLowerCase(), n = findCase ? q : q.toLowerCase()
+  let p = -1
+  while ((p = t.indexOf(n, p + q.length)) >= 0 && findHits.length < 500) findHits.push(p) // no overlap: else replace-all breaks transaction
+  if (!findHits.length) { paintFind(false); return }
+  findI = findHits.findIndex(a => a >= cm.state.selection.main.head)
+  if (findI < 0) findI = 0
+  paintFind(true)
+}
+function stepFind(d) {
+  if (!findHits.length) return
+  findI = (findI + d + findHits.length) % findHits.length
+  paintFind(true)
+}
+function doRep(all) {
+  if (docRole === 'reviewer' || openedTrashed) return // read yes, replace no
+  const q = $('fQ').value, r = $('fR').value
+  if (!q || !findHits.length) return
+  const a = findHits[findI]
+  cm.dispatch(all
+    ? { changes: findHits.map(x => ({ from: x, to: x + q.length, insert: r })) }
+    : { changes: { from: a, to: a + q.length, insert: r }, selection: { anchor: a + r.length } })
+  markFind() // onEdit recounts anyway, here at once for counter
+}
+$('fQ').oninput = markFind
+$('fCase').onclick = () => { findCase = !findCase; $('fCase').classList.toggle('on', findCase); $('fCase').setAttribute('aria-pressed', findCase); markFind(); $('fQ').focus() }
+$('fPrev').onclick = () => stepFind(-1)
+$('fNext').onclick = () => stepFind(1)
+$('fRep').onclick = () => doRep(false)
+$('fAll').onclick = () => doRep(true)
+$('fX').onclick = closeFind
+const findKeys = e => {
+  if (e.key === 'Enter') stepFind(e.shiftKey ? -1 : 1)
+  if (e.key === 'Escape') closeFind()
+}
+$('fQ').onkeydown = $('fR').onkeydown = findKeys
+addEventListener('keydown', e => { // Ctrl/Cmd+F = bar, Ctrl/Cmd+S = save now, ? = help
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind() }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow() }
+  if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) { e.preventDefault(); stepPv(PV_STEP) }
+  if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); stepPv(-PV_STEP) }
+  if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); pvZoom = 110; applyPv(); saveSet() }
+  if (e.key === '?' && !e.ctrlKey && !e.metaKey && $('app').classList.contains('on')
+    && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') && !cm.hasFocus) openTutorial()
+})
+$('helpBtn').onclick = e => { if (e.shiftKey) open('https://github.com/fl-grtg/typst-editor', '_blank'); else openTutorial() }
+// --- Login / Buttons ---
+function paintMe() { // own blob in user box (image not color, missing = color)
+  $('meDot').style.background = avBg(user || '?', colOf(user || '?'))
+  $('meDot').title = 'me - ' + (user || '?')
+  $('meDot').setAttribute('aria-label', 'me - ' + (user || '?'))
+}
+let avatarV = 0
+const avBg = (n, c) => avatarV ? `${c} url("/api/avatar/${encodeURIComponent(n)}?v=${avatarV}") center/cover` : c
+let regMode = false
+$('showPw').onchange = () => { $('p').type = $('showPw').checked ? 'text' : 'password' }
+$('mode').onclick = e => {
+  e.preventDefault(); regMode = !regMode
+  $('go').textContent = regMode ? 'Sign up' : 'Sign in'
+  $('mode').textContent = regMode ? 'Have an account? Sign in' : 'No account yet? Sign up'
+  $('inv').style.display = regMode ? '' : 'none'
+  $('regHint').style.display = regMode ? '' : 'none'
+  $('err').textContent = ''
+}
+async function login(u, p) {
+  const go = $('go'), old = go.textContent
+  go.disabled = true; go.textContent = regMode ? 'Signing up...' : 'Signing in...'
+  try {
+    const body = regMode ? { username: u, password: p, invite: $('inv').value.trim() || undefined } : { username: u, password: p }
+    const d = await api('POST', regMode ? '/api/register' : '/api/login', body)
+    user = d.user // session via cookie only (HttpOnly)
+    $('login').style.display = 'none'; $('app').classList.add('on')
+    cm.measure() // built hidden (login): remeasure sync now, else cursor/clicks off
+    $('who').textContent = user
+    paintMe()
+    sidebar(); loadTpl(); checkJoin()
+  } finally { go.disabled = false; go.textContent = old }
+}
+$('login').onsubmit = e => { e.preventDefault(); login($('u').value, $('p').value).catch(err => $('err').textContent = err.message) }
+$('out').onclick = () => api('POST', '/api/logout').finally(() => {
+  location.reload()
+})
+$('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
+  if (tplName) { // template: save new + delete old (else upsert overwrites)
+    const t = await ask('Rename template', { value: tplName })
+    if (t === null || !t.trim() || t.trim() === tplName) return
+    await loadTpl() // fresh: else guard misses foreign names
+    if (myTpl.some(x => x.name === t.trim())) { toast('Name already exists'); return }
+    try {
+      const old = myTpl.find(x => x.name === tplName)
+      const r = await api('POST', '/api/templates', { name: t.trim(), content: getT(), folder: old && old.folder ? old.folder : '' })
+      await api('DELETE', '/api/templates/' + encodeURIComponent(tplName))
+      tplName = r.name; $('title').textContent = r.name
+      await loadTpl(); renderTpl(); sidebar()
+    } catch (e) { toast(e.message) }
+    return
+  }
+  if (!docId || docRole !== 'owner') return
+  const t = await ask('Rename document', { value: $('title').textContent })
+  if (t === null || !t.trim()) return
+  api('POST', `/api/docs/${docId}/rename`, { title: t.trim() })
+    .then(() => { $('title').textContent = t.trim(); sidebar() })
+    .catch(e => toast(e.message))
+}
+function askNewDoc() { // one dialog: title + folder radio + template radio (not 3 cascades)
+  return new Promise(res => {
+    if (askRes) askRes(null)
+    const prev = document.activeElement
+    const ov = $('modal'); ov.style.display = 'flex'
+    $('mHead').textContent = 'New document'
+    const inp = $('mInp'); inp.style.display = ''; inp.value = 'New document'; inp.placeholder = 'Title'; inp.setAttribute('aria-label', 'Title')
+    const row = document.querySelector('#mCard .mRow'); row.style.display = ''
+    const yes = $('mYes'); yes.textContent = 'Create'; yes.style.background = 'var(--acc)'
+    const box = document.createElement('div'); box.id = 'mExtra'
+    const fl = el('label', null, 'Folder')
+    let selF = ''
+    const fgrp = el('div'); fgrp.setAttribute('role', 'radiogroup'); fgrp.setAttribute('aria-label', 'Folder')
+    const nn = document.createElement('input'); nn.type = 'text'; nn.placeholder = 'New folder name'; nn.setAttribute('aria-label', 'New folder name'); nn.style.display = 'none'
+    const addF = (v, t) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), t); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
+    addF('', 'No folder (top of list)')
+    folders.forEach(f => addF(f.folder, f.folder + ' (' + f.n + (f.n === 1 ? ' document)' : ' documents)')))
+    addF('__new', '+ New folder …')
+    box.append(fl, fgrp, nn, el('label', null, 'Template'))
+    let selT = 0
+    const grp = el('div'); grp.setAttribute('role', 'radiogroup'); grp.setAttribute('aria-label', 'Template')
+    ;[['Blank', 'Empty page'], ['Report', 'A4 with title + intro'], ['Slides', 'Widescreen, 2 pages']].forEach((t, i) => {
+      const b = el('button', 'pk' + (!i ? ' on' : ''), t[0] + ' – ' + t[1]); b.setAttribute('aria-pressed', !i)
+      b.onclick = () => { selT = i; grp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true') }
+      grp.appendChild(b)
+    })
+    box.appendChild(grp)
+    $('mCard').insertBefore(box, row)
+    const done = v => { ov.style.display = 'none'; box.remove(); askRes = null; prev?.focus?.(); res(v) }
+    askRes = () => done(null)
+    $('mNo').onclick = () => done(null)
+    yes.onclick = () => { done({ title: inp.value, folder: selF === '__new' ? nn.value.trim() : selF, tpl: selT }) }
+    inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
+    setTimeout(() => inp.focus(), 30)
+  })
+}
+function askNewTpl() { // one dialog: name + folder radio (like askNewDoc, not 3 cascades)
+  return new Promise(res => {
+    if (askRes) askRes(null)
+    const prev = document.activeElement
+    const ov = $('modal'); ov.style.display = 'flex'
+    $('mHead').textContent = 'New template'
+    const inp = $('mInp'); inp.style.display = ''; inp.value = ''; inp.placeholder = 'name.typ'; inp.setAttribute('aria-label', 'Name')
+    const row = document.querySelector('#mCard .mRow'); row.style.display = ''
+    const yes = $('mYes'); yes.textContent = 'Create'; yes.style.background = 'var(--acc)'
+    const box = document.createElement('div'); box.id = 'mExtra'
+    const fl = el('label', null, 'Folder')
+    let selF = ''
+    const fgrp = el('div'); fgrp.setAttribute('role', 'radiogroup'); fgrp.setAttribute('aria-label', 'Folder')
+    const nn = document.createElement('input'); nn.type = 'text'; nn.placeholder = 'New folder name'; nn.setAttribute('aria-label', 'New folder name'); nn.style.display = 'none'
+    const addF = (v, t) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), t); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
+    addF('', 'No folder (top of list)')
+    tplFolders.forEach(f => addF(f.folder, f.folder + ' (' + f.n + (f.n === 1 ? ' template)' : ' templates)')))
+    addF('__new', '+ New folder …')
+    box.append(fl, fgrp, nn)
+    $('mCard').insertBefore(box, row)
+    const done = v => { ov.style.display = 'none'; box.remove(); askRes = null; prev?.focus?.(); res(v) }
+    askRes = () => done(null)
+    $('mNo').onclick = () => done(null)
+    yes.onclick = () => { done({ name: inp.value, folder: selF === '__new' ? nn.value.trim() : selF }) }
+    inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
+    setTimeout(() => inp.focus(), 30)
+  })
+}
+$('new').onclick = async () => {
+  const k = await askPick('New', [['Document', 'Blank, report or slides into a folder'], ['Template', 'Save editor text as template into a folder'], ['Upload .typ', 'New document from file']])
+  if (k === 1) { newTemplate(); return }
+  if (k === 2) { $('docPick').click(); return }
+  if (k !== 0) return
+  const r = await askNewDoc()
+  if (!r) return
+  const b = $('new'), old = b.textContent; b.disabled = true; b.textContent = 'Creating...'
+  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || 'New document', content: STARTERS[r.tpl] || '', folder: r.folder })).id) }
+  catch (e) { toast(e.message) } finally { b.disabled = false; b.textContent = old }
+}
+let upBusy = false // double-click: no second doc
+$('upDoc').onclick = () => $('docPick').click()
+$('docPick').onchange = async () => { // .typ as normal doc (not template): title from filename
+  const f = $('docPick').files[0]; $('docPick').value = ''
+  if (!f || upBusy) return
+  if (!/\.typ$/i.test(f.name)) { toast('Only .typ'); return }
+  if (f.size > 200 * 1024) { toast('Max 200 KB'); return }
+  upBusy = true
+  try {
+    const txt = await f.text()
+    if (!txt.trim()) { toast('Empty file'); return }
+    if (txt.length > 200 * 1024) { toast('Max 200 KB'); return }
+    const t = f.name.replace(/\.typ$/i, '').replace(/\s+/g, ' ').trim().slice(0, 100) || 'New document'
+    openDoc((await api('POST', '/api/docs/create', { title: t, content: txt })).id)
+  } catch (e) { toast(e.message) } finally { upBusy = false }
+}
+$('del').onclick = async () => {
+  if (tplName) { // delete open template
+    if (!await ask(`Delete template "${tplName}"?`, { noInput: true, ok: 'Delete', danger: true })) return
+    try { await api('DELETE', '/api/templates/' + encodeURIComponent(tplName)) }
+    catch (e) { toast(e.message); return }
+    tplName = ''
+    closeView(); $('viewSeg').style.display = '' // segment back: no doc, but view selectable
+    await loadTpl(); sidebar()
+    return
+  }
+  if (openedTrashed) {
+    if (!await ask('Delete permanently? Gone is gone.', { noInput: true, ok: 'Delete', danger: true })) return
+  } else if (!await ask('Move to trash?', { noInput: true, ok: 'OK' })) return
+  api('DELETE', `/api/docs/${docId}`).then(() => { closeView(); sidebar() })
+}
+setInterval(() => { if (docId) loadComments().catch(() => {}) }, POLL_MS)
+addEventListener('pagehide', () => { // stash latest edits, 2s save may still be pending
+  try { if (docId && ytext && synced && docRole !== 'reviewer') { const c = ytext.toString(); if (c) localStorage.setItem('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // sync backup: keepalive gets no response, openDoc restores it
+  if ($('save').textContent.startsWith('saved')) return // saved: backup done, no net save needed
+  const head = { 'Content-Type': 'application/json' }
+  if (tplName)
+    fetch('/api/templates', { method: 'POST', headers: head,
+      body: JSON.stringify({ name: tplName, content: getT() }), keepalive: true })
+  else if (docId && activeFile)
+    fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST', headers: head,
+      body: JSON.stringify({ content: getT() }), keepalive: true })
+  else if (docId && ytext && synced && docRole !== 'reviewer')
+    fetch(`/api/docs/${docId}/save`, { method: 'POST', headers: head,
+      body: JSON.stringify({ content: ytext.toString(), force: true }), keepalive: true })
+})
+
+api('GET', '/api/me').then(d => { // session via cookie only (HttpOnly)
+  user = d.user; avatarV = d.hasAvatar ? 1 : 0 // persist avatar across reloads
+  $('login').style.display = 'none'; $('app').classList.add('on')
+  cm.measure() // see above: built hidden -> remeasure sync
+  $('who').textContent = user
+  paintMe()
+  sidebar(); loadTpl(); checkJoin()
+}).catch(() => {})
+try { (window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => ensureTypst().catch(() => {})) } catch (e) {} // warm compiler when idle: UI paints first
+document.getElementById('booterr')?.remove() // module running: remove boot error box
+</script>
+</body>
+</html>

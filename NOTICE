@@ -1,0 +1,34 @@
+Typst Editor
+(c) 2026 fl-grtg
+License: Apache-2.0 (see LICENSE)
+
+This project combines original code (Apache-2.0)
+with third-party packages under their own licenses.
+
+Third-party components:
+
+1. CodeMirror 6 - MIT
+   (c) Marijn Haverbeke and contributors
+   https://codemirror.net
+
+2. codemirror-lang-typst 0.6.0 - Apache-2.0
+   Bundled in vendor-cm.js (built with esbuild, MIT).
+   See vendor banner for attribution.
+
+3. Yjs 13.6.27 - MIT
+   Real-time collaboration (CRDT).
+
+4. y-websocket 1.5.0 - MIT
+   WebSocket provider for Yjs.
+
+5. pdf.js 3.11.174 - Apache-2.0
+   PDF rendering in the browser.
+
+6. @myriaddreamin/typst-all-in-one.ts 0.7.0 - Apache-2.0
+   Typst compiler and renderer (WASM).
+
+7. @myriaddreamin/typst-ts-web-compiler 0.7.0 - Apache-2.0
+   Typst compiler WASM, loaded from jsDelivr.
+
+8. @myriaddreamin/typst-ts-renderer 0.7.0 - Apache-2.0
+   Typst renderer WASM, loaded from jsDelivr.
