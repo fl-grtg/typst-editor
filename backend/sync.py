@@ -84,7 +84,19 @@ def room(doc_id: str) -> dict:
                 doc.apply_update(yjs)
             except Exception as e:
                 log.warning("room %s: corrupt yjs, rebuild from content: %s", doc_id, e)
-        if content:
+                doc = Doc()  # fresh: never append content onto half-applied state
+                if content:
+                    with doc.transaction():
+                        fresh = doc.get("typst", type=Text)
+                        fresh += content
+                    init_dirty = True
+                    if fresh_trashed_ok(doc_id):
+                        try:
+                            db.save_room(doc_id, doc.get_update(), content)
+                        except Exception as e:
+                            log.warning("room %s: save after rebuild failed: %s", doc_id, e)
+            # yjs applied cleanly: authoritative, do NOT append content (save_room writes both together)
+        elif content:
             with doc.transaction():
                 text = doc.get("typst", type=Text)
                 text += content
