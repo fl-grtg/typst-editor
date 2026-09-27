@@ -95,17 +95,6 @@ def room(doc_id: str) -> dict:
                     log.warning("room %s: save after rebuild failed: %s", doc_id, e)
                     init_dirty = True
             # trashed: skip persist into trashed doc
-        elif content:
-            with doc.transaction():
-                text = doc.get("typst", type=Text)
-                text += content
-            if fresh_trashed_ok(doc_id):
-                try:
-                    db.save_room(doc_id, doc.get_update(), content)
-                except Exception as e:
-                    log.warning("room %s: initial save failed: %s", doc_id, e)
-                    init_dirty = True
-            # trashed: skip persist into trashed doc
         r = {"doc": doc, "conns": set(), "users": {}, "saved": 0.0, "dirty": init_dirty,
              "role_cache": {}, "trashed_cache": (False, 0.0)}
         rooms[doc_id] = r
@@ -187,20 +176,23 @@ def _ws_quota_ok(doc_id: str) -> bool:
     try:
         from backend import main as _main  # lazy: main imports sync
         lock = _main._doc_lock(f"ws:{doc_id}")
-    except Exception:
-        return True
+    except Exception as e:
+        log.warning("_ws_quota_ok lock failed for %s: %s", doc_id, e)
+        return False
     if not lock.acquire(blocking=False):
-        return True  # lock busy: skip check, keep autosave cheap
+        return True  # lock busy: skip check, keep autosave cheap (best-effort)
     try:
         try:
             owner = _main._owner(doc_id, "")
-        except Exception:
-            return True
+        except Exception as e:
+            log.warning("_ws_quota_ok owner failed for %s: %s", doc_id, e)
+            return False
         if not owner:
-            return True
+            return False
         return _main.user_bytes(owner) <= _main._quota_cap()
-    except Exception:
-        return True
+    except Exception as e:
+        log.warning("_ws_quota_ok check failed for %s: %s", doc_id, e)
+        return False
     finally:
         try:
             lock.release()
@@ -208,8 +200,10 @@ def _ws_quota_ok(doc_id: str) -> bool:
             pass
 
 
+_tasks: set = set()
+
 async def bcast(conns: set, mine: WebSocket | None, data: bytes) -> None:
-    async def send(c):
+    async def send(c: WebSocket) -> None:
         try:
             await asyncio.wait_for(c.send_bytes(data), 5.0)
         except Exception:
@@ -219,7 +213,9 @@ async def bcast(conns: set, mine: WebSocket | None, data: bytes) -> None:
     for c in list(conns):
         if c is mine:
             continue
-        asyncio.create_task(send(c))
+        t = asyncio.create_task(send(c))
+        _tasks.add(t)
+        t.add_done_callback(_tasks.discard)
 
 
 async def drop(doc_id: str) -> None:

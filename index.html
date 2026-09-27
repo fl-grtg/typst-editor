@@ -274,9 +274,13 @@ body.editonly #leftCol{width:100%!important} /* sidebar stays, editor spans prev
 
 <div id="booterr" style="display:none;margin:8px;padding:10px;background:#fee2e2;color:#991b1b;border:1px solid #f87171;border-radius:8px;font:13px system-ui"></div>
 <div id="offline" role="status">Offline — app shell cached, preview needs internet on first load, saving needs network</div>
+<a href="#cm" class="sr-only" style="z-index:300;background:var(--acc);color:#fff;padding:8px 12px;border-radius:8px" onfocus="this.classList.remove('sr-only')" onblur="this.classList.add('sr-only')">Skip to editor</a>
 <script>
 window.addEventListener('error', function (e) {
-  console.error(e.error || e.message || e)
+  try { console.error(e.error || e.message || e) } catch (_) {}
+  var msg = String((e && (e.message || (e.error && e.error.message))) || '')
+  if (/ResizeObserver|Script error|ChunkLoadError|Non-Error promise rejection/i.test(msg)) return
+  if (document.getElementById('app') && document.getElementById('app').classList.contains('on')) return
   var d = document.getElementById('booterr')
   if (d) { d.style.display = ''; d.textContent = 'Something went wrong – please reload' }
 })
@@ -347,7 +351,7 @@ if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.clo
 setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
 const $ = id => document.getElementById(id)
 let toastT = 0
-function toast(m, retry, label, ms) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.appendChild(t) } t.innerHTML = ''; t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
+function toast(m, retry, label, ms) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.appendChild(t) } t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
 const api = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) }).then(async r => {
   if (r.status === 204) return null
   const t = await r.text()
@@ -722,7 +726,7 @@ function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not 
   anchorT = setTimeout(() => {
     for (const [id, s] of anchorDirty) {
       const t = threads.find(x => x.id === id)
-      if (t && s.doc) api('POST', `/api/docs/${s.doc}/comments/${t.id}/anchor`, { anchor: s.anchor }).catch(() => {})
+      if (t && s.doc) api('POST', `/api/docs/${s.doc}/comments/${t.id}/anchor`, { anchor: s.anchor }).catch(e => console.warn('anchor save failed', e))
     }
     anchorDirty.clear()
   }, SAVE_MS)
@@ -843,7 +847,7 @@ async function shadowAll(main) { // files + templates as shadow: preview and PDF
     mediaNames = files.map(f => f.name)
     const sig = files.map(f => f.name + f.size + ':' + f.mtime).join('|')
     if (sig !== lastMedia) { lastMedia = sig; renderMediaChips(files) } // manager chips only on change
-  } catch (e) {} // list failed (429/offline): reuse lastFiles below, no wipe
+  } catch (e) { console.warn('file list stale, using cache', e) } // 429/offline: reuse lastFiles below, no wipe
   const files = lastFiles
   const seen = new Set()
   await Promise.all(files.map(async f => { // parallel: no serial fetch for many files
@@ -882,7 +886,7 @@ async function render() {
     if (id !== renderN) { doc.destroy(); return }
     oldPdf?.destroy(); oldPdf = doc
     const st = preview.scrollTop // keep scroll pos, else preview jumps to top on typing
-    preview.innerHTML = ''
+    preview.replaceChildren()
     pvTexts = []
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p), v = page.getViewport({ scale: 2 }), c = document.createElement('canvas')
@@ -967,7 +971,7 @@ function updErrBadge() { // error counter in header: touch-friendly, hover not n
 function showErrList() { // click badge: list errors, click row jumps to line
   if (!errLines.length) return
   const box = $('pop')
-  box.innerHTML = ''
+  box.replaceChildren()
   box.appendChild(el('div', 'th', 'Errors (' + errLines.length + ')'))
   errLines.forEach(e => {
     const r = el('div', 'qt', 'Line ' + e.line + ': ' + e.msg.split('\n')[0])
@@ -990,7 +994,7 @@ function paintSecs() { // all sections collapsible, + creates folder directly
   for (const [h, box, label, plus] of SECS) {
     const H = $(h), B = $(box)
     if (!H || !B) continue
-    H.innerHTML = ''
+    H.replaceChildren()
     const togSec = () => { secShut.has(h) ? secShut.delete(h) : secShut.add(h); saveSec(); paintSecs() }
     const l = el('span', 'lbl', (secShut.has(h) ? '▸ ' : '▾ ') + label)
     l.title = 'Expand/collapse'
@@ -1023,13 +1027,18 @@ function jumpWant() { // jump to search hit (once after open)
   wantPos = -1
   cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
 }
+let sideN = 0
 async function sidebar() {
+  const id = ++sideN
   let d
   try {
     d = await api('GET', '/api/docs')
+    if (id !== sideN) return
     folders = (await api('GET', '/api/folders')).folders
+    if (id !== sideN) return
   }
   catch (e) {
+    if (id !== sideN) return
     if (/401|logged|Login/i.test(e.message)) { location.reload(); return }
     return // offline etc: keep old list
   }
@@ -1069,7 +1078,7 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
   return div
 }
 function paintOwn() { // top-level first, then folders (A-Z); search replaces list
-  const box = $('own'); box.innerHTML = ''
+  const box = $('own'); box.replaceChildren()
   const qc = $('qCount')
   if (findQ.length >= 2) {
     if (qc) qc.textContent = hits.length + ' results'
@@ -1102,7 +1111,7 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', 'No documents yet – create one with + New'))
 }
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
-  const box = $('shared'); box.innerHTML = ''
+  const box = $('shared'); box.replaceChildren()
   const byO = new Map()
   list.forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
   ;[...byO.keys()].sort((a, b) => a.localeCompare(b)).forEach(o => {
@@ -1156,7 +1165,7 @@ function paintFolder(box, f, docs) { // header: click collapses, rename, dissolv
 }
 function paintTrash(trash) { // click peeks in (trash view), restore, delete permanently
   const h = $('trashH')
-  h.innerHTML = ''
+  h.replaceChildren()
   const togTrash = () => { secShut.has('trashH') ? secShut.delete('trashH') : secShut.add('trashH'); saveSec(); paintTrash(trash) }
   const l = el('span', 'lbl', (secShut.has('trashH') ? '▸ ' : '▾ ') + 'Trash')
   l.title = 'Expand/collapse'
@@ -1164,7 +1173,7 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   kb(h, togTrash)
   h.setAttribute('aria-expanded', String(!secShut.has('trashH')))
   h.appendChild(l)
-  if (!trash.length) { $('trash').innerHTML = ''; if (!secShut.has('trashH')) $('trash').appendChild(el('div', 'empty', 'Trash is empty')); return }
+  if (!trash.length) { $('trash').replaceChildren(); if (!secShut.has('trashH')) $('trash').appendChild(el('div', 'empty', 'Trash is empty')); return }
   const empty = el('button', 'mini', 'Empty'); empty.title = 'Empty trash (permanent)'; empty.setAttribute('aria-label', empty.title)
   empty.onclick = async () => {
     if (!await ask(`${trash.length === 1 ? '1 document' : trash.length + ' documents'} delete permanently?`, { noInput: true, ok: 'Delete', danger: true })) return
@@ -1175,7 +1184,7 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
     sidebar()
   }
   h.appendChild(empty)
-  const box = $('trash'); box.innerHTML = ''
+  const box = $('trash'); box.replaceChildren()
   box.style.display = secShut.has('trashH') ? 'none' : ''
   trash.forEach(x => {
     const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
@@ -1292,7 +1301,7 @@ function paintTplFolder(box, f, docs) { // like paintFolder, for templates only
 }
 function paintTpls() { // templates section: click opens in editor
   const box = $('tpls'); if (!box) return
-  box.innerHTML = ''
+  box.replaceChildren()
   const { top, byF } = groupBy(myTpl)
   top.forEach(t => box.appendChild(tplRow(t)))
   tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
@@ -1318,7 +1327,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   fileCache.clear(); mediaNames = []; lastMedia = ''; lastFiles = []; mediaOpen = false
   $('media').style.display = 'none'; closePop()
   cm.dispatch({ effects: setPeer.of(RangeSet.of([])) })
-  $('peers').innerHTML = ''
+  $('peers').replaceChildren()
   $('cBadge').style.display = 'none'
   const eb = $('eBadge'); if (eb) eb.style.display = 'none'
 }
@@ -1462,7 +1471,7 @@ async function openDoc(id) {
   $('preview').innerHTML = '<p class="empty" role="status" aria-busy="true"><span class="spin"></span>Rendering…</p>' // no stale empty text during first render
   queueRender()
   paintOutline()
-  sidebar(); loadComments().catch(() => {}); loadMembers()
+  sidebar(); loadComments().catch(e => console.warn('comments failed', e)); loadMembers()
 }
 function queueSave() {
   clearTimeout(saveT)
@@ -1504,7 +1513,7 @@ function pushPresence() { // u/sel always (online dot), active only on editor fo
 function renderPeers() { // bar only when editor active, dot for all online in doc (hover = name)
   if (!prov || !prov.awareness) return
   const rs = [], dots = $('peers')
-  dots.innerHTML = ''
+  dots.replaceChildren()
   const mkDot = (n, c, me) => {
     const s = document.createElement('span'); s.className = 'dot'; s.setAttribute('role', 'listitem')
     s.style.background = avBg(n, c); s.title = (me ? 'me - ' : '') + n; s.setAttribute('aria-label', (me ? 'me - ' : '') + n)
@@ -1615,7 +1624,7 @@ const ICO_BOOK = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" st
 function paintOutline() { // collect = lines, click jumps to line
   const box = $('ol')
   if (!box) return
-  box.innerHTML = ''
+  box.replaceChildren()
   if (!docId || tplName) return
   getT().split('\n').forEach((ln, i) => {
     const m = ln.match(/^(=+)\s+(.+)$/)
@@ -1704,7 +1713,7 @@ function movePop() { // attach card to line (real coords, wrap-safe)
   $('pop').style.top = Math.max(8, Math.min(top, Math.max(8, max))) + 'px'
 }
 function renderPop() {
-  const pop = $('pop'); pop.innerHTML = ''
+  const pop = $('pop'); pop.replaceChildren()
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
   bar.append(el('b', null, 'Line ' + popAnchor))
   const x = el('button', 'ib', '✕'); x.title = 'Close'; x.setAttribute('aria-label', x.title); x.onclick = closePop
@@ -1859,7 +1868,7 @@ let activeFile = '', fileT = 0, bibKeys = [] // '' = main.typ (Yjs sync), else t
 function renderMediaChips(files) {
   lastFiles = files
   paintTabs() // tabs follow file list (only on change, see shadowAll)
-  const bar = $('media'); bar.innerHTML = ''
+  const bar = $('media'); bar.replaceChildren()
   if (docRole === 'reviewer' || openedTrashed) { bar.style.display = 'none'; return } // reviewer/trash: no manager
   bar.style.display = mediaOpen ? '' : 'none'
   if (!mediaOpen) return
@@ -1909,7 +1918,7 @@ function paintTabs() { // main.typ + text files as tabs, preview stays main
   if (!files.length && !activeFile) { bar.style.display = 'none'; return }
   if (activeFile && !files.some(f => f.name === activeFile)) activeFile = '' // deleted: back to main
   bar.style.display = ''
-  bar.innerHTML = ''
+  bar.replaceChildren()
   const mk = name => {
     const b = el('button', null, name || 'main.typ')
     if ((name || '') === activeFile) b.classList.add('on')
@@ -2003,7 +2012,7 @@ addEventListener('keydown', e => { // Esc: modal (ask + askPick via mNo) > pop >
 })
 // --- Templates: manage globally (icon), use per doc (insert line only) ---
 function renderTpl() {
-  const p = $('tplPop'); p.innerHTML = ''
+  const p = $('tplPop'); p.replaceChildren()
   p.appendChild(el('div', null, 'Templates add one line to your document — manage and sort them into folders in the sidebar'))
   const mkRow = t => {
     const row = el('div', 'trow')
@@ -2074,7 +2083,7 @@ $('histBtn').onclick = e => {
   if (showPop('histPop')) renderHist()
 }
 async function renderHist() {
-  const p = $('histPop'); p.innerHTML = ''
+  const p = $('histPop'); p.replaceChildren()
   const save = el('button', 'save', '+ Save snapshot now')
   save.onclick = async () => { save.disabled = true; const old = save.textContent; save.textContent = 'Saving...'; try { await api('POST', `/api/docs/${docId}/snapshots`, {}); renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
   p.appendChild(save)
@@ -2139,7 +2148,7 @@ async function showDiff(sid, row) {
 const SYMS = ('→ ← ↑ ↓ ⇒ ⇐ ⇔ ∀ ∃ ∅ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∧ ∨ ¬ ⊕ ⊗ ⊥ ∥ ∠ ° ′ ″ ∞ ∑ ∏ ∫ √ ∂ ∇ ≈ ≠ ≡ ≤ ≥ ≪ ≫ ± ∓ × ÷ ⋅ ⋆ ★ ☆ ♣ ♦ ♥ ♠ • ◦ ▪ ▲ ► ● ◆ ✓ ✕ ☐ ☑ § ¶ © ® ™ € £ ¥ … – — „ “ ” ‘ ’ « » † ‡ ⌘ ⏎ ⇥ ⎋ α β γ δ ε ζ η θ ι κ λ μ ν ξ π ρ σ τ υ φ χ ψ ω Γ Δ Θ Λ Ξ Π Σ Υ Φ Ψ Ω').split(' ')
 const SYN = { pfeil: '→←↑↓⇒⇐⇔', euro: '€', dollar: '$', alpha: 'α', beta: 'β', pi: 'π', summe: '∑', wurzel: '√', unendlich: '∞', kreuz: '✕✓', herz: '♥', stern: '★☆', strich: '–—', anfuhr: '„“”‘’«»', para: '§¶', copyright: '©®™' } // German search keys
 function renderSym(q = '') {
-  const p = $('symPop'); p.innerHTML = ''
+  const p = $('symPop'); p.replaceChildren()
   const inp = el('input'); inp.placeholder = 'Search...'; inp.value = q; inp.setAttribute('autocomplete', 'off'); inp.setAttribute('aria-label', 'Search symbols')
   inp.oninput = () => {
     const v = inp.value
@@ -2219,15 +2228,17 @@ function richText(text) { // @-names colored, rest text (no user HTML)
 // --- PWA: shell cache (see sw.js) ---
 const offBar = $('offline'); const updOff = () => { offBar.style.display = navigator.onLine === false ? 'block' : 'none' }
 addEventListener('online', updOff); addEventListener('offline', updOff); updOff()
-try { if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); navigator.serviceWorker.addEventListener('controllerchange', () => toast('Update loaded', () => location.reload(), 'Reload')) } } catch (e) {}
+try { if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(e => console.warn('sw register failed', e)); navigator.serviceWorker.addEventListener('controllerchange', () => toast('Update loaded', () => location.reload(), 'Reload')) } } catch (e) {}
 // --- Share as popup next to comment button (not sidebar) ---
-let shares = []
+let shares = [], shareN = 0, invN = 0
 async function loadShares() {
-  shares = (await api('GET', `/api/docs/${docId}`)).shares
+  const id = ++shareN, doc = docId
+  try { shares = (await api('GET', `/api/docs/${doc}`)).shares } catch (e) { console.warn('shares failed', e); return }
+  if (id !== shareN || doc !== docId) return
   renderShares()
 }
 function renderShares() {
-  const p = $('sharePop'); p.innerHTML = ''
+  const p = $('sharePop'); p.replaceChildren()
   const top = el('div', 'sTop')
   const close = el('button', null, '✕'); close.title = 'Close'; close.setAttribute('aria-label', close.title)
   close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
@@ -2293,9 +2304,11 @@ function renderShares() {
 async function loadInvites() { // open links: display + revoke only (link only at creation)
   const box = $('invList')
   if (!box || !docId) return
+  const id = ++invN, doc = docId
   let list = []
-  try { list = (await api('GET', `/api/docs/${docId}/invites`)).invites } catch (e) { return }
-  box.innerHTML = ''
+  try { list = (await api('GET', `/api/docs/${doc}/invites`)).invites } catch (e) { console.warn('invites failed', e); return }
+  if (id !== invN || doc !== docId) return
+  box.replaceChildren()
   if (list.length) box.appendChild(el('div', null, 'Links can only be copied when created'))
   list.forEach(t => {
     const div = el('div')
@@ -2338,7 +2351,7 @@ $('who').onclick = e => {
 kb($('who'), () => $('who').click())
 let setMsg = '' // settings error inline not browser alert
 function renderSettings() {
-  const p = $('setPop'); p.innerHTML = ''
+  const p = $('setPop'); p.replaceChildren()
   const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
   const top = el('div', 'sTop')
   const close = el('button', null, '✕'); close.title = 'Close'; close.setAttribute('aria-label', close.title)
@@ -2923,7 +2936,7 @@ $('del').onclick = async () => {
   } else if (!await ask('Move to trash?', { noInput: true, ok: 'OK' })) return
   api('DELETE', `/api/docs/${docId}`).then(() => { closeView(); sidebar() })
 }
-setInterval(() => { if (docId) loadComments().catch(() => {}) }, POLL_MS)
+setInterval(() => { if (docId) loadComments().catch(e => console.warn('comments poll failed', e)) }, POLL_MS)
 addEventListener('pagehide', () => { // stash latest edits, 2s save may still be pending
   try { if (docId && ytext && synced && docRole !== 'reviewer') { const c = ytext.toString(); if (c) localStorage.setItem('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // sync backup: keepalive gets no response, openDoc restores it
   if ($('save').textContent.startsWith('saved')) return // saved: backup done, no net save needed
@@ -2946,7 +2959,7 @@ api('GET', '/api/me').then(d => { // session via cookie only (HttpOnly)
   $('who').textContent = user
   paintMe()
   sidebar(); loadTpl(); checkJoin()
-}).catch(() => {})
+}).catch(e => console.warn('session restore failed', e))
 try { (window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => ensureTypst().catch(() => {})) } catch (e) {} // warm compiler when idle: UI paints first
 document.getElementById('booterr')?.remove() // module running: remove boot error box
 </script>

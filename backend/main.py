@@ -314,6 +314,13 @@ async def lifespan(app: FastAPI):
                 break
         except ValueError:
             continue
+    try:
+        _cfg = config.load()
+        if _cfg.REGISTRATION == "invite-only" and not _cfg.REGISTRATION_INVITE_TOKEN:
+            log.warning("invite-only without REGISTRATION_INVITE_TOKEN: first account is open bootstrap, set token right after")
+    except Exception:
+        pass
+    # DATA_DIR change needs restart (import resolves paths): no reload here, tests set FILES_DIR directly.
     _acquire_single_lock()
     try:
         yield
@@ -398,7 +405,7 @@ def client_ip(req: Request) -> str:
 
 
 def limited(req: Request, scope: str, key: str = "") -> None:
-    lim, win = RATE_SCOPES.get(scope, (30, 60))
+    lim, win = RATE_SCOPES.get(scope, (30, 60))  # win fixed 60s (3600 register): only limit is configurable
     try:
         cfg = config.load()
         attr = f"RATE_{scope.upper()}_PER_MIN"
@@ -605,7 +612,7 @@ def login(b: Login, res: Response, req: Request) -> dict:
         log.warning("login failed")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid login")
     set_cookie(res, req, token)
-    return {"user": name}
+    return {"user": auth.verify_session(token) or name}
 
 
 def _cookie_secure(req: Request) -> bool:
@@ -653,7 +660,17 @@ def register(b: Register, res: Response, req: Request) -> dict:
                 raise busy_503("register", e)
             try:
                 empty = con.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
-                if not empty:
+                if empty:
+                    if cfg.REGISTRATION == "closed":
+                        con.execute("ROLLBACK")
+                        log.warning("register blocked (closed)")
+                        raise HTTPException(403, "Registration disabled")
+                    elif cfg.REGISTRATION == "invite-only" and cfg.REGISTRATION_INVITE_TOKEN:
+                        if not b.invite or not hmac.compare_digest(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
+                            con.execute("ROLLBACK")
+                            log.warning("register blocked (invite, first user)")
+                            raise HTTPException(403, "Invalid invite code")
+                else:
                     if cfg.REGISTRATION == "closed":
                         con.execute("ROLLBACK")
                         log.warning("register blocked (closed)")
@@ -662,7 +679,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
                         con.execute("ROLLBACK")
                         log.warning("register blocked (invite)")
                         raise HTTPException(403, "Invalid invite code")
-                if con.execute("SELECT 1 FROM users WHERE name=?", (name,)).fetchone():
+                if con.execute("SELECT 1 FROM users WHERE name=? COLLATE NOCASE", (name,)).fetchone():
                     con.execute("ROLLBACK")
                     auth.check_password("dummy-timing", auth.DUMMY_HASH)
                     raise HTTPException(400, "Registration failed")
@@ -695,7 +712,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
 
 
 @app.post("/api/logout")
-async def logout(req: Request, res: Response):
+async def logout(req: Request, res: Response) -> dict:
     tok = req.cookies.get(COOKIE, "")
     user = None
     if tok:
@@ -715,7 +732,8 @@ async def logout(req: Request, res: Response):
 
 
 @app.get("/api/me")
-def get_me(user: str = Depends(me)):
+def get_me(req: Request, user: str = Depends(me)) -> dict:
+    limited(req, "files_list")
     con = db.connect()
     try:
         r = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
@@ -762,7 +780,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
     check_pw(user, b.password)
     con = db.connect()
     try:
-        if new != user and con.execute("SELECT 1 FROM users WHERE name=?", (new,)).fetchone():
+        if new.lower() != user.lower() and con.execute("SELECT 1 FROM users WHERE name=? COLLATE NOCASE", (new,)).fetchone():
             raise HTTPException(400, "Name taken")
         if new == user:
             return {"user": user}
@@ -771,7 +789,8 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
             raise HTTPException(404, "User gone")
         try:
             con.execute("BEGIN IMMEDIATE")
-            if con.execute("SELECT 1 FROM users WHERE name=?", (new,)).fetchone():
+            _dup = con.execute("SELECT name FROM users WHERE name=? COLLATE NOCASE", (new,)).fetchone()
+            if _dup and _dup["name"].lower() != user.lower():
                 con.execute("ROLLBACK")
                 raise HTTPException(400, "Name taken")
             con.execute("INSERT INTO users (name, hash, avatar) VALUES (?,?,?)",
@@ -798,16 +817,16 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
             except Exception:
                 pass
             raise HTTPException(400, "Rename failed")
-        await sync.kick_all(user)
-        await sync.kick_all(new)
-        sync.drop_role_cache(user)
-        sync.drop_role_cache(new)
-        sync.drop_sess_cache(user)
-        sync.drop_sess_cache(new)
-        _drop_user_locks(user)
-        return {"user": new}
     finally:
         con.close()
+    await sync.kick_all(user)
+    await sync.kick_all(new)
+    sync.drop_role_cache(user)
+    sync.drop_role_cache(new)
+    sync.drop_sess_cache(user)
+    sync.drop_sess_cache(new)
+    _drop_user_locks(user)
+    return {"user": new}
 
 
 @app.post("/api/me/avatar")
@@ -849,7 +868,8 @@ def del_avatar(req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/avatar/{username}")
-def get_avatar(username: str, user: str = Depends(me)):
+def get_avatar(username: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     con = db.connect()
     try:
         if username != user:
@@ -918,7 +938,8 @@ async def ws_doc(ws: WebSocket, doc_id: str):
 
 
 @app.get("/api/docs")
-def list_docs(user: str = Depends(me)):
+def list_docs(req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     con = db.connect()
     try:
         own = con.execute("SELECT id, title, folder, updated_at FROM docs WHERE owner=? AND trashed=0 "
@@ -936,7 +957,8 @@ def list_docs(user: str = Depends(me)):
 
 
 @app.get("/api/folders")
-def list_folders(user: str = Depends(me)):
+def list_folders(req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     con = db.connect()
     try:
         rows = con.execute("SELECT folder, COUNT(*) AS n FROM docs WHERE owner=? AND trashed=0 AND folder<>'' "
@@ -1032,7 +1054,8 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/docs/{doc_id}")
-def get_doc(doc_id: str, user: str = Depends(me)):
+def get_doc(doc_id: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     check_doc_id(doc_id)
     r = need_access(user, doc_id)
     con = db.connect()
@@ -1058,7 +1081,8 @@ def auto_snap(doc_id: str, content: str, label: str = "") -> None:
     try:
         try:
             con.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            log.warning("auto_snap %s busy, skipped: %s", doc_id, e)
             return
         try:
             last = con.execute("SELECT created_at FROM snapshots WHERE doc_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
@@ -1080,7 +1104,8 @@ def auto_snap(doc_id: str, content: str, label: str = "") -> None:
                 con.execute("ROLLBACK")
         except HTTPException:
             raise
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            log.warning("auto_snap %s failed: %s", doc_id, e)
             try:
                 con.execute("ROLLBACK")
             except Exception:
@@ -1120,7 +1145,10 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
             raise busy_503("save_doc", e)
         try:
             trashed = con.execute("SELECT trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
-            if trashed and trashed["trashed"]:
+            if not trashed:
+                con.execute("ROLLBACK")
+                raise HTTPException(404, "Doc gone")
+            if trashed["trashed"]:
                 con.execute("ROLLBACK")
                 raise HTTPException(410, "In trash - restore first")
             con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
@@ -1188,7 +1216,8 @@ def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/templates")
-def list_templates(user: str = Depends(me)):
+def list_templates(req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     con = db.connect()
     try:
         rows = con.execute("SELECT name, content, line, folder FROM templates WHERE owner=? ORDER BY name",
@@ -1231,10 +1260,13 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)):
 @app.delete("/api/templates/{name}")
 def delete_template(name: str, req: Request, user: str = Depends(me)):
     limited(req, "files")  # reuse files scope (no dedicated template scope)
+    n = tpl_name(name)
     con = db.connect()
     try:
-        con.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, name))
+        cur = con.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, n))
         con.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Template gone")
         return {"ok": True}
     finally:
         con.close()
@@ -1243,19 +1275,23 @@ def delete_template(name: str, req: Request, user: str = Depends(me)):
 @app.post("/api/templates/{name}/folder")
 def move_template(name: str, b: FolderSet, req: Request, user: str = Depends(me)):
     limited(req, "files")  # reuse files scope (no dedicated template scope)
+    n = tpl_name(name)
     con = db.connect()
     try:
-        con.execute("UPDATE templates SET folder=?, updated_at=? WHERE owner=? AND name=?",
-                    (b.folder.strip()[:FOLDER_MAX], db.now_iso(), user, name))
+        cur = con.execute("UPDATE templates SET folder=?, updated_at=? WHERE owner=? AND name=?",
+                    (b.folder.strip()[:FOLDER_MAX], db.now_iso(), user, n))
         ensure_folder(con, user, "tpl", b.folder)
         con.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Template gone")
         return {"ok": True}
     finally:
         con.close()
 
 
 @app.get("/api/tplfolders")
-def list_tpl_folders(user: str = Depends(me)):
+def list_tpl_folders(req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     con = db.connect()
     try:
         rows = con.execute("SELECT folder, COUNT(*) AS n FROM templates WHERE owner=? AND folder<>'' "
@@ -1438,7 +1474,7 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
                 con.execute("BEGIN IMMEDIATE")
             except sqlite3.OperationalError as e:
                 raise busy_503("duplicate_doc", e)
-            try:
+            if True:  # single transaction, each error path ROLLBACKs explicitly
                 if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
                     con.execute("ROLLBACK")
                     raise HTTPException(400, "Too many docs")
@@ -1509,8 +1545,6 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
                     except Exception:
                         pass
                     raise HTTPException(400, "Title already exists")
-            finally:
-                pass
         finally:
             con.close()
     if src.is_dir():
@@ -1588,7 +1622,8 @@ async def unshare_doc(doc_id: str, username: str, req: Request, user: str = Depe
 
 
 @app.get("/api/docs/{doc_id}/comments")
-def list_comments(doc_id: str, user: str = Depends(me)):
+def list_comments(doc_id: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
     con = db.connect()
@@ -1728,6 +1763,13 @@ def safe_name(name: str) -> str:
     n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name or "").name.strip().lstrip("."))[:100]
     if not n or Path(n).suffix.lower() not in ALLOWED_IMG:
         raise HTTPException(400, "Only png/jpg/jpeg/svg/gif/webp/pdf/typ/bib/csv")
+    return n
+
+
+def tpl_name(name: str) -> str:
+    n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name or "").name.strip().lstrip("."))[:100]
+    if not n.endswith(".typ"):
+        raise HTTPException(404, "Template gone")
     return n
 
 
@@ -1895,9 +1937,13 @@ def get_file(doc_id: str, name: str, req: Request, user: str = Depends(me)):
         return Response(content=data, media_type="application/octet-stream",
                         headers={"Content-Disposition": f'attachment; filename="{p.name}"',
                                  "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
-    return FileResponse(str(p), filename=p.name,
-                        headers={"Content-Disposition": f'attachment; filename="{p.name}"',
-                                 "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+    try:
+        return FileResponse(str(p), filename=p.name,
+                            headers={"Content-Disposition": f'attachment; filename="{p.name}"',
+                                     "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+    except (FileNotFoundError, RuntimeError, OSError) as e:
+        log.warning("get_file gone %s: %s", p.name, e)
+        raise HTTPException(404, "File gone")
 
 
 @app.delete("/api/docs/{doc_id}/files/{name}")
@@ -2028,7 +2074,8 @@ def make_invite(doc_id: str, b: InviteNew, req: Request, user: str = Depends(me)
 
 
 @app.get("/api/docs/{doc_id}/invites")
-def list_invites(doc_id: str, user: str = Depends(me)):
+def list_invites(doc_id: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     check_doc_id(doc_id)
     if need_access(user, doc_id) != "owner":
         raise HTTPException(403, "Only owner")
@@ -2110,7 +2157,8 @@ def _redeem_invite(token: str, user: str) -> dict:
 
 
 @app.get("/api/docs/{doc_id}/snapshots")
-def list_snaps(doc_id: str, user: str = Depends(me)):
+def list_snaps(doc_id: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
     con = db.connect()
@@ -2146,7 +2194,8 @@ def make_snap(doc_id: str, b: SnapNew, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/docs/{doc_id}/snapshots/{sid}")
-def get_snap(doc_id: str, sid: str, user: str = Depends(me)):
+def get_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
     con = db.connect()
@@ -2230,7 +2279,8 @@ def delete_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/docs/{doc_id}/members")
-def list_members(doc_id: str, user: str = Depends(me)):
+def list_members(doc_id: str, req: Request, user: str = Depends(me)):
+    limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
     con = db.connect()
@@ -2297,8 +2347,8 @@ def prune_old_exports(max_age_s: int = 86400) -> None:
                     p.unlink()
             except OSError:
                 logging.getLogger(__name__).warning("prune export-tmp failed: %s", p)
-    except OSError:
-        pass
+    except OSError as e:
+        logging.getLogger(__name__).warning("prune exports failed: %s", e)
 
 
 @app.get("/api/export.zip")
@@ -2453,14 +2503,20 @@ FRONT_FILES = {"vendor-cm.js", "manifest.json", "sw.js", "icon-192.png", "icon-5
 
 
 @app.get("/")
-def frontend_root():
-    return FileResponse(str(ROOT / "index.html"))
+def frontend_root() -> FileResponse:
+    try:
+        return FileResponse(str(ROOT / "index.html"))
+    except (FileNotFoundError, RuntimeError, OSError):
+        raise HTTPException(404, "Not found")
 
 
 @app.get("/{name}")
-def frontend_file(name: str):
+def frontend_file(name: str) -> FileResponse:
     if name in FRONT_FILES:
         p = ROOT / name
         if p.is_file():
-            return FileResponse(str(p))
+            try:
+                return FileResponse(str(p))
+            except (FileNotFoundError, RuntimeError, OSError):
+                pass
     raise HTTPException(404, "Not found")

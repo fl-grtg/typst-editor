@@ -13,11 +13,15 @@ One process, clean API, boring on purpose. FastAPI serves the API, Yjs syncs the
 - Live PDF preview next to the editor, compiled in the browser via Typst WASM
 - Realtime collaboration with presence over a cookie-only WebSocket
 - Owner, editor, and reviewer roles with share links and doc invites
+- Comment threads with anchors, @-mentions, replies, resolve
+- Outline, symbol picker, autocomplete + hover docs, find/replace
 - File uploads for `#image` and `#include`, 10 MB per file and 200 per doc
 - Templates saved per account, organized in folders, reused via `#include`
 - History with snapshots, diff view, and one-click restore
 - Folders, trash, duplicate, and global search across all docs
 - Export as `.typ`, PDF, SVG, first-page PNG, or all own docs as one `.zip`
+- Autosave (2.5 s debounce) + 24 h local stash, offline app shell via service worker
+- Editor font (10–24 px) + preview zoom (30–200 %) settings, avatars
 - Per-user quotas and per-endpoint rate limits enforced server-side
 - Self-hostable single container with SQLite, reverse-proxy ready
 
@@ -42,7 +46,7 @@ pip install -r requirements.txt
 uvicorn backend.main:app --host 127.0.0.1 --port 8978 --workers 1
 ```
 
-Registration defaults to `invite-only`. The first account registers freely (bootstrap); every later account needs the `REGISTRATION_INVITE_TOKEN` from `.env` (`openssl rand -hex 32`). Use `open` for local tests only, never on the public internet.
+Registration defaults to `invite-only`. The first account registers freely (bootstrap) unless `REGISTRATION_INVITE_TOKEN` is already set — then even the first account needs it. Set the token before first start on public servers (`openssl rand -hex 32`). Use `open` for local tests only, never on the public internet.
 
 ## ⚙️ Configuration
 
@@ -139,7 +143,20 @@ Report vulnerabilities via GitHub Private Vulnerability Reporting.
 Do not open public issues for security problems.
 Allow time for a fix before any disclosure.
 
-Unshare removes the user and wipes all pending invite links for the doc (they carry no username, so per-user revoke is impossible). Downgrading editor to reviewer wipes editor links too. Preview needs internet on first load (cdnjs/esm.sh/jsdelivr for pdf.js/Yjs/typst.ts); afterwards the service worker serves the app shell offline, but saving and syncing need network — offline edits survive at most 24h in the local stash.
+Unshare removes the user and wipes all pending invite links for the doc (they carry no username, so per-user revoke is impossible). Downgrading editor to reviewer wipes editor links too. Preview needs internet on first load (cdnjs/esm.sh/jsdelivr for pdf.js/Yjs/typst.ts); afterwards the service worker serves the app shell offline, but saving and syncing need network — offline edits survive at most 24h in the local stash (same-origin localStorage, user-owned drafts only).
+
+CSP intentionally allows `unsafe-inline`, `unsafe-eval`, `wasm-unsafe-eval` plus pinned cdnjs/esm.sh/jsdelivr origins: CodeMirror + Typst WASM cannot run without them. Mitigations: user content via `textContent` only, same-origin API/WS with Origin checks, backups outside web root.
+
+Backups are unencrypted. Encrypt them: `gpg -c DATA_DIR/backup/app-*.db` or `age -r <recipient> <file>`. Use `chmod 600` on shared hosts.
+
+### 🛠 Troubleshooting
+
+- First load needs internet (CDN), then shell offline. Check `#cdnLine` / console.
+- Single worker only (`--workers 1`, one replica). Multi-worker exits on purpose.
+- Behind proxy set `TRUST_PROXY=true` in `.env`, else cookies/rate-limit break. Overwrite `X-Forwarded-For`, never append.
+- Port `8978` loopback-only; TLS via proxy.
+- `DATA_DIR` change needs restart. Root-owned volume: entrypoint fixes top-level, retries recursive; else `chown -R 999:999 data`.
+- Read `GET /api/*` share the `files_list` bucket (120/min): 429 means slow down polling.
 
 ### 📦 Changelog
 

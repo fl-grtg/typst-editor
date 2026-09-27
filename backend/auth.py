@@ -51,7 +51,7 @@ def mint(username: str) -> str:
         con.execute("INSERT INTO sessions (token_hash, username, expires) VALUES (?,?,?)",
                     (sha(token), username, expires))
         con.execute("DELETE FROM sessions WHERE username=? AND token_hash NOT IN "
-                    "(SELECT token_hash FROM sessions WHERE username=? ORDER BY rowid DESC LIMIT 20)",
+                    "(SELECT token_hash FROM sessions WHERE username=? ORDER BY expires DESC, rowid DESC LIMIT 20)",
                     (username, username))
         con.commit()
         return token
@@ -62,10 +62,11 @@ def mint(username: str) -> str:
 def create_session(username: str, password: str) -> str | None:
     con = db.connect()
     try:
-        row = con.execute("SELECT hash FROM users WHERE name=?", (username,)).fetchone()
+        row = con.execute("SELECT name, hash FROM users WHERE name=? COLLATE NOCASE", (username,)).fetchone()
         ok = check_password(password, row["hash"] if row else DUMMY_HASH)
         if not row or not ok:
             return None
+        canonical = row["name"]
         try:
             con.execute("DELETE FROM sessions WHERE expires < ?", (datetime.now(UTC).isoformat(),))
             con.commit()
@@ -73,7 +74,7 @@ def create_session(username: str, password: str) -> str | None:
             log.warning("create_session cleanup failed: %s", e)
     finally:
         con.close()
-    return mint(username)
+    return mint(canonical)
 
 
 def verify_session(token: str) -> str | None:
