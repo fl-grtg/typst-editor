@@ -30,8 +30,9 @@ With Docker (under 5 minutes):
 ```bash
 cp .env.example .env
 mkdir -p data # Linux: chown 999:999 data
-docker compose up --build
+docker compose pull && docker compose up -d
 ```
+Lokal bauen statt ziehen: `docker compose up --build`.
 
 Open `http://127.0.0.1:8978` and create the first account (no invite needed).
 
