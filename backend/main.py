@@ -89,9 +89,12 @@ def _export_lock(user: str) -> threading.Lock:
 
 def _drop_doc_locks(doc_id: str) -> None:
     # Drop per-doc locks when the room is gone (no reaper thread).
+    # Never drop a held lock: the holder still relies on it for mutual exclusion.
     with _DOC_LOCKS_GUARD:
-        _DOC_LOCKS.pop(f"upload:{doc_id}", None)
-        _DOC_LOCKS.pop(f"ws:{doc_id}", None)
+        for _key in (f"upload:{doc_id}", f"ws:{doc_id}"):
+            _lock = _DOC_LOCKS.get(_key)
+            if _lock is not None and not _lock.locked():
+                _DOC_LOCKS.pop(_key, None)
 
 
 def _drop_user_locks(user: str) -> None:
@@ -314,6 +317,18 @@ async def lifespan(app: FastAPI):
                 break
         except ValueError:
             continue
+    try:
+        _argv = _sys.argv  # CLI --workers N has the same effect as the env vars above
+        if "--workers" in _argv:
+            _n = int(_argv[_argv.index("--workers") + 1])
+        else:
+            _eq = next((a for a in _argv if a.startswith("--workers=")), "")
+            _n = int(_eq.split("=", 1)[1]) if _eq else 1
+        if _n > 1:
+            log.error("multi-worker not supported, exit (use --workers 1)")
+            _sys.exit(1)
+    except (ValueError, IndexError):
+        pass
     try:
         _cfg = config.load()
         if _cfg.REGISTRATION == "invite-only" and not _cfg.REGISTRATION_INVITE_TOKEN:
@@ -713,6 +728,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
 
 @app.post("/api/logout")
 async def logout(req: Request, res: Response) -> dict:
+    limited(req, "files_list")
     tok = req.cookies.get(COOKIE, "")
     user = None
     if tok:
@@ -1151,10 +1167,17 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
             if trashed["trashed"]:
                 con.execute("ROLLBACK")
                 raise HTTPException(410, "In trash - restore first")
+            if need_access(user, doc_id) not in ("owner", "editor"):
+                con.execute("ROLLBACK")
+                raise HTTPException(403, "Reviewer can only comment")
             con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
                         (content, db.now_iso(), doc_id))
             con.commit()
         except HTTPException:
+            try:
+                con.execute("ROLLBACK")
+            except Exception:
+                pass
             raise
         except sqlite3.OperationalError as e:
             try:
@@ -1252,9 +1275,27 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)):
                     (user, n, b.content, f'#include "{n}"', b.folder.strip()[:FOLDER_MAX], db.now_iso()))
         ensure_folder(con, user, "tpl", b.folder)
         con.commit()
-        return {"name": n}
     finally:
         con.close()
+    # Post-write quota check with rollback (matches save_doc/upload/file-text).
+    _old_tpl = (_old["content"] or "") if _old else ""
+    try:
+        _tpl_over = user_bytes(user) > _quota_cap()
+    except sqlite3.OperationalError as e:
+        raise busy_503("save_template", e)
+    if _tpl_over:
+        _rb = db.connect()
+        try:
+            if _old is None:
+                _rb.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, n))
+            else:
+                _rb.execute("UPDATE templates SET content=?, updated_at=? WHERE owner=? AND name=?",
+                            (_old_tpl, db.now_iso(), user, n))
+            _rb.commit()
+        finally:
+            _rb.close()
+        raise HTTPException(413, "Quota exceeded")
+    return {"name": n}
 
 
 @app.delete("/api/templates/{name}")

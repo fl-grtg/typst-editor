@@ -17,7 +17,7 @@ self.addEventListener('fetch', e => {
   if (u.pathname.startsWith('/api') || u.pathname.startsWith('/ws')) return
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request).then(res => {
     const cp = res.clone()
-    if (!u.search) caches.open(V).then(c => c.put(e.request, cp).catch(() => {})) // never cache ?join= (token URL)
+    if (!u.search && res.ok) caches.open(V).then(c => c.put(e.request, cp).catch(() => {})) // never cache ?join= (token URL) or error pages
     return res
   }).catch(err => { if (e.request.mode === 'navigate') return caches.match('./index.html'); throw err })))
 })

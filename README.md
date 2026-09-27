@@ -156,7 +156,7 @@ Backups are unencrypted. Encrypt them: `gpg -c DATA_DIR/backup/app-*.db` or `age
 - Behind proxy set `TRUST_PROXY=true` in `.env`, else cookies/rate-limit break. Overwrite `X-Forwarded-For`, never append.
 - Port `8978` loopback-only; TLS via proxy.
 - `DATA_DIR` change needs restart. Root-owned volume: entrypoint fixes top-level, retries recursive; else `chown -R 999:999 data`.
-- Read `GET /api/*` share the `files_list` bucket (120/min): 429 means slow down polling.
+- Many read `GET /api/*` share the `files_list` bucket (120/min) – search/snapshots/export have their own; 429 means slow down polling.
 
 ### 📦 Changelog
 
