@@ -25,13 +25,15 @@ One process, clean API, boring on purpose. FastAPI serves the API, Yjs syncs the
 
 ## 🚀 Get Started
 
-With Docker (under 5 minutes):
+With Docker (under 5 minutes, no config files needed):
 
 ```bash
-cp .env.example .env
 mkdir -p data # Linux: chown 999:999 data
 docker compose pull && docker compose up -d
+docker compose logs app | grep "invite code"
 ```
+
+Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Only needed for custom setups: `cp .env.example .env` (proxy, other data path).
 Lokal bauen statt ziehen: `docker compose up --build`.
 
 Open `http://127.0.0.1:8978` and create the first account (no invite needed).
@@ -45,7 +47,7 @@ pip install -r requirements.txt
 uvicorn backend.main:app --host 127.0.0.1 --port 8978 --workers 1
 ```
 
-Registration defaults to `invite-only`. The first account registers freely (bootstrap) unless `REGISTRATION_INVITE_TOKEN` is already set — then even the first account needs it. Set the token before first start on public servers (`openssl rand -hex 32`). Use `open` for local tests only, never on the public internet.
+Registration defaults to `invite-only`. Fresh Docker installs generate an invite token on first start (see logs, stored `chmod 600` as `DATA_DIR/.invite_token`) — every account including the first needs it. Set your own token before first start on public servers (`openssl rand -hex 32`). Without a token (bare-metal default), the first account registers freely (bootstrap). Use `open` for local tests only, never on the public internet.
 
 ## ⚙️ Configuration
 

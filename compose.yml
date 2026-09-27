@@ -22,7 +22,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    user: "999:999"
+    user: "999:999" # app user from the start: no root, no extra caps needed.
     cap_drop: [ALL]
     pids_limit: 100
     cpus: "1.0"
