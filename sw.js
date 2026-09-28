@@ -1,8 +1,9 @@
 // App shell offline: own static only, API/WS always network (no stale risk).
 // Bump V on shell changes (index.html, vendor-cm.js), else clients never see the update.
-// theme_color light #f5f5f7 / dark #1d1d1f: see index.html meta + manifest.json theme_color
+// TODO: inject V from a build hash instead of bumping manually.
 const V = 'typst-24'
-const SHELL = ['./', './index.html', './vendor-cm.js', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png', './screenshot.png']
+// screenshot.png is docs-only (manifest screenshots entry), not shell: never cache it (249321 B).
+const SHELL = ['./', './index.html', './vendor-cm.js', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png']
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()).catch(e => console.warn('sw install', e)))
 })
