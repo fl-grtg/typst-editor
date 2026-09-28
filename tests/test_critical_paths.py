@@ -86,7 +86,9 @@ def test_invite_delete_expired_trashed(c):
     login(c, "alice")
     did = make_doc(c, "Link")
     tok = c.post(f"/api/docs/{did}/invite", json={"role": "reviewer"}).json()["token"]
-    assert c.delete(f"/api/docs/{did}/invites/{tok[:8]}").status_code == 200
+    hint = c.get(f"/api/docs/{did}/invites").json()["invites"][0]["hint"]
+    assert hint != tok[:8]  # hint is independent randomness, not a token prefix
+    assert c.delete(f"/api/docs/{did}/invites/{hint}").status_code == 200
     login(c, "carol")
     assert c.post("/api/join", json={"token": tok}).status_code == 404
     login(c, "alice")

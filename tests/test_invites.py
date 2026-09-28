@@ -31,7 +31,8 @@ def test_invite_list_hint_only(c):
     tok = c.post(f"/api/docs/{did}/invite", json={"role": "editor"}).json()["token"]
     invites = c.get(f"/api/docs/{did}/invites").json()["invites"]
     assert len(invites) == 1
-    assert invites[0]["hint"] == tok[:8]
+    assert len(invites[0]["hint"]) == 8
+    assert invites[0]["hint"] != tok[:8]  # independent randomness, not a token prefix
     assert "token" not in invites[0]
 
 
@@ -87,6 +88,20 @@ def test_join_invalid(c):
     register_user(c, "alice")
     assert c.get("/api/join/invalid").status_code in (404, 410)
     assert c.post("/api/join", json={"token": "invalid"}).status_code in (404, 410)
+
+
+def test_join_legacy_path_always_410(c):
+    # IST: POST /api/join/{token} ist Legacy und antwortet immer 410
+    # (auch mit gueltigem Token). Token gehoert in den POST-Body.
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "LegacyJoin")
+    tok = c.post(f"/api/docs/{did}/invite", json={"role": "reviewer"}).json()["token"]
+    assert c.post(f"/api/join/{tok}").status_code == 410
+    assert c.post("/api/join/invalidtoken123").status_code == 410
+    # Unauthentifiziert greift zuerst Depends(me) -> 401 (IST, kein 410).
+    c.post("/api/logout")
+    assert c.post(f"/api/join/{tok}").status_code == 401
 
 
 def test_expired_excluded_from_list_and_count(c):

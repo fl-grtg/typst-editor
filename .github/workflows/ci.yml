@@ -37,4 +37,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - run: docker build -t typst-editor .
+      # Kein pip hash-lock: riskant (rotierende Wheels), pip check reicht als Konsistenz-Gate.
+      # Kein coverage-gate und kein Image-Scan-Gate: nur Hinweis, kein Fail (flaky/slow).
+      - run: docker build --pull -t typst-editor .
+      - run: |
+          docker run -d --rm -p 8978:8978 --name smoke typst-editor
+          trap 'docker stop smoke || true' EXIT
+          ok=0
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8978/healthz; then ok=1; break; fi
+            sleep 3
+          done
+          curl -f http://127.0.0.1:8978/healthz
+          test "$ok" = "1"

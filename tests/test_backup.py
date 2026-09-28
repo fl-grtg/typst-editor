@@ -1,8 +1,11 @@
 import io
 import os
 import sqlite3
+import subprocess
+import sys
 import time
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 from conftest import login, make_doc, register_user
@@ -104,3 +107,51 @@ def test_backup_to_roundtrip(tmp_path, monkeypatch):
         assert bcon.execute("SELECT COUNT(*) FROM users WHERE name='u1'").fetchone()[0] == 1
     finally:
         bcon.close()
+
+
+def _init_cli_datadir(tmp_path, monkeypatch):
+    data_dir = tmp_path / "cli-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(db, "DB_PATH", data_dir / "app.db")
+    db.init_db()
+    return data_dir
+
+
+def _run_backup_cli(*args, data_dir):
+    root = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, DATA_DIR=str(data_dir))
+    return subprocess.run([sys.executable, "scripts/backup.py", *args],
+                          cwd=root, env=env, capture_output=True, text=True, timeout=60)
+
+
+def test_backup_cli_dry_run(tmp_path, monkeypatch):
+    data_dir = _init_cli_datadir(tmp_path, monkeypatch)
+    r = _run_backup_cli("--dry-run", data_dir=data_dir)
+    assert r.returncode == 0, r.stderr
+    bdir = data_dir / "backup"
+    dbs = list(bdir.glob("app-*.db")) if bdir.exists() else []
+    assert dbs == []
+
+
+def test_backup_cli_keep_zero_keeps_one(tmp_path, monkeypatch):
+    # Guard in scripts/backup.py: keep = max(1, keep) -> --keep 0 behaelt 1.
+    data_dir = _init_cli_datadir(tmp_path, monkeypatch)
+    bdir = data_dir / "backup"
+    bdir.mkdir(parents=True, exist_ok=True)
+    (bdir / "app-20200101-000000.db").write_bytes(b"x")
+    (bdir / "app-20200102-000000.db").write_bytes(b"x")
+    r = _run_backup_cli("--keep", "0", data_dir=data_dir)
+    assert r.returncode == 0, r.stderr
+    dbs = sorted(bdir.glob("app-*.db"))
+    assert len(dbs) == 1
+
+
+def test_backup_cli_no_include_files(tmp_path, monkeypatch):
+    data_dir = _init_cli_datadir(tmp_path, monkeypatch)
+    (data_dir / "files").mkdir(parents=True, exist_ok=True)
+    (data_dir / "files" / "a.txt").write_text("hi")
+    r = _run_backup_cli("--no-include-files", data_dir=data_dir)
+    assert r.returncode == 0, r.stderr
+    bdir = data_dir / "backup"
+    assert len(list(bdir.glob("app-*.db"))) == 1
+    assert list(bdir.glob("app-*-files.tar.gz")) == []

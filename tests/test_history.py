@@ -53,6 +53,34 @@ def test_reviewer_snapshot_403(c):
     assert c.get(f"/api/docs/{did}/snapshots").status_code == 200
 
 
+def test_snapshot_get_single_404(c):
+    register_user(c, "alice")
+    did = make_doc(c, "VerlaufSnap404", content="v1")
+    sid = c.post(f"/api/docs/{did}/snapshots", json={"label": "eins"}).json()["id"]
+    assert c.get(f"/api/docs/{did}/snapshots/{sid}").status_code == 200
+    assert c.get(f"/api/docs/{did}/snapshots/s_falsch").status_code == 404
+    assert c.get(f"/api/docs/{did}/snapshots/{sid}x").status_code == 404
+
+
+def test_snapshot_get_access_matrix(c):
+    # IST-Matrix: reviewer darf einzelnen Snapshot lesen, Fremder bekommt 404
+    # (need_access -> 404, kein 403, um Existenz zu verbergen).
+    register_user(c, "alice")
+    register_user(c, "bob")
+    register_user(c, "carol")
+    login(c, "alice")
+    did = make_doc(c, "VerlaufMatrix", content="v1")
+    sid = c.post(f"/api/docs/{did}/snapshots", json={}).json()["id"]
+    c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"})
+    login(c, "bob")
+    assert c.get(f"/api/docs/{did}/snapshots").status_code == 200
+    assert c.get(f"/api/docs/{did}/snapshots/{sid}").status_code == 200
+    login(c, "carol")
+    assert c.get(f"/api/docs/{did}/snapshots").status_code == 404
+    assert c.get(f"/api/docs/{did}/snapshots/{sid}").status_code == 404
+    assert c.get(f"/api/docs/{did}/snapshots/s_falsch").status_code == 404
+
+
 def test_restore_404(c):
     register_user(c, "alice")
     did = make_doc(c, "Verlauf3", content="v1")
