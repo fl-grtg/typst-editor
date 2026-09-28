@@ -13,7 +13,7 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["E501", "B904", "UP031"] # B904: raise-from churn, UP031: logging % is idiomatic
+ignore = ["E501", "UP031"] # UP031: logging % is idiomatic
 
 [tool.mypy]
 python_version = "3.11"

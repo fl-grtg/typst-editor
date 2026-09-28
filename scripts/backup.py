@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 import tarfile
@@ -12,10 +13,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import config, db  # noqa: E402
 
 
+def _chmod_600(p: Path) -> None:
+    # Backups hold the full DB (sessions, hashes): owner-only, even though
+    # chmod is no substitute for encryption (see --encrypt hint in epilog).
+    try:
+        os.chmod(p, 0o600)
+    except OSError as e:
+        print("warning: chmod 600 failed for %s: %s" % (p, e), file=sys.stderr)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Writes DATA_DIR/backup/app-YYYYMMDD-HHMMSS.db (VACUUM INTO) plus a files/ archive next to it.",
-        epilog="Backups are unencrypted. Encrypt with e.g.: age -r <recipient> <file> or: gpg -c <file>",
+        epilog="Backups are chmod 600 but UNENCRYPTED (there is no --encrypt flag by design: "
+               "use your own key management). Encrypt after creation, then delete the plaintext, e.g.: "
+               "age --encrypt -r <recipient> -o <file>.age <file>  or:  gpg --symmetric --cipher-algo AES256 <file>",
     )
     ap.add_argument("--keep", type=int, default=7, help="Keep the newest N backups (default: 7).")
     ap.add_argument("--include-files", dest="include_files", action=argparse.BooleanOptionalAction, default=True, help="Also archive DATA_DIR/files next to the DB (default: on).")
@@ -35,6 +47,7 @@ def main() -> None:
     if a.dry_run:
         return
     db.backup_to(dest)
+    _chmod_600(dest)
     con = sqlite3.connect(str(dest))
     ok = con.execute("PRAGMA integrity_check").fetchone()[0]
     con.close()
@@ -45,10 +58,11 @@ def main() -> None:
         with tarfile.open(fdest, "w:gz") as tar:
             if files.is_dir():
                 tar.add(files, arcname="files")
+        _chmod_600(fdest)
     for pattern in ("app-*.db", "app-*-files.tar.gz"):
         olds = sorted(bdir.glob(pattern))
         keep = max(1, a.keep)  # --keep 0 would purge all, keep at least 1
-        olds = olds[:-keep] if keep > 0 else []
+        olds = olds[:-keep]
         for p in olds:
             p.unlink(missing_ok=True)
     print(dest)

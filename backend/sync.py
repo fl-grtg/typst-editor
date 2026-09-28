@@ -13,6 +13,7 @@ from pycrdt import Doc, Text
 
 from backend import auth, db
 from backend.constants import AWARE_MAX, CACHE_TTL, MAX_TXT, ROOMS_MAX, SAVE_EVERY, SESSION_RECHECK_TTL
+from backend.services import quota as _quota
 
 log = logging.getLogger("typst.sync")
 
@@ -108,7 +109,7 @@ def room(doc_id: str) -> dict:
                     init_dirty = True
             # trashed: skip persist into trashed doc
         r = {"doc": doc, "conns": set(), "users": {}, "saved": 0.0, "dirty": init_dirty,
-             "role_cache": {}, "trashed_cache": (False, 0.0)}
+             "role_cache": {}}
         rooms[doc_id] = r
     return r
 
@@ -121,16 +122,6 @@ def cached_role(r: dict, user: str, doc_id: str) -> str | None:
     role = db.doc_role(user, doc_id)
     r.setdefault("role_cache", {})[user] = (role, now)
     return role
-
-
-def cached_trashed(r: dict, doc_id: str) -> bool:
-    now = time.monotonic()
-    val, ts = r.get("trashed_cache", (False, 0.0))
-    if now - ts < CACHE_TTL:
-        return val
-    val = db.is_trashed(doc_id)
-    r["trashed_cache"] = (val, now)
-    return val
 
 
 def session_ok(token: str, user: str) -> str | None:
@@ -183,33 +174,32 @@ def _drop_locks(doc_id: str) -> None:
         pass
 
 
+def drop_sess_token(token: str) -> str | None:
+    # Public API: drop one cached session token, return its user (logout path).
+    hit = _sess_cache.pop(token, None)
+    if hit and hit[0]:
+        drop_sess_cache(hit[0])
+        return hit[0]
+    return hit[0] if hit else None
+
+
 def _ws_quota_ok(doc_id: str) -> bool:
-    # Best-effort quota guard for WS autosave under doc lock.
+    # Best-effort quota guard for WS autosave. Decoupled from backend.main:
+    # owner + usage come from backend.services.quota (no lazy main import).
+    # No lock: a stale True only delays the next periodic save; a stale
+    # False keeps the room dirty and retries later.
     try:
-        from backend import main as _main  # lazy: main imports sync
-        lock = _main._doc_lock(f"ws:{doc_id}")
+        owner = _quota.doc_owner(doc_id, "")
     except Exception as e:
-        log.warning("_ws_quota_ok lock failed for %s: %s", doc_id, e)
+        log.warning("_ws_quota_ok owner failed for %s: %s", doc_id, e)
         return False
-    if not lock.acquire(blocking=False):
-        return True  # lock busy: skip check, keep autosave cheap (best-effort)
+    if not owner:
+        return False
     try:
-        try:
-            owner = _main._owner(doc_id, "")
-        except Exception as e:
-            log.warning("_ws_quota_ok owner failed for %s: %s", doc_id, e)
-            return False
-        if not owner:
-            return False
-        return _main.user_bytes(owner) <= _main._quota_cap()
+        return not _quota.is_over_quota(owner)
     except Exception as e:
         log.warning("_ws_quota_ok check failed for %s: %s", doc_id, e)
         return False
-    finally:
-        try:
-            lock.release()
-        except Exception:
-            pass
 
 
 _tasks: set = set()
@@ -235,7 +225,6 @@ async def drop(doc_id: str) -> None:
     if not r:
         return
     r.get("role_cache", {}).clear()
-    r["trashed_cache"] = (True, time.monotonic())
     if r.get("dirty"):
         if not fresh_trashed_ok(doc_id):
             r["dirty"] = False  # trashed: skip persist into trashed doc

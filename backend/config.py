@@ -16,7 +16,7 @@ _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
     HOST: str = "127.0.0.1"
     PORT: int = 8978
@@ -31,6 +31,7 @@ class Config:
     MAX_FILES_PER_DOC: int = 200
     RATE_LOGIN_PER_MIN: int = 10
     RATE_REGISTER_PER_HOUR: int = 20
+    RATE_AUTH_PER_MIN: int = 60
     RATE_JOIN_PER_MIN: int = 30
     RATE_SEARCH_PER_MIN: int = 60
     RATE_FILES_PER_MIN: int = 20
@@ -96,100 +97,93 @@ def _raw() -> dict:
     return _RAW
 
 
-_RATE_KEYS = ("LOGIN", "JOIN", "SEARCH", "FILES", "FILES_LIST", "SAVE", "COMMENTS", "EXPORT", "PW",
+# Table-driven keys: one row per setting, raw TOML then env override.
+# (RATE_REGISTER is per-hour, the rest of the RATE_* family per-minute.)
+_STR_KEYS = ("HOST", "COOKIE_SECURE", "REGISTRATION", "REGISTRATION_INVITE_TOKEN")
+_BOOL_KEYS = ("TRUST_PROXY",)
+_PATH_KEYS = ("DATA_DIR",)
+_INT_KEYS = ("PORT", "SESSION_SECONDS", "MAX_DOCS_PER_USER", "MAX_BYTES_PER_USER",
+             "MAX_FILES_PER_DOC", "RATE_REGISTER_PER_HOUR")
+_RATE_KEYS = ("LOGIN", "AUTH", "JOIN", "SEARCH", "FILES", "FILES_LIST", "SAVE", "COMMENTS", "EXPORT", "PW",
               "INVITE", "SHARE", "SNAPSHOTS", "CREATE", "DUPLICATE", "AVATAR", "FOLDERS")
+_ENV_KEYS = _STR_KEYS + _BOOL_KEYS + _PATH_KEYS + _INT_KEYS + tuple(f"RATE_{k}_PER_MIN" for k in _RATE_KEYS)
+
+# (attr, min, max) ranges; out-of-range falls back to the default with a warning.
+_RANGES = (
+    ("SESSION_SECONDS", 3600, 7776000),
+    ("MAX_DOCS_PER_USER", 1, 10000),
+    ("MAX_BYTES_PER_USER", 1_048_576, 10_737_418_240),
+    ("MAX_FILES_PER_DOC", 1, 2000),
+    ("PORT", 1, 65535),
+    ("RATE_REGISTER_PER_HOUR", 1, 10000),
+    *((f"RATE_{k}_PER_MIN", 1, 10000) for k in _RATE_KEYS),
+)
+
+_CACHE: tuple[tuple, Config] | None = None
 
 
 def load() -> Config:
-    c = Config()
+    global _CACHE
     raw = _raw()
     e = os.environ.get
-    if "HOST" in raw:
-        c.HOST = str(raw["HOST"])
-    if e("HOST") is not None:
-        c.HOST = str(e("HOST"))
-    if "PORT" in raw:
-        c.PORT = _int(raw["PORT"], c.PORT)
-    if e("PORT") is not None:
-        c.PORT = _int(e("PORT"), c.PORT)
-    if "DATA_DIR" in raw:
-        c.DATA_DIR = _path(raw["DATA_DIR"], c.DATA_DIR)
-    if e("DATA_DIR") is not None:
-        c.DATA_DIR = _path(e("DATA_DIR"), c.DATA_DIR)
-    if "TRUST_PROXY" in raw:
-        c.TRUST_PROXY = _bool(raw["TRUST_PROXY"], c.TRUST_PROXY)
-    if e("TRUST_PROXY") is not None:
-        c.TRUST_PROXY = _bool(e("TRUST_PROXY"), c.TRUST_PROXY)
-    if "COOKIE_SECURE" in raw:
-        c.COOKIE_SECURE = str(raw["COOKIE_SECURE"]).lower()
-    if e("COOKIE_SECURE") is not None:
-        c.COOKIE_SECURE = str(e("COOKIE_SECURE")).lower()
-    if "REGISTRATION" in raw:
-        c.REGISTRATION = str(raw["REGISTRATION"]).lower()
-    if e("REGISTRATION") is not None:
-        c.REGISTRATION = str(e("REGISTRATION")).lower()
-    if "REGISTRATION_INVITE_TOKEN" in raw:
-        c.REGISTRATION_INVITE_TOKEN = str(raw["REGISTRATION_INVITE_TOKEN"])
-    if e("REGISTRATION_INVITE_TOKEN") is not None:
-        c.REGISTRATION_INVITE_TOKEN = str(e("REGISTRATION_INVITE_TOKEN"))
-    if "SESSION_SECONDS" in raw:
-        c.SESSION_SECONDS = _int(raw["SESSION_SECONDS"], c.SESSION_SECONDS)
-    if e("SESSION_SECONDS") is not None:
-        c.SESSION_SECONDS = _int(e("SESSION_SECONDS"), c.SESSION_SECONDS)
-    if "MAX_DOCS_PER_USER" in raw:
-        c.MAX_DOCS_PER_USER = _int(raw["MAX_DOCS_PER_USER"], c.MAX_DOCS_PER_USER)
-    if e("MAX_DOCS_PER_USER") is not None:
-        c.MAX_DOCS_PER_USER = _int(e("MAX_DOCS_PER_USER"), c.MAX_DOCS_PER_USER)
-    if "MAX_BYTES_PER_USER" in raw:
-        c.MAX_BYTES_PER_USER = _int(raw["MAX_BYTES_PER_USER"], c.MAX_BYTES_PER_USER)
-    if e("MAX_BYTES_PER_USER") is not None:
-        c.MAX_BYTES_PER_USER = _int(e("MAX_BYTES_PER_USER"), c.MAX_BYTES_PER_USER)
-    if "MAX_FILES_PER_DOC" in raw:
-        c.MAX_FILES_PER_DOC = _int(raw["MAX_FILES_PER_DOC"], c.MAX_FILES_PER_DOC)
-    if e("MAX_FILES_PER_DOC") is not None:
-        c.MAX_FILES_PER_DOC = _int(e("MAX_FILES_PER_DOC"), c.MAX_FILES_PER_DOC)
-    if "RATE_REGISTER_PER_HOUR" in raw:
-        c.RATE_REGISTER_PER_HOUR = _int(raw["RATE_REGISTER_PER_HOUR"], c.RATE_REGISTER_PER_HOUR)
-    if e("RATE_REGISTER_PER_HOUR") is not None:
-        c.RATE_REGISTER_PER_HOUR = _int(e("RATE_REGISTER_PER_HOUR"), c.RATE_REGISTER_PER_HOUR)
-    for _k in _RATE_KEYS:
-        _attr = f"RATE_{_k}_PER_MIN"
-        if _attr in raw:
-            setattr(c, _attr, _int(raw[_attr], getattr(c, _attr)))
-        if e(_attr) is not None:
-            setattr(c, _attr, _int(e(_attr), getattr(c, _attr)))
+    env_snap = tuple(e(k) for k in _ENV_KEYS)
+    key = (_MTIME, env_snap)
+    if _CACHE is not None and _CACHE[0] == key:
+        return _CACHE[1]
     d = Config()
-    if not 3600 <= c.SESSION_SECONDS <= 7776000:
-        log.warning("SESSION_SECONDS=%r invalid, using default %d", c.SESSION_SECONDS, d.SESSION_SECONDS)
-        c.SESSION_SECONDS = d.SESSION_SECONDS
-    if not 1 <= c.MAX_DOCS_PER_USER <= 10000:
-        log.warning("MAX_DOCS_PER_USER=%r invalid, using default %d", c.MAX_DOCS_PER_USER, d.MAX_DOCS_PER_USER)
-        c.MAX_DOCS_PER_USER = d.MAX_DOCS_PER_USER
-    if not 1_048_576 <= c.MAX_BYTES_PER_USER <= 10_737_418_240:
-        log.warning("MAX_BYTES_PER_USER=%r invalid, using default %d", c.MAX_BYTES_PER_USER, d.MAX_BYTES_PER_USER)
-        c.MAX_BYTES_PER_USER = d.MAX_BYTES_PER_USER
-    if not 1 <= c.MAX_FILES_PER_DOC <= 2000:
-        log.warning("MAX_FILES_PER_DOC=%r invalid, using default %d", c.MAX_FILES_PER_DOC, d.MAX_FILES_PER_DOC)
-        c.MAX_FILES_PER_DOC = d.MAX_FILES_PER_DOC
-    if not 1 <= c.PORT <= 65535:
-        log.warning("PORT=%r invalid, using default %d", c.PORT, d.PORT)
-        c.PORT = d.PORT
-    if not 1 <= c.RATE_REGISTER_PER_HOUR <= 10000:
-        log.warning("RATE_REGISTER_PER_HOUR=%r invalid, using default %d",
-                    c.RATE_REGISTER_PER_HOUR, d.RATE_REGISTER_PER_HOUR)
-        c.RATE_REGISTER_PER_HOUR = d.RATE_REGISTER_PER_HOUR
-    for _k in _RATE_KEYS:
-        _attr = f"RATE_{_k}_PER_MIN"
-        _v = getattr(c, _attr)
-        if not 1 <= _v <= 10000:
-            log.warning("%s=%r invalid, using default %d", _attr, _v, getattr(d, _attr))
-            setattr(c, _attr, getattr(d, _attr))
-    c.REGISTRATION = c.REGISTRATION.strip().lower()
-    if c.REGISTRATION not in ("open", "invite-only", "closed"):
-        log.warning("REGISTRATION=%r invalid, fail-closed to %r", c.REGISTRATION, "closed")
-        c.REGISTRATION = "closed"
-    c.COOKIE_SECURE = c.COOKIE_SECURE.strip().lower()
-    if c.COOKIE_SECURE not in ("auto", "true", "false"):
-        log.warning("COOKIE_SECURE=%r invalid, using default %r", c.COOKIE_SECURE, d.COOKIE_SECURE)
-        c.COOKIE_SECURE = d.COOKIE_SECURE
-    return c
+    vals: dict[str, Any] = {}
+    for k in _STR_KEYS:
+        v: Any = getattr(d, k)
+        if k in raw:
+            v = str(raw[k])
+        if e(k) is not None:
+            v = str(e(k))
+        vals[k] = v.lower() if k in ("COOKIE_SECURE", "REGISTRATION") else v
+    for k in _BOOL_KEYS:
+        v = getattr(d, k)
+        if k in raw:
+            v = _bool(raw[k], v)
+        if e(k) is not None:
+            v = _bool(e(k), v)
+        vals[k] = v
+    for k in _PATH_KEYS:
+        v = getattr(d, k)
+        if k in raw:
+            v = _path(raw[k], v)
+        if e(k) is not None:
+            v = _path(e(k), v)
+        vals[k] = v
+    for k in _INT_KEYS:
+        v = getattr(d, k)
+        if k in raw:
+            v = _int(raw[k], v)
+        if e(k) is not None:
+            v = _int(e(k), v)
+        vals[k] = v
+    for k in _RATE_KEYS:
+        attr = f"RATE_{k}_PER_MIN"
+        v = getattr(d, attr)
+        if attr in raw:
+            v = _int(raw[attr], v)
+        if e(attr) is not None:
+            v = _int(e(attr), v)
+        vals[attr] = v
+    for attr, lo, hi in _RANGES:
+        if not lo <= vals[attr] <= hi:
+            log.warning("%s=%r invalid, using default %d", attr, vals[attr], getattr(d, attr))
+            vals[attr] = getattr(d, attr)
+    vals["REGISTRATION"] = str(vals["REGISTRATION"]).strip().lower()
+    if vals["REGISTRATION"] not in ("open", "invite-only", "closed"):
+        log.warning("REGISTRATION=%r invalid, fail-closed to %r", vals["REGISTRATION"], "closed")
+        vals["REGISTRATION"] = "closed"
+    vals["COOKIE_SECURE"] = str(vals["COOKIE_SECURE"]).strip().lower()
+    if vals["COOKIE_SECURE"] not in ("auto", "true", "false"):
+        log.warning("COOKIE_SECURE=%r invalid, using default %r", vals["COOKIE_SECURE"], d.COOKIE_SECURE)
+        vals["COOKIE_SECURE"] = d.COOKIE_SECURE
+    tok = str(vals["REGISTRATION_INVITE_TOKEN"] or "")
+    if tok and len(tok) < 16:
+        # No hard block: container bootstrap sets the token after first user.
+        log.warning("REGISTRATION_INVITE_TOKEN is set but short (%d chars); use >=16 chars", len(tok))
+    cfg = Config(**vals)
+    _CACHE = (key, cfg)
+    return cfg

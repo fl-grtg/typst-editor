@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -42,51 +44,115 @@ def backup_to(path: Path) -> None:
         con.close()
 
 
+@contextmanager
+def tx() -> Iterator[sqlite3.Connection]:
+    # One transaction, one owner: BEGIN IMMEDIATE on entry, commit on clean
+    # exit, ROLLBACK on any error (HTTPException included). Callers map
+    # OperationalError to 503; no manual ROLLBACKs inside the block.
+    con = connect()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        yield con
+        con.commit()
+    except Exception:
+        try:
+            con.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def _cols(con: sqlite3.Connection, table: str) -> set[str]:
+    return {r["name"] for r in con.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _migrate_v1(con: sqlite3.Connection) -> None:
+    # Legacy docs columns (fresh schema.sql already has them: no-ops there).
+    cols = _cols(con, "docs")
+    if "yjs" not in cols:
+        con.execute("ALTER TABLE docs ADD COLUMN yjs BLOB")
+    if "folder" not in cols:
+        con.execute("ALTER TABLE docs ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
+    if "trashed" not in cols:
+        con.execute("ALTER TABLE docs ADD COLUMN trashed INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_v2(con: sqlite3.Connection) -> None:
+    if "quote" not in _cols(con, "comments"):
+        con.execute("ALTER TABLE comments ADD COLUMN quote TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_v3(con: sqlite3.Connection) -> None:
+    if "avatar" not in _cols(con, "users"):
+        con.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+    if "resolved" not in _cols(con, "comments"):
+        con.execute("ALTER TABLE comments ADD COLUMN resolved INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_v4(con: sqlite3.Connection) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS snapshots ("
+                "id TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
+                "content TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_doc ON snapshots(doc_id, created_at)")
+
+
+def _migrate_v5(con: sqlite3.Connection) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS invites ("
+                "token TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
+                "role TEXT NOT NULL DEFAULT 'reviewer', created_at TEXT NOT NULL)")
+    if "hint" not in _cols(con, "invites"):
+        con.execute("ALTER TABLE invites ADD COLUMN hint TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_v6(con: sqlite3.Connection) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS folders ("
+                "owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, "
+                "kind TEXT NOT NULL DEFAULT 'doc', name TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "PRIMARY KEY (owner, kind, name))")
+
+
+def _migrate_v7(con: sqlite3.Connection) -> None:
+    if "folder" not in _cols(con, "templates"):
+        con.execute("ALTER TABLE templates ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_v8(con: sqlite3.Connection) -> None:
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_owner_title "
+                "ON docs(owner, title COLLATE NOCASE)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(username, doc_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_shares_doc ON shares(doc_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_docs_updated ON docs(updated_at)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_invites_doc ON invites(doc_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_templates_owner ON templates(owner)")
+
+
+_MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
+    _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
+    _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8,
+)
+
+
+def migrate(con: sqlite3.Connection) -> None:
+    # Idempotent: every step checks before writing; applied versions recorded
+    # so re-runs and fresh DBs converge to the same schema.
+    con.execute("CREATE TABLE IF NOT EXISTS schema_version (v INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+    done = {r[0] for r in con.execute("SELECT v FROM schema_version").fetchall()}
+    for i, step in enumerate(_MIGRATIONS, start=1):
+        if i not in done:
+            step(con)
+            con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
+            con.commit()
+
+
 def init_db() -> None:
     con = connect()
     try:
         con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        cols = [r["name"] for r in con.execute("PRAGMA table_info(docs)").fetchall()]
-        if "yjs" not in cols:
-            con.execute("ALTER TABLE docs ADD COLUMN yjs BLOB")
-        if "folder" not in cols:
-            con.execute("ALTER TABLE docs ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
-        if "trashed" not in cols:
-            con.execute("ALTER TABLE docs ADD COLUMN trashed INTEGER NOT NULL DEFAULT 0")
-        ccols = [r["name"] for r in con.execute("PRAGMA table_info(comments)").fetchall()]
-        if "quote" not in ccols:
-            con.execute("ALTER TABLE comments ADD COLUMN quote TEXT NOT NULL DEFAULT ''")
-        ucols = [r["name"] for r in con.execute("PRAGMA table_info(users)").fetchall()]
-        if "avatar" not in ucols:
-            con.execute("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
-        if "resolved" not in ccols:
-            con.execute("ALTER TABLE comments ADD COLUMN resolved INTEGER NOT NULL DEFAULT 0")
-        con.execute("CREATE TABLE IF NOT EXISTS snapshots ("
-                    "id TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
-                    "content TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_doc ON snapshots(doc_id, created_at)")
-        con.execute("CREATE TABLE IF NOT EXISTS invites ("
-                    "token TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
-                    "role TEXT NOT NULL DEFAULT 'reviewer', created_at TEXT NOT NULL)")
-        icols = [r["name"] for r in con.execute("PRAGMA table_info(invites)").fetchall()]
-        if "hint" not in icols:
-            con.execute("ALTER TABLE invites ADD COLUMN hint TEXT NOT NULL DEFAULT ''")
-        con.execute("CREATE TABLE IF NOT EXISTS folders ("
-                    "owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, "
-                    "kind TEXT NOT NULL DEFAULT 'doc', name TEXT NOT NULL, created_at TEXT NOT NULL, "
-                    "PRIMARY KEY (owner, kind, name))")
-        tcols = [r["name"] for r in con.execute("PRAGMA table_info(templates)").fetchall()]
-        if "folder" not in tcols:
-            con.execute("ALTER TABLE templates ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_owner_title "
-                    "ON docs(owner, title COLLATE NOCASE)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(username, doc_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_shares_doc ON shares(doc_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_docs_updated ON docs(updated_at)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_invites_doc ON invites(doc_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_templates_owner ON templates(owner)")
+        migrate(con)
         con.commit()
     finally:
         con.close()

@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import sys
 import tempfile
 import threading
 import zipfile
@@ -46,13 +47,13 @@ from backend.constants import (
     TITLE_MAX,
     UPLOAD_MAX,
 )
+from backend.services import quota as quota_svc
 
 log = logging.getLogger("typst.main")
 COOKIE = auth.COOKIE
 NAME_RE = r"[A-Za-z0-9_-]{2,20}"
 MIN_PW = 8
 MAX_PW = 200
-RATE_SCOPES = dict(RATE_DEFAULTS)
 
 ROOT = Path(__file__).resolve().parent.parent
 try:
@@ -69,22 +70,21 @@ _DOC_LOCKS_GUARD = threading.Lock()
 _EXPORT_LOCKS: dict[str, threading.Lock] = {}
 
 
-def _doc_lock(key: str) -> threading.Lock:
+def _lock_for(store: dict[str, threading.Lock], key: str) -> threading.Lock:
     with _DOC_LOCKS_GUARD:
-        lock = _DOC_LOCKS.get(key)
+        lock = store.get(key)
         if lock is None:
             lock = threading.Lock()
-            _DOC_LOCKS[key] = lock
+            store[key] = lock
         return lock
+
+
+def _doc_lock(key: str) -> threading.Lock:
+    return _lock_for(_DOC_LOCKS, key)
 
 
 def _export_lock(user: str) -> threading.Lock:
-    with _DOC_LOCKS_GUARD:
-        lock = _EXPORT_LOCKS.get(user)
-        if lock is None:
-            lock = threading.Lock()
-            _EXPORT_LOCKS[user] = lock
-        return lock
+    return _lock_for(_EXPORT_LOCKS, user)
 
 
 def _drop_doc_locks(doc_id: str) -> None:
@@ -105,14 +105,33 @@ def _drop_user_locks(user: str) -> None:
 
 
 def _lock_path() -> Path:
+    return Path(str(db.DB_PATH)).parent / LOCK_NAME
+
+
+def _filelock(fh: Any, lock: bool) -> None:
+    # One helper for the fcntl/msvcrt split (used by acquire + release).
+    _fcntl: Any = None
+    _msvcrt: Any = None
+    if sys.platform != "win32":
+        try:
+            import fcntl as _f
+
+            _fcntl = _f
+        except ImportError:
+            pass
     try:
-        return Path(str(db.DB_PATH)).parent / LOCK_NAME
-    except Exception:
+        import msvcrt as _m
+
+        _msvcrt = _m
+    except ImportError:
         pass
-    try:
-        return config.load().DATA_DIR / LOCK_NAME
-    except Exception:
-        return ROOT / "data" / LOCK_NAME
+    if _fcntl is not None:
+        _fcntl.flock(fh.fileno(), (_fcntl.LOCK_EX | _fcntl.LOCK_NB) if lock else _fcntl.LOCK_UN)
+    elif _msvcrt is not None:
+        fh.seek(0)
+        _msvcrt.locking(fh.fileno(), _msvcrt.LK_NBLCK if lock else _msvcrt.LK_UNLCK, 1)
+    else:
+        raise OSError("no file lock available")
 
 
 def _acquire_single_lock() -> None:
@@ -121,31 +140,13 @@ def _acquire_single_lock() -> None:
         return
     path = _lock_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    msvcrt_mod: Any = None
-    fcntl_mod: Any = None
-    try:
-        import msvcrt as _msvcrt
-        msvcrt_mod = _msvcrt
-    except ImportError:
-        pass
-    try:
-        import fcntl as _fcntl
-        fcntl_mod = _fcntl
-    except ImportError:
-        pass
     fh = open(path, "a+b")
     try:
         fh.seek(0, 2)
         if fh.tell() == 0:
             fh.write(b"\0")
             fh.flush()
-        if fcntl_mod is not None:
-            fcntl_mod.flock(fh.fileno(), fcntl_mod.LOCK_EX | fcntl_mod.LOCK_NB)
-        elif msvcrt_mod is not None:
-            fh.seek(0)
-            msvcrt_mod.locking(fh.fileno(), msvcrt_mod.LK_NBLCK, 1)
-        else:
-            raise OSError("no file lock available")
+        _filelock(fh, True)
         _LOCK_FH = fh
     except Exception:
         try:
@@ -153,7 +154,7 @@ def _acquire_single_lock() -> None:
         except Exception:
             pass
         log.error("another instance is already running, exit")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 def _release_single_lock() -> None:
@@ -162,24 +163,8 @@ def _release_single_lock() -> None:
     if fh is None:
         return
     try:
-        fcntl_mod: Any = None
-        msvcrt_mod: Any = None
         try:
-            import fcntl as _fcntl
-            fcntl_mod = _fcntl
-        except ImportError:
-            pass
-        try:
-            import msvcrt as _msvcrt
-            msvcrt_mod = _msvcrt
-        except ImportError:
-            pass
-        try:
-            if fcntl_mod is not None:
-                fcntl_mod.flock(fh.fileno(), fcntl_mod.LOCK_UN)
-            elif msvcrt_mod is not None:
-                fh.seek(0)
-                msvcrt_mod.locking(fh.fileno(), msvcrt_mod.LK_UNLCK, 1)
+            _filelock(fh, False)
         except Exception:
             pass
         fh.close()
@@ -333,6 +318,11 @@ async def lifespan(app: FastAPI):
         _cfg = config.load()
         if _cfg.REGISTRATION == "invite-only" and not _cfg.REGISTRATION_INVITE_TOKEN:
             log.warning("invite-only without REGISTRATION_INVITE_TOKEN: first account is open bootstrap, set token right after")
+        # Short-token warning already logged by config.load(); repeat here so
+        # startup logs always show it (config.load() may serve a cached Config).
+        if _cfg.REGISTRATION_INVITE_TOKEN and len(_cfg.REGISTRATION_INVITE_TOKEN) < 16:
+            log.warning("REGISTRATION_INVITE_TOKEN short (%d chars); use >=16 chars",
+                        len(_cfg.REGISTRATION_INVITE_TOKEN))
     except Exception:
         pass
     # DATA_DIR change needs restart (import resolves paths): no reload here, tests set FILES_DIR directly.
@@ -420,17 +410,16 @@ def client_ip(req: Request) -> str:
 
 
 def limited(req: Request, scope: str, key: str = "") -> None:
-    lim, win = RATE_SCOPES.get(scope, (30, 60))  # win fixed 60s (3600 register): only limit is configurable
+    # Limits always come from Config (live); RATE_DEFAULTS only documents fallbacks.
+    s = scope.lower()
     try:
         cfg = config.load()
-        attr = f"RATE_{scope.upper()}_PER_MIN"
-        if scope == "register":
-            lim = cfg.RATE_REGISTER_PER_HOUR
-            win = 3600
-        elif hasattr(cfg, attr):
-            lim = int(getattr(cfg, attr))
+        if s == "register":
+            lim, win = int(cfg.RATE_REGISTER_PER_HOUR), 3600
+        else:
+            lim, win = int(getattr(cfg, f"RATE_{s.upper()}_PER_MIN", RATE_DEFAULTS.get(s, (30, 60))[0])), 60
     except Exception:
-        pass
+        lim, win = RATE_DEFAULTS.get(s, (30, 60))
     if not ratelimit.allow(f"{scope}:{client_ip(req)}", lim, win):
         log.warning("rate-limit %s (ip-bucket)", scope)
         raise HTTPException(429, "Too many requests - try again shortly")
@@ -456,63 +445,27 @@ async def sqlite_busy_handler(req: Request, exc: sqlite3.OperationalError) -> JS
 
 
 def user_bytes(user: str) -> int:
-    con = db.connect()
-    try:
-        r = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))),0) + COALESCE(SUM(LENGTH(yjs)),0) AS n FROM docs WHERE owner=?", (user,)).fetchone()
-        total = int(r["n"] or 0)
-        s = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(s.content AS BLOB))),0) AS n FROM snapshots s "
-                        "JOIN docs d ON d.id=s.doc_id WHERE d.owner=?", (user,)).fetchone()
-        total += int(s["n"] or 0)
-        t = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))),0) AS n FROM templates WHERE owner=?", (user,)).fetchone()
-        total += int(t["n"] or 0)
-        a = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
-        if a and a["avatar"]:
-            total += len(a["avatar"].encode("utf-8"))
-        ids = [x["id"] for x in con.execute("SELECT id FROM docs WHERE owner=?", (user,)).fetchall()]
-    finally:
-        con.close()
-    for did in ids:
-        d = FILES_DIR / did
-        if d.is_dir():
-            try:
-                entries = list(d.iterdir())
-            except OSError:
-                continue
-            for p in entries:
-                if p.is_file():
-                    try:
-                        total += p.stat().st_size
-                    except OSError:
-                        pass
-    return total
-
-
-def _quota_cap() -> int:
-    try:
-        return config.load().MAX_BYTES_PER_USER
-    except Exception:
-        return 524288000
+    # Backwards-compat wrapper (tests use main.user_bytes); logic lives in
+    # backend.services.quota so sync can use it without importing main.
+    return quota_svc.user_bytes(user)
 
 
 def check_quota(user: str, extra: int) -> None:
-    if user_bytes(user) + extra > _quota_cap():
-        raise HTTPException(413, "Quota exceeded")
+    return quota_svc.check_quota(user, extra)
 
 
 def _owner(doc_id: str, fallback: str) -> str:
-    con = db.connect()
-    try:
-        r = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
-        return r["owner"] if r else fallback
-    finally:
-        con.close()
+    return quota_svc.doc_owner(doc_id, fallback)
 
 
-def need_edit(user: str, doc_id: str) -> None:
-    if need_access(user, doc_id) not in ("owner", "editor"):
+def need_edit(user: str, doc_id: str) -> str:
+    # Returns the role like need_access (consistent); callers need the check only.
+    role = need_access(user, doc_id)
+    if role not in ("owner", "editor"):
         raise HTTPException(403, "Reviewer can only comment")
     if db.is_trashed(doc_id):
         raise HTTPException(410, "In trash - restore first")
+    return role
 
 
 class Login(BaseModel):
@@ -667,60 +620,37 @@ def register(b: Register, res: Response, req: Request) -> dict:
     if not MIN_PW <= len(b.password) <= MAX_PW:
         raise HTTPException(400, "Password: 8-200 chars")
     with _doc_lock("register"):
-        con = db.connect()
         try:
-            try:
-                con.execute("BEGIN IMMEDIATE")
-            except sqlite3.OperationalError as e:
-                raise busy_503("register", e)
-            try:
+            with db.tx() as con:
                 empty = con.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
                 if empty:
                     if cfg.REGISTRATION == "closed":
-                        con.execute("ROLLBACK")
                         log.warning("register blocked (closed)")
                         raise HTTPException(403, "Registration disabled")
                     elif cfg.REGISTRATION == "invite-only" and cfg.REGISTRATION_INVITE_TOKEN:
                         if not b.invite or not hmac.compare_digest(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
-                            con.execute("ROLLBACK")
                             log.warning("register blocked (invite, first user)")
                             raise HTTPException(403, "Invalid invite code")
                 else:
                     if cfg.REGISTRATION == "closed":
-                        con.execute("ROLLBACK")
                         log.warning("register blocked (closed)")
                         raise HTTPException(403, "Registration disabled")
                     elif cfg.REGISTRATION == "invite-only" and (not cfg.REGISTRATION_INVITE_TOKEN or not hmac.compare_digest(b.invite, cfg.REGISTRATION_INVITE_TOKEN)):
-                        con.execute("ROLLBACK")
                         log.warning("register blocked (invite)")
                         raise HTTPException(403, "Invalid invite code")
                 if con.execute("SELECT 1 FROM users WHERE name=? COLLATE NOCASE", (name,)).fetchone():
-                    con.execute("ROLLBACK")
                     auth.check_password("dummy-timing", auth.DUMMY_HASH)
                     raise HTTPException(400, "Registration failed")
                 con.execute("INSERT INTO users (name, hash) VALUES (?,?)", (name, auth.hash_password(b.password)))
                 did, now = db.new_id("d_"), db.now_iso()
                 con.execute("INSERT INTO docs (id, owner, title, content, created_at, updated_at) VALUES (?,?,?,?,?,?)",
                             (did, name, "Tutorial", TUTORIAL, now, now))
-                con.commit()
                 if empty:
                     log.warning("first user created — set REGISTRATION_INVITE_TOKEN afterwards")
-            except HTTPException:
-                raise
-            except sqlite3.IntegrityError:
-                try:
-                    con.execute("ROLLBACK")
-                except Exception:
-                    pass
-                raise HTTPException(400, "Registration failed")
-            except sqlite3.OperationalError as e:
-                try:
-                    con.execute("ROLLBACK")
-                except Exception:
-                    pass
-                raise busy_503("register", e)
-        finally:
-            con.close()
+        except sqlite3.IntegrityError as e:
+            raise HTTPException(400, "Registration failed") from e
+        except sqlite3.OperationalError as e:
+            raise busy_503("register", e) from e
     token = auth.mint(name)
     set_cookie(res, req, token)
     return {"user": name}
@@ -728,7 +658,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
 
 @app.post("/api/logout")
 async def logout(req: Request, res: Response) -> dict:
-    limited(req, "files_list")
+    limited(req, "auth")
     tok = req.cookies.get(COOKIE, "")
     user = None
     if tok:
@@ -737,9 +667,7 @@ async def logout(req: Request, res: Response) -> dict:
         except Exception:
             user = None
         # Drop cached session first so logged-out tokens die immediately.
-        hit = sync._sess_cache.pop(tok, None)
-        if hit and hit[0]:
-            sync.drop_sess_cache(hit[0])
+        sync.drop_sess_token(tok)
         auth.delete_session(tok)
     if user:
         await sync.kick_all(user)
@@ -749,7 +677,7 @@ async def logout(req: Request, res: Response) -> dict:
 
 @app.get("/api/me")
 def get_me(req: Request, user: str = Depends(me)) -> dict:
-    limited(req, "files_list")
+    limited(req, "auth")  # own auth bucket: must not share files_list with preview polling
     con = db.connect()
     try:
         r = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
@@ -769,7 +697,7 @@ def check_pw(user: str, password: str) -> None:
 
 
 @app.post("/api/me/password")
-async def change_password(b: PwChange, req: Request, res: Response, user: str = Depends(me)):
+async def change_password(b: PwChange, req: Request, res: Response, user: str = Depends(me)) -> dict:
     limited(req, "pw")
     check_pw(user, b.old)
     if not MIN_PW <= len(b.new) <= MAX_PW:
@@ -788,27 +716,31 @@ async def change_password(b: PwChange, req: Request, res: Response, user: str = 
 
 
 @app.post("/api/me/name")
-async def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
+async def rename_me(b: NameChange, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "pw")
     new = b.name.strip()
     if not re.fullmatch(NAME_RE, new):
         raise HTTPException(400, "Name: 2-20 chars, letters/numbers/_-")
     check_pw(user, b.password)
+    if new == user:
+        return {"user": user}
+    # No ON UPDATE CASCADE in schema.sql (adding it needs a real migration,
+    # FKs are bare REFERENCES): rename stays an explicit 7-table move inside
+    # one transaction. Pre-check message is generic (no user enumeration).
     con = db.connect()
     try:
         if new.lower() != user.lower() and con.execute("SELECT 1 FROM users WHERE name=? COLLATE NOCASE", (new,)).fetchone():
-            raise HTTPException(400, "Name taken")
-        if new == user:
-            return {"user": user}
+            raise HTTPException(400, "Rename failed")
         row = con.execute("SELECT hash, avatar FROM users WHERE name=?", (user,)).fetchone()
         if not row:
             raise HTTPException(404, "User gone")
-        try:
-            con.execute("BEGIN IMMEDIATE")
+    finally:
+        con.close()
+    try:
+        with db.tx() as con:
             _dup = con.execute("SELECT name FROM users WHERE name=? COLLATE NOCASE", (new,)).fetchone()
             if _dup and _dup["name"].lower() != user.lower():
-                con.execute("ROLLBACK")
-                raise HTTPException(400, "Name taken")
+                raise HTTPException(400, "Rename failed")
             con.execute("INSERT INTO users (name, hash, avatar) VALUES (?,?,?)",
                         (new, row["hash"], row["avatar"]))
             con.execute("UPDATE sessions SET username=? WHERE username=?", (new, user))
@@ -818,23 +750,12 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
             con.execute("UPDATE templates SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE folders SET owner=? WHERE owner=?", (new, user))
             con.execute("DELETE FROM users WHERE name=?", (user,))
-            con.commit()
-        except sqlite3.OperationalError as e:
-            log.warning("rename_me %s -> %s busy: %s", user, new, e)
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise HTTPException(503, "Database busy, try again")
-        except sqlite3.IntegrityError as e:
-            log.warning("rename_me %s -> %s failed: %s", user, new, e)
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise HTTPException(400, "Rename failed")
-    finally:
-        con.close()
+    except sqlite3.OperationalError as e:
+        log.warning("rename_me %s -> %s busy: %s", user, new, e)
+        raise HTTPException(503, "Database busy, try again") from e
+    except sqlite3.IntegrityError as e:
+        log.warning("rename_me %s -> %s failed: %s", user, new, e)
+        raise HTTPException(400, "Rename failed") from e
     await sync.kick_all(user)
     await sync.kick_all(new)
     sync.drop_role_cache(user)
@@ -846,33 +767,43 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/me/avatar")
-def set_avatar(b: AvatarSet, req: Request, user: str = Depends(me)):
+def set_avatar(b: AvatarSet, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "avatar")
     m = re.fullmatch(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)", b.img)
     if not m or len(b.img) > 200_000:
         raise HTTPException(400, "Only PNG/JPEG/WebP as data URL (max 200 KB)")
-    check_quota(user, len(b.img.encode("utf-8")))
-    con = db.connect()
+    new_val = m.group(1) + ":" + m.group(2)
+    _c = db.connect()
     try:
-        old = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
+        old = _c.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
         old_val = old["avatar"] if old and old["avatar"] else ""
-        con.execute("UPDATE users SET avatar=? WHERE name=?", (m.group(1) + ":" + m.group(2), user))
-        con.commit()
     finally:
-        con.close()
-    if user_bytes(user) > _quota_cap():
-        con = db.connect()
+        _c.close()
+
+    def _restore_avatar() -> None:
+        _rb = db.connect()
         try:
-            con.execute("UPDATE users SET avatar=? WHERE name=?", (old_val, user))
-            con.commit()
+            _rb.execute("UPDATE users SET avatar=? WHERE name=?", (old_val, user))
+            _rb.commit()
         finally:
-            con.close()
-        raise HTTPException(413, "Quota exceeded")
+            _rb.close()
+
+    try:
+        with quota_svc.quota_guard(user, max(0, len(b.img.encode("utf-8")) - len(old_val.encode("utf-8"))),
+                                   rollback=_restore_avatar):
+            con = db.connect()
+            try:
+                con.execute("UPDATE users SET avatar=? WHERE name=?", (new_val, user))
+                con.commit()
+            finally:
+                con.close()
+    except sqlite3.OperationalError as e:
+        raise busy_503("set_avatar", e) from e
     return {"ok": True}
 
 
 @app.delete("/api/me/avatar")
-def del_avatar(req: Request, user: str = Depends(me)):
+def del_avatar(req: Request, user: str = Depends(me)) -> dict:
     limited(req, "avatar")
     con = db.connect()
     try:
@@ -884,7 +815,7 @@ def del_avatar(req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/avatar/{username}")
-def get_avatar(username: str, req: Request, user: str = Depends(me)):
+def get_avatar(username: str, req: Request, user: str = Depends(me)) -> Response:
     limited(req, "files_list")
     con = db.connect()
     try:
@@ -908,7 +839,7 @@ def get_avatar(username: str, req: Request, user: str = Depends(me)):
         try:
             raw = base64.b64decode(b64)
         except Exception:
-            raise HTTPException(404, "No image")
+            raise HTTPException(404, "No image") from None
         return Response(content=raw, media_type=mime,
                         headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"}) # busted via ?v=, no limit needed
     finally:
@@ -916,24 +847,48 @@ def get_avatar(username: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/me/delete")
-async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(me)):
+async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(me)) -> dict:
     limited(req, "pw")
     check_pw(user, b.password)
     con = db.connect()
     try:
         owned = [r["id"] for r in con.execute("SELECT id FROM docs WHERE owner=?", (user,)).fetchall()]
-        con.execute("DELETE FROM comments WHERE username=? AND parent_id IS NOT NULL", (user,))
-        con.execute("UPDATE comments SET username='[deleted]' WHERE username=?", (user,))
-        con.execute("DELETE FROM users WHERE name=?", (user,))
-        con.commit()
     finally:
         con.close()
+    # Files first: trash-rename aside so a crash between FS and DB never loses
+    # data (DB still points at the doc, files restorable from .trash-<id>).
+    trashed_dirs: list[tuple[Path, Path]] = []
+    for did in owned:
+        src = FILES_DIR / did
+        if src.is_dir():
+            dst = FILES_DIR / f".trash-{did}"
+            try:
+                if dst.exists():
+                    shutil.rmtree(dst, ignore_errors=True)
+                src.rename(dst)
+                trashed_dirs.append((src, dst))
+            except OSError as e:
+                log.warning("delete_me %s: trash-rename failed: %s", did, e)
+    try:
+        with db.tx() as con:
+            con.execute("DELETE FROM comments WHERE username=? AND parent_id IS NOT NULL", (user,))
+            con.execute("UPDATE comments SET username='[deleted]' WHERE username=?", (user,))
+            con.execute("DELETE FROM users WHERE name=?", (user,))
+    except sqlite3.OperationalError as e:
+        # DB delete failed: move files back, account still intact.
+        for src, dst in trashed_dirs:
+            try:
+                dst.rename(src)
+            except OSError:
+                pass
+        raise busy_503("delete_me", e) from e
     for did in owned:
         await sync.drop(did)
+    for _src, dst in trashed_dirs:
         try:
-            shutil.rmtree(FILES_DIR / did, ignore_errors=True)
+            shutil.rmtree(dst, ignore_errors=True)
         except OSError:
-            log.warning("delete_me %s: rmtree failed", did)
+            log.warning("delete_me %s: rmtree failed", dst.name)
     await sync.kick_all(user)
     _drop_user_locks(user)
     if req.cookies.get(COOKIE):
@@ -943,7 +898,7 @@ async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(
 
 
 @app.websocket("/ws/{doc_id}")
-async def ws_doc(ws: WebSocket, doc_id: str):
+async def ws_doc(ws: WebSocket, doc_id: str) -> None:
     try:
         check_doc_id(doc_id)
     except HTTPException:
@@ -954,7 +909,7 @@ async def ws_doc(ws: WebSocket, doc_id: str):
 
 
 @app.get("/api/docs")
-def list_docs(req: Request, user: str = Depends(me)):
+def list_docs(req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     con = db.connect()
     try:
@@ -972,17 +927,29 @@ def list_docs(req: Request, user: str = Depends(me)):
         con.close()
 
 
+def _folder_counts(con: sqlite3.Connection, owner: str, kind: str) -> list[dict]:
+    # Shared by list_folders (docs) / list_tpl_folders (templates): counted
+    # names from the items table merged with explicitly created (maybe empty)
+    # folders from the folders table.
+    if kind == "doc":
+        table, extra = "docs", "AND trashed=0"
+    else:
+        table, extra = "templates", ""
+    rows = con.execute(f"SELECT folder, COUNT(*) AS n FROM {table} WHERE owner=? AND folder<>'' {extra} "
+                       "GROUP BY folder ORDER BY folder", (owner,)).fetchall()
+    counts = {r["folder"]: r["n"] for r in rows}
+    for r in con.execute("SELECT name FROM folders WHERE owner=? AND kind=? ORDER BY name",
+                         (owner, kind)).fetchall():
+        counts.setdefault(r["name"], 0)
+    return [{"folder": f, "n": counts[f]} for f in sorted(counts)]
+
+
 @app.get("/api/folders")
-def list_folders(req: Request, user: str = Depends(me)):
+def list_folders(req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     con = db.connect()
     try:
-        rows = con.execute("SELECT folder, COUNT(*) AS n FROM docs WHERE owner=? AND trashed=0 AND folder<>'' "
-                           "GROUP BY folder ORDER BY folder", (user,)).fetchall()
-        counts = {r["folder"]: r["n"] for r in rows}
-        for r in con.execute("SELECT name FROM folders WHERE owner=? AND kind='doc' ORDER BY name", (user,)).fetchall():
-            counts.setdefault(r["name"], 0)
-        return {"folders": [{"folder": f, "n": counts[f]} for f in sorted(counts)]}
+        return {"folders": _folder_counts(con, user, "doc")}
     finally:
         con.close()
 
@@ -1005,7 +972,7 @@ def check_folder_name(name: str) -> str:
 
 
 @app.post("/api/folders")
-def make_folder(b: FolderSet, req: Request, user: str = Depends(me)):
+def make_folder(b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "folders")
     n = check_folder_name(b.folder)
     con = db.connect()
@@ -1018,7 +985,7 @@ def make_folder(b: FolderSet, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/create")
-def create_doc(b: DocCreate, req: Request, user: str = Depends(me)):
+def create_doc(b: DocCreate, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "create")
     t = b.title.strip()
     if not t or len(t) > TITLE_MAX:
@@ -1028,49 +995,30 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(me)):
     try:
         check_quota(user, len(b.content.encode("utf-8")))
     except sqlite3.OperationalError as e:
-        raise busy_503("create_doc", e)
-    did, now = db.new_id("d_"), db.now_iso()
-    con = db.connect()
+        raise busy_503("create_doc", e) from e
     try:
-        try:
-            max_docs = config.load().MAX_DOCS_PER_USER
-        except Exception:
-            max_docs = 100
-        try:
-            con.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError as e:
-            raise busy_503("create_doc", e)
-        try:
+        max_docs = config.load().MAX_DOCS_PER_USER
+    except Exception:
+        max_docs = 100
+    did, now = db.new_id("d_"), db.now_iso()
+    try:
+        with db.tx() as con:
             if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
-                con.execute("ROLLBACK")
                 raise HTTPException(400, "Too many docs")
             con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
                         "VALUES (?,?,?,?,?,?,?)",
                         (did, user, t, b.content,
                          b.folder.strip()[:FOLDER_MAX], now, now))
             ensure_folder(con, user, "doc", b.folder)
-            con.commit()
-        except HTTPException:
-            raise
-        except sqlite3.IntegrityError:
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise HTTPException(400, "Title already exists")
-        except sqlite3.OperationalError as e:
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise busy_503("create_doc", e)
-        return {"id": did}
-    finally:
-        con.close()
+    except sqlite3.IntegrityError as e:
+        raise HTTPException(400, "Title already exists") from e
+    except sqlite3.OperationalError as e:
+        raise busy_503("create_doc", e) from e
+    return {"id": did}
 
 
 @app.get("/api/docs/{doc_id}")
-def get_doc(doc_id: str, req: Request, user: str = Depends(me)):
+def get_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     check_doc_id(doc_id)
     r = need_access(user, doc_id)
@@ -1131,7 +1079,7 @@ def auto_snap(doc_id: str, content: str, label: str = "") -> None:
 
 
 @app.post("/api/docs/{doc_id}/save")
-async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me)):
+async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "save")
     need_edit(user, doc_id)
@@ -1145,55 +1093,15 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
         _c = db.connect()
         try:
             _old = _c.execute("SELECT content FROM docs WHERE id=?", (doc_id,)).fetchone()
-        except Exception:
-            _old = None
         finally:
             _c.close()
-        _old_len = len((_old["content"] or "").encode("utf-8")) if _old and _old["content"] else 0
-        check_quota(_owner(doc_id, user), max(0, len(content.encode("utf-8")) - _old_len))
     except sqlite3.OperationalError as e:
-        raise busy_503("save_doc", e)
-    con = db.connect()
-    try:
-        try:
-            con.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError as e:
-            raise busy_503("save_doc", e)
-        try:
-            trashed = con.execute("SELECT trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
-            if not trashed:
-                con.execute("ROLLBACK")
-                raise HTTPException(404, "Doc gone")
-            if trashed["trashed"]:
-                con.execute("ROLLBACK")
-                raise HTTPException(410, "In trash - restore first")
-            if need_access(user, doc_id) not in ("owner", "editor"):
-                con.execute("ROLLBACK")
-                raise HTTPException(403, "Reviewer can only comment")
-            con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
-                        (content, db.now_iso(), doc_id))
-            con.commit()
-        except HTTPException:
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise
-        except sqlite3.OperationalError as e:
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise busy_503("save_doc", e)
-    finally:
-        con.close()
-    # Post-write quota check with rollback (matches upload/file-text).
+        raise busy_503("save_doc", e) from e
     _old_text = (_old["content"] or "") if _old else ""
-    try:
-        _over = user_bytes(_owner(doc_id, user)) > _quota_cap()
-    except sqlite3.OperationalError as e:
-        raise busy_503("save_doc", e)
-    if _over:
+    _old_len = len(_old_text.encode("utf-8"))
+    _save_owner = _owner(doc_id, user)
+
+    def _restore_old() -> None:
         _rb = db.connect()
         try:
             _rb.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
@@ -1201,9 +1109,29 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
             _rb.commit()
         finally:
             _rb.close()
-        if live is not None:
+
+    try:
+        with quota_svc.quota_guard(_save_owner, max(0, len(content.encode("utf-8")) - _old_len),
+                                   rollback=_restore_old):
+            try:
+                with db.tx() as con:
+                    trashed = con.execute("SELECT trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
+                    if not trashed:
+                        raise HTTPException(404, "Doc gone")
+                    if trashed["trashed"]:
+                        raise HTTPException(410, "In trash - restore first")
+                    if need_access(user, doc_id) not in ("owner", "editor"):
+                        raise HTTPException(403, "Reviewer can only comment")
+                    con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
+                                (content, db.now_iso(), doc_id))
+            except sqlite3.OperationalError as e:
+                raise busy_503("save_doc", e) from e
+    except sqlite3.OperationalError as e:
+        raise busy_503("save_doc", e) from e
+    except HTTPException as e:
+        if e.status_code == 413 and live is not None:
             await sync.replace_text(doc_id, _old_text)
-        raise HTTPException(413, "Quota exceeded")
+        raise
     if b.force:
         await sync.replace_text(doc_id, content)
     elif live is None:
@@ -1219,7 +1147,7 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
 
 
 @app.post("/api/docs/{doc_id}/rename")
-def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(me)):
+def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "save")  # reuse save scope (no dedicated rename scope)
     if need_access(user, doc_id) != "owner":
@@ -1233,13 +1161,13 @@ def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(me)):
         con.commit()
         return {"ok": True}
     except sqlite3.IntegrityError:
-        raise HTTPException(400, "Title already exists")
+        raise HTTPException(400, "Title already exists") from None
     finally:
         con.close()
 
 
 @app.get("/api/templates")
-def list_templates(req: Request, user: str = Depends(me)):
+def list_templates(req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     con = db.connect()
     try:
@@ -1251,7 +1179,7 @@ def list_templates(req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/templates")
-def save_template(b: TplSave, req: Request, user: str = Depends(me)):
+def save_template(b: TplSave, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "save")  # reuse save scope (no dedicated template scope)
     n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(b.name or "").name.strip().lstrip("."))[:100]
     if not n.endswith(".typ") or not b.content.strip() or len(b.content) > MAX_TXT:
@@ -1260,30 +1188,14 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)):
         _c = db.connect()
         try:
             _old = _c.execute("SELECT content FROM templates WHERE owner=? AND name=?", (user, n)).fetchone()
-        except Exception:
-            _old = None
         finally:
             _c.close()
-        _old_len = len((_old["content"] or "").encode("utf-8")) if _old and _old["content"] else 0
-        check_quota(user, max(0, len(b.content.encode("utf-8")) - _old_len))
     except sqlite3.OperationalError as e:
-        raise busy_503("save_template", e)
-    con = db.connect()
-    try:
-        con.execute("INSERT INTO templates (owner, name, content, line, folder, updated_at) VALUES (?,?,?,?,?,?) "
-                    "ON CONFLICT (owner, name) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at",
-                    (user, n, b.content, f'#include "{n}"', b.folder.strip()[:FOLDER_MAX], db.now_iso()))
-        ensure_folder(con, user, "tpl", b.folder)
-        con.commit()
-    finally:
-        con.close()
-    # Post-write quota check with rollback (matches save_doc/upload/file-text).
+        raise busy_503("save_template", e) from e
     _old_tpl = (_old["content"] or "") if _old else ""
-    try:
-        _tpl_over = user_bytes(user) > _quota_cap()
-    except sqlite3.OperationalError as e:
-        raise busy_503("save_template", e)
-    if _tpl_over:
+    _old_tpl_len = len(_old_tpl.encode("utf-8"))
+
+    def _restore_tpl() -> None:
         _rb = db.connect()
         try:
             if _old is None:
@@ -1294,12 +1206,26 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)):
             _rb.commit()
         finally:
             _rb.close()
-        raise HTTPException(413, "Quota exceeded")
+
+    try:
+        with quota_svc.quota_guard(user, max(0, len(b.content.encode("utf-8")) - _old_tpl_len),
+                                   rollback=_restore_tpl):
+            con = db.connect()
+            try:
+                con.execute("INSERT INTO templates (owner, name, content, line, folder, updated_at) VALUES (?,?,?,?,?,?) "
+                            "ON CONFLICT (owner, name) DO UPDATE SET content=excluded.content, updated_at=excluded.updated_at",
+                            (user, n, b.content, f'#include "{n}"', b.folder.strip()[:FOLDER_MAX], db.now_iso()))
+                ensure_folder(con, user, "tpl", b.folder)
+                con.commit()
+            finally:
+                con.close()
+    except sqlite3.OperationalError as e:
+        raise busy_503("save_template", e) from e
     return {"name": n}
 
 
 @app.delete("/api/templates/{name}")
-def delete_template(name: str, req: Request, user: str = Depends(me)):
+def delete_template(name: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files")  # reuse files scope (no dedicated template scope)
     n = tpl_name(name)
     con = db.connect()
@@ -1314,7 +1240,7 @@ def delete_template(name: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/templates/{name}/folder")
-def move_template(name: str, b: FolderSet, req: Request, user: str = Depends(me)):
+def move_template(name: str, b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files")  # reuse files scope (no dedicated template scope)
     n = tpl_name(name)
     con = db.connect()
@@ -1331,22 +1257,17 @@ def move_template(name: str, b: FolderSet, req: Request, user: str = Depends(me)
 
 
 @app.get("/api/tplfolders")
-def list_tpl_folders(req: Request, user: str = Depends(me)):
+def list_tpl_folders(req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     con = db.connect()
     try:
-        rows = con.execute("SELECT folder, COUNT(*) AS n FROM templates WHERE owner=? AND folder<>'' "
-                           "GROUP BY folder ORDER BY folder", (user,)).fetchall()
-        counts = {r["folder"]: r["n"] for r in rows}
-        for r in con.execute("SELECT name FROM folders WHERE owner=? AND kind='tpl' ORDER BY name", (user,)).fetchall():
-            counts.setdefault(r["name"], 0)
-        return {"folders": [{"folder": f, "n": counts[f]} for f in sorted(counts)]}
+        return {"folders": _folder_counts(con, user, "tpl")}
     finally:
         con.close()
 
 
 @app.post("/api/tplfolders")
-def make_tpl_folder(b: FolderSet, req: Request, user: str = Depends(me)):
+def make_tpl_folder(b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "folders")
     n = check_folder_name(b.folder)
     con = db.connect()
@@ -1359,7 +1280,7 @@ def make_tpl_folder(b: FolderSet, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/tplfolders/rename")
-def rename_tpl_folder(b: FolderRename, req: Request, user: str = Depends(me)):
+def rename_tpl_folder(b: FolderRename, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files")  # reuse files scope (no dedicated template scope)
     old, new = b.old.strip()[:FOLDER_MAX], b.new.strip()[:FOLDER_MAX]
     if not old or not new or old == new:
@@ -1377,7 +1298,7 @@ def rename_tpl_folder(b: FolderRename, req: Request, user: str = Depends(me)):
 
 
 @app.delete("/api/tplfolders/{name}")
-def drop_tpl_folder(name: str, req: Request, user: str = Depends(me)):
+def drop_tpl_folder(name: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files")  # reuse files scope (no dedicated template scope)
     n = name.strip()[:FOLDER_MAX]
     con = db.connect()
@@ -1391,7 +1312,7 @@ def drop_tpl_folder(name: str, req: Request, user: str = Depends(me)):
 
 
 @app.delete("/api/docs/{doc_id}")
-async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)):
+async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "save")  # reuse save scope (no dedicated delete scope)
     r = need_access(user, doc_id, allow_trashed=True)
@@ -1423,7 +1344,7 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/restore")
-def restore_doc(doc_id: str, req: Request, user: str = Depends(me)):
+def restore_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "save")  # reuse save scope (no dedicated restore scope)
     if need_access(user, doc_id, allow_trashed=True) != "owner":
@@ -1445,7 +1366,7 @@ def restore_doc(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/folder")
-def move_doc(doc_id: str, b: FolderSet, req: Request, user: str = Depends(me)):
+def move_doc(doc_id: str, b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "files")  # reuse files scope (no dedicated move scope)
     if need_access(user, doc_id) != "owner":
@@ -1464,7 +1385,7 @@ def move_doc(doc_id: str, b: FolderSet, req: Request, user: str = Depends(me)):
 
 
 @app.delete("/api/folders/{name}")
-def drop_folder(name: str, req: Request, user: str = Depends(me)):
+def drop_folder(name: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "folders")
     n = name.strip()[:FOLDER_MAX]
     con = db.connect()
@@ -1478,7 +1399,7 @@ def drop_folder(name: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/folders/rename")
-def rename_folder(b: FolderRename, req: Request, user: str = Depends(me)):
+def rename_folder(b: FolderRename, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "folders")
     if len(b.old.strip()) > FOLDER_MAX or len(b.new.strip()) > FOLDER_MAX:
         raise HTTPException(400, "Folder name too long")
@@ -1498,7 +1419,7 @@ def rename_folder(b: FolderRename, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/duplicate")
-def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
+def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "duplicate")
     need_edit(user, doc_id)
@@ -1509,23 +1430,15 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
     nid, now = db.new_id("d_"), db.now_iso()
     src = FILES_DIR / doc_id
     with _doc_lock(f"dup:{user}"):
-        con = db.connect()
         try:
-            try:
-                con.execute("BEGIN IMMEDIATE")
-            except sqlite3.OperationalError as e:
-                raise busy_503("duplicate_doc", e)
-            if True:  # single transaction, each error path ROLLBACKs explicitly
+            with db.tx() as con:
                 if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
-                    con.execute("ROLLBACK")
                     raise HTTPException(400, "Too many docs")
                 d = con.execute("SELECT title, content, folder, trashed FROM docs WHERE id=?",
                                 (doc_id,)).fetchone()
                 if not d:
-                    con.execute("ROLLBACK")
                     raise HTTPException(404, "Doc gone")
                 if d["trashed"]:
-                    con.execute("ROLLBACK")
                     raise HTTPException(410, "In trash - restore first")
                 base = d["title"] + " (copy)"
                 title, i = base, 2
@@ -1533,7 +1446,6 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
                                   (user, title)).fetchone():
                     title, i = f"{base} {i}", i + 1
                     if i > 99:
-                        con.execute("ROLLBACK")
                         raise HTTPException(400, "Too many copies")
                 live = sync.room_text(doc_id)
                 text = live if live is not None else d["content"]
@@ -1547,7 +1459,6 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
                 except OSError:
                     files = []
                 if len(files) > max_files:
-                    con.execute("ROLLBACK")
                     raise HTTPException(400, "Too many files")
                 fbytes = 0
                 for p in files:
@@ -1555,39 +1466,14 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
                         fbytes += p.stat().st_size
                     except OSError:
                         pass
-                try:
-                    check_quota(user, len(text.encode("utf-8")) + fbytes)
-                except sqlite3.OperationalError as e:
-                    try:
-                        con.execute("ROLLBACK")
-                    except Exception:
-                        pass
-                    raise busy_503("duplicate_doc", e)
-                except HTTPException:
-                    try:
-                        con.execute("ROLLBACK")
-                    except Exception:
-                        pass
-                    raise
-                try:
-                    con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
-                                "VALUES (?,?,?,?,?,?,?)",
-                                (nid, user, title, text, d["folder"], now, now))
-                    con.commit()
-                except sqlite3.OperationalError as e:
-                    try:
-                        con.execute("ROLLBACK")
-                    except Exception:
-                        pass
-                    raise busy_503("duplicate_doc", e)
-                except sqlite3.IntegrityError:
-                    try:
-                        con.execute("ROLLBACK")
-                    except Exception:
-                        pass
-                    raise HTTPException(400, "Title already exists")
-        finally:
-            con.close()
+                check_quota(user, len(text.encode("utf-8")) + fbytes)
+                con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
+                            "VALUES (?,?,?,?,?,?,?)",
+                            (nid, user, title, text, d["folder"], now, now))
+        except sqlite3.IntegrityError as e:
+            raise HTTPException(400, "Title already exists") from e
+        except sqlite3.OperationalError as e:
+            raise busy_503("duplicate_doc", e) from e
     if src.is_dir():
         try:
             shutil.copytree(src, FILES_DIR / nid, ignore=shutil.ignore_patterns(".*", "*.tmp.*"), dirs_exist_ok=True)
@@ -1605,12 +1491,12 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)):
                 log.warning("duplicate rollback %s failed: %s", nid, e)
             finally:
                 con.close()
-            raise HTTPException(500, "Copy failed")
+            raise HTTPException(500, "Copy failed") from None
     return {"id": nid}
 
 
 @app.post("/api/docs/{doc_id}/share")
-async def share_doc(doc_id: str, b: Share, req: Request, user: str = Depends(me)):
+async def share_doc(doc_id: str, b: Share, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "share")
     if need_access(user, doc_id) != "owner":
@@ -1644,7 +1530,7 @@ async def share_doc(doc_id: str, b: Share, req: Request, user: str = Depends(me)
 
 
 @app.delete("/api/docs/{doc_id}/share/{username}")
-async def unshare_doc(doc_id: str, username: str, req: Request, user: str = Depends(me)):
+async def unshare_doc(doc_id: str, username: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "share")
     if need_access(user, doc_id) != "owner":
@@ -1663,7 +1549,7 @@ async def unshare_doc(doc_id: str, username: str, req: Request, user: str = Depe
 
 
 @app.get("/api/docs/{doc_id}/comments")
-def list_comments(doc_id: str, req: Request, user: str = Depends(me)):
+def list_comments(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -1684,7 +1570,7 @@ def list_comments(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/comments")
-def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me)):
+def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "comments")
     need_access(user, doc_id)
@@ -1712,7 +1598,7 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me
 
 
 @app.delete("/api/docs/{doc_id}/comments/{cid}")
-def delete_comment(doc_id: str, cid: str, req: Request, user: str = Depends(me)):
+def delete_comment(doc_id: str, cid: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "comments")
     role = need_access(user, doc_id)
@@ -1735,7 +1621,7 @@ def delete_comment(doc_id: str, cid: str, req: Request, user: str = Depends(me))
 
 
 @app.post("/api/docs/{doc_id}/comments/{cid}/anchor")
-def move_comment(doc_id: str, cid: str, b: AnchorSet, req: Request, user: str = Depends(me)):
+def move_comment(doc_id: str, cid: str, b: AnchorSet, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "comments")
     need_access(user, doc_id)
@@ -1757,7 +1643,7 @@ def move_comment(doc_id: str, cid: str, b: AnchorSet, req: Request, user: str = 
 
 
 @app.post("/api/docs/{doc_id}/comments/{cid}/edit")
-def edit_comment(doc_id: str, cid: str, b: CommentEdit, req: Request, user: str = Depends(me)):
+def edit_comment(doc_id: str, cid: str, b: CommentEdit, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "comments")
     need_access(user, doc_id)
@@ -1779,7 +1665,7 @@ def edit_comment(doc_id: str, cid: str, b: CommentEdit, req: Request, user: str 
 
 
 @app.post("/api/docs/{doc_id}/comments/{cid}/resolve")
-def resolve_comment(doc_id: str, cid: str, b: ResolveSet, req: Request, user: str = Depends(me)):
+def resolve_comment(doc_id: str, cid: str, b: ResolveSet, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "comments")
     role = need_access(user, doc_id)
@@ -1823,7 +1709,7 @@ def check_doc_id(doc_id: str) -> None:
 
 
 @app.get("/api/docs/{doc_id}/files")
-def list_files(doc_id: str, req: Request, user: str = Depends(me)):
+def list_files(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list") # own bucket: preview polls this per render, must not starve uploads
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -1834,7 +1720,7 @@ def list_files(doc_id: str, req: Request, user: str = Depends(me)):
             entries = sorted(d.iterdir())
         except OSError as e:
             log.warning("list_files list failed: %s", e)
-            raise HTTPException(500, "File list failed")
+            raise HTTPException(500, "File list failed") from e
         for p in entries:
             if p.is_file() and ".tmp." not in p.name:
                 try:
@@ -1847,7 +1733,7 @@ def list_files(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/files")
-def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(me)):
+def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files")
     check_doc_id(doc_id)
     need_edit(user, doc_id)
@@ -1866,12 +1752,12 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
         d.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         log.warning("upload_file mkdir failed: %s", e)
-        raise HTTPException(500, "Upload failed")
+        raise HTTPException(500, "Upload failed") from e
     try:
         pre = sum(1 for p in d.iterdir() if p.is_file() and p.name != n and ".tmp." not in p.name)
     except OSError as e:
         log.warning("upload_file list failed: %s", e)
-        raise HTTPException(500, "File list failed")
+        raise HTTPException(500, "File list failed") from e
     if pre >= max_files:
         raise HTTPException(400, "Too many files")
     tmp = d / f"{n}.tmp.{secrets.token_hex(8)}"
@@ -1903,66 +1789,60 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
-        raise HTTPException(500, "Upload failed")
-    try:
-        check_quota(_owner(doc_id, user), size)
-    except sqlite3.OperationalError as e:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise busy_503("upload_file", e)
-    except HTTPException:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+        raise HTTPException(500, "Upload failed") from e
     try:
         old = (d / n).read_bytes() if (d / n).is_file() else None
     except OSError:
         old = None
+
+    def _restore_upload() -> None:
+        try:
+            if old is not None:
+                (d / n).write_bytes(old)
+            else:
+                (d / n).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    _up_owner = _owner(doc_id, user)
     try:
-        os.replace(tmp, d / n)
-    except OSError:
+        with quota_svc.quota_guard(_up_owner, size, rollback=_restore_upload):
+            try:
+                os.replace(tmp, d / n)
+            except OSError:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+            try:
+                post = sum(1 for p in d.iterdir() if p.is_file() and ".tmp." not in p.name)
+            except OSError as e:
+                log.warning("upload_file recount failed: %s", e)
+                raise HTTPException(500, "File list failed") from e
+            if post > max_files:
+                _restore_upload()
+                raise HTTPException(400, "Too many files")
+    except sqlite3.OperationalError as e:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise busy_503("upload_file", e) from e
+    except HTTPException:
+        # Pre-check 413 leaves tmp behind (post-check 413 already replaced it:
+        # unlink is a no-op then).
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
         raise
-    try:
-        post = sum(1 for p in d.iterdir() if p.is_file() and ".tmp." not in p.name)
-    except OSError as e:
-        log.warning("upload_file recount failed: %s", e)
-        raise HTTPException(500, "File list failed")
-    if post > max_files:
-        try:
-            if old is not None:
-                (d / n).write_bytes(old)
-            else:
-                (d / n).unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise HTTPException(400, "Too many files")
-    try:
-        over = user_bytes(_owner(doc_id, user)) > _quota_cap()
-    except sqlite3.OperationalError as e:
-        raise busy_503("upload_file", e)
-    if over:
-        try:
-            if old is not None:
-                (d / n).write_bytes(old)
-            else:
-                (d / n).unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise HTTPException(413, "Quota exceeded")
     touch_doc(doc_id)
     return {"name": n, "size": size}
 
 
 @app.get("/api/docs/{doc_id}/files/{name}")
-def get_file(doc_id: str, name: str, req: Request, user: str = Depends(me)):
+def get_file(doc_id: str, name: str, req: Request, user: str = Depends(me)) -> Response:
     limited(req, "files")
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -1974,7 +1854,7 @@ def get_file(doc_id: str, name: str, req: Request, user: str = Depends(me)):
             data = p.read_bytes()
         except OSError as e:
             log.warning("get_file gone %s: %s", p.name, e)
-            raise HTTPException(404, "File gone")
+            raise HTTPException(404, "File gone") from e
         return Response(content=data, media_type="application/octet-stream",
                         headers={"Content-Disposition": f'attachment; filename="{p.name}"',
                                  "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
@@ -1984,11 +1864,11 @@ def get_file(doc_id: str, name: str, req: Request, user: str = Depends(me)):
                                      "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
     except (FileNotFoundError, RuntimeError, OSError) as e:
         log.warning("get_file gone %s: %s", p.name, e)
-        raise HTTPException(404, "File gone")
+        raise HTTPException(404, "File gone") from e
 
 
 @app.delete("/api/docs/{doc_id}/files/{name}")
-def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(me)):
+def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "files")
     need_edit(user, doc_id)
@@ -2017,13 +1897,13 @@ def touch_doc(doc_id: str) -> None:
             con.execute("UPDATE docs SET updated_at=? WHERE id=?", (db.now_iso(), doc_id))
             con.commit()
         except sqlite3.OperationalError as e:
-            raise busy_503("touch_doc", e)
+            raise busy_503("touch_doc", e) from e
     finally:
         con.close()
 
 
 @app.get("/api/docs/{doc_id}/files/{name}/text")
-def get_file_text(doc_id: str, name: str, req: Request, user: str = Depends(me)):
+def get_file_text(doc_id: str, name: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "save") # same cadence as doc save, not the tight files bucket
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -2034,12 +1914,12 @@ def get_file_text(doc_id: str, name: str, req: Request, user: str = Depends(me))
         content = p.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
         log.warning("get_file_text gone %s: %s", p.name, e)
-        raise HTTPException(404, "File gone")
+        raise HTTPException(404, "File gone") from e
     return {"name": p.name, "content": content}
 
 
 @app.post("/api/docs/{doc_id}/files/{name}/text")
-def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str = Depends(me)):
+def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "save") # autosave every SAVE_MS, like doc save (files bucket is for up/download)
     need_edit(user, doc_id)
@@ -2052,33 +1932,16 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
         except OSError:
             _old_sz = 0
         try:
-            check_quota(_owner(doc_id, user), max(0, len(b.content.encode("utf-8")) - _old_sz))
-        except sqlite3.OperationalError as e:
-            raise busy_503("save_file_text", e)
-        try:
             p.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             log.warning("save_file_text mkdir failed: %s", e)
-            raise HTTPException(500, "Upload failed")
+            raise HTTPException(500, "Upload failed") from e
         try:
             old = p.read_bytes() if p.is_file() else None
         except OSError:
             old = None
-        tmp = p.parent / f"{p.name}.tmp.{secrets.token_hex(8)}"
-        try:
-            tmp.write_text(b.content, encoding="utf-8")
-            os.replace(tmp, p)
-        except OSError:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
-        try:
-            over = user_bytes(_owner(doc_id, user)) > _quota_cap()
-        except sqlite3.OperationalError as e:
-            raise busy_503("save_file_text", e)
-        if over:
+
+        def _restore_text() -> None:
             try:
                 if old is None:
                     p.unlink(missing_ok=True)
@@ -2086,13 +1949,29 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
                     p.write_bytes(old)
             except OSError:
                 pass
-            raise HTTPException(413, "Quota exceeded")
+
+        tmp = p.parent / f"{p.name}.tmp.{secrets.token_hex(8)}"
+        try:
+            with quota_svc.quota_guard(_owner(doc_id, user),
+                                       max(0, len(b.content.encode("utf-8")) - _old_sz),
+                                       rollback=_restore_text):
+                try:
+                    tmp.write_text(b.content, encoding="utf-8")
+                    os.replace(tmp, p)
+                except OSError:
+                    try:
+                        tmp.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    raise
+        except sqlite3.OperationalError as e:
+            raise busy_503("save_file_text", e) from e
         touch_doc(doc_id)
     return {"ok": True}
 
 
 @app.post("/api/docs/{doc_id}/invite")
-def make_invite(doc_id: str, b: InviteNew, req: Request, user: str = Depends(me)):
+def make_invite(doc_id: str, b: InviteNew, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "invite")
     if need_access(user, doc_id) != "owner":
@@ -2100,6 +1979,9 @@ def make_invite(doc_id: str, b: InviteNew, req: Request, user: str = Depends(me)
     if b.role not in ("editor", "reviewer"):
         raise HTTPException(400, "role must be editor or reviewer")
     tok = db.new_id("")
+    # hint is an independent random id for listing/deleting invites: it must
+    # NOT derive from the token (tok[:8] would leak 48 bits and help guessing).
+    hint = secrets.token_hex(4)
     con = db.connect()
     try:
         cut = (datetime.now(UTC) - timedelta(seconds=INVITE_SECONDS)).isoformat()
@@ -2107,15 +1989,17 @@ def make_invite(doc_id: str, b: InviteNew, req: Request, user: str = Depends(me)
                        (doc_id, cut)).fetchone()["n"] >= 20:
             raise HTTPException(400, "Too many invites")
         con.execute("INSERT INTO invites (token, doc_id, role, hint, created_at) VALUES (?,?,?,?,?)",
-                    (auth.sha(tok), doc_id, b.role, tok[:8], db.now_iso()))
+                    (auth.sha(tok), doc_id, b.role, hint, db.now_iso()))
         con.commit()
+        # Link invites are intentionally multi-use: redeeming does NOT delete
+        # the invite (see _redeem_invite); owners revoke via DELETE invites.
         return {"token": tok}
     finally:
         con.close()
 
 
 @app.get("/api/docs/{doc_id}/invites")
-def list_invites(doc_id: str, req: Request, user: str = Depends(me)):
+def list_invites(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     check_doc_id(doc_id)
     if need_access(user, doc_id) != "owner":
@@ -2131,7 +2015,7 @@ def list_invites(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.delete("/api/docs/{doc_id}/invites/{hint}")
-def drop_invite(doc_id: str, hint: str, req: Request, user: str = Depends(me)):
+def drop_invite(doc_id: str, hint: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "invite")
     if need_access(user, doc_id) != "owner":
@@ -2149,17 +2033,19 @@ def drop_invite(doc_id: str, hint: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/join/{token}")
-def join_doc(token: str, req: Request, user: str = Depends(me)):
+def join_doc(token: str, req: Request, user: str = Depends(me)) -> dict:
     raise HTTPException(410, "Use POST /api/join with body")
 
 
 @app.post("/api/join")
-def join_doc_body(b: JoinBody, req: Request, user: str = Depends(me)):
+def join_doc_body(b: JoinBody, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "join")
     return _redeem_invite(b.token.strip(), user)
 
 
 def _redeem_invite(token: str, user: str) -> dict:
+    # Link invites are intentionally multi-use (no delete after redeem):
+    # anyone with the link joins; only expiry or owner revoke invalidates.
     con = db.connect()
     try:
         inv = con.execute("SELECT doc_id, role, created_at FROM invites WHERE token=?",
@@ -2198,7 +2084,7 @@ def _redeem_invite(token: str, user: str) -> dict:
 
 
 @app.get("/api/docs/{doc_id}/snapshots")
-def list_snaps(doc_id: str, req: Request, user: str = Depends(me)):
+def list_snaps(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -2212,7 +2098,7 @@ def list_snaps(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.post("/api/docs/{doc_id}/snapshots")
-def make_snap(doc_id: str, b: SnapNew, req: Request, user: str = Depends(me)):
+def make_snap(doc_id: str, b: SnapNew, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "snapshots")
     need_edit(user, doc_id)
@@ -2235,7 +2121,7 @@ def make_snap(doc_id: str, b: SnapNew, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/docs/{doc_id}/snapshots/{sid}")
-def get_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)):
+def get_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -2252,60 +2138,38 @@ def get_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)):
 
 @app.post("/api/docs/{doc_id}/snapshots/{sid}/restore")
 async def restore_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me),
-                       force: bool = False, b: SnapRestore | None = None):
+                       force: bool = False, b: SnapRestore | None = None) -> dict:
     check_doc_id(doc_id)
     limited(req, "snapshots")
     need_edit(user, doc_id)
     eff = force or (b.force if b else False)  # query or body flag, default safe
     auto = sync.room_text(doc_id)
-    con = db.connect()
     try:
-        try:
-            con.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError as e:
-            raise busy_503("restore_snap", e)
-        try:
+        with db.tx() as con:
             s = con.execute("SELECT content FROM snapshots WHERE id=? AND doc_id=?", (sid, doc_id)).fetchone()
             if not s:
-                con.execute("ROLLBACK")
                 raise HTTPException(404, "Snapshot gone")
             cur = con.execute("SELECT content, trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
             if not cur:
-                con.execute("ROLLBACK")
                 raise HTTPException(404, "Doc gone")
             if cur["trashed"]:
-                con.execute("ROLLBACK")
                 raise HTTPException(410, "In trash - restore first")
             if auto is not None and auto != (cur["content"] or "") and not eff:
-                con.execute("ROLLBACK")
                 raise HTTPException(409, "Document changed meanwhile, retry with force")
             before = auto if auto is not None else cur["content"]
-            try:
-                check_quota(_owner(doc_id, user), max(0, len((s["content"] or "").encode("utf-8")) - len((cur["content"] or "").encode("utf-8"))))
-            except HTTPException:
-                con.execute("ROLLBACK")
-                raise
+            check_quota(_owner(doc_id, user), max(0, len((s["content"] or "").encode("utf-8")) - len((cur["content"] or "").encode("utf-8"))))
             con.execute("INSERT INTO snapshots (id, doc_id, content, label, created_at) VALUES (?,?,?,?,?)",
                         (db.new_id("s_"), doc_id, before, "Before restore", db.now_iso()))
             prune_snaps(con, doc_id)
             con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?", (s["content"], db.now_iso(), doc_id))
-            con.commit()
-        except HTTPException:
-            raise
-        except sqlite3.OperationalError as e:
-            try:
-                con.execute("ROLLBACK")
-            except Exception:
-                pass
-            raise busy_503("restore_snap", e)
-    finally:
-        con.close()
+    except sqlite3.OperationalError as e:
+        raise busy_503("restore_snap", e) from e
     await sync.replace_text(doc_id, s["content"])
     return {"ok": True}
 
 
 @app.delete("/api/docs/{doc_id}/snapshots/{sid}")
-def delete_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)):
+def delete_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
     limited(req, "snapshots")
     if need_access(user, doc_id) != "owner":
@@ -2320,7 +2184,7 @@ def delete_snap(doc_id: str, sid: str, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/docs/{doc_id}/members")
-def list_members(doc_id: str, req: Request, user: str = Depends(me)):
+def list_members(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list")
     check_doc_id(doc_id)
     need_access(user, doc_id)
@@ -2336,7 +2200,7 @@ def list_members(doc_id: str, req: Request, user: str = Depends(me)):
 
 
 @app.get("/api/search")
-def search_docs(req: Request, q: str = "", user: str = Depends(me)):
+def search_docs(req: Request, q: str = "", user: str = Depends(me)) -> dict:
     limited(req, "search")
     q = q.strip()[:50]
     if len(q) < 2:
@@ -2362,13 +2226,12 @@ def search_docs(req: Request, q: str = "", user: str = Depends(me)):
         con.close()
 
 
-def zip_name(s: str, ext: str = "") -> str:
+def zip_name(s: str) -> str:
     n = re.sub(r"[^A-Za-z0-9_.-]+", "_", s.strip())[:80].strip("._") or "document"
-    return n + ext
+    return n
 
 
 def prune_old_exports(max_age_s: int = 86400) -> None:
-    import logging
     try:
         data_dir = config.load().DATA_DIR
     except Exception:
@@ -2393,7 +2256,7 @@ def prune_old_exports(max_age_s: int = 86400) -> None:
 
 
 @app.get("/api/export.zip")
-def export_zip(req: Request, background: BackgroundTasks, user: str = Depends(me)):
+def export_zip(req: Request, background: BackgroundTasks, user: str = Depends(me)) -> Response:
     limited(req, "export")
     o = req.headers.get("origin", "") or req.headers.get("referer", "")
     if o:
@@ -2401,6 +2264,14 @@ def export_zip(req: Request, background: BackgroundTasks, user: str = Depends(me
         if urlparse(o).netloc.lower() != host:
             log.warning("csrf-block %s", req.url.path)
             raise HTTPException(403, "Forbidden")
+    # Defense in depth for this cookie-authed download: a cross-site top-level
+    # navigation cannot carry the session usefully, so reject it when the
+    # browser tells us where the request comes from. Only enforced when the
+    # header is present (curl/TestClient send none).
+    sfs = (req.headers.get("sec-fetch-site", "") or "").strip().lower()
+    if sfs and sfs not in ("same-origin", "same-site", "none"):
+        log.warning("csrf-block %s (sec-fetch-site=%s)", req.url.path, sfs)
+        raise HTTPException(403, "Forbidden")
     lock = _export_lock(user)
     if not lock.acquire(blocking=False):
         raise HTTPException(429, "Export already running")
@@ -2410,7 +2281,7 @@ def export_zip(req: Request, background: BackgroundTasks, user: str = Depends(me
         lock.release()
 
 
-def _export_zip(req: Request, background: BackgroundTasks, user: str):
+def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Response:
     prune_old_exports()
     con = db.connect()
     try:
@@ -2449,7 +2320,7 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str):
         tmp.close()
     except OSError as e:
         log.warning("export tmp failed: %s", e)
-        raise HTTPException(503, "Export busy, try again")
+        raise HTTPException(503, "Export busy, try again") from e
     try:
         used = set()
         total = 0
@@ -2522,12 +2393,12 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str):
 
 
 @app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-def api_fallback(full_path: str):
+def api_fallback(full_path: str) -> dict:
     raise HTTPException(404, "API gone")
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/healthz", response_model=None)
+def healthz() -> dict | Response:
     try:
         con = db.connect()
         try:
@@ -2548,7 +2419,7 @@ def frontend_root() -> FileResponse:
     try:
         return FileResponse(str(ROOT / "index.html"))
     except (FileNotFoundError, RuntimeError, OSError):
-        raise HTTPException(404, "Not found")
+        raise HTTPException(404, "Not found") from None
 
 
 @app.get("/{name}")

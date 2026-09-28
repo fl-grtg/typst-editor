@@ -15,7 +15,7 @@ SESSION_RECHECK_TTL = 60.0
 LOCK_NAME = ".lock"
 ROOMS_MAX = 500
 # Config wins: RATE_DEFAULTS only fallback/docs, real limits come from backend/config.py.
-RATE_DEFAULTS = {"login": (10, 60), "register": (20, 3600), "join": (30, 60),
+RATE_DEFAULTS = {"login": (10, 60), "register": (20, 3600), "auth": (60, 60), "join": (30, 60),
                  "search": (60, 60), "files": (20, 60), "files_list": (120, 60), "save": (30, 60), "comments": (30, 60),
                  "export": (5, 60), "pw": (10, 60), "invite": (10, 60), "share": (10, 60),
                  "snapshots": (60, 60), "create": (20, 60), "duplicate": (10, 60),
