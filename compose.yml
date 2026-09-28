@@ -6,12 +6,13 @@ services:
     env_file: [{path: .env, required: false}]
     environment:
       DATA_DIR: /app/data
-      PORT: "8978"
+      # PORT comes from .env via ${PORT} below (default 8978). Do not pin here: it would override .env.
     volumes:
       - ${COMPOSE_DATA_PATH:-typst-data}:/app/data
     restart: on-failure:5
+    stop_grace_period: 15s
     deploy:
-      replicas: 1
+      replicas: 1 # rooms live in process memory (sync.py): more replicas would split sessions.
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8978')+'/healthz', timeout=4)\""]
       interval: 30s
@@ -24,6 +25,8 @@ services:
         max-size: "10m"
         max-file: "3"
     user: "999:999" # app user from the start: no root, no extra caps needed.
+    read_only: true # uploads spill to /tmp (tmpfs below), data lives on the mounted volume.
+    tmpfs: [/tmp, /run]
     cap_drop: [ALL]
     pids_limit: 100
     cpus: "1.0"
@@ -31,7 +34,7 @@ services:
       - no-new-privileges:true
     mem_limit: 512m
     ports:
-      - "127.0.0.1:8978:8978"
+      - "127.0.0.1:${PORT:-8978}:${PORT:-8978}"
 
 volumes:
   typst-data:
