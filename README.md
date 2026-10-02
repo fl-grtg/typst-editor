@@ -6,21 +6,22 @@ Collaborative Typst editor in the browser: code on the left, live PDF on the rig
 
 One process: FastAPI serves the API, Yjs syncs the edits, and SQLite stores everything. No Node needed at runtime.
 
-<img width="1280" height="688" alt="editor" src="./screenshot.png" />
+<img width="1440" height="774" alt="editor" src="./screenshot.png" />
 
 ## ✨ Features
 
-- Live PDF preview, compiled in the browser via Typst WASM
-- Realtime collaboration with presence over a cookie-only WebSocket
-- Owner/editor/reviewer roles with share links and doc invites
-- Comment threads with anchors, @-mentions, replies, resolve
-- Outline, symbol picker, autocomplete, find/replace
-- File uploads for `#image` and `#include`
-- Templates per account with folders, reused via `#include`
-- History with snapshots, diff view, one-click restore
-- Folders, trash, duplicate, global search
-- Export as `.typ`, PDF, SVG, first-page PNG, or all docs as one `.zip` (`.typ`/PDF/SVG/PNG render client-side via Typst WASM; only the all-docs `.zip` is built server-side via `GET /api/export.zip`)
-- Autosave + 24 h local stash, offline app shell, font/zoom settings
+- Live PDF preview, compiled in the browser via Typst 0.7.0 WASM, rendered with pdf.js
+- Realtime collaboration via Yjs over `WS /ws/{doc_id}`, presence included, cookie-only auth
+- Owner/editor/reviewer roles (reviewer reads and comments, shown as Reader) with share links and doc invites
+- Comment threads with line anchors + quote re-anchoring, @-mentions, one-level replies, resolve, edit
+- Outline from `=` headings, symbol picker with search, static autocomplete (files/templates after `#image`/`#include`), find/replace bar
+- File uploads (`.png/.jpg/.jpeg/.svg/.gif/.webp/.pdf/.typ/.bib/.csv`) via button, drag & drop, or paste; `.typ` inserts `#include`, `.bib` `#bibliography`, images `#image`
+- Templates per account with their own folders, reused via `#include` (insert at cursor, autocomplete-aware)
+- History with manual + automatic snapshots, line-diff view, one-click restore (auto-saves a `Before restore` snapshot first)
+- Folders with rename, two-stage trash with restore, duplicate (needs editor role, copies files), search over doc titles + content
+- Export as `.typ`, PDF, SVG (client-side via Typst WASM), PNG of the currently visible page (via preview canvas), or all docs as one `.zip` (server-side via `GET /api/export.zip`)
+- Autosave (~2.5 s) + 24 h local stash with opt-in restore, offline app shell, font/zoom/theme settings
+- Account settings: avatar (PNG/JPEG/WebP, 200 KB), rename, password change, full delete
 - Per-user quotas and per-endpoint rate limits, enforced server-side
 
 ## 🚀 Get Started
@@ -71,7 +72,7 @@ Never commit local `config.toml` or `.env`; only the `.example` files are tracke
 curl -s http://127.0.0.1:8978/healthz
 ```
 
-Live sync runs over `WS /ws/{doc_id}`. Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax): API clients must store cookies, there is no token in body or URL.
+Live sync runs over `WS /ws/{doc_id}` via y-websocket. Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax): API clients must store cookies, there is no token in body or URL (invite redemption takes the token in the POST body, never in the URL).
 
 ## 💾 Backup
 
@@ -124,7 +125,7 @@ Without `proxy_http_version 1.1` + `Upgrade`/`Connection`, the live sync WebSock
 
 Always one worker (`--workers 1`) and one replica: rooms live in process memory. 512 MB RAM minimum, 1 GB recommended. No public demo instance; self-host.
 
-Limits, openly: docs 200000 characters each (`MAX_TXT` in `backend/constants.py`, counted as characters so non-ASCII text can exceed 200 KB on disk); uploads 10 MB per file; 50 snapshots per doc, auto at most every 15 min; doc invites valid 7 days and redeemable any number of times within that window (the token is shown once at creation — copy it then); search needs 2 chars, max 20 hits; quotas 100 docs and 500 MB per user, 200 files per doc; reads share the `files_list` bucket (120/min), writes have their own.
+Limits, openly: docs 200000 characters each (`MAX_TXT` in `backend/constants.py`, counted as characters so non-ASCII text can exceed 200 KB on disk); titles 100 chars, folder names 40; uploads 10 MB per file; 50 snapshots per doc, auto at most every 15 min, restore auto-saves a `Before restore` snapshot first; doc invites valid 7 days, max 20 per doc, redeemable any number of times within that window (the token is shown once at creation — copy it then); search needs 2 chars, max 20 hits, docs only (no templates/files); quotas 100 docs and 500 MB per user, 200 files per doc; avatars 200 KB (PNG/JPEG/WebP); all-docs `.zip` capped at 100 MB, files over 10 MB land in `SKIPPED.txt` instead; reads share the `files_list` bucket (120/min), writes have their own.
 
 ### 🔒 Security Contact
 
@@ -132,7 +133,7 @@ Report vulnerabilities via GitHub Private Vulnerability Reporting.
 Do not open public issues for security problems.
 Allow time for a fix before any disclosure.
 
-Unshare wipes all pending invite links for the doc (they carry no username). Preview needs internet on first load (CDN: cdnjs/esm.sh/jsdelivr — never cached by the service worker by design, always network); afterwards the shell works offline, saving needs network (24 h local stash). The server sends `Cache-Control: no-store` on `/`, `.html`, `.js` and `/api/*` (see `backend/main.py`), so the app shell always revalidates. CSP allows `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` plus pinned CDN origins — Typst WASM cannot run without them; user content is rendered via `textContent` only.
+Unshare wipes all pending invite links for the doc (they carry no username). Preview needs internet on first load (CDN: cdnjs/esm.sh/jsdelivr — never cached by the service worker by design, always network; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27); afterwards the shell works offline, saving needs network (24 h local stash). The server sends `Cache-Control: no-store` on `/`, `.html`, `.js` and `/api/*` (see `backend/main.py`), so the app shell always revalidates. CSP allows `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` plus pinned CDN origins — Typst WASM cannot run without them; user content is rendered via `textContent` only.
 
 ### 🛠 Troubleshooting
 
@@ -142,6 +143,15 @@ Unshare wipes all pending invite links for the doc (they carry no username). Pre
 - Port `8978` loopback-only (override via `PORT` in `.env`); TLS via proxy.
 - Permissions: managed volume needs nothing. Host path only: `chown -R 999:999` on it.
 - `429` on reads: the shared `files_list` bucket (120/min) — slow down polling.
+
+### 🧪 Develop
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest            # 152 tests
+ruff check backend/ scripts/ tests/
+mypy backend/ scripts/ tests/
+```
 
 ### 📦 Changelog
 
