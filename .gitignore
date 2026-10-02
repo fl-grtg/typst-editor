@@ -41,3 +41,5 @@ exports/
 *.sqlite-journal
 # Exception must stay last, else .env.* matches again.
 !.env.example
+# Local-only plan, never commit.
+PLAN.md

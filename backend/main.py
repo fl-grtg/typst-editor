@@ -1588,9 +1588,10 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me
                 raise HTTPException(404, "Thread gone")
             if p["parent_id"]:
                 raise HTTPException(400, "Nested replies not allowed")
+        q = b.quote[:500]
         con.execute("INSERT INTO comments (id, doc_id, username, anchor, quote, text, parent_id, created_at) "
                     "VALUES (?,?,?,?,?,?,?,?)",
-                    (cid, doc_id, user, b.anchor, b.quote.strip()[:500], b.text.strip(), b.parent_id, db.now_iso()))
+                    (cid, doc_id, user, b.anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
         con.commit()
         return {"id": cid}
     finally:
