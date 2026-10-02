@@ -14,8 +14,10 @@
 <meta property="og:description" content="Collaborative Typst editor with live preview – self-hostable">
 <meta property="og:type" content="website">
 <meta property="og:image" content="./screenshot.png">
-<link rel="icon" href="./icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon.svg?v=2" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png?v=2">
+<link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png?v=2">
+<link rel="apple-touch-icon" href="./icon-192.png?v=2">
 <title>Typst Editor</title>
 <script>try { var th = localStorage.getItem('typst_theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th) } catch (e) {}</script>
 <style>
@@ -191,9 +193,10 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; background:
 #rightCol { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
 
 /* Sidebar: one component – thin icon strip when collapsed, full panel when open */
-.mark { width: 32px; height: 32px; flex: none; border-radius: 10px; background: var(--ink); color: var(--on-ink) !important; display: inline-flex; align-items: center; justify-content: center; user-select: none; }
+.mark { width: 32px; height: 32px; flex: none; border-radius: 10px; background: var(--ink); color: var(--on-ink) !important; display: inline-flex; align-items: center; justify-content: center; user-select: none; padding: 0; overflow: hidden; }
 .mark svg { width: 20px; height: 20px; }
-.sbRail { display: none; flex-direction: column; align-items: center; gap: 4px; height: 100%; width: 100%; }
+.mark img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.sbRail { display: none; flex-direction: column; align-items: center; gap: 4px; height: 100%; width: 100%; opacity: 0; transition: opacity .12s ease, display .15s allow-discrete; }
 .sbRail .mark { margin-bottom: 10px; }
 .sbRail button { width: 36px; height: 36px; padding: 0; position: relative; }
 .sbRail .fill { flex: 1; }
@@ -201,7 +204,7 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; background:
 .sbRail .avBtn:hover { filter: brightness(1.08); background-color: inherit; }
 .sbRail .mark, .sbHead .mark { background: var(--ink); border-radius: 9px; cursor: pointer; }
 .sbRail .mark:hover, .sbHead .mark:hover { background: var(--ink); filter: opacity(.85); }
-.sbPanel { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.sbPanel { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; opacity: 1; transition: opacity .14s ease .2s, display .3s allow-discrete; }
 .sbHead { display: flex; align-items: center; gap: 10px; margin: 0 2px 14px; }
 .sbHead .name { flex: 1; min-width: 0; }
 .sbHead .hact { display: flex; gap: 2px; }
@@ -211,14 +214,18 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; background:
 
 /* Sidebar panel */
 aside {
-  width: 256px; min-width: 200px; flex: none; display: flex; flex-direction: column; overflow: hidden;
+  width: 256px; min-width: 0; flex: none; display: flex; flex-direction: column; overflow: hidden;
   padding: calc(12px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-right: 1px solid var(--line);
   transition: width .22s ease, padding .22s ease;
-}
+} /* min-width:0: drag floor (200px) is enforced by JS (SIDE_MIN); CSS min would snap the expand animation */
 body.sideDrag aside { transition: none; }
 body.noside aside { width: var(--rail) !important; min-width: 0; padding: calc(10px + env(safe-area-inset-top)) 0 calc(10px + env(safe-area-inset-bottom)); }
-body.noside .sbPanel { display: none; }
-body.noside .sbRail { display: flex; }
+body.noside .sbPanel { display: none; opacity: 0; transition: opacity .12s ease, display .15s allow-discrete; }
+body.noside .sbRail { display: flex; opacity: 1; transition: opacity .14s ease .2s, display .3s allow-discrete; }
+@starting-style {
+  body.noside .sbRail { opacity: 0; }
+  body:not(.noside) .sbPanel { opacity: 0; }
+}
 body.noside #sideSplit { display: none; }
 body.noside aside { border-right-color: var(--line); }
 #nav { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; margin: 0 -4px; padding: 0 4px; }
@@ -673,7 +680,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 </script>
 
 <form id="login">
-  <div class="brand"><img src="./icon.svg" alt="" width="32" height="32" onerror="this.remove()"><h2>Typst Editor</h2></div>
+  <div class="brand"><img src="./icon.svg?v=2" alt="" width="32" height="32" onerror="this.remove()"><h2>Typst Editor</h2></div>
   <p class="vp">Write and preview Typst documents together, live.</p>
   <label class="sr-only" for="u">Username</label><input id="u" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false">
   <label class="sr-only" for="p">Password</label><input id="p" type="password" placeholder="Password" autocomplete="current-password" minlength="8">
@@ -688,7 +695,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 <div id="app">
     <aside id="side" aria-label="Sidebar">
     <div class="sbRail" aria-label="Sidebar (collapsed)">
-      <button class="mark" data-rail="toggle" aria-label="Expand sidebar" title="Expand sidebar"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.6v9.4c0 1.7 1 2.6 2.7 2.6h.9"/><path d="M6.4 7.6h7.2"/></svg></button>
+      <button class="mark" data-rail="toggle" aria-label="Expand sidebar" title="Expand sidebar"><img src="./icon.svg?v=2" alt="" width="32" height="32" draggable="false"></button>
       <button data-rail="new" aria-label="New document" title="New document"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg></button>
       <button data-rail="search" aria-label="Search documents" title="Search"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg></button>
       <button data-rail="docs" aria-label="Documents" title="Documents"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.75h5.25L12.5 5v9.25H4z"/><path d="M9.25 1.75V5h3.25"/></svg></button>
@@ -700,7 +707,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
       <button class="avBtn" id="railAv" data-rail="set" aria-label="Settings" title="Settings"></button>
     </div>
     <div class="sbPanel">
-    <div class="sbHead"><button class="mark" data-rail="toggle" aria-label="Collapse sidebar" title="Collapse sidebar"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.6v9.4c0 1.7 1 2.6 2.7 2.6h.9"/><path d="M6.4 7.6h7.2"/></svg></button><span class="name">Typst Editor</span><span class="hact"><button data-rail="theme" aria-label="Switch theme" title="Switch theme"></button><button data-rail="help" aria-label="Help and shortcuts" title="Help and shortcuts"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.3c.2-.9.9-1.5 1.8-1.5 1 0 1.8.7 1.8 1.6 0 1.1-1.1 1.3-1.8 2v.5"/><circle cx="8.1" cy="11.2" r=".7" fill="currentColor" stroke="none"/></svg></button></span></div>
+    <div class="sbHead"><button class="mark" data-rail="toggle" aria-label="Collapse sidebar" title="Collapse sidebar"><img src="./icon.svg?v=2" alt="" width="32" height="32" draggable="false"></button><span class="name">Typst Editor</span><span class="hact"><button data-rail="theme" aria-label="Switch theme" title="Switch theme"></button><button data-rail="help" aria-label="Help and shortcuts" title="Help and shortcuts"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.3c.2-.9.9-1.5 1.8-1.5 1 0 1.8.7 1.8 1.6 0 1.1-1.1 1.3-1.8 2v.5"/><circle cx="8.1" cy="11.2" r=".7" fill="currentColor" stroke="none"/></svg></button></span></div>
     <div class="sideSearch"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><label class="sr-only" for="q">Search documents</label><input id="q" placeholder="Search documents" autocomplete="off" aria-describedby="qCount"><span id="qCount" class="sr-only" role="status" aria-live="polite"></span></div>
     <div class="sideActions"><button id="new">New document</button><button id="upDoc" aria-label="Upload .typ as new document" title="Upload .typ as new document"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11V3"/><path d="M5 5.5L8 2.5l3 3"/><path d="M2.5 10.5v3h11v-3"/></svg></button></div>
     <input type="file" id="docPick" accept=".typ" style="display:none">

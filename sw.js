@@ -1,7 +1,7 @@
 // App shell offline: own static only, API/WS always network (no stale risk).
 // Bump V on shell changes (index.html, vendor-cm.js), else clients never see the update.
 // TODO: inject V from a build hash instead of bumping manually.
-const V = 'typst-27'
+const V = 'typst-30'
 // screenshot.png is docs-only (manifest screenshots entry), not shell: never cache it (249321 B).
 const SHELL = ['./', './index.html', './vendor-cm.js', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png']
 self.addEventListener('install', e => {
