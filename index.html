@@ -2416,8 +2416,9 @@ function threadCard(t) {
     wireMentions(inp)
     const ok = icoBtn('ib', ICO_SEND); ok.title = 'Send'; ok.setAttribute('aria-label', ok.title)
     const send = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
+      const text = inp.value; inp.value = '' // clear first: else loadComments keeps it as draft and skips renderPop
       api('POST', `/api/docs/${docId}/comments`,
-      { anchor: t.anchor, text: inp.value, parent_id: t.id }).then(() => refresh('r_' + t.id)).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
+      { anchor: t.anchor, text, parent_id: t.id }).then(() => refresh('r_' + t.id)).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
     ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
     row.append(inp, ok)
   }
