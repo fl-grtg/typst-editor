@@ -65,8 +65,8 @@
     --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .14);
     --text: #ececef; --sub: #9a9ca7; --faint: #6b6e79;
     --ink: #f2f2f4; --on-ink: #111214;
-    --tok-comment: #7d8392; --tok-raw: #9aa3b5; --tok-math: #5ec2d6; --tok-marker: #b79cf0; --tok-label: #5ec2d6;
-    --tok-keyword: #ff7a93; --tok-number: #f08fc0; --tok-string: #7fd49a; --tok-func: #82a8ff; --tok-interp: #b79cf0; --tok-prop: #b79cf0; --tok-link: #7aa7ff; --tok-invalid: #ff6b60;
+    --tok-comment: #8b93a5; --tok-raw: #9aa3b5; --tok-math: #5ec2d6; --tok-marker: #b79cf0; --tok-label: #5ec2d6;
+    --tok-keyword: #ff7a93; --tok-number: #e8a15c; --tok-string: #7fd49a; --tok-func: #82a8ff; --tok-interp: #d0a8ff; --tok-prop: #9db4ff; --tok-link: #7aa7ff; --tok-invalid: #ff6b60;
     --acc: #7aa7ff; --acc-soft: rgba(122, 167, 255, .18);
     --hover: rgba(255, 255, 255, .07); --press: rgba(255, 255, 255, .11); --sel: rgba(255, 255, 255, .10);
     --danger: #ff6b60; --danger-soft: rgba(255, 107, 96, .18);
@@ -82,8 +82,8 @@
   --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .14);
   --text: #ececef; --sub: #9a9ca7; --faint: #6b6e79;
   --ink: #f2f2f4; --on-ink: #111214;
-    --tok-comment: #7d8392; --tok-raw: #9aa3b5; --tok-math: #5ec2d6; --tok-marker: #b79cf0; --tok-label: #5ec2d6;
-    --tok-keyword: #ff7a93; --tok-number: #f08fc0; --tok-string: #7fd49a; --tok-func: #82a8ff; --tok-interp: #b79cf0; --tok-prop: #b79cf0; --tok-link: #7aa7ff; --tok-invalid: #ff6b60;
+    --tok-comment: #8b93a5; --tok-raw: #9aa3b5; --tok-math: #5ec2d6; --tok-marker: #b79cf0; --tok-label: #5ec2d6;
+    --tok-keyword: #ff7a93; --tok-number: #e8a15c; --tok-string: #7fd49a; --tok-func: #82a8ff; --tok-interp: #d0a8ff; --tok-prop: #9db4ff; --tok-link: #7aa7ff; --tok-invalid: #ff6b60;
   --acc: #7aa7ff; --acc-soft: rgba(122, 167, 255, .18);
   --hover: rgba(255, 255, 255, .07); --press: rgba(255, 255, 255, .11); --sel: rgba(255, 255, 255, .10);
   --danger: #ff6b60; --danger-soft: rgba(255, 107, 96, .18);
@@ -408,6 +408,18 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 #cmWrap .cm-lineNumbers .cm-gutterElement.hasThread { color: var(--acc); font-weight: 700; cursor: pointer; }
 #cmWrap .cm-tooltip { border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: var(--sh-pop); overflow: hidden; background: var(--card); }
 #cmWrap .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--ink); color: var(--on-ink); }
+#cmWrap .cm-tooltip-autocomplete ul li { color: var(--text); }
+#cmWrap .cm-completionDetail { color: var(--sub); font-style: italic; margin-left: 8px; }
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail { color: inherit; opacity: .7; }
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionIcon { color: inherit; }
+#cmWrap .cm-completionIcon-keyword { color: var(--tok-keyword); }
+#cmWrap .cm-completionIcon-function { color: var(--tok-func); }
+#cmWrap .cm-completionIcon-property { color: var(--tok-prop); }
+#cmWrap .cm-completionIcon-variable { color: var(--text); }
+#cmWrap .cm-completionIcon-constant, #cmWrap .cm-completionIcon-enum { color: var(--tok-number); }
+#cmWrap .cm-completionIcon-type, #cmWrap .cm-completionIcon-namespace { color: var(--tok-math); }
+#cmWrap .cm-completionIcon-label, #cmWrap .cm-completionIcon-text { color: var(--tok-label); }
+#cmWrap .cm-completionIcon-file { color: var(--faint); }
 .cm-tooltip-lint { display: none; }
 .typ-hover { max-width: 280px; padding: 9px 12px; font: 12.5px/1.55 var(--ui); color: var(--text); white-space: pre-line; }
 .typ-hover.full { max-width: 320px; }
@@ -801,8 +813,8 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 <script type="module">
 import * as Y from 'https://esm.sh/yjs@13.6.27'
 import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
-import * as CMV from './vendor-cm.js?v=3' // bundled locally: single instance, no CDN risk
-const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, forEachDiagnostic } = CMV // namespace import: works with older and newer vendor builds
+import * as CMV from './vendor-cm.js?v=4' // bundled locally: single instance, no CDN risk
+const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, Prec, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, typstTags, syntaxHighlighting, HighlightStyle, tags, forEachDiagnostic } = CMV // must match vendor build (cache-busted via ?v=4)
 // CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
 //   once the backend refactor lands — kept inline + unminified for reviewability in this run.
@@ -942,7 +954,7 @@ const T_KW = 'set show let import include context if else for while return break
 // but unique() keeps object refs, so enhancing the shared arrays affects the vendor source (no wrapper, no dupes)
 const parenApply = (view, completion, from, to) => {
   const ins = completion.label, next = view.state.sliceDoc(to, to + 1)
-  if (next === '(' || next === '[') { // already a call: keep the name only
+  if (next === '(' || next === '[' || next === '{') { // already a call/content: keep the name only
     view.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length }, userEvent: 'input.complete' })
     return
   }
@@ -951,6 +963,7 @@ const parenApply = (view, completion, from, to) => {
 for (const arr of [typstGlobalCompletions, typstMathCompletions])
   if (arr) for (const c of arr) if (c && c.type === 'function' && !c.apply) { c.apply = parenApply; delete c.commitCharacters } // no (-commit: apply already adds (); typed ( pairs via closeBrackets
 const T_BLOCKED = new Set(['Shebang', 'LineComment', 'BlockComment', 'Raw', 'Str', 'Link', 'Label', 'Ref', 'Error']) // mirror of vendor blockedNodes + Error
+let pcDoc = null, pcTree = null // memoized parse for the #word branches (doc objects are persistent: same ref = same tree)
 function typstComplete(ctx) {
   const pos = ctx.pos
   const before = ctx.state.doc.sliceString(Math.max(0, pos - 256), pos)
@@ -959,58 +972,76 @@ function typstComplete(ctx) {
   if (imp) { // after import/include/#image(": global templates + manager files
     const q = imp[2].toLowerCase()
     const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(q, n))
-    return files.length ? { from: pos - imp[2].length, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[^"\n]*$/ } : null
+    return files.length ? { from: pos - imp[2].length, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[^"\n]*$/ } : null
   }
   const rf = before.match(/#ref\s*\((<?)([^)>]*)$/)
   if (rf) { // after #ref(: labels from doc (vendor covers @label, not the #ref( form)
     const q = rf[2].toLowerCase(), out = [], seenL = new Set()
     for (const m of getT().matchAll(/<([^<>\s]+)>/g)) // labels use colons (<sec:intro>)
       if (!seenL.has(m[1]) && fuzzy(q, m[1])) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
-    return out.length ? { from: pos - rf[2].length - rf[1].length, options: out.slice(0, 50), validFor: /^<?[\p{ID_Continue}:.-]*>?$/u } : null
+    return out.length ? { from: pos - rf[2].length - rf[1].length, filter: false, options: out.slice(0, 50), validFor: /^<?[\p{ID_Continue}:.-]*>?$/u } : null
   }
   const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
   if (ct) {
     if (!bibKeys.length) return null
     const q = ct[1].toLowerCase()
     const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
-    return out.length ? { from: pos - ct[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*$/ } : null
+    return out.length ? { from: pos - ct[1].length, filter: false, options: out.slice(0, 50), validFor: /^[\p{ID_Continue}:.-]*$/u } : null
   }
-  const sr = before.match(/#set\s+([\w.]+)\s*\(([^()]*)$/)
+  const sr = (() => { // innermost unclosed `#set FUNC(` (nesting-aware; parens in strings ignored)
+    const re = /#set\s+([\w.]+)\s*\(/g
+    let m, last = null
+    while ((m = re.exec(before))) last = m
+    if (!last) return null
+    const args = before.slice(last.index + last[0].length)
+    let depth = 0
+    for (const ch of args.replace(/"[^"\n]*"?/g, '')) {
+      if (ch === '(') depth++
+      else if (ch === ')') { if (--depth < 0) return null } // call already closed
+    }
+    return { name: last[1], args } // depth >= 0: still inside (nested or not)
+  })()
   const kwm = before.match(/#([\p{ID_Continue}_-]*)$/u)
   let blocked = null // ancestor blocking completion (mirror of vendor blockedNodes + Error); one parse shared by the #word branches
   if ((sr || kwm) && typeof typstParser !== 'undefined') {
     try {
-      const doc = ctx.state.doc.toString()
-      let n = typstParser.parse(doc).resolveInner(Math.min(pos, doc.length), -1)
-      for (; n; n = n.parent) if (T_BLOCKED.has(n.name)) { blocked = n.name; break }
-    } catch (e) {}
+      const doc = ctx.state.doc
+      if (doc.length <= 100000) { // huge docs: skip check (vendor turf, no fallback) instead of frame drops
+        if (pcDoc !== doc) { pcDoc = doc; pcTree = typstParser.parse(doc.toString()) }
+        let n = pcTree && pcTree.resolveInner(Math.min(pos, doc.length), -1)
+        for (; n; n = n.parent) if (T_BLOCKED.has(n.name)) { blocked = n.name; break }
+      }
+    } catch (e) { pcDoc = null; pcTree = null }
   }
   if (blocked && blocked !== 'Error') return null // comment/string/raw: vendor silent by design, project stays silent too
   if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gaps: vendor hides non-settable flags (paper, gutter, radius...) although valid
-    const sig = typstBuiltinSignatures[sr[1]]
-    if (sig) {
-      const cur = sr[2].split(',').pop()
-      const vm = cur.match(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:\s*("?[\p{ID_Continue}_.-]*)$/u)
-      const pm = vm && sig.find(p => p[0] === vm[1] && (p[1] & 16) === 0) // gap params only: settable values come from the vendor (no dupes)
+    const sig = typstBuiltinSignatures[sr.name]
+    if (Array.isArray(sig)) {
+      let flat = sr.args.replace(/"[^"\n]*"?/g, '""') // strings blanked: commas/colons inside don't split
+      for (let k = 0; k < 6 && /\([^()]*\)/.test(flat); k++) flat = flat.replace(/\([^()]*\)/g, '') // nested groups stripped for analysis (positions stay original)
+      const cur = flat.split(',').pop()
+      const trail = (sr.args.match(/("?[\p{ID_Continue}_.-]*)$/u) || [])[1] || ''
+      const vmName = (cur.match(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:[^:]*$/u) || [])[1]
+      const pm = vmName && sig.find(p => p[0] === vmName && (p[1] & 16) === 0 && Array.isArray(p[2])) // gap params only: settable values come from the vendor (no dupes)
       if (pm) { // value after `name:`: paper sizes etc. (vendor shows nothing here for gap params)
-        const q = vm[2].replace(/^"/, '').toLowerCase(), out = []
+        const quoted = trail.charCodeAt(0) === 34, q = (quoted ? trail.slice(1) : trail).toLowerCase(), out = []
         for (const part of pm[2]) {
-          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: v, type: 'enum', detail: 'Accepted value', boost: 55 }) }
+          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: v, type: 'enum', detail: 'Accepted value', boost: 55 }) }
           else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: 'Boolean value', boost: 55 }) }
           else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: 'Typst ' + v + ' value', boost: 55 }) }
         }
         if (out.length) {
           const qn = q
           out.sort((a, b) => (b.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0) - (a.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0))
-          return { from: pos - vm[2].length, options: out.slice(0, 50), validFor: /^"?[\p{ID_Continue}:.-]*$/u }
+          return { from: pos - trail.length, filter: false, options: out.slice(0, 50), validFor: /^"?[\p{ID_Continue}:.-]*$/u }
         }
       } else if (!cur.includes(':')) { // param name (no colon yet): only params vendor hides
-        const used = new Set([...sr[2].matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
-        const wm = sr[2].match(/([\p{ID_Continue}_-]*)$/u), pre = (wm ? wm[1] : '').toLowerCase()
+        const used = new Set([...flat.matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
+        const wm = sr.args.match(/([\p{ID_Continue}_-]*)$/u), pre = (wm ? wm[1] : '').toLowerCase()
         const gap = sig.filter(p => p[0] !== 'body' && (p[1] & 2) && !(p[1] & 16) && !used.has(p[0]) && p[0].toLowerCase().includes(pre))
         if (gap.length) {
-          return { from: pos - (wm ? wm[1].length : 0), options: gap.slice(0, 20).map(p => {
-            const accepts = p[2].map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
+          return { from: pos - (wm ? wm[1].length : 0), filter: false, options: gap.slice(0, 20).map(p => {
+            const accepts = (Array.isArray(p[2]) ? p[2] : []).map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
             return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? 'parameter · ' + accepts : 'parameter', boost: 50 }
           }), validFor: /^[\p{ID_Continue}_-]*$/u }
         }
@@ -1020,19 +1051,19 @@ function typstComplete(ctx) {
   if (kwm) { // control keywords live in no vendor list (#se -> #set; apply bare: # already typed)
     const q = kwm[1].toLowerCase()
     const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: k, type: 'keyword', boost: 60 }))
-    if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
+    if (out.length) return { from: pos - kwm[1].length, filter: false, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
   }
   if (kwm && blocked === 'Error' && typeof typstGlobalCompletions !== 'undefined') {
     // broken syntax (##, unclosed forms): vendor is tree-based and silent -> text fallback from vendor data
     const q = kwm[1].toLowerCase(), out = []
     for (const c of typstGlobalCompletions) { if (out.length >= 50) break; if (c.label.toLowerCase().includes(q)) out.push(c) }
-    if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
+    if (out.length) return { from: pos - kwm[1].length, filter: false, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
   }
   if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
     const w = ctx.matchBefore(/[\p{ID_Continue}.\-/]*$/u)
     const pre = (w ? w.text : '').toLowerCase()
     const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
-    return files.length ? { from: w ? w.from : pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\p{ID_Continue}.\-/]*$/u } : null
+    return files.length ? { from: w ? w.from : pos, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\p{ID_Continue}.\-/]*$/u } : null
   }
   return null
 }
@@ -1167,6 +1198,26 @@ function refreshHl() { // highlight from saved ranges: never breaks on typing
 let threads = [], marks = new Set(), popAnchor = 0 // before cm: gutter mapper runs during setup
 let applying = false // remote sync writes: triggers no push
 const typstSupport = typst_lezer() // hoisted: project completions register via .language.data below
+// Var-driven token colors: one HighlightStyle for both modes (light/dark differ only
+// via --tok-*). Prec.high beats the two highlighters baked into typstSupport
+// (vendor Typst style + CM default), which were designed for light backgrounds.
+// heading/strong/emphasis still fall back to the CM default; link/invalid are
+// intentionally overridden here (CM default: underline-only link, #f00 invalid).
+const typstTheme = HighlightStyle.define([
+  { tag: tags.comment, color: 'var(--tok-comment)', fontStyle: 'italic' },
+  { tag: tags.monospace, color: 'var(--tok-raw)' },
+  { tag: [tags.keyword, tags.atom, tags.bool, tags.null], color: 'var(--tok-keyword)' },
+  { tag: tags.number, color: 'var(--tok-number)' },
+  { tag: tags.string, color: 'var(--tok-string)' },
+  { tag: tags.function(tags.variableName), color: 'var(--tok-func)' },
+  { tag: tags.propertyName, color: 'var(--tok-prop)' },
+  { tag: tags.escape, color: 'var(--tok-math)' }, // covers Label/Ref nodes too (upstream maps them to escape)
+  { tag: typstTags.mathDelimiter, color: 'var(--tok-math)' },
+  { tag: typstTags.listMarker, color: 'var(--tok-marker)' },
+  { tag: typstTags.interpolated, color: 'var(--tok-interp)' },
+  { tag: tags.link, color: 'var(--tok-link)', textDecoration: 'underline' },
+  { tag: tags.invalid, color: 'var(--tok-invalid)' },
+])
 const cm = new EditorView({
   parent: $('cm'),
   extensions: [keymap.of([ // first: highest priority before minimalSetup defaults
@@ -1189,7 +1240,7 @@ const cm = new EditorView({
       },
       shift: v => indentLess(v),
     }, { key: 'Ctrl-Space', run: startCompletion }]),
-    minimalSetup, typstSupport, typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping,
+    minimalSetup, typstSupport, Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping,
     autocompletion({ defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errField,
     markField, lineNumbers(),
