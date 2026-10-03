@@ -2,44 +2,43 @@
 
 [![ci](https://github.com/fl-grtg/typst-editor/actions/workflows/ci.yml/badge.svg)](https://github.com/fl-grtg/typst-editor/actions/workflows/ci.yml) [![docker](https://github.com/fl-grtg/typst-editor/actions/workflows/docker.yml/badge.svg)](https://github.com/fl-grtg/typst-editor/actions/workflows/docker.yml) [![license](https://img.shields.io/github/license/fl-grtg/typst-editor)](./LICENSE)
 
-Collaborative Typst editor in the browser: code on the left, live PDF on the right.
+Collaborative Typst editor in the browser: code left, live PDF right.
 
-One process: FastAPI serves the API, Yjs syncs the edits, and SQLite stores everything. No Node needed at runtime.
+One process: FastAPI serves the API, Yjs syncs edits, SQLite stores all. No Node at runtime.
 
-<img width="1440" height="774" alt="editor" src="./docs/screenshot.png" />
+<img width="1920" height="1080" alt="editor" src="./docs/screenshot.png" />
 
 ## ✨ Features
 
-- Live PDF preview, compiled in the browser via Typst 0.7.0 WASM, rendered with pdf.js
-- Realtime collaboration via Yjs over `WS /ws/{doc_id}`, presence included, cookie-only auth
-- Owner/editor/reviewer roles (reviewer reads and comments, shown as Reader) with share links and doc invites
-- Comment threads with line anchors + quote re-anchoring, @-mentions, one-level replies, resolve, edit
-- Outline from `=` headings, symbol picker with search, static autocomplete (files/templates after `#image`/`#include`), find/replace bar
-- File uploads (`.png/.jpg/.jpeg/.svg/.gif/.webp/.pdf/.typ/.bib/.csv`) via button, drag & drop, or paste; `.typ` inserts `#include`, `.bib` `#bibliography`, images `#image`
-- Templates per account with their own folders, reused via `#include` (insert at cursor, autocomplete-aware)
-- History with manual + automatic snapshots, line-diff view, one-click restore (auto-saves a `Before restore` snapshot first)
-- Folders with rename, two-stage trash with restore, duplicate (needs editor role, copies files), search over doc titles + content
-- Export as `.typ`, PDF, SVG (client-side via Typst WASM), PNG of the currently visible page (via preview canvas), or all docs as one `.zip` (server-side via `GET /api/export.zip`)
-- Autosave (~2.5 s) + 24 h local stash with opt-in restore, offline app shell, font/zoom/theme settings
-- Account settings: avatar (PNG/JPEG/WebP, 200 KB), rename, password change, full delete
-- Per-user quotas and per-endpoint rate limits, enforced server-side
+- Live PDF preview, compiled in browser (Typst 0.7.0 WASM, pdf.js render)
+- Realtime collab via Yjs over `WS /ws/{doc_id}`, presence included, cookie-only auth
+- Owner/editor/reviewer roles (reviewer = Reader: comment only), share links, doc invites
+- Comment threads with line anchors, @-mentions, one-level replies, resolve, edit
+- Outline from `=` headings, symbol picker, autocomplete (`#image`/`#include`), find/replace
+- Uploads (`.png/.jpg/.jpeg/.svg/.gif/.webp/.pdf/.typ/.bib/.csv`) via button, drag & drop, paste
+- Templates per account with folders, reused via `#include`
+- History: manual + auto snapshots, line diff, one-click restore (saves `Before restore` first)
+- Folders, two-stage trash, duplicate (owner/editor, copies files), search over titles + content
+- Export `.typ`, PDF, SVG, PNG of current page, or all docs as `.zip` (`GET /api/export.zip`)
+- Autosave (~2.5 s), 24 h local stash, offline shell, font/zoom/theme settings
+- Account settings: avatar (PNG/JPEG/WebP, 200 KB), rename, password change, delete
+- Per-user quotas + per-endpoint rate limits, enforced server-side
 
 ## 🚀 Get Started
 
-With Docker (under 5 minutes, no config files needed):
+Docker (no config needed):
 
 ```bash
 docker compose up -d
 docker compose logs app | grep "invite code"
 # Windows PowerShell: docker compose logs app | Select-String "invite code"
 ```
-Pulls the image automatically (`pull_policy: always`). Data lives in a managed Docker volume (zero setup). Host path instead: set `COMPOSE_DATA_PATH` (Linux/macOS/WSL: `chown -R 999:999` on that dir; Docker Desktop on Windows usually needs nothing — named volumes and bind mounts inherit usable permissions).
 
-Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Only needed for custom setups: `cp .env.example .env` (proxy, other data path, other port).
-Custom port: set `PORT` in `.env` — Compose maps `127.0.0.1:${PORT:-8978}:${PORT:-8978}` (host:container), so one variable moves both sides.
-Build locally instead of pulling: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
+Pulls the image (`pull_policy: always`). Data stays in a managed volume. Host path instead: set `COMPOSE_DATA_PATH` (Linux/macOS/WSL: `chown -R 999:999` on it).
 
-Or locally with Python 3.11:
+Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Custom setup only: `cp .env.example .env`. Custom port: set `PORT` in `.env` (moves host + container port). Build local: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
+
+Local Python 3.11:
 
 ```bash
 python -m venv .venv
@@ -48,23 +47,23 @@ pip install -r requirements.txt
 uvicorn backend.main:app --host 127.0.0.1 --port 8978 --workers 1
 ```
 
-Registration defaults to `invite-only`. Fresh Docker installs generate an invite token on first start (see logs, stored `chmod 600` as `DATA_DIR/.invite_token`) — every account including the first needs it. Set your own token before first start on public servers (`openssl rand -hex 32`). Without a token, registration is blocked (fail-closed, including the first account) — set `REGISTRATION_INVITE_TOKEN` first. Use `open` for local tests only, never on the public internet.
+Registration is `invite-only`. Fresh Docker installs print a token on first start (stored `chmod 600` as `DATA_DIR/.invite_token`). Every account needs it. Public servers: set `REGISTRATION_INVITE_TOKEN` before first start (`openssl rand -hex 32`). Empty token blocks registration (fail-closed). `open` is for local tests only.
 
 ## ⚙️ Configuration
 
-File plus env overrides; env wins (parsed and validated in `backend/config.py`, the single source of truth; `.env.example`/`config.example.toml` mirror it).
+File + env overrides; env wins. Parsed in `backend/config.py`. `.env.example`/`config.example.toml` mirror it.
 
 | ENV | Default | Notes |
 | --- | --- | --- |
-| `DATA_DIR` | `./data` | SQLite plus uploads; `/app/data` in the container. Needs restart when changed. |
-| `COMPOSE_DATA_PATH` | managed volume | Optional host path instead, e.g. `/srv/typst-data`. |
-| `TRUST_PROXY` | `false` | Required `true` behind a proxy, else cookies break. Set in `config.toml` or `.env`; env wins. |
+| `DATA_DIR` | `./data` | SQLite + uploads; `/app/data` in container. |
+| `COMPOSE_DATA_PATH` | managed volume | Host path instead, e.g. `/srv/typst-data`. |
+| `TRUST_PROXY` | `false` | Set `true` behind a proxy, else cookies break. |
 | `REGISTRATION` | `invite-only` | `closed`, `invite-only`, or `open`. |
-| `REGISTRATION_INVITE_TOKEN` | empty | `openssl rand -hex 32`. Min 16 chars when set — shorter non-empty values refuse to start.
+| `REGISTRATION_INVITE_TOKEN` | empty | Min 16 chars when set, else start refuses. |
 | `SESSION_SECONDS` | `1209600` | 14 days. |
-| `MAX_DOCS_PER_USER` | `100` | Plus 500 MB and 200 files per doc (see `backend/config.py`). |
+| `MAX_DOCS_PER_USER` | `100` | Plus 500 MB and 200 files per doc. |
 
-Never commit local `config.toml` or `.env`; only the `.example` files are tracked.
+Never commit `config.toml` or `.env`; only `.example` files are tracked.
 
 ## 📡 API
 
@@ -72,12 +71,12 @@ Never commit local `config.toml` or `.env`; only the `.example` files are tracke
 curl -s http://127.0.0.1:8978/healthz
 ```
 
-Live sync runs over `WS /ws/{doc_id}` via y-websocket. Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax): API clients must store cookies. Invite tokens travel in the POST body, never as a GET path — `/?join=TOKEN` (doc invite) and `/?invite=CODE` (registration) are entry-point links only: the app reads the code, strips it from the URL/history immediately, and sends it in the POST body.
+Sync runs over `WS /ws/{doc_id}` (y-websocket). Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax). Invite tokens go in the POST body, never in the URL. `/?join=TOKEN` and `/?invite=CODE` are entry links only: the app reads the code, strips it from the URL, sends it via POST.
 
 ### 🔗 Invite links
 
-- `https://host/?invite=CODE` opens the registration view with the code prefilled (no auto-submit — the user still picks name/password). Needs a logged-out browser.
-- `https://host/?join=TOKEN` redeems a doc invite after login (POST body, token cleared from URL). Share it via the doc's Share → invite link button.
+- `https://host/?invite=CODE` opens registration with code prefilled (no auto-submit). Needs logged-out browser.
+- `https://host/?join=TOKEN` redeems a doc invite after login. Share via doc Share button.
 
 ## 💾 Backup
 
@@ -85,13 +84,13 @@ Live sync runs over `WS /ws/{doc_id}` via y-websocket. Auth is cookie-only (`typ
 python scripts/backup.py --include-files
 ```
 
-Writes `DATA_DIR/backup/app-YYYYMMDD-HHMMSS.db` via `VACUUM INTO` plus a `*-files.tar.gz` archive of `DATA_DIR/files`, keeps the newest 7 (`--keep N`, `--dry-run` to preview). `--include-files` defaults to on. `--keep 0` still keeps 1 (guard against purging everything). Run hourly via cron or `docker compose exec -T app python scripts/backup.py --include-files` (`-T`: no TTY, for cron/non-interactive use). Backups are unencrypted: `gpg -c DATA_DIR/backup/app-*.db`.
+Writes `DATA_DIR/backup/app-YYYYMMDD-HHMMSS.db` (`VACUUM INTO`) + `*-files.tar.gz` of `DATA_DIR/files`. Keeps newest 7 (`--keep N`, `--dry-run` to preview). `--keep 0` still keeps 1. Cron: `docker compose exec -T app python scripts/backup.py --include-files`. Backups are plain: `gpg -c DATA_DIR/backup/app-*.db`.
 
-Restore: stop the server, copy the backup over `app.db` (`cp DATA_DIR/backup/app-....db DATA_DIR/app.db`), delete `app.db-wal`/`app.db-shm`, unpack files (`tar -xzf DATA_DIR/backup/app-...-files.tar.gz -C DATA_DIR`), fix ownership on host paths (`chown -R 999:999 DATA_DIR`), start. Verify with `PRAGMA integrity_check;` (the backup script already checks the backup copy before rotating).
+Restore: stop server, copy backup over `app.db`, delete `app.db-wal`/`app.db-shm`, unpack files (`tar -xzf ... -C DATA_DIR`), `chown -R 999:999 DATA_DIR` on host paths, start. Check with `PRAGMA integrity_check;`.
 
 ## 🔌 Reverse proxy
 
-`TRUST_PROXY=true` is required; never expose the app directly, TLS is your responsibility. Caddy:
+Needs `TRUST_PROXY=true`. Never expose directly; TLS is yours. Caddy:
 
 ```
 typst.example.com {
@@ -99,7 +98,7 @@ typst.example.com {
 }
 ```
 
-nginx (full block — WebSocket needs `http_version 1.1` plus the `Upgrade`/`Connection` headers):
+nginx (WebSocket needs `http_version 1.1` + `Upgrade`/`Connection`):
 
 ```
 server {
@@ -107,7 +106,6 @@ server {
     server_name typst.example.com;
     ssl_certificate /etc/letsencrypt/live/typst.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/typst.example.com/privkey.pem;
-    # e.g. via certbot: certbot --nginx -d typst.example.com (adjust paths to your setup)
 
     client_max_body_size 12M;
 
@@ -126,30 +124,30 @@ server {
 }
 ```
 
-Without `proxy_http_version 1.1` + `Upgrade`/`Connection`, the live sync WebSocket (`WS /ws/{doc_id}`) stays dead while plain HTTP works. `client_max_body_size 12M` covers 10 MB file uploads plus overhead. With a custom `PORT` in `.env`, point `reverse_proxy`/`proxy_pass` at that port instead of `8978`.
+Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: point proxy at that port.
 
-Uvicorn only honors `X-Forwarded-For`/`Proto` from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose/Caddy the proxy arrives via a `172.x` bridge IP, so extend (not replace) the default in `.env`, e.g. `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12` (passed through to the container); otherwise every client looks like the proxy IP and shares one rate-limit bucket. Never use `*` with `TRUST_PROXY=true` — any client could then spoof its IP and dodge rate limits.
+Uvicorn trusts `X-Forwarded-For`/`Proto` only from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose the proxy uses a `172.x` IP, so extend the default: `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12`. Else all clients share one rate-limit bucket. Never `*` with `TRUST_PROXY=true`.
 
-Always one worker (`--workers 1`) and one replica: rooms live in process memory. 512 MB RAM minimum, 1 GB recommended. No public demo instance; self-host.
+One worker (`--workers 1`), one replica: rooms live in memory. 512 MB min, 1 GB advised. No public demo; self-host.
 
-Limits, openly: docs 200000 characters each (`MAX_TXT` in `backend/constants.py`, counted as characters so non-ASCII text can exceed 200 KB on disk); titles 100 chars, folder names 40; uploads 10 MB per file; 50 snapshots per doc, auto at most every 15 min, restore auto-saves a `Before restore` snapshot first; doc invites valid 7 days, max 20 per doc, redeemable any number of times within that window (the token is shown once at creation — copy it then); search needs 2 chars, max 20 hits, docs only (no templates/files); quotas 100 docs and 500 MB per user, 200 files per doc; avatars 200 KB (PNG/JPEG/WebP); all-docs `.zip` capped at 100 MB, files over 10 MB land in `SKIPPED.txt` instead; reads share the `files_list` bucket (120/min), writes have their own.
+Limits: 200000 chars per doc (`MAX_TXT` in `backend/constants.py`); titles 100 chars, folders 40; uploads 10 MB per file; 50 snapshots per doc, auto max every 15 min; invites valid 7 days, max 20 per doc, multi-use (token shown once); search needs 2 chars, max 20 hits, docs only; quotas 100 docs + 500 MB per user, 200 files per doc; avatars 200 KB; `.zip` capped at 100 MB, files over 10 MB go to `SKIPPED.txt`; reads share `files_list` bucket (120/min).
 
 ### 🔒 Security Contact
 
-Report vulnerabilities via GitHub Private Vulnerability Reporting.
-Do not open public issues for security problems.
-Allow time for a fix before any disclosure.
+Report vulns via GitHub Private Vulnerability Reporting.
+No public issues for security problems.
+Allow time for a fix before disclosure.
 
-Unshare wipes all pending invite links for the doc (they carry no username). Preview needs internet on first load (CDN: cdnjs/esm.sh/jsdelivr — always network, no offline cache; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0); afterwards the shell stays cached by the browser, saving needs network (24 h local stash). There is no service worker (dropped 2026-10-03; plain HTTP caching). The server sends `Cache-Control: no-store` on `/`, `*.html`, `*.js` and `/api/*` (see `backend/main.py`), while versioned shell assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP allows `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` plus pinned CDN origins — Typst WASM cannot run without them; user content is rendered via `textContent` only.
+Unshare wipes pending invite links (they carry no username). First load needs internet (CDN: cdnjs/esm.sh/jsdelivr; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0). Afterwards the shell stays in browser cache; saving needs net (24 h stash). No service worker (dropped 2026-10-03, plain HTTP cache). `Cache-Control: no-store` on `/`, `*.html`, `*.js`, `/api/*` (see `backend/main.py`); versioned assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP needs `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` for Typst WASM; user content renders via `textContent` only.
 
 ### 🛠 Troubleshooting
 
-- First load needs internet (CDN), then shell offline. Check `#cdnLine` / console.
-- Single worker only (`--workers 1`, also as CLI flag). Multi-worker exits on purpose.
-- Behind proxy set `TRUST_PROXY=true`; appending via `$proxy_add_x_forwarded_for` is fine with a single proxy in front (no longer chain to preserve).
-- Port `8978` loopback-only (override via `PORT` in `.env`); TLS via proxy.
-- Permissions: managed volume needs nothing. Host path only: `chown -R 999:999` on it.
-- `429` on reads: the shared `files_list` bucket (120/min) — slow down polling.
+- First load needs internet (CDN). Check `#cdnLine` / console.
+- Single worker only (`--workers 1`). Multi-worker exits on purpose.
+- Behind proxy: `TRUST_PROXY=true`.
+- Port `8978` is loopback-only (override via `PORT`); TLS via proxy.
+- Host path perms only: `chown -R 999:999` on it.
+- `429` on reads: shared `files_list` bucket (120/min), slow down.
 
 ### 🧪 Develop
 
@@ -160,7 +158,7 @@ ruff check backend/ scripts/ tests/
 mypy backend/ scripts/ tests/
 ```
 
-Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build` (writes `../vendor-cm.js`). CI `vendor-bundle` fails on diff or >600 KB.
+Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build`. CI fails on diff or >600 KB.
 
 ### 📦 Changelog
 
@@ -168,8 +166,8 @@ See GitHub Releases (no CHANGELOG file, single README on purpose).
 
 ## 💡 Why
 
-Most collaborative editors either need heavy infrastructure or lock you into a cloud. This sits in the middle: one container you can self-host, enough collaboration to work together, little enough surface area to understand in one sitting.
+Most collab editors need heavy infra or lock you into a cloud. This is one container you self-host: enough collab to work together, small enough to read in one sitting.
 
 ## 📜 License
 
-Apache-2.0, see `LICENSE`. Third-party versions and licenses in `NOTICE` (pins match the CDN imports and CSP entries).
+Apache-2.0, see `LICENSE`. Third-party versions in `NOTICE` (pins match CDN imports and CSP).
