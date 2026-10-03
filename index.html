@@ -859,22 +859,7 @@ try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MA
 try { const z = +localStorage.getItem('typst_pv'); if (z >= PV_MIN && z <= PV_MAX) pvZoom = z } catch (err) {}
 const saveSet = () => { lsSet('typst_ed', edSize); lsSet('typst_pv', pvZoom) }
 
-// --- CodeMirror: Lezer highlight, autocomplete + hover from static lists (deterministic) ---
-const T_KEYS = [...new Set(('let set show import include context if else for while return break continue in as and or not ' +
-  'align alignment angle block box bibliography cite circle clip cos document ellipse emph enum figure footnote grid heading image item ' +
-  'length line link list lower math measure move outline pad page par path place polygon quote rect ref regex rotate ' +
-  'scale sin skew square stack strong styled sub super sum table tan terms text upper highlight overline underline smallcaps strike ' +
-  'author date title caption placement float wrap columns gutter rows cell hline vline ' +
-  'numbering counter state query label metadata sys inputs calc min max abs round ceil floor even odd range zip ' +
-  'fill stroke inset outset radius width height none auto left right center top bottom horizon start end ' +
-  'paper margin binding header footer pagebreak parbreak raw code upright italic bold vec mat cases binom frac over under attach ' +
-  'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi pi rho sigma tau upsilon phi chi psi omega ' +
-  'Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega forall exists emptyset infty partial nabla degree ' +
-  'arrow larr rarr uarr darr harr quad dots cdots ldots vdots integral oint prod cbrt display inline equation supplement ' +
-   'cetz canvas draw hide csv json read ' +
-  'supplement outlined body header footer row gutter cell placement float wrap tight leading indent hanging justify hyphenate kerning tracking ligatures overhang variant weight stretch script features lang region fallback delimiters depth paint axis step major minor from to control tension close smooth offset separator layout style fit cover ' +
-  'dot ddots hat tilde bar underbrace overbrace cancel hbar ell mid parallel perp equiv approx propto ast circ cdot times div pm mp le ge neq subset supset cap cup vee wedge neg therefore because prime partial aleph emptyset oint oplus otimes implies iff notin angle dots colon coloneq succ prec sim cong triangle diamond square star flat natural sharp ' +
-   'group content mark anchor h v linebreak colbreak smartquote repeat numbering datetime lorem str int float bool array').split(' ').filter(Boolean))]
+// --- CodeMirror: vendor Typst completions (typst_lezer language data: builtins, params, let-scope, labels) + project source below (files/templates/bib/#ref). Hover docs stay static (T_DOC). ---
 const T_DOC = {
   set: '#set page(..) / #set text(..) - rule for following content; first arg bare (page, text)',
   show: '#show heading: it => .. - restyle elements',
@@ -947,47 +932,41 @@ const groupBy = list => { // top-level first + folder map (caller adds empty fol
   })
   return { top, byF }
 }
+// Project-only completions (vendor typst_lezer handles the Typst language itself:
+// builtins, params, let-scope, @labels). Returns null everywhere else so the
+// vendor source answers alone. Triggers: file paths in "..." strings,
+// #ref(<label>, #cite("key", Ctrl-Space/Tab file fallback.
 function typstComplete(ctx) {
-  const w = ctx.matchBefore(/[#\\]?[\w.]+/)
-  if (!w && !ctx.explicit) return null
-  const raw = w ? w.text : ''
-  const pre = raw.replace(/^[#\\]/, '').toLowerCase()
-  const seen = new Set(), opts = []
-  const before = ctx.state.doc.sliceString(Math.max(0, (w ? w.from : ctx.pos) - 24), w ? w.from : ctx.pos)
-  const bare = !/^[#\\]/.test(raw) && /#(set|show)\s+[^\s]*$/.test(before) // after #set/#show: bare names (page not #page)
+  const pos = ctx.pos
+  const before = ctx.state.doc.sliceString(Math.max(0, pos - 64), pos)
+  const fuzzy = (q, s) => s.toLowerCase().includes(q) // substring, not prefix-only
   const imp = before.match(/(import|include|image|bibliography|read|csv|json)\s*[( ]"([^"]*)$/)
   if (imp) { // after import/include/#image(": global templates + manager files
     const q = imp[2].toLowerCase()
-    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => n.toLowerCase().startsWith(q))
-    return files.length ? { from: ctx.pos - imp[2].length, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
+    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(q, n))
+    return files.length ? { from: pos - imp[2].length, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[^"\n]*$/ } : null
   }
   const rf = before.match(/#ref\s*\(<?([^)>]*)$/)
-  if (rf) { // after #ref(: labels from doc
+  if (rf) { // after #ref(: labels from doc (vendor covers @label, not the #ref( form)
     const q = rf[1].toLowerCase(), out = [], seenL = new Set()
     for (const m of getT().matchAll(/<([\w-]+)>/g))
-      if (!seenL.has(m[1]) && m[1].toLowerCase().startsWith(q)) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
-    return out.length ? { from: ctx.pos - rf[1].length, options: out.slice(0, 50) } : null
+      if (!seenL.has(m[1]) && fuzzy(q, m[1])) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
+    return out.length ? { from: pos - rf[1].length, options: out.slice(0, 50), validFor: /^[\w-]*>?$/ } : null
   }
-  const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll)
-  if (ct && bibKeys.length) {
+  const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
+  if (ct) {
+    if (!bibKeys.length) return null
     const q = ct[1].toLowerCase()
-    const out = bibKeys.filter(k => k.toLowerCase().startsWith(q)).map(k => ({ label: k, type: 'variable' }))
-    return out.length ? { from: ctx.pos - ct[1].length, options: out.slice(0, 50) } : null
+    const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
+    return out.length ? { from: pos - ct[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*$/ } : null
   }
-  const hash = /^[#\\]/.test(raw)
-  if (ctx.explicit && !hash && !bare) { // Tab/Ctrl-Space without #: files/templates, no #-commands
-    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => n.toLowerCase().startsWith(pre))
-    return files.length ? { from: w ? w.from : ctx.pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
+  if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
+    const w = ctx.matchBefore(/[\w.\-/]*/)
+    const pre = (w ? w.text : '').toLowerCase()
+    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
+    return files.length ? { from: w ? w.from : pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\w.\-/]*$/ } : null
   }
-  if (!hash && !bare) return null // plain text: no #-suggest
-  const fmt = k => raw[0] === '\\' ? '\\' + k : bare ? k : '#' + k
-  for (const k of T_KEYS)
-    if (k.startsWith(pre)) { seen.add(k); opts.push({ label: fmt(k), type: 'keyword', apply: fmt(k) }) }
-  if (!bare) for (const n of mediaNames)
-    if (!seen.has(n) && n.toLowerCase().startsWith(pre)) { seen.add(n); opts.push({ label: n, type: 'file' }) }
-  if (pre) for (const m of getT().matchAll(/[A-Za-z_][\w]{2,}/g))
-    if (!seen.has(m[0]) && m[0].toLowerCase().startsWith(pre)) { seen.add(m[0]); opts.push({ label: bare ? m[0] : '#' + m[0], type: 'variable' }) }
-  return opts.length ? { from: w ? w.from : ctx.pos, options: opts.slice(0, 50) } : null
+  return null
 }
 function typstHover(view, pos) {
   const w = view.state.wordAt(pos)
@@ -1119,6 +1098,7 @@ function refreshHl() { // highlight from saved ranges: never breaks on typing
 }
 let threads = [], marks = new Set(), popAnchor = 0 // before cm: gutter mapper runs during setup
 let applying = false // remote sync writes: triggers no push
+const typstSupport = typst_lezer() // hoisted: project completions register via .language.data below
 const cm = new EditorView({
   parent: $('cm'),
   extensions: [keymap.of([ // first: highest priority before minimalSetup defaults
@@ -1141,8 +1121,8 @@ const cm = new EditorView({
       },
       shift: v => indentLess(v),
     }, { key: 'Ctrl-Space', run: startCompletion }]),
-    minimalSetup, typst_lezer(), EditorView.lineWrapping,
-    autocompletion({ override: [typstComplete], defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // Enter stays newline, only Tab accepts; arrows navigate
+    minimalSetup, typstSupport, typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping,
+    autocompletion({ defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errField,
     markField, lineNumbers(),
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
