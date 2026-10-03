@@ -3,29 +3,10 @@ import pytest
 from conftest import login, make_doc, register_user
 from fastapi.websockets import WebSocketDisconnect
 from pycrdt import Doc, Text
+from ws_helpers import _parse, _step1, _update_msg
 
 from backend import db, sync
 from backend.constants import AWARE_MAX
-
-
-def _step1(sv=None):
-    if sv is None:
-        sv = Doc().get_state()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.STEP1),
-                     sync.write_var(len(sv)), sv)
-
-
-def _parse(data):
-    t, p = sync.read_var(data, 0)
-    st, p = sync.read_var(data, p)
-    ln, p = sync.read_var(data, p)
-    return t, st, data[p:p + ln]
-
-
-def _update_msg(doc):
-    upd = doc.get_update()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.UPDATE),
-                     sync.write_var(len(upd)), upd)
 
 
 def test_broadcast_two_clients(c):

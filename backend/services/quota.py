@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,19 +18,26 @@ log = logging.getLogger(__name__)
 
 
 def files_dir() -> Path:
-    # Prefer main.FILES_DIR when main is loaded (tests monkeypatch it for
-    # tmp isolation); otherwise resolve from config. sys.modules lookup
-    # avoids importing main (no cycle, sync stays decoupled).
-    m = sys.modules.get("backend.main")
-    if m is not None:
-        try:
-            p = m.FILES_DIR  # type: ignore[attr-defined]
-            if isinstance(p, Path):
-                return p
-            if p:
-                return Path(str(p))
-        except Exception:
-            pass
+    # Live view via main.get_files_dir() (itself follows DATA_DIR unless
+    # FILES_DIR was explicitly reassigned); fall back to the patched
+    # main.FILES_DIR attr directly so tmp isolation keeps working even if
+    # the accessor is unavailable, then to config, then to a static default.
+    try:
+        from backend import main as _main
+
+        get = getattr(_main, "get_files_dir", None)
+        if callable(get):
+            try:
+                return get()
+            except Exception:
+                pass
+        p = getattr(_main, "FILES_DIR", None)
+        if isinstance(p, Path):
+            return p
+        if p:
+            return Path(str(p))
+    except Exception:
+        pass
     try:
         from backend import config as _cfg
 
@@ -88,7 +94,10 @@ def user_bytes(user: str) -> int:
             except OSError:
                 continue
             for p in entries:
-                if p.is_file():
+                if p.is_file() and ".tmp." not in p.name:
+                    # Skip in-flight upload buffers (*.tmp.*): they are counted
+                    # via the caller's delta instead (else overwrites 413 near
+                    # quota). Same hiding rule as list_files/upload recount.
                     try:
                         total += p.stat().st_size
                     except OSError:

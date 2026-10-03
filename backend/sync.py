@@ -143,8 +143,8 @@ def fresh_trashed(doc_id: str) -> bool:
     try:
         return db.is_trashed(doc_id)
     except Exception as e:
-        log.warning("trashed check failed for %s, skip persist: %s", doc_id, e)
-        return True
+        log.warning("trashed check failed for %s, keep open/dirty: %s", doc_id, e)
+        return False
 
 
 def fresh_trashed_ok(doc_id: str) -> bool:

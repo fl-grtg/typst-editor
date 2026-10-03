@@ -2,28 +2,7 @@ import pytest
 from conftest import login, make_doc, register_user
 from fastapi.websockets import WebSocketDisconnect
 from pycrdt import Doc, Text
-
-from backend import sync
-
-
-def _step1(sv=None):
-    if sv is None:
-        sv = Doc().get_state()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.STEP1),
-                     sync.write_var(len(sv)), sv)
-
-
-def _parse(data):
-    t, p = sync.read_var(data, 0)
-    st, p = sync.read_var(data, p)
-    ln, p = sync.read_var(data, p)
-    return t, st, data[p:p + ln]
-
-
-def _update_msg(doc):
-    upd = doc.get_update()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.UPDATE),
-                     sync.write_var(len(upd)), upd)
+from ws_helpers import _parse, _step1, _update_msg
 
 
 def test_reviewer_update_dropped(c):

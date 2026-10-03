@@ -16,6 +16,30 @@ try:
 except Exception:
     DB_PATH = ROOT / "data" / "app.db"
 
+# Startup default (backwards compat); get_db_path() below is the live view.
+_STARTUP_DB_PATH = DB_PATH
+
+
+def get_db_path() -> Path:
+    """Live DB location: current DATA_DIR unless DB_PATH was overridden.
+
+    Tests monkeypatch db.DB_PATH for tmp isolation; honor that override.
+    Otherwise follow config.load().DATA_DIR so a later DATA_DIR change
+    stays consistent with get_files_dir().
+    """
+    try:
+        from backend import config as _cfg
+
+        live = _cfg.load().DATA_DIR / "app.db"
+    except Exception:
+        return DB_PATH
+    try:
+        if DB_PATH != _STARTUP_DB_PATH:
+            return DB_PATH
+    except Exception:
+        return DB_PATH
+    return live
+
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -26,8 +50,9 @@ def new_id(prefix: str = "") -> str:
 
 
 def connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    path = get_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(str(path), check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=5000")

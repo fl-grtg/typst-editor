@@ -133,4 +133,4 @@ def test_members_and_comment_anchor(c):
     assert c.post(f"/api/docs/{did}/comments/{cid}/anchor", json={"anchor": 45}).status_code == 200
     login(c, "bob")
     assert c.post(f"/api/docs/{did}/comments/{cid}/anchor", json={"anchor": 9}).status_code == 403
-    assert c.post(f"/api/docs/{did}/comments/{cid}/anchor", json={"anchor": -1}).status_code in (400, 422)
+    assert c.post(f"/api/docs/{did}/comments/{cid}/anchor", json={"anchor": -1}).status_code == 400

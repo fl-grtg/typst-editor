@@ -1,29 +1,8 @@
-import time
-
-from conftest import login, make_doc, register_user
+from conftest import login, make_doc, register_user, wait_for
 from pycrdt import Doc, Text
+from ws_helpers import _parse, _step1, _update_msg
 
 from backend import sync
-
-
-def _step1(sv=None):
-    if sv is None:
-        sv = Doc().get_state()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.STEP1),
-                     sync.write_var(len(sv)), sv)
-
-
-def _parse(data):
-    t, p = sync.read_var(data, 0)
-    st, p = sync.read_var(data, p)
-    ln, p = sync.read_var(data, p)
-    return t, st, data[p:p + ln]
-
-
-def _update_msg(doc):
-    upd = doc.get_update()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.UPDATE),
-                     sync.write_var(len(upd)), upd)
 
 
 def test_snapshot_crud(c):
@@ -102,16 +81,12 @@ def test_restore_409_force(c):
         with doc.transaction():
             doc.get("typst", type=Text).__iadd__(" live1")
         ws.send_bytes(_update_msg(doc))
-        for _ in range(100):
-            if "live1" in (c.get(f"/api/docs/{did}").json().get("content") or ""):
-                break
-            time.sleep(0.05)
+        wait_for(lambda: "live1" in (c.get(f"/api/docs/{did}").json().get("content") or ""),
+                 msg="live1 not synced")
         with doc.transaction():
             doc.get("typst", type=Text).__iadd__(" live2")
         ws.send_bytes(_update_msg(doc))
-        for _ in range(100):
-            if (sync.room_text(did) or "").endswith(" live1 live2"):
-                break
-            time.sleep(0.05)
+        wait_for(lambda: (sync.room_text(did) or "").endswith(" live1 live2"),
+                 msg="live2 not synced")
         assert c.post(f"/api/docs/{did}/snapshots/{sid}/restore").status_code == 409
         assert c.post(f"/api/docs/{did}/snapshots/{sid}/restore", json={"force": True}).status_code == 200

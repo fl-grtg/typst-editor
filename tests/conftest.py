@@ -1,4 +1,6 @@
 """Tmp SQLite + Files Isolation pro Test."""
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -55,3 +57,16 @@ def make_doc(c, title="Doc", content="hi"):
     r = c.post("/api/docs/create", json={"title": title, "content": content})
     assert r.status_code == 200, r.text
     return r.json()["id"]
+
+
+def wait_for(pred, timeout=5.0, msg="condition not met"):
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            if pred():
+                return
+        except Exception:
+            pass  # transient error (e.g. httpx): retry until deadline
+        if time.monotonic() >= deadline:
+            raise AssertionError(msg)
+        time.sleep(0.05)

@@ -81,13 +81,13 @@ def test_invite_limit_20(c):
             ratelimit.clear()
         assert c.post(f"/api/docs/{did}/invite", json={"role": "reviewer"}).status_code == 200
     ratelimit.clear()
-    assert c.post(f"/api/docs/{did}/invite", json={"role": "reviewer"}).status_code in (400, 409)
+    assert c.post(f"/api/docs/{did}/invite", json={"role": "reviewer"}).status_code == 400
 
 
 def test_join_invalid(c):
     register_user(c, "alice")
-    assert c.get("/api/join/invalid").status_code in (404, 410)
-    assert c.post("/api/join", json={"token": "invalid"}).status_code in (404, 410)
+    assert c.get("/api/join/invalid").status_code == 404
+    assert c.post("/api/join", json={"token": "invalid"}).status_code == 404
 
 
 def test_join_legacy_path_always_410(c):

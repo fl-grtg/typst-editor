@@ -55,12 +55,44 @@ NAME_RE = r"[A-Za-z0-9_-]{2,20}"
 MIN_PW = 8
 MAX_PW = 200
 
+
+def _invite_ok(invite: str, token: str) -> bool:
+    """Constant-time invite check; False for empty/non-ASCII (no 500)."""
+    try:
+        return bool(token) and bool(invite) and hmac.compare_digest(invite.encode(), token.encode())
+    except Exception:
+        return False
+
 ROOT = Path(__file__).resolve().parent.parent
 try:
     FILES_DIR = config.load().DATA_DIR / "files"
 except Exception as e:
     log.warning("config DATA_DIR missing, fallback data/files: %s", e)
     FILES_DIR = ROOT / "data" / "files"
+
+# Startup default (backwards compat: tests monkeypatch main.FILES_DIR);
+# get_files_dir() below is the live view.
+_FILES_DIR_STARTUP = FILES_DIR
+
+
+def get_files_dir() -> Path:
+    """Live files location: current DATA_DIR unless FILES_DIR was overridden.
+
+    Honors an explicit FILES_DIR reassignment (tests isolate via
+    monkeypatch.setattr(main, "FILES_DIR", tmp)); otherwise follows
+    config.load().DATA_DIR so a later DATA_DIR change stays consistent
+    with db.get_db_path().
+    """
+    try:
+        live = config.load().DATA_DIR / "files"
+    except Exception:
+        return FILES_DIR
+    try:
+        if FILES_DIR != _FILES_DIR_STARTUP:
+            return FILES_DIR
+    except Exception:
+        return FILES_DIR
+    return live
 ALLOWED_IMG = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".pdf", ".typ", ".bib", ".csv"}
 TEXT_SUFFIX = {".typ", ".bib", ".csv"}
 
@@ -105,7 +137,7 @@ def _drop_user_locks(user: str) -> None:
 
 
 def _lock_path() -> Path:
-    return Path(str(db.DB_PATH)).parent / LOCK_NAME
+    return Path(str(db.get_db_path())).parent / LOCK_NAME
 
 
 def _filelock(fh: Any, lock: bool) -> None:
@@ -283,6 +315,61 @@ $
 This example shows the essential Typst syntax and fits on a single A4 page.
 """
 
+def reap_trash_dirs() -> dict[str, int]:
+    # B8: delete_me renames FILES_DIR/<id> aside to .trash-<id> before the DB
+    # tx. A crash between the steps leaves orphans that user_bytes never
+    # counts (and backup still tars). Sweep them at startup (shallow, fast).
+    counts = {"restored": 0, "removed": 0, "skipped": 0}
+    try:
+        entries = list(get_files_dir().iterdir())
+    except OSError as e:
+        log.warning("trash sweep list failed: %s", e)
+        return counts
+    trash = [p for p in entries if p.name.startswith(".trash-")]
+    if not trash:
+        return counts
+    con = db.connect()
+    try:
+        for dst in trash:
+            did = dst.name[len(".trash-"):]
+            if not did or not dst.is_dir():
+                # Stray file, not a staged doc dir: remove it, don't re-warn forever.
+                try:
+                    dst.unlink()
+                except OSError as e:
+                    log.warning("trash sweep skipping %s: %s", dst.name, e)
+                    counts["skipped"] += 1
+                else:
+                    counts["removed"] += 1
+                continue
+            live = get_files_dir() / did
+            row = con.execute("SELECT 1 FROM docs WHERE id=?", (did,)).fetchone()
+            if row is not None and not live.exists():
+                try:
+                    dst.rename(live)
+                except OSError as e:
+                    log.warning("trash sweep restore %s failed: %s", did, e)
+                    counts["skipped"] += 1
+                else:
+                    counts["restored"] += 1
+            elif row is None:
+                try:
+                    shutil.rmtree(dst)
+                    if dst.exists():
+                        raise OSError("rmtree left files behind")
+                except OSError as e:
+                    log.warning("trash sweep remove %s failed: %s", did, e)
+                    counts["skipped"] += 1
+                else:
+                    counts["removed"] += 1
+            else:
+                log.warning("trash sweep leaving ambiguous %s (doc and files both present)", did)
+                counts["skipped"] += 1
+    finally:
+        con.close()
+    return counts
+
+
 db.init_db()
 
 
@@ -317,16 +404,24 @@ async def lifespan(app: FastAPI):
     try:
         _cfg = config.load()
         if _cfg.REGISTRATION == "invite-only" and not _cfg.REGISTRATION_INVITE_TOKEN:
-            log.warning("invite-only without REGISTRATION_INVITE_TOKEN: first account is open bootstrap, set token right after")
-        # Short-token warning already logged by config.load(); repeat here so
-        # startup logs always show it (config.load() may serve a cached Config).
+            log.warning("invite-only without REGISTRATION_INVITE_TOKEN: registration blocked until token is set")
+        # Short-token warning already logged by config.load(); enforce the gate here
+        # so startup logs always show it (config.load() may serve a cached Config).
+        # Fail-closed (B12): refuse to start with a brute-forceable invite token.
+        # NOTE: _sys.exit raises SystemExit (BaseException), so it is NOT
+        # swallowed by the except Exception below. Empty token path unchanged (B11).
         if _cfg.REGISTRATION_INVITE_TOKEN and len(_cfg.REGISTRATION_INVITE_TOKEN) < 16:
-            log.warning("REGISTRATION_INVITE_TOKEN short (%d chars); use >=16 chars",
+            log.error("REGISTRATION_INVITE_TOKEN too short (%d chars); refusing to start, use >=16 chars (openssl rand -hex 32)",
                         len(_cfg.REGISTRATION_INVITE_TOKEN))
+            _sys.exit(1)
     except Exception:
         pass
-    # DATA_DIR change needs restart (import resolves paths): no reload here, tests set FILES_DIR directly.
+    # Paths resolve lazily (db.get_db_path/get_files_dir follow DATA_DIR).
     _acquire_single_lock()
+    try:
+        log.info("trash sweep: %s", reap_trash_dirs())
+    except Exception as e:
+        log.warning("trash sweep failed: %s", e)
     try:
         yield
     finally:
@@ -345,6 +440,14 @@ async def validation_400(req: Request, exc: RequestValidationError) -> JSONRespo
     return JSONResponse(status_code=400, content={"detail": "Invalid request"})
 
 
+# B15: long-cached shell assets. Immutable only where the URL carries a
+# ?v= cache-buster (vendor-cm.js?v=2, manifest.json?v=2, icons, icon.svg?v=3);
+# keep ?v in sync on redeploy or a stale bundle lingers in HTTP cache
+# (content-hashed filenames = proper fix).
+# sw.js is gone (worker dropped 2026-10-03): .js stays no-store for future scripts.
+IMMUTABLE_SHELL = frozenset({"vendor-cm.js", "manifest.json", "icon-192.png", "icon-512.png", "icon.svg"})
+
+
 @app.middleware("http")
 async def no_cache_html(req: Request, call: Any):
     if req.url.path.startswith(("/backend", "/data", "/.git", "/tests", "/.github",
@@ -358,7 +461,9 @@ async def no_cache_html(req: Request, call: Any):
                 log.warning("csrf-block %s", req.url.path)
                 return JSONResponse({"detail": "Forbidden"}, status_code=403)
     res = await call(req)
-    if req.url.path == "/" or req.url.path.endswith((".html", ".js")) or req.url.path.startswith("/api/"):
+    if req.url.path.rsplit("/", 1)[-1] in IMMUTABLE_SHELL:
+        res.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif req.url.path == "/" or req.url.path.endswith((".html", ".js")) or req.url.path.startswith("/api/"):
         res.headers["Cache-Control"] = "no-store"
     res.headers["X-Content-Type-Options"] = "nosniff"
     res.headers["X-Frame-Options"] = "DENY"
@@ -627,15 +732,20 @@ def register(b: Register, res: Response, req: Request) -> dict:
                     if cfg.REGISTRATION == "closed":
                         log.warning("register blocked (closed)")
                         raise HTTPException(403, "Registration disabled")
-                    elif cfg.REGISTRATION == "invite-only" and cfg.REGISTRATION_INVITE_TOKEN:
-                        if not b.invite or not hmac.compare_digest(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
-                            log.warning("register blocked (invite, first user)")
-                            raise HTTPException(403, "Invalid invite code")
+                    elif cfg.REGISTRATION == "invite-only" and not _invite_ok(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
+                        if not cfg.REGISTRATION_INVITE_TOKEN:
+                            log.warning("register blocked (invite-only, no token configured, first user)")
+                            raise HTTPException(403, "Registration disabled: no invite token configured")
+                        log.warning("register blocked (invite, first user)")
+                        raise HTTPException(403, "Invalid invite code")
                 else:
                     if cfg.REGISTRATION == "closed":
                         log.warning("register blocked (closed)")
                         raise HTTPException(403, "Registration disabled")
-                    elif cfg.REGISTRATION == "invite-only" and (not cfg.REGISTRATION_INVITE_TOKEN or not hmac.compare_digest(b.invite, cfg.REGISTRATION_INVITE_TOKEN)):
+                    elif cfg.REGISTRATION == "invite-only" and not _invite_ok(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
+                        if not cfg.REGISTRATION_INVITE_TOKEN:
+                            log.warning("register blocked (invite-only, no token configured)")
+                            raise HTTPException(403, "Registration disabled: no invite token configured")
                         log.warning("register blocked (invite)")
                         raise HTTPException(403, "Invalid invite code")
                 if con.execute("SELECT 1 FROM users WHERE name=? COLLATE NOCASE", (name,)).fetchone():
@@ -646,7 +756,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
                 con.execute("INSERT INTO docs (id, owner, title, content, created_at, updated_at) VALUES (?,?,?,?,?,?)",
                             (did, name, "Tutorial", TUTORIAL, now, now))
                 if empty:
-                    log.warning("first user created — set REGISTRATION_INVITE_TOKEN afterwards")
+                    log.warning("first user created")
         except sqlite3.IntegrityError as e:
             raise HTTPException(400, "Registration failed") from e
         except sqlite3.OperationalError as e:
@@ -859,9 +969,9 @@ async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(
     # data (DB still points at the doc, files restorable from .trash-<id>).
     trashed_dirs: list[tuple[Path, Path]] = []
     for did in owned:
-        src = FILES_DIR / did
+        src = get_files_dir() / did
         if src.is_dir():
-            dst = FILES_DIR / f".trash-{did}"
+            dst = get_files_dir() / f".trash-{did}"
             try:
                 if dst.exists():
                     shutil.rmtree(dst, ignore_errors=True)
@@ -1337,7 +1447,7 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict
     await sync.drop(doc_id)
     _drop_doc_locks(doc_id)
     try:
-        shutil.rmtree(FILES_DIR / doc_id, ignore_errors=True)
+        shutil.rmtree(get_files_dir() / doc_id, ignore_errors=True)
     except OSError:
         log.warning("delete_doc %s: rmtree failed", doc_id)
     return {"trashed": False}
@@ -1428,7 +1538,7 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     except Exception:
         max_docs = 100
     nid, now = db.new_id("d_"), db.now_iso()
-    src = FILES_DIR / doc_id
+    src = get_files_dir() / doc_id
     with _doc_lock(f"dup:{user}"):
         try:
             with db.tx() as con:
@@ -1476,11 +1586,11 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
             raise busy_503("duplicate_doc", e) from e
     if src.is_dir():
         try:
-            shutil.copytree(src, FILES_DIR / nid, ignore=shutil.ignore_patterns(".*", "*.tmp.*"), dirs_exist_ok=True)
+            shutil.copytree(src, get_files_dir() / nid, ignore=shutil.ignore_patterns(".*", "*.tmp.*"), dirs_exist_ok=True)
         except (OSError, shutil.Error) as e:
             log.warning("duplicate %s -> %s: copytree failed: %s", doc_id, nid, e)
             try:
-                shutil.rmtree(FILES_DIR / nid, ignore_errors=True)
+                shutil.rmtree(get_files_dir() / nid, ignore_errors=True)
             except OSError:
                 pass
             con = db.connect()
@@ -1714,7 +1824,7 @@ def list_files(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     limited(req, "files_list") # own bucket: preview polls this per render, must not starve uploads
     check_doc_id(doc_id)
     need_access(user, doc_id)
-    d = FILES_DIR / doc_id
+    d = get_files_dir() / doc_id
     out = []
     if d.is_dir():
         try:
@@ -1748,7 +1858,7 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
         max_files = config.load().MAX_FILES_PER_DOC
     except Exception:
         max_files = 200
-    d = FILES_DIR / doc_id
+    d = get_files_dir() / doc_id
     try:
         d.mkdir(parents=True, exist_ok=True)
     except OSError as e:
@@ -1807,7 +1917,7 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
 
     _up_owner = _owner(doc_id, user)
     try:
-        with quota_svc.quota_guard(_up_owner, size, rollback=_restore_upload):
+        with quota_svc.quota_guard(_up_owner, max(0, size - (len(old) if old is not None else 0)), rollback=_restore_upload):
             try:
                 os.replace(tmp, d / n)
             except OSError:
@@ -1831,8 +1941,7 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
             pass
         raise busy_503("upload_file", e) from e
     except HTTPException:
-        # Pre-check 413 leaves tmp behind (post-check 413 already replaced it:
-        # unlink is a no-op then).
+        # Both 413 paths clean up tmp (pre-check never replaced it, post-check rolls back).
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
@@ -1847,7 +1956,7 @@ def get_file(doc_id: str, name: str, req: Request, user: str = Depends(me)) -> R
     limited(req, "files")
     check_doc_id(doc_id)
     need_access(user, doc_id)
-    p = FILES_DIR / doc_id / safe_name(name)
+    p = get_files_dir() / doc_id / safe_name(name)
     if not p.is_file():
         raise HTTPException(404, "File gone")
     if p.suffix.lower() == ".svg":
@@ -1874,7 +1983,7 @@ def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(me)) -
     limited(req, "files")
     need_edit(user, doc_id)
     with _doc_lock(f"upload:{doc_id}"):
-        p = FILES_DIR / doc_id / safe_name(name)
+        p = get_files_dir() / doc_id / safe_name(name)
         if p.is_file():
             try:
                 p.unlink()
@@ -1908,7 +2017,7 @@ def get_file_text(doc_id: str, name: str, req: Request, user: str = Depends(me))
     limited(req, "save") # same cadence as doc save, not the tight files bucket
     check_doc_id(doc_id)
     need_access(user, doc_id)
-    p = FILES_DIR / doc_id / need_text(name)
+    p = get_files_dir() / doc_id / need_text(name)
     if not p.is_file():
         raise HTTPException(404, "File gone")
     try:
@@ -1927,7 +2036,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
     if len(b.content) > MAX_TXT:
         raise HTTPException(400, "Max 200 KB")
     with _doc_lock(f"upload:{doc_id}"):
-        p = FILES_DIR / doc_id / need_text(name)
+        p = get_files_dir() / doc_id / need_text(name)
         try:
             _old_sz = p.stat().st_size if p.is_file() else 0
         except OSError:
@@ -2299,7 +2408,7 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
             raise HTTPException(413, "Export too large (max 100 MB)")
     for d in docs:
         pre_bytes += len(d["content"].encode("utf-8"))
-        fdir = FILES_DIR / d["id"]
+        fdir = get_files_dir() / d["id"]
         if fdir.is_dir():
             try:
                 entries = list(fdir.iterdir())
@@ -2315,9 +2424,9 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
                         pre_bytes += sz
         if pre_bytes > EXPORT_MAX:
             raise HTTPException(413, "Export too large (max 100 MB)")
-    FILES_DIR.parent.mkdir(parents=True, exist_ok=True)
+    get_files_dir().parent.mkdir(parents=True, exist_ok=True)
     try:
-        tmp = tempfile.NamedTemporaryFile(delete=False, dir=FILES_DIR.parent, suffix=".zip")
+        tmp = tempfile.NamedTemporaryFile(delete=False, dir=get_files_dir().parent, suffix=".zip")
         tmp.close()
     except OSError as e:
         log.warning("export tmp failed: %s", e)
@@ -2340,7 +2449,7 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
                 if total > EXPORT_MAX:
                     raise HTTPException(413, "Export too large (max 100 MB)")
                 z.writestr(prefix + name + ".typ", txt)
-                fdir = FILES_DIR / d["id"]
+                fdir = get_files_dir() / d["id"]
                 if fdir.is_dir():
                     try:
                         entries = sorted(fdir.iterdir())
@@ -2412,7 +2521,7 @@ def healthz() -> dict | Response:
     return {"ok": True}
 
 
-FRONT_FILES = {"vendor-cm.js", "manifest.json", "sw.js", "icon-192.png", "icon-512.png", "icon.svg", "screenshot.png"}
+FRONT_FILES = {"vendor-cm.js", "manifest.json", "icon-192.png", "icon-512.png", "icon.svg"}
 
 
 @app.get("/")
