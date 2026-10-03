@@ -52,8 +52,8 @@ ls -> read -> edit -> view -> fix
 - `edit(path, old_string, new_string, replace_all=false, last_seen=null)` — anchor edit, see rules.
 - `search(query)` — titles + content (at most 20 hits).
 - `upload(path, content_base64, filename=null)` — attachment: `/docs/{Title}/{File}` or `/docs/{Title}` + `filename`. Max 10 MB.
-- `comment(path, anchor, text, quote="", parent_id=null)` — `anchor` is an opaque position number (0 = start). Create-only.
-- `view(path, pages="1-5")` — renders pages 1–5 as base64 PNGs (width ≤1024px). Returns `pages` + `count` + `cache_hit`.
+- `comment(path, anchor, text, quote="", parent_id=null)` — `anchor` is a line number (0 = start). Create-only.
+- `view(path, pages="1-5")` — renders pages 1–5 as base64 PNGs (width ≤1024px). Returns `pages` + `count` + `cache_hit` + `last_seen`.
 
 ## Path model
 
