@@ -506,6 +506,10 @@ body.read #preview { padding-top: 24px; }
 #setPop h4 { margin: 0; padding: 14px 0 4px; break-after: avoid; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
 #setPop .sec { break-inside: avoid; }
 #setPop .sec .row { flex-wrap: nowrap; align-items: center; gap: 8px; margin-top: 8px; }
+#setPop .sec .row.wrap { flex-wrap: wrap; }
+#setPop .sec .row.wrap input { flex: 1 1 140px; }
+#setPop .sec .row.wrap select { flex: 0 1 auto; }
+#setPop .sec .row.wrap > span, #setPop .sec .row.wrap > code { overflow-wrap: anywhere; min-width: 0; }
 #setPop .sec .row:first-child { margin-top: 6px; }
 #setPop .row label { min-width: 44px; color: var(--sub); font-size: 12.5px; }
 #setPop .val { min-width: 52px; text-align: center; color: var(--sub); font-size: 12.5px; font-variant-numeric: tabular-nums; }
@@ -2504,7 +2508,7 @@ function threadCard(t) {
   const d = el('div', 'th')
   if (t.resolved) d.style.opacity = '.55' // done: faded, stays readable
   const hd = el('div', 'hd')
-  const nm = el('b', 'nm', t.username); nm.style.color = colOf(t.username)
+  const nm = el('b', 'nm', t.author || t.username); nm.style.color = colOf(t.username)
   hd.append(nm, el('span', 'tm', ago(t.created_at)))
   const roC = docRole === 'reviewer' || openedTrashed // cNew logic reused: reviewer gets no buttons
   if (!roC) { // trash/reviewer: no buttons, read only
@@ -2535,7 +2539,7 @@ function threadCard(t) {
   }
   t.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
-    const rn = el('b', 'nm', r.username); rn.style.color = colOf(r.username)
+    const rn = el('b', 'nm', r.author || r.username); rn.style.color = colOf(r.username)
     rh.append(rn, el('span', 'tm', ago(r.created_at)))
     rd.append(rh, richText(r.text)); d.appendChild(rd)
   })
@@ -3141,16 +3145,28 @@ document.addEventListener('click', e => {
 // --- Settings: click on name (font/zoom, profile, password, account) ---
 $('who').onclick = e => {
   e.stopPropagation()
-  if (showPop('setPop')) { setMsg = ''; renderSettings() }
+  if (showPop('setPop')) { setMsg = ''; apiKeys = null; renderSettings() }
 }
 kb($('who'), () => $('who').click())
 let setMsg = '' // settings error inline not browser alert
+let apiKeys = null, apiKeysLoading = false, lastKeySecret = ''
+function loadKeys() {
+  if (apiKeysLoading) return; apiKeysLoading = true
+  api('GET', '/api/keys').then(d => { apiKeys = d.keys || [] })
+    .catch(e => { setMsg = e.message; apiKeys = [] }).finally(() => { apiKeysLoading = false; renderSettings() })
+}
+const shortD = s => { try { return s ? String(s).slice(0, 10) : 'Never' } catch (e) { return 'Never' } }
+function copyTxt(t, inp) {
+  const fb = () => { inp.select(); try { document.execCommand('copy'); toast('Copied') } catch (e) {} }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('Copied')).catch(fb)
+  else fb()
+}
 function renderSettings() {
   const p = $('setPop'); p.replaceChildren()
   const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
   const top = el('div', 'sTop')
   const close = icoBtn(null, ICO_X); close.title = 'Close'; close.setAttribute('aria-label', close.title)
-  close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
+  close.onclick = e => { e.stopPropagation(); lastKeySecret = ''; p.style.display = 'none' }
   top.append(el('b', null, 'Settings'), close); p.appendChild(top)
   if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }
   p.appendChild(el('h4', null, 'Appearance'))
@@ -3205,6 +3221,51 @@ function renderSettings() {
   bb.title = 'Download your documents, files and templates as .zip'
   bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
   bk.appendChild(bb); p.appendChild(sec(bk))
+  p.appendChild(el('h4', null, 'API keys'))
+  if (lastKeySecret) {
+    const si = el('input'); si.readOnly = true; si.value = lastKeySecret; si.setAttribute('aria-label', 'New API key, shown once')
+    const cp = el('button', null, 'Copy'); cp.onclick = () => copyTxt(lastKeySecret, si)
+    const cx = el('button', 'btnSecondary', 'Close'); cx.onclick = () => { lastKeySecret = ''; renderSettings() }
+    const sr = el('div', 'row wrap'); sr.append(si, cp, cx)
+    p.appendChild(sec(el('div', null, 'Shown once – copy it now.'), sr))
+  }
+  const kn = el('input'); kn.placeholder = 'Key name'; kn.maxLength = 40; kn.setAttribute('aria-label', 'Key name')
+  const rs = el('select'); rs.setAttribute('aria-label', 'Role')
+  ;['editor', 'reviewer'].forEach(v => { const o = el('option', null, v); o.value = v; rs.appendChild(o) })
+  const es = el('select'); es.setAttribute('aria-label', 'Expiry')
+  ;[['Never', ''], ['30 days', '30'], ['90 days', '90'], ['365 days', '365']].forEach(([t, v]) => { const o = el('option', null, t); o.value = v; es.appendChild(o) })
+  const cb = el('button', null, 'Create')
+  cb.onclick = () => {
+    if (cb.disabled) return
+    if (!kn.value.trim()) { setMsg = 'Enter a key name.'; renderSettings(); return }
+    cb.disabled = true
+    api('POST', '/api/keys', { name: kn.value.trim(), role: rs.value, expires_in_days: es.value ? +es.value : null })
+      .then(d => { lastKeySecret = d.key; return api('GET', '/api/keys').then(x => { apiKeys = x.keys || [] }).catch(() => {}) })
+      .catch(e => { setMsg = e.message }).finally(() => renderSettings())
+  }
+  const cr = el('div', 'row wrap'); cr.append(kn, rs, es, cb); p.appendChild(sec(cr))
+  if (apiKeys === null) {
+    p.appendChild(sec(el('div', null, apiKeysLoading ? 'Loading…' : '')))
+    if (!apiKeysLoading) loadKeys()
+  } else if (!apiKeys.length) p.appendChild(sec(el('div', null, 'No keys yet.')))
+  else {
+    const rows = apiKeys.map(k => {
+      const r = el('div', 'row wrap')
+      const rb = el('button', 'btnSecondary', 'Revoke')
+      rb.onclick = () => {
+        if (rb.disabled) return; rb.disabled = true
+        api('DELETE', '/api/keys/' + encodeURIComponent(k.id))
+          .then(() => api('GET', '/api/keys')).then(x => { if (x) apiKeys = x.keys || [] })
+          .catch(e => { setMsg = e.message }).finally(() => renderSettings())
+      }
+      const eS = el('span', 'val', shortD(k.expires_at)); eS.title = k.expires_at || 'Never'
+      const lS = el('span', 'val', shortD(k.last_used)); lS.title = k.last_used || 'Never'
+      r.append(el('code', null, k.prefix || ''), el('span', null, k.name), el('span', 'val', k.role),
+        eS, lS, rb)
+      return r
+    })
+    p.appendChild(sec(...rows))
+  }
   p.appendChild(el('h4', null, 'Account'))
   const dr = el('div', 'row')
   const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = 'Password'; dpw.setAttribute('aria-label', 'Password for account deletion')

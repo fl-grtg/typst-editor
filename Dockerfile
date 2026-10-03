@@ -1,9 +1,28 @@
 # Digest pin: check `docker buildx imagetools inspect python:3.11-slim` before release,
 # Dependabot (docker ecosystem) bumps the pin automatically.
 FROM python:3.11-slim@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e
+ARG TARGETARCH
+ENV TYPST_VERSION=0.15.1
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# typst CLI for server-side view rendering (installed as root so /usr/local/bin/typst is 0755 for user app).
+# Single layer: curl/xz only temporary (purge + apt lists cleanup at the end).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates xz-utils; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) TYPST_TRIPLE="x86_64-unknown-linux-musl" ;; \
+      arm64) TYPST_TRIPLE="aarch64-unknown-linux-musl" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/typst.tar.xz "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_TRIPLE}.tar.xz"; \
+    tar -xJf /tmp/typst.tar.xz -C /tmp; \
+    install -m 0755 "/tmp/typst-${TYPST_TRIPLE}/typst" /usr/local/bin/typst; \
+    rm -rf "/tmp/typst-${TYPST_TRIPLE}" /tmp/typst.tar.xz; \
+    apt-get purge -y --auto-remove curl xz-utils; \
+    rm -rf /var/lib/apt/lists/*; \
+    typst --version
 # Only what the server really serves: backend/ + index.html + FRONT_FILES from backend/main.py
 COPY backend/ ./backend/
 COPY scripts/backup.py ./scripts/backup.py

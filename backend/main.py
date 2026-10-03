@@ -47,6 +47,7 @@ from backend.constants import (
     TITLE_MAX,
     UPLOAD_MAX,
 )
+from backend.mcp_server import mcp_http_app as _mcp_app
 from backend.services import quota as quota_svc
 
 log = logging.getLogger("typst.main")
@@ -374,7 +375,7 @@ db.init_db()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _app_lifespan(app: FastAPI):
     import logging as _logging
     import os as _os
     import sys as _sys
@@ -432,7 +433,17 @@ async def lifespan(app: FastAPI):
         _release_single_lock()
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # FastMCP's session manager needs its lifespan inside the parent app
+    # (a mounted sub-app lifespan never runs on its own).
+    async with _mcp_app.lifespan(app):
+        async with _app_lifespan(app):
+            yield
+
+
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app.mount("/mcp", _mcp_app)  # Streamable HTTP: POST /mcp (exact path normalized in middleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -450,10 +461,13 @@ IMMUTABLE_SHELL = frozenset({"vendor-cm.js", "manifest.json", "icon-192.png", "i
 
 @app.middleware("http")
 async def no_cache_html(req: Request, call: Any):
+    if req.url.path == "/mcp":
+        req.scope["path"] = "/mcp/"  # agents POST exact /mcp; the mount serves /mcp/*
     if req.url.path.startswith(("/backend", "/data", "/.git", "/tests", "/.github",
                                    "/config.toml", "/.env", "/app.db", "/Dockerfile", "/compose")):
         return JSONResponse({"detail": "Not found"}, status_code=404)
-    if req.method in ("POST", "PUT", "DELETE", "PATCH"):
+    if req.method in ("POST", "PUT", "DELETE", "PATCH") and not (
+            req.url.path == "/mcp" or req.url.path.startswith("/mcp/")):
         o = req.headers.get("origin", "") or req.headers.get("referer", "")
         if o:
             host = (req.headers.get("host", "") or "").split(",")[-1].strip().lower()
@@ -796,6 +810,133 @@ def get_me(req: Request, user: str = Depends(me)) -> dict:
         con.close()
 
 
+# --- API keys (MCP/agent access, M1) ---
+KEY_RE = re.compile(r"^tpe_[0-9a-f]{8}_[0-9a-f]{32}$")
+KEY_ROLES = ("editor", "reviewer")
+_ROLE_RANK = {"reviewer": 1, "editor": 2, "owner": 3}
+
+
+def cap_min(cap: str, role: str) -> str:
+    # Effective rights = minimum of key sort and doc_role(); session cap
+    # "owner" never restricts. Admin stays human UI: keys max out at editor.
+    if cap == "owner":
+        return role
+    return role if _ROLE_RANK.get(role, 0) < _ROLE_RANK.get(cap, 0) else cap
+
+
+def mint_api_key() -> tuple[str, str, str]:
+    prefix = secrets.token_hex(4)
+    secret = secrets.token_hex(16)
+    return db.new_id("k_"), f"tpe_{prefix}_{secret}", prefix
+
+
+def verify_api_key(key: str) -> dict | None:
+    if not key or not KEY_RE.fullmatch(key):
+        return None
+    con = db.connect()
+    try:
+        r = con.execute("SELECT id, username, name, role, expires_at, revoked FROM api_keys WHERE key_hash=?",
+                        (auth.sha(key),)).fetchone()
+        if not r or r["revoked"]:
+            return None
+        if r["role"] not in KEY_ROLES:
+            return None
+        if r["expires_at"]:
+            try:
+                exp = datetime.fromisoformat(r["expires_at"])
+            except (ValueError, TypeError):
+                return None  # corrupt expiry: fail closed
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=UTC)
+            if exp <= datetime.now(UTC):
+                return None
+        try:
+            con.execute("UPDATE api_keys SET last_used=? WHERE id=?", (db.now_iso(), r["id"]))
+            con.commit()
+        except Exception as e:
+            log.warning("api key last_used failed: %s", e)
+        return {"id": r["id"], "user": r["username"], "role": r["role"], "key_name": r["name"] or ""}
+    finally:
+        con.close()
+
+
+def me_with_key(req: Request, session: str | None = Cookie(default=None, alias=COOKIE)) -> tuple[str, str]:
+    # Bearer first (MCP/agents), then cookie fallback (human UI).
+    # Returns (user, cap): cap "owner" for sessions, else the key role.
+    authz = req.headers.get("authorization", "")
+    if authz.lower().startswith("bearer "):
+        hit = verify_api_key(authz[7:].strip())
+        if not hit:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API key")
+        return hit["user"], hit["role"]
+    user = auth.verify_session(session or "")
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
+    return user, "owner"
+
+
+class KeyCreate(BaseModel):
+    name: str = Field(default="", max_length=40, min_length=1)
+    role: str = Field(default="editor", max_length=20)
+    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+
+
+@app.post("/api/keys")
+def create_key(b: KeyCreate, req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> dict:
+    user, cap = authn
+    limited(req, "keys", user)
+    role = b.role.strip().lower()
+    if role not in KEY_ROLES:
+        raise HTTPException(400, "role must be editor or reviewer")
+    if _ROLE_RANK[role] > _ROLE_RANK.get(cap, 0):
+        raise HTTPException(403, "Cannot grant more than your own role")
+    expires_at = (datetime.now(UTC) + timedelta(days=b.expires_in_days)).isoformat() if b.expires_in_days else ""
+    for _ in range(2):  # hash collision retry (practically impossible, fail-closed)
+        kid, full, prefix = mint_api_key()
+        con = db.connect()
+        try:
+            try:
+                con.execute("INSERT INTO api_keys (id, username, name, prefix, key_hash, role, expires_at, created_at) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (kid, user, b.name.strip()[:40], prefix, auth.sha(full), role, expires_at, db.now_iso()))
+                con.commit()
+            except sqlite3.IntegrityError:
+                continue
+            return {"id": kid, "name": b.name.strip()[:40], "prefix": prefix,
+                    "key": full, "role": role, "expires_at": expires_at}
+        finally:
+            con.close()
+    raise HTTPException(500, "Key creation failed")
+
+
+@app.get("/api/keys")
+def list_keys(req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> dict:
+    user, _cap = authn
+    limited(req, "keys", user)
+    con = db.connect()
+    try:
+        rows = con.execute("SELECT id, name, prefix, role, expires_at, last_used, created_at FROM api_keys "
+                           "WHERE username=? AND revoked=0 ORDER BY created_at", (user,)).fetchall()
+        return {"keys": [dict(r) for r in rows]}
+    finally:
+        con.close()
+
+
+@app.delete("/api/keys/{kid}")
+def revoke_key(kid: str, req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> dict:
+    user, _cap = authn
+    limited(req, "keys", user)
+    con = db.connect()
+    try:
+        cur = con.execute("UPDATE api_keys SET revoked=1 WHERE id=? AND username=? AND revoked=0", (kid, user))
+        con.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Key gone")
+        return {"ok": True}
+    finally:
+        con.close()
+
+
 def check_pw(user: str, password: str) -> None:
     con = db.connect()
     try:
@@ -859,6 +1000,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(me)) -> dic
             con.execute("UPDATE comments SET username=? WHERE username=?", (new, user))
             con.execute("UPDATE templates SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE folders SET owner=? WHERE owner=?", (new, user))
+            con.execute("UPDATE api_keys SET username=? WHERE username=?", (new, user))
             con.execute("DELETE FROM users WHERE name=?", (user,))
     except sqlite3.OperationalError as e:
         log.warning("rename_me %s -> %s busy: %s", user, new, e)
@@ -982,7 +1124,7 @@ async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(
     try:
         with db.tx() as con:
             con.execute("DELETE FROM comments WHERE username=? AND parent_id IS NOT NULL", (user,))
-            con.execute("UPDATE comments SET username='[deleted]' WHERE username=?", (user,))
+            con.execute("UPDATE comments SET username='[deleted]', author='' WHERE username=?", (user,))
             con.execute("DELETE FROM users WHERE name=?", (user,))
     except sqlite3.OperationalError as e:
         # DB delete failed: move files back, account still intact.
@@ -1665,7 +1807,7 @@ def list_comments(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     need_access(user, doc_id)
     con = db.connect()
     try:
-        rows = con.execute("SELECT id, username, anchor, quote, text, parent_id, resolved, created_at FROM comments "
+        rows = con.execute("SELECT id, username, author, anchor, quote, text, parent_id, resolved, created_at FROM comments "
                            "WHERE doc_id=? ORDER BY created_at", (doc_id,)).fetchall()
         tops = [dict(r) for r in rows if not r["parent_id"]]
         reps: dict[str, list] = {}
@@ -1699,9 +1841,9 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me
             if p["parent_id"]:
                 raise HTTPException(400, "Nested replies not allowed")
         q = b.quote[:500]
-        con.execute("INSERT INTO comments (id, doc_id, username, anchor, quote, text, parent_id, created_at) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
-                    (cid, doc_id, user, b.anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
+        con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (cid, doc_id, user, "", b.anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
         con.commit()
         return {"id": cid}
     finally:
@@ -1801,6 +1943,8 @@ def safe_name(name: str) -> str:
     n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name or "").name.strip().lstrip("."))[:100]
     if not n or Path(n).suffix.lower() not in ALLOWED_IMG:
         raise HTTPException(400, "Only png/jpg/jpeg/svg/gif/webp/pdf/typ/bib/csv")
+    if ".tmp." in n:
+        raise HTTPException(400, "Reserved name")
     return n
 
 

@@ -47,6 +47,8 @@ class Config:
     RATE_DUPLICATE_PER_MIN: int = 10
     RATE_AVATAR_PER_MIN: int = 10
     RATE_FOLDERS_PER_MIN: int = 20
+    RATE_KEYS_PER_MIN: int = 10
+    RATE_MCP_PER_MIN: int = 60
 
 
 def _int(v: Any, d: int) -> int:
@@ -105,7 +107,7 @@ _PATH_KEYS = ("DATA_DIR",)
 _INT_KEYS = ("PORT", "SESSION_SECONDS", "MAX_DOCS_PER_USER", "MAX_BYTES_PER_USER",
              "MAX_FILES_PER_DOC", "RATE_REGISTER_PER_HOUR")
 _RATE_KEYS = ("LOGIN", "AUTH", "JOIN", "SEARCH", "FILES", "FILES_LIST", "SAVE", "COMMENTS", "EXPORT", "PW",
-              "INVITE", "SHARE", "SNAPSHOTS", "CREATE", "DUPLICATE", "AVATAR", "FOLDERS")
+              "INVITE", "SHARE", "SNAPSHOTS", "CREATE", "DUPLICATE", "AVATAR", "FOLDERS", "KEYS", "MCP")
 _ENV_KEYS = _STR_KEYS + _BOOL_KEYS + _PATH_KEYS + _INT_KEYS + tuple(f"RATE_{k}_PER_MIN" for k in _RATE_KEYS)
 
 # (attr, min, max) ranges; out-of-range falls back to the default with a warning.

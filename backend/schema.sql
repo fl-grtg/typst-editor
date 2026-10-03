@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS comments (
     text TEXT NOT NULL DEFAULT '',
     parent_id TEXT NULL REFERENCES comments(id) ON DELETE CASCADE,
     resolved INTEGER NOT NULL DEFAULT 0, -- done flag (db.py migrates legacy rows)
+    author TEXT NOT NULL DEFAULT '', -- display name override (MCP: API key name, else '')
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_doc ON comments(doc_id);
@@ -85,3 +86,20 @@ CREATE TABLE IF NOT EXISTS templates (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (owner, name)
 );
+
+-- api_keys: MCP/agent access. Only the sha256 hash is stored, the secret is
+-- shown once at creation. role caps doc_role() (min), never owner/admin.
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
+    prefix TEXT NOT NULL DEFAULT '',
+    key_hash TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL DEFAULT 'editor',
+    expires_at TEXT NOT NULL DEFAULT '',
+    last_used TEXT NOT NULL DEFAULT '',
+    revoked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username);

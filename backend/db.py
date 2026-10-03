@@ -155,9 +155,25 @@ def _migrate_v8(con: sqlite3.Connection) -> None:
     con.execute("CREATE INDEX IF NOT EXISTS idx_templates_owner ON templates(owner)")
 
 
+def _migrate_v9(con: sqlite3.Connection) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS api_keys ("
+                "id TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, "
+                "name TEXT NOT NULL DEFAULT '', prefix TEXT NOT NULL DEFAULT '', "
+                "key_hash TEXT NOT NULL UNIQUE, role TEXT NOT NULL DEFAULT 'editor', "
+                "expires_at TEXT NOT NULL DEFAULT '', last_used TEXT NOT NULL DEFAULT '', "
+                "revoked INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username)")
+
+
+def _migrate_v10(con: sqlite3.Connection) -> None:
+    if "author" not in _cols(con, "comments"):
+        con.execute("ALTER TABLE comments ADD COLUMN author TEXT NOT NULL DEFAULT ''")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
-    _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8,
+    _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
 )
 
 

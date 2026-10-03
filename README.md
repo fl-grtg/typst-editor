@@ -71,12 +71,29 @@ Never commit `config.toml` or `.env`; only `.example` files are tracked.
 curl -s http://127.0.0.1:8978/healthz
 ```
 
-Sync runs over `WS /ws/{doc_id}` (y-websocket). Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax). Invite tokens go in the POST body, never in the URL. `/?join=TOKEN` and `/?invite=CODE` are entry links only: the app reads the code, strips it from the URL, sends it via POST.
+Sync runs over `WS /ws/{doc_id}` (y-websocket). Browser auth is cookie-based (`typst_session`, HttpOnly, SameSite=lax); agents use Bearer API keys (see below). Invite tokens go in the POST body, never in the URL. `/?join=TOKEN` and `/?invite=CODE` are entry links only: the app reads the code, strips it from the URL, sends it via POST.
 
 ### 🔗 Invite links
 
 - `https://host/?invite=CODE` opens registration with code prefilled (no auto-submit). Needs logged-out browser.
 - `https://host/?join=TOKEN` redeems a doc invite after login. Share via doc Share button.
+
+### 🔑 API keys + MCP
+
+Keys look like `tpe_<8hex>_<32hex>` (only the sha256 hash is stored; the secret is shown once at creation in Settings).
+
+```bash
+curl -cj jar.txt -b jar.txt -X POST http://127.0.0.1:8978/api/keys \
+  -H 'Content-Type: application/json' -d '{"name":"agent"}'
+curl -s -b jar.txt http://127.0.0.1:8978/api/keys
+curl -s http://127.0.0.1:8978/api/keys -H "Authorization: Bearer tpe_..."
+```
+
+Claude Code: `claude mcp add --transport http typst-editor http://127.0.0.1:8978/mcp --header "Authorization: Bearer tpe_..."`
+
+OpenCode (`opencode.json`): server `"typst-editor"` with `"type": "remote"`, `"url": "http://127.0.0.1:8978/mcp"`, `"headers": {"Authorization": "Bearer tpe_..."}`.
+
+Agent loop `ls -> read -> edit -> view -> fix`; see `skills/typst-editor/SKILL.md` for path model and edit rules.
 
 ## 💾 Backup
 
@@ -153,7 +170,7 @@ Unshare wipes pending invite links (they carry no username). First load needs in
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 156 tests
+python -m pytest            # 176 tests
 ruff check backend/ scripts/ tests/
 mypy backend/ scripts/ tests/
 ```
