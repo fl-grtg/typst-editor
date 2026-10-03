@@ -1,12 +1,24 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.8
+    rev: v0.16.9
     hooks:
       - id: ruff-check
         args: [--, backend/, scripts/, tests/]
+      # ruff-format bleibt unenforced: wuerde aktuell ~30 Dateien umformatieren, daher opt-in.
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.3.1
     hooks:
       - id: mypy
         args: [backend/, scripts/, tests/]
-        additional_dependencies: [fastapi, uvicorn, websockets, pycrdt, python-multipart]
+        additional_dependencies: [fastapi==0.141.1, uvicorn==0.54.0, websockets==17.1, pycrdt==0.14.6, python-multipart==0.0.32]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: '^vendor-cm\.js$'
+      - id: trailing-whitespace
+        exclude: '^vendor-cm\.js$'
+      - id: check-yaml
+      - id: check-added-large-files
+        exclude: '^vendor-cm\.js$'
+      - id: debug-statements
