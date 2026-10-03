@@ -329,6 +329,7 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
                     raise _main.busy_503("mcp_create", e) from e
         except sqlite3.OperationalError as e:
             raise _main.busy_503("mcp_create", e) from e
+        _main.notify_sidebar(user)
         return {"id": did, "title": title, "path": f"/docs/{title}"}
     if segs[0] == "docs" and len(segs) == 3:
         title = _title(segs[1])
@@ -356,6 +357,7 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
             raise _bad("Template already exists") from e
         except sqlite3.OperationalError as e:
             raise _main.busy_503("mcp_create", e) from e
+        _main.notify_sidebar(user)
         return {"name": name, "path": f"/templates/{name}"}
     if segs[0] == "shared":
         raise _bad("Cannot create in the shared namespace", 403)

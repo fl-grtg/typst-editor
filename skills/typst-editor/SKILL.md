@@ -1,91 +1,78 @@
 # Typst Editor — MCP Agent Skill
 
-Access the self-hosted Typst editor through Model Context Protocol (MCP).
+Work on the user's self-hosted Typst docs through MCP (Streamable HTTP).
 
-## Connect
+## 0. Human setup (once — walk the user through this if anything is missing)
 
-- Endpoint (Streamable HTTP): `http://127.0.0.1:8978/mcp` (host/port varies — substitute as needed)
-- Auth: `Authorization: Bearer tpe_<prefix>_<secret>` header only. No cookie needed.
-- Create the key in the Settings UI (web login). The secret is shown **once** — store it immediately.
-- Tool errors arrive as `isError: true` at HTTP 200 (not as HTTP status codes).
+1. Server URL: local `http://127.0.0.1:8978` or remote `https://host`. The user needs an account on it — server default is `invite-only`, so an invite code (or the admin) may be required first (see README “Invite links”).
+2. In the web UI (login → Settings → API keys → Create), with a **name** (required):
+   - **Role: Reviewer** for read/comment jobs; **Editor** only if files must change. (Default: Editor.)
+   - **Expires:** 30–90 days recommended. (Default: never.)
+   - The secret (`tpe_<prefix>_<secret>`) is shown **once** — copy it now. Only its hash is stored.
+3. Register the server (insert URL + key):
 
-## Setup (register the server in your client)
+   Claude Code:
+   ```
+   claude mcp add --transport http typst-editor <server>/mcp \
+     --header "Authorization: Bearer tpe_..."
+   ```
 
-Claude Code:
+   OpenCode (`opencode.json`):
+   ```json
+   { "mcp": { "typst-editor": {
+     "type": "remote", "url": "<server>/mcp",
+     "headers": { "Authorization": "Bearer tpe_..." } } } }
+   ```
+4. Hand this file + the key to the agent. Everything below is the agent's job.
 
-```
-claude mcp add --transport http typst-editor http://127.0.0.1:8978/mcp \
-  --header "Authorization: Bearer tpe_<prefix>_<secret>"
-```
+## 1. Connect
 
-OpenCode (`opencode.json`):
+- Endpoint `<server>/mcp`, header `Authorization: Bearer <key>` only (no cookie).
+- Tool errors arrive as `isError: true` at HTTP 200 — read the message, never trust the 200.
 
-```json
-{
-  "mcp": {
-    "typst-editor": {
-      "type": "remote",
-      "url": "http://127.0.0.1:8978/mcp",
-      "headers": { "Authorization": "Bearer tpe_<prefix>_<secret>" }
-    }
-  }
-}
-```
-
-## Workflow loop
+## 2. Work loop
 
 ```
 ls -> read -> edit -> view -> fix
 ```
 
-1. `ls` for an overview (docs, shared, templates, or files inside a doc).
-2. `read` the target file (`last_seen` marker is returned — pass it to `edit`; optional, but recommended).
-3. `edit` with a precise anchor (see rules below).
-4. `view` to render pages as PNG and check the result.
-5. Fix and re-view until correct.
+Copy paths from `ls` output, never invent them.
 
-## Tools
+## 3. Tools
 
-- `ls(path="/")` — browse `/`, `/docs`, `/shared`, `/templates`, or a document path (files).
-- `read(path)` — doc, text file, or template. Returns `content` + `last_seen`.
-- `create(path, content="")` — doc `/docs/{Title}`, text file `/docs/{Title}/{File}`, or template. Fails with `400` if it exists. Binary names need `upload` instead.
-- `edit(path, old_string, new_string, replace_all=false, last_seen=null)` — anchor edit, see rules.
-- `search(query)` — titles + content (at most 20 hits).
-- `upload(path, content_base64, filename=null)` — attachment: `/docs/{Title}/{File}` or `/docs/{Title}` + `filename`. Max 10 MB.
-- `comment(path, anchor, text, quote="", parent_id=null)` — `anchor` is a line number (0 = start). Create-only.
-- `view(path, pages="1-5")` — renders pages 1–5 as base64 PNGs (width ≤1024px). Returns `pages` + `count` + `cache_hit` + `last_seen`.
+| Tool | Does |
+| --- | --- |
+| `ls(path="/")` | `/`, `/docs`, `/shared`, `/templates`, or a doc path (its files) |
+| `read(path)` | doc / text file / template → `content` + `last_seen` (pass to `edit`) |
+| `create(path, content="")` | new doc, file, or template. `400` if it exists; binary names need `upload` instead |
+| `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§4), max 200 KB text |
+| `search(query)` | titles + content, min 2 chars, max 20 hits |
+| `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
+| `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = line number (`0` = top); **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
+| `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"`, `"1,3"` all work, max 5 |
 
-## Path model
+## 4. Paths
 
-- `/docs/{Title}` — a document
-- `/docs/{Title}/{File}` — a text file or attachment inside a document
-- `/shared/{Owner}/{Title}[/{File}]` — docs shared with the key owner
-- `/templates/{Name}.typ` — reusable templates
-- A `/` inside a title splits the path, so titles with `/` can't be addressed (400).
+- `/docs/{Title}` = doc (readable AND its file list; `ls` a file path → `400`, use `read`), `/docs/{Title}/{File}` = text/attachment
+- `/shared/{Owner}/{Title}[/{File}]` = shared with the key owner
+- `/templates/{Name}.typ` = reusable template
+- `/` inside a title breaks the path → such titles are unreachable (`400` at create)
 
-## Edit rules
+## 5. Edit rules
 
-- `old_string` is required, with 2–3 lines of context around the change.
-- `0` matches → `409 anchor-gone`: re-read first, the content changed.
-- `>1` matches → `409 anchor-ambiguous`: add more context or use `replace_all=true`.
-- `replace_all=true` replaces every match.
-- `last_seen` from `read` is optional: without it the edit still runs; a stale marker with a clean anchor proceeds (returned as `stale: true`, not an error).
-- `create` on an existing title fails with `400`.
-- Binary `read` fails with `400`: use `view` to render it, `upload` to replace it.
-- `view` renders at most 5 pages per call.
+- `old_string` required, 2–3 lines of context, copied from `read` — never guessed.
+- `0` matches → `409 anchor-gone`: re-`read`, then retry with a bigger anchor.
+- `>1` matches → `409 anchor-ambiguous`: add context, or `replace_all=true` (renames).
+- `last_seen` is optional: stale marker + clean anchor still applies (returns `stale: true`).
+- Binary `read` → `400`: `view` the parent doc (renders only embedded content), `upload` to replace the file.
 
-## Permissions
+## 6. On errors
 
-- Reviewer keys (and reviewer shares) are read + comment only — edits return `403`.
-- Effective rights are the minimum of key role and share role.
-- Owner/Admin stays in the human UI.
-- Comments via tools are create-only; edit/delete/resolve happens in the UI
-  (comments are author-only for edit; delete/resolve additionally allows the doc owner).
+- `404` → path is wrong or renamed: `ls` the parent again, never retry blindly.
+- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment only — that is the minimum of key role and share role. Rename/share/delete/invite/resolve don't exist as MCP tools — human in the UI.
+- `410` → doc is trashed: tell the human to restore it in the UI.
+- `429` → rate limit (60/min): back off, don't retry-loop.
 
-## Limits
+## 7. Limits
 
-- `search` queries shorter than 2 chars return no hits; at most 20 hits.
-- `upload` max 10 MB per file, 200 files per doc, 500 MB per user.
-- `view` pages `1-5` only (e.g. `pages: "2"` for a single page).
-- MCP calls are rate-limited (60/min per key) — slow down on `429`.
-- `ls` targets: `/`, `/docs`, `/shared`, `/templates`, or a document path (files).
+- `search` <2 chars: no hits. `upload`: 200 files/doc, 500 MB/user. Text files: max 200 KB (`create`/`edit` fail above). `view`: needs the `typst` CLI on the server (Docker image has it).

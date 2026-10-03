@@ -80,11 +80,11 @@ Sync runs over `WS /ws/{doc_id}` (y-websocket). Browser auth is cookie-based (`t
 
 ### 🔑 API keys + MCP
 
-Keys look like `tpe_<8hex>_<32hex>` (only the sha256 hash is stored; the secret is shown once at creation in Settings).
+Keys look like `tpe_<8hex>_<32hex>` (only the sha256 hash is stored; the secret is shown once at creation in Settings). Roles: `reviewer` (read + comment, least privilege) or `editor` (default); `expires_in_days` optional (1–365, default never).
 
 ```bash
 curl -cj jar.txt -b jar.txt -X POST http://127.0.0.1:8978/api/keys \
-  -H 'Content-Type: application/json' -d '{"name":"agent"}'
+  -H 'Content-Type: application/json' -d '{"name":"agent","role":"reviewer","expires_in_days":90}'
 curl -s -b jar.txt http://127.0.0.1:8978/api/keys
 curl -s http://127.0.0.1:8978/api/keys -H "Authorization: Bearer tpe_..."
 ```

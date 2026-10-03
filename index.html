@@ -420,7 +420,6 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 #cmWrap .cm-completionIcon-type, #cmWrap .cm-completionIcon-namespace { color: var(--tok-math); }
 #cmWrap .cm-completionIcon-label, #cmWrap .cm-completionIcon-text { color: var(--tok-label); }
 #cmWrap .cm-completionIcon-file { color: var(--faint); }
-.cm-tooltip-lint { display: none; }
 .typ-hover { max-width: 280px; padding: 9px 12px; font: 12.5px/1.55 var(--ui); color: var(--text); white-space: pre-line; }
 .typ-hover.full { max-width: 320px; }
 .typ-hover.err { background: var(--danger-soft); border-left: 3px solid var(--danger); }
@@ -594,7 +593,6 @@ body.read #preview { padding-top: 24px; }
 .pk { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 6px; padding: 10px 14px; text-align: left; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-md); color: var(--text); }
 .pk:hover { background: var(--hover); }
 .pk.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-.pk .pkIco { display: none; }
 .pk .pkTx { flex: 1; min-width: 0; }
 .pk b { display: block; font-size: 13.5px; font-weight: 600; }
 .pk span { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 400; color: var(--sub); }
@@ -1717,6 +1715,18 @@ function jumpWant() { // jump to search hit (once after open)
   wantPos = -1
   cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
 }
+let sideES = null, sideESErr = 0
+function watchSidebar() { // live sidebar: external list changes (MCP, other tab) repaint without reload
+  try {
+    if (sideES) sideES.close()
+    sideESErr = 0
+    sideES = new EventSource('/api/events')
+    sideES.onopen = () => { sideESErr = 0 } // reconnect resets transient-error count
+    sideES.addEventListener('sidebar', () => { if (!user) return sideES.close(); sidebar().catch(() => {}) })
+    sideES.onerror = () => { if (++sideESErr > 3) { sideES.close(); sideES = null } } // dead session: stop retry storm, reload reconnects
+  } catch (e) { console.warn('watchSidebar', e) }
+}
+if (!window.__sideArmed) { window.__sideArmed = true; addEventListener('online', () => { watchSidebar(); sidebar().catch(() => {}) }) } // sleep/offline: re-arm stream + catch up
 let sideN = 0
 async function sidebar() {
   const id = ++sideN
@@ -3733,6 +3743,7 @@ async function login(u, p) {
     paintMe()
     const hadJoin = !!new URLSearchParams(location.search).get('join')
     try { await sidebar(); } catch (e) {}
+    watchSidebar()
     loadTpl(); const joined = await checkJoin()
     if (!docId && !tplName && !hadJoin && !joined) {
       const t = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
@@ -3741,9 +3752,9 @@ async function login(u, p) {
   } finally { go.disabled = false; mode.disabled = false; go.textContent = regMode ? 'Sign up' : 'Sign in' }
 }
 $('login').onsubmit = e => { e.preventDefault(); login($('u').value, $('p').value).catch(err => $('err').textContent = err.message) }
-$('out').onclick = () => api('POST', '/api/logout').finally(() => {
+$('out').onclick = () => { try { sideES?.close() } catch (e) {}; api('POST', '/api/logout').finally(() => {
   location.reload()
-})
+}) }
 $('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
   if (tplName) { // template: save new + delete old (else upsert overwrites)
     const t = await ask('Rename template', { value: tplName })
@@ -3905,6 +3916,7 @@ api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
   paintMe()
   const hadJoin = !!new URLSearchParams(location.search).get('join')
   try { await sidebar(); } catch (e) {}
+  watchSidebar()
   loadTpl(); const joined = await checkJoin()
   if (!docId && !tplName && !hadJoin && !joined) {
     const t = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])

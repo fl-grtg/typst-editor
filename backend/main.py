@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import asyncio
 import base64
 import hmac
 import logging
@@ -31,7 +32,7 @@ from fastapi import (
     status,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend import auth, config, db, ratelimit, sync
@@ -118,6 +119,21 @@ def _doc_lock(key: str) -> threading.Lock:
 
 def _export_lock(user: str) -> threading.Lock:
     return _lock_for(_EXPORT_LOCKS, user)
+
+
+_SIDEBAR_Q: dict[str, set] = {}  # user -> {(loop, queue)} live /api/events streams (single worker)
+
+
+def notify_sidebar(user: str) -> None:
+    # Own list changed elsewhere (MCP, other tab): wake every open sidebar stream of this user.
+    # Def endpoints run in a worker thread: schedule into the loop thread-safely.
+    # Coalesce: one pending event is enough, sidebar() refetches everything anyway.
+    for _loop, _q in list(_SIDEBAR_Q.get(user, ())):
+        try:
+            if _q.empty():
+                _loop.call_soon_threadsafe(_q.put_nowait, "sidebar")
+        except Exception:
+            pass
 
 
 def _drop_doc_locks(doc_id: str) -> None:
@@ -579,11 +595,10 @@ def _owner(doc_id: str, fallback: str) -> str:
 
 def need_edit(user: str, doc_id: str) -> str:
     # Returns the role like need_access (consistent); callers need the check only.
+    # need_access already rejects trashed docs (410), no re-check here.
     role = need_access(user, doc_id)
     if role not in ("owner", "editor"):
         raise HTTPException(403, "Reviewer can only comment")
-    if db.is_trashed(doc_id):
-        raise HTTPException(410, "In trash - restore first")
     return role
 
 
@@ -742,26 +757,16 @@ def register(b: Register, res: Response, req: Request) -> dict:
         try:
             with db.tx() as con:
                 empty = con.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
-                if empty:
-                    if cfg.REGISTRATION == "closed":
-                        log.warning("register blocked (closed)")
-                        raise HTTPException(403, "Registration disabled")
-                    elif cfg.REGISTRATION == "invite-only" and not _invite_ok(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
-                        if not cfg.REGISTRATION_INVITE_TOKEN:
-                            log.warning("register blocked (invite-only, no token configured, first user)")
-                            raise HTTPException(403, "Registration disabled: no invite token configured")
-                        log.warning("register blocked (invite, first user)")
-                        raise HTTPException(403, "Invalid invite code")
-                else:
-                    if cfg.REGISTRATION == "closed":
-                        log.warning("register blocked (closed)")
-                        raise HTTPException(403, "Registration disabled")
-                    elif cfg.REGISTRATION == "invite-only" and not _invite_ok(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
-                        if not cfg.REGISTRATION_INVITE_TOKEN:
-                            log.warning("register blocked (invite-only, no token configured)")
-                            raise HTTPException(403, "Registration disabled: no invite token configured")
-                        log.warning("register blocked (invite)")
-                        raise HTTPException(403, "Invalid invite code")
+                ctx = " (first user)" if empty else ""
+                if cfg.REGISTRATION == "closed":
+                    log.warning("register blocked (closed)%s", ctx)
+                    raise HTTPException(403, "Registration disabled")
+                elif cfg.REGISTRATION == "invite-only" and not _invite_ok(b.invite, cfg.REGISTRATION_INVITE_TOKEN):
+                    if not cfg.REGISTRATION_INVITE_TOKEN:
+                        log.warning("register blocked (invite-only, no token configured)%s", ctx)
+                        raise HTTPException(403, "Registration disabled: no invite token configured")
+                    log.warning("register blocked (invite)%s", ctx)
+                    raise HTTPException(403, "Invalid invite code")
                 if con.execute("SELECT 1 FROM users WHERE name=? COLLATE NOCASE", (name,)).fetchone():
                     auth.check_password("dummy-timing", auth.DUMMY_HASH)
                     raise HTTPException(400, "Registration failed")
@@ -1242,6 +1247,7 @@ def make_folder(b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
     try:
         ensure_folder(con, user, "doc", n)
         con.commit()
+        notify_sidebar(user)
         return {"folder": n}
     finally:
         con.close()
@@ -1277,6 +1283,7 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(me)) -> dict:
         raise HTTPException(400, "Title already exists") from e
     except sqlite3.OperationalError as e:
         raise busy_503("create_doc", e) from e
+    notify_sidebar(user)
     return {"id": did}
 
 
@@ -1422,6 +1429,7 @@ def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(me)) 
     try:
         con.execute("UPDATE docs SET title=?, updated_at=? WHERE id=?", (t, db.now_iso(), doc_id))
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     except sqlite3.IntegrityError:
         raise HTTPException(400, "Title already exists") from None
@@ -1450,7 +1458,7 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)) -> dict:
     try:
         _c = db.connect()
         try:
-            _old = _c.execute("SELECT content FROM templates WHERE owner=? AND name=?", (user, n)).fetchone()
+            _old = _c.execute("SELECT content, folder FROM templates WHERE owner=? AND name=?", (user, n)).fetchone()
         finally:
             _c.close()
     except sqlite3.OperationalError as e:
@@ -1484,6 +1492,8 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)) -> dict:
                 con.close()
     except sqlite3.OperationalError as e:
         raise busy_503("save_template", e) from e
+    if _old is None or (_old["folder"] or "") != b.folder.strip()[:FOLDER_MAX]:
+        notify_sidebar(user)  # content-only updates don't change the list
     return {"name": n}
 
 
@@ -1497,6 +1507,7 @@ def delete_template(name: str, req: Request, user: str = Depends(me)) -> dict:
         con.commit()
         if cur.rowcount == 0:
             raise HTTPException(404, "Template gone")
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1514,6 +1525,7 @@ def move_template(name: str, b: FolderSet, req: Request, user: str = Depends(me)
         con.commit()
         if cur.rowcount == 0:
             raise HTTPException(404, "Template gone")
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1537,6 +1549,7 @@ def make_tpl_folder(b: FolderSet, req: Request, user: str = Depends(me)) -> dict
     try:
         ensure_folder(con, user, "tpl", n)
         con.commit()
+        notify_sidebar(user)
         return {"folder": n}
     finally:
         con.close()
@@ -1555,6 +1568,7 @@ def rename_tpl_folder(b: FolderRename, req: Request, user: str = Depends(me)) ->
         con.execute("UPDATE OR IGNORE folders SET name=? WHERE owner=? AND kind='tpl' AND name=?",
                     (new, user, old))
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1569,6 +1583,7 @@ def drop_tpl_folder(name: str, req: Request, user: str = Depends(me)) -> dict:
         con.execute("UPDATE templates SET folder='' WHERE owner=? AND folder=?", (user, n))
         con.execute("DELETE FROM folders WHERE owner=? AND kind='tpl' AND name=?", (user, n))
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1592,6 +1607,7 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict
             con.commit()
             await sync.drop(doc_id)
             _drop_doc_locks(doc_id)
+            notify_sidebar(user)
             return {"trashed": True}
         con.execute("DELETE FROM docs WHERE id=?", (doc_id,))
         con.commit()
@@ -1599,6 +1615,7 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict
         con.close()
     await sync.drop(doc_id)
     _drop_doc_locks(doc_id)
+    notify_sidebar(user)
     try:
         shutil.rmtree(get_files_dir() / doc_id, ignore_errors=True)
     except OSError:
@@ -1623,6 +1640,7 @@ def restore_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
             fld = ""
         con.execute("UPDATE docs SET trashed=0, folder=?, updated_at=? WHERE id=?", (fld, db.now_iso(), doc_id))
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1642,6 +1660,7 @@ def move_doc(doc_id: str, b: FolderSet, req: Request, user: str = Depends(me)) -
                     (b.folder.strip()[:FOLDER_MAX], db.now_iso(), doc_id))
         ensure_folder(con, user, "doc", b.folder)
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1656,6 +1675,7 @@ def drop_folder(name: str, req: Request, user: str = Depends(me)) -> dict:
         con.execute("UPDATE docs SET folder='' WHERE owner=? AND folder=? AND trashed=0", (user, n))
         con.execute("DELETE FROM folders WHERE owner=? AND kind='doc' AND name=?", (user, n))
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1676,6 +1696,7 @@ def rename_folder(b: FolderRename, req: Request, user: str = Depends(me)) -> dic
         con.execute("UPDATE OR IGNORE folders SET name=? WHERE owner=? AND kind='doc' AND name=?",
                     (new, user, old))
         con.commit()
+        notify_sidebar(user)
         return {"ok": True}
     finally:
         con.close()
@@ -1755,6 +1776,7 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
             finally:
                 con.close()
             raise HTTPException(500, "Copy failed") from None
+    notify_sidebar(user)
     return {"id": nid}
 
 
@@ -1789,6 +1811,7 @@ async def share_doc(doc_id: str, b: Share, req: Request, user: str = Depends(me)
     sync.drop_role_cache(b.username)
     if downgraded:
         await sync.kick_user(doc_id, b.username)
+    notify_sidebar(b.username)  # sharee's list changed
     return {"ok": True}
 
 
@@ -1808,6 +1831,7 @@ async def unshare_doc(doc_id: str, username: str, req: Request, user: str = Depe
     finally:
         con.close()
     await sync.kick_user(doc_id, username)
+    notify_sidebar(username)  # ex-sharee's list changed
     return {"ok": True}
 
 
@@ -2657,6 +2681,35 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
         raise
 
 
+@app.get("/api/events")
+async def sidebar_events(req: Request, user: str = Depends(me)):
+    if len(_SIDEBAR_Q.get(user, ())) >= 5:
+        raise HTTPException(429, "Too many streams")
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue = asyncio.Queue()
+    entry = (loop, q)
+    _SIDEBAR_Q.setdefault(user, set()).add(entry)
+
+    async def _gen():
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=25)
+                    yield f"event: {msg}\ndata: 1\n\n"
+                except TimeoutError:
+                    if not auth.verify_session(req.cookies.get(COOKIE, "")):
+                        break  # logged out/expired/revoked mid-stream: stop, client reconnects on next login
+                    yield ": ping\n\n"  # keep proxies from closing idle streams
+        finally:
+            _left = _SIDEBAR_Q.get(user, set())
+            _left.discard(entry)
+            if not _left:
+                _SIDEBAR_Q.pop(user, None)
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 def api_fallback(full_path: str) -> dict:
     raise HTTPException(404, "API gone")
@@ -2676,7 +2729,7 @@ def healthz() -> dict | Response:
     return {"ok": True}
 
 
-FRONT_FILES = {"vendor-cm.js", "manifest.json", "icon-192.png", "icon-512.png", "icon.svg"}
+FRONT_FILES = IMMUTABLE_SHELL  # one asset set: served files = immutable-cache files
 
 
 @app.get("/")
