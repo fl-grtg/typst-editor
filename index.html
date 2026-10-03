@@ -501,10 +501,10 @@ body.read #preview { padding-top: 24px; }
 #sharePop #shares button:hover { background: var(--hover); color: var(--text); }
 #sharePop .hintline { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 4px 0 8px; }
 #sharePop input[readonly] { background: transparent; border-style: dashed; color: var(--sub); }
-#setPop { width: min(700px, calc(100vw - 24px)); max-height: none; overflow: visible; columns: 2; column-gap: 24px; padding: 14px 18px 18px; }
-#setPop .sTop, #setPop .serr { column-span: all; }
-#setPop h4 { margin: 0; padding: 14px 0 4px; break-after: avoid; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
-#setPop .sec { break-inside: avoid; }
+#setPop { width: min(700px, calc(100vw - 24px)); max-height: none; overflow: auto; padding: 14px 18px 18px; }
+#setPop .setGrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
+#setPop .setCol { display: flex; flex-direction: column; min-width: 0; }
+#setPop h4 { margin: 0; padding: 14px 0 4px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
 #setPop .sec .row { flex-wrap: nowrap; align-items: center; gap: 8px; margin-top: 8px; }
 #setPop .sec .row.wrap { flex-wrap: wrap; }
 #setPop .sec .row.wrap input { flex: 1 1 140px; }
@@ -516,6 +516,7 @@ body.read #preview { padding-top: 24px; }
 #setPop .sec { background: var(--hover); border-radius: var(--r-md); padding: 4px 12px 12px; margin: 0 0 4px; }
 #setPop .serr { background: var(--danger-soft); color: var(--danger); border-radius: var(--r-sm); padding: 8px 10px; font-size: 12.5px; margin-bottom: 6px; }
 #setPop .avatarRow { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 600px) { #setPop .setGrid { grid-template-columns: 1fr; } } /* popover < ~560px: single column */
 #setPop img.av, #setPop .avFallback { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--press); flex: none; }
 #setPop .avFallback { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--sub); }
 #tplPop .tip { margin: 2px 10px 6px; font-size: 12px; color: var(--sub); line-height: 1.45; }
@@ -652,7 +653,8 @@ body.read #preview { padding-top: 24px; }
   #find button { min-height: 40px; }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
   #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
-  #setPop { columns: 1; width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: calc(100dvh - 72px); overflow: auto; }
+  #setPop { width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: calc(100dvh - 72px); overflow: auto; }
+  #setPop .setGrid { grid-template-columns: 1fr; }
   #menu button { min-height: 40px; }
   #exportBtn span, #shareBtn span { display: none; }
   #exportBtn, #shareBtn { padding: 0; }
@@ -829,14 +831,14 @@ const $ = id => document.getElementById(id)
 let toastT = 0
 function toast(m, retry, label, ms) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-async function api(m, url, body, tries = 3) { // Error carries .status/.detail; GET auto-retries 429/503 with backoff (idempotent only)
+async function api(m, url, body, tries = 3) { // Error carries .status/.detail; GET auto-retries 503 with backoff (idempotent only, never 429: a limit hit must surface, not re-hit the bucket)
   let lastErr = null
   const n = m === 'GET' ? tries : 1
   if (m !== 'GET' && /\/files(\/|$)/.test(url)) filesDirty = true // any file write: next render refetches the list
   for (let a = 0; a < n; a++) {
     const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) })
     if (r.status === 204) return null
-    if ((r.status === 429 || r.status === 503) && a < n - 1) { lastErr = new Error('Busy, retrying…'); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
+    if (r.status === 503 && a < n - 1) { lastErr = new Error('Busy, retrying…'); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
     const t = await r.text()
     let j = null; try { j = t ? JSON.parse(t) : null } catch (e) { j = null } // HTML error page: no crash
     if (!r.ok) { const e = new Error((j && j.detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = (j && j.detail) || ''; throw e }
@@ -868,7 +870,7 @@ function clampSplit(w) { return Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, w)) } //
 const QUOTE_MAX = 120, AV_SIZE = 64 // comment quote, avatar px
 const SPLIT_MIN = 25, SPLIT_MAX = 85 // editor width in %
 const ED_MIN = 10, ED_MAX = 24, ED_STEP = 1 // editor font
-const PV_MIN = 30, PV_MAX = 200, PV_STEP = 10 // preview zoom
+const PV_MIN = 30, PV_MAX = 400, PV_STEP = 10 // preview zoom (400: zoom may exceed container, preview scrolls)
 const SIDE_MIN = 200, SIDE_MAX = 420 // sidebar width in px
 let edSize = 14, pvZoom = 110 // editor font + preview zoom
 try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MAX) edSize = e } catch (err) {}
@@ -3149,7 +3151,7 @@ $('who').onclick = e => {
 }
 kb($('who'), () => $('who').click())
 let setMsg = '' // settings error inline not browser alert
-let apiKeys = null, apiKeysLoading = false, lastKeySecret = ''
+let apiKeys = null, apiKeysLoading = false, lastKeySecret = '', lastKeyName = '', lastKeyId = ''
 function loadKeys() {
   if (apiKeysLoading) return; apiKeysLoading = true
   api('GET', '/api/keys').then(d => { apiKeys = d.keys || [] })
@@ -3164,12 +3166,14 @@ function copyTxt(t, inp) {
 function renderSettings() {
   const p = $('setPop'); p.replaceChildren()
   const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
+  const grp = (title, ...secs) => { const w = el('div', 'grp'); w.appendChild(el('h4', null, title)); secs.forEach(s => w.appendChild(s)); return w }
   const top = el('div', 'sTop')
   const close = icoBtn(null, ICO_X); close.title = 'Close'; close.setAttribute('aria-label', close.title)
-  close.onclick = e => { e.stopPropagation(); lastKeySecret = ''; p.style.display = 'none' }
+  close.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; p.style.display = 'none' }
   top.append(el('b', null, 'Settings'), close); p.appendChild(top)
   if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }
-  p.appendChild(el('h4', null, 'Appearance'))
+  const grid = el('div', 'setGrid'), colL = el('div', 'setCol'), colR = el('div', 'setCol')
+  grid.append(colL, colR); p.appendChild(grid) // deterministic 2-col grid: left = profile, right = backup + keys
   const fr = el('div', 'row'); fr.append(el('label', null, 'Font '))
   const fm = el('button', 'step', 'A−'); fm.title = 'Smaller editor'; fm.setAttribute('aria-label', fm.title)
   fm.onclick = () => { stepEd(-ED_STEP); renderSettings() }
@@ -3184,8 +3188,7 @@ function renderSettings() {
   const zp = el('button', 'step', '+'); zp.title = 'Larger preview'; zp.setAttribute('aria-label', zp.title)
   zp.onclick = () => { stepPv(PV_STEP); renderSettings() }
   zr.appendChild(zp)
-  p.appendChild(sec(fr, zr))
-  p.appendChild(el('h4', null, 'Avatar'))
+  colL.appendChild(grp('Appearance', sec(fr, zr)))
   const ar = el('div', 'row avatarRow')
   const im = el('img', 'av'); im.alt = 'Your avatar'
   if (avatarV) im.src = `/api/avatar/${encodeURIComponent(user)}?v=${avatarV}`; else { im.style.display = 'none'; const fb = el('span', 'avFallback'); fb.textContent = (user || '?').slice(0, 2).toUpperCase(); ar.appendChild(fb) }
@@ -3195,8 +3198,7 @@ function renderSettings() {
   rm.onclick = () => api('DELETE', '/api/me/avatar')
     .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
     .catch(e => { setMsg = e.message; renderSettings() })
-  ar.append(im, pick, rm); p.appendChild(sec(ar))
-  p.appendChild(el('h4', null, 'Name'))
+  ar.append(im, pick, rm); colL.appendChild(grp('Avatar', sec(ar)))
   const nr = el('div', 'row')
   const nn = el('input'); nn.placeholder = 'New name'; nn.setAttribute('aria-label', 'New name'); nn.value = user
   const npw = el('input'); npw.type = 'password'; npw.placeholder = 'Password'; npw.setAttribute('aria-label', 'Password for name change')
@@ -3205,8 +3207,7 @@ function renderSettings() {
     { name: nn.value.trim(), password: npw.value })
     .then(d => { user = d.user; paintMe(); sidebar(); renderSettings() })
     .catch(e => { setMsg = e.message; renderSettings() }).finally(() => nok.disabled = false) }
-  nr.append(nn, npw, nok); p.appendChild(sec(nr))
-  p.appendChild(el('h4', null, 'Password'))
+  nr.append(nn, npw, nok); colL.appendChild(grp('Name', sec(nr)))
   const pr = el('div', 'row')
   const po = el('input'); po.type = 'password'; po.placeholder = 'Old password'; po.setAttribute('aria-label', 'Old password')
   const pn = el('input'); pn.type = 'password'; pn.placeholder = 'New password'; pn.setAttribute('aria-label', 'New password')
@@ -3214,20 +3215,21 @@ function renderSettings() {
   pok.onclick = () => { if (pok.disabled) return; if (!po.value || !pn.value) { setMsg = 'Enter your old and new password.'; renderSettings(); return } pok.disabled = true; api('POST', '/api/me/password', { old: po.value, new: pn.value })
     .then(() => { po.value = pn.value = ''; toast('Password changed') })
     .catch(e => { setMsg = e.message; renderSettings() }).finally(() => pok.disabled = false) }
-  pr.append(po, pn, pok); p.appendChild(sec(pr))
-  p.appendChild(el('h4', null, 'Backup'))
+  pr.append(po, pn, pok); colL.appendChild(grp('Password', sec(pr)))
   const bk = el('div', 'row')
   const bb = el('button', 'btnSecondary', 'Download backup (.zip)')
   bb.title = 'Download your documents, files and templates as .zip'
   bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
-  bk.appendChild(bb); p.appendChild(sec(bk))
-  p.appendChild(el('h4', null, 'API keys'))
+  bk.appendChild(bb); colR.appendChild(grp('Backup', sec(bk)))
+  const keySecs = []
+  const ksec = (...kids) => { const d = sec(...kids); d.style.padding = '6px 10px 8px'; d.style.marginBottom = '6px'
+    kids.forEach(k => { if (k.classList && k.classList.contains('row')) k.style.marginTop = '6px' }); return d }
   if (lastKeySecret) {
     const si = el('input'); si.readOnly = true; si.value = lastKeySecret; si.setAttribute('aria-label', 'New API key, shown once')
     const cp = el('button', null, 'Copy'); cp.onclick = () => copyTxt(lastKeySecret, si)
-    const cx = el('button', 'btnSecondary', 'Close'); cx.onclick = () => { lastKeySecret = ''; renderSettings() }
+    const cx = el('button', 'btnSecondary', 'Close'); cx.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; renderSettings() }
     const sr = el('div', 'row wrap'); sr.append(si, cp, cx)
-    p.appendChild(sec(el('div', null, 'Shown once – copy it now.'), sr))
+    keySecs.push(ksec(el('div', null, (lastKeyName || 'Key') + ' – shown once'), sr))
   }
   const kn = el('input'); kn.placeholder = 'Key name'; kn.maxLength = 40; kn.setAttribute('aria-label', 'Key name')
   const rs = el('select'); rs.setAttribute('aria-label', 'Role')
@@ -3235,38 +3237,57 @@ function renderSettings() {
   const es = el('select'); es.setAttribute('aria-label', 'Expiry')
   ;[['Never', ''], ['30 days', '30'], ['90 days', '90'], ['365 days', '365']].forEach(([t, v]) => { const o = el('option', null, t); o.value = v; es.appendChild(o) })
   const cb = el('button', null, 'Create')
-  cb.onclick = () => {
+  cb.onclick = e => {
+    e.stopPropagation() // sync renderSettings below detaches e.target: without this the document outside-click closer hides setPop
     if (cb.disabled) return
     if (!kn.value.trim()) { setMsg = 'Enter a key name.'; renderSettings(); return }
     cb.disabled = true
     api('POST', '/api/keys', { name: kn.value.trim(), role: rs.value, expires_in_days: es.value ? +es.value : null })
-      .then(d => { lastKeySecret = d.key; return api('GET', '/api/keys').then(x => { apiKeys = x.keys || [] }).catch(() => {}) })
+      .then(d => { // no refetch: one POST per create, list updates locally (was POST+GET, 2 keys-bucket hits)
+        lastKeySecret = d.key; lastKeyName = d.name || ''; lastKeyId = d.id || ''
+        apiKeys = [...(apiKeys || []), { id: d.id, name: d.name, prefix: d.prefix, role: d.role, expires_at: d.expires_at || '', last_used: '', created_at: '' }]
+      })
       .catch(e => { setMsg = e.message }).finally(() => renderSettings())
   }
-  const cr = el('div', 'row wrap'); cr.append(kn, rs, es, cb); p.appendChild(sec(cr))
+  const cr = el('div', 'row wrap'); cr.append(kn, rs, es, cb); keySecs.push(ksec(cr))
   if (apiKeys === null) {
-    p.appendChild(sec(el('div', null, apiKeysLoading ? 'Loading…' : '')))
+    keySecs.push(ksec(el('div', null, apiKeysLoading ? 'Loading…' : '')))
     if (!apiKeysLoading) loadKeys()
-  } else if (!apiKeys.length) p.appendChild(sec(el('div', null, 'No keys yet.')))
+  } else if (!apiKeys.length) keySecs.push(ksec(el('div', null, 'No keys yet.')))
   else {
     const rows = apiKeys.map(k => {
       const r = el('div', 'row wrap')
+      r.style.flexWrap = 'nowrap'; r.style.alignItems = 'center' // button centered across both text lines
+      const left = el('div')
+      left.style.flex = '1'; left.style.minWidth = '0'; left.style.display = 'flex'; left.style.flexDirection = 'column'
+      const nm = el('span', null, k.name)
+      nm.style.fontWeight = '650'; nm.style.fontSize = '13.5px'
+      nm.style.overflow = 'hidden'; nm.style.textOverflow = 'ellipsis'; nm.style.whiteSpace = 'nowrap'
+      nm.title = k.name
       const rb = el('button', 'btnSecondary', 'Revoke')
+      rb.style.flex = 'none'
       rb.onclick = () => {
         if (rb.disabled) return; rb.disabled = true
         api('DELETE', '/api/keys/' + encodeURIComponent(k.id))
-          .then(() => api('GET', '/api/keys')).then(x => { if (x) apiKeys = x.keys || [] })
+          .then(() => { apiKeys = (apiKeys || []).filter(x => x.id !== k.id)
+            if (lastKeySecret && (!lastKeyId || lastKeyId === k.id)) { lastKeySecret = ''; lastKeyName = ''; lastKeyId = '' } }) // revoked secret is dead: drop the shown-once box
           .catch(e => { setMsg = e.message }).finally(() => renderSettings())
       }
-      const eS = el('span', 'val', shortD(k.expires_at)); eS.title = k.expires_at || 'Never'
-      const lS = el('span', 'val', shortD(k.last_used)); lS.title = k.last_used || 'Never'
-      r.append(el('code', null, k.prefix || ''), el('span', null, k.name), el('span', 'val', k.role),
-        eS, lS, rb)
+      const sub = el('div', 'val')
+      sub.style.display = 'flex'; sub.style.flexWrap = 'wrap'; sub.style.gap = '6px'; sub.style.alignItems = 'center'
+      sub.style.fontSize = '12px'; sub.style.minWidth = '0'; sub.style.overflowWrap = 'anywhere'; sub.style.textAlign = 'left'
+      const pc = el('code', null, k.prefix || '')
+      pc.style.fontSize = '11.5px'; pc.style.overflowWrap = 'anywhere'; pc.style.minWidth = '0'
+      const eS = el('span', 'val', 'Expires ' + shortD(k.expires_at)); eS.title = k.expires_at || 'Never'
+      eS.style.fontSize = '12px'
+      sub.append(pc, el('span', null, k.role), eS)
+      left.append(nm, sub)
+      r.append(left, rb)
       return r
     })
-    p.appendChild(sec(...rows))
+    keySecs.push(ksec(...rows))
   }
-  p.appendChild(el('h4', null, 'Account'))
+  colR.appendChild(grp('API keys', ...keySecs)) // secret + create + list in one group: never fragmented
   const dr = el('div', 'row')
   const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = 'Password'; dpw.setAttribute('aria-label', 'Password for account deletion')
   const db = el('button', 'btnDanger', 'Delete')
@@ -3280,7 +3301,7 @@ function renderSettings() {
       .then(() => { location.reload() })
       .catch(e => { setMsg = e.message; renderSettings() })
   }
-  dr.append(dpw, db); p.appendChild(sec(dr))
+  dr.append(dpw, db); colL.appendChild(grp('Account', sec(dr)))
 }
 $('avPick').onchange = () => { // square, AV_SIZE, center
   const f = $('avPick').files[0]; $('avPick').value = ''
@@ -3536,7 +3557,7 @@ function fitPv() { // fit paper exactly to preview width, centered via margin
 }
 function sizeCanvas(c) { // CSS width from zoom only, never touch backing (canvas.width)
   c.style.width = (c.width / 2 * pvZoom / 100) + 'px'
-  c.style.maxWidth = document.body.classList.contains('read') ? (8.2 * pvZoom) + 'px' : '100%'
+  c.style.maxWidth = document.body.classList.contains('read') ? (8.2 * pvZoom) + 'px' : 'none' // none: zoom may exceed container, preview scrolls
   c.style.height = 'auto'
 }
 $('fMinus').onclick = () => stepEd(-ED_STEP)

@@ -890,6 +890,17 @@ def create_key(b: KeyCreate, req: Request, authn: tuple[str, str] = Depends(me_w
         raise HTTPException(400, "role must be editor or reviewer")
     if _ROLE_RANK[role] > _ROLE_RANK.get(cap, 0):
         raise HTTPException(403, "Cannot grant more than your own role")
+    nm = b.name.strip()[:40]
+    if not nm:
+        raise HTTPException(400, "Enter a key name.")
+    _dc = db.connect()
+    try:
+        _dup = _dc.execute("SELECT 1 FROM api_keys WHERE username=? AND name=? COLLATE NOCASE AND revoked=0",
+                           (user, nm)).fetchone()
+    finally:
+        _dc.close()
+    if _dup:
+        raise HTTPException(400, "Key name already used")
     expires_at = (datetime.now(UTC) + timedelta(days=b.expires_in_days)).isoformat() if b.expires_in_days else ""
     for _ in range(2):  # hash collision retry (practically impossible, fail-closed)
         kid, full, prefix = mint_api_key()
@@ -898,11 +909,11 @@ def create_key(b: KeyCreate, req: Request, authn: tuple[str, str] = Depends(me_w
             try:
                 con.execute("INSERT INTO api_keys (id, username, name, prefix, key_hash, role, expires_at, created_at) "
                             "VALUES (?,?,?,?,?,?,?,?)",
-                            (kid, user, b.name.strip()[:40], prefix, auth.sha(full), role, expires_at, db.now_iso()))
+                            (kid, user, nm, prefix, auth.sha(full), role, expires_at, db.now_iso()))
                 con.commit()
             except sqlite3.IntegrityError:
                 continue
-            return {"id": kid, "name": b.name.strip()[:40], "prefix": prefix,
+            return {"id": kid, "name": nm, "prefix": prefix,
                     "key": full, "role": role, "expires_at": expires_at}
         finally:
             con.close()

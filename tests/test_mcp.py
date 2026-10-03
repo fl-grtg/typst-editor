@@ -270,6 +270,15 @@ def test_key_name_required(c):
     assert c.post("/api/keys", json={"name": ""}).status_code == 400
 
 
+def test_key_name_unique(c):
+    register_user(c, "u1")
+    assert c.post("/api/keys", json={"name": "dup"}).status_code == 200
+    r = c.post("/api/keys", json={"name": "dup"})
+    assert r.status_code == 400 and "already used" in r.text
+    assert c.post("/api/keys", json={"name": "DUP"}).status_code == 400  # NOCASE
+    assert c.post("/api/keys", json={"name": "other"}).status_code == 200
+
+
 def test_mcp_throttle(c):
     register_user(c, "u1")
     key = make_key(c, name="throttle")["key"]

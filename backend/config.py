@@ -47,7 +47,7 @@ class Config:
     RATE_DUPLICATE_PER_MIN: int = 10
     RATE_AVATAR_PER_MIN: int = 10
     RATE_FOLDERS_PER_MIN: int = 20
-    RATE_KEYS_PER_MIN: int = 10
+    RATE_KEYS_PER_MIN: int = 30
     RATE_MCP_PER_MIN: int = 60
 
 
