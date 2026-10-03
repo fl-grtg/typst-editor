@@ -1723,12 +1723,12 @@ function watchSidebar() { // live sidebar: external list changes (MCP, other tab
     sideESErr = 0
     const es = sideES = new EventSource('/api/events')
     es.onopen = () => { sideESErr = 0; sideESRearms = 0 } // (re)connect resets counters
-    es.addEventListener('sidebar', () => { if (!user) return es.close(); sidebar().catch(() => {}) })
+    es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } sidebar().catch(() => {}) })
     es.onerror = () => {
       if (es !== sideES) return // superseded stream: ignore
       if (++sideESErr > 3) {
         es.close(); if (sideES === es) sideES = null
-        if (sideESRearms++ < 3) sideESTimer = setTimeout(watchSidebar, 15000 * sideESRearms) // capped backoff re-arm
+        if (sideESRearms++ < 3) sideESTimer = setTimeout(watchSidebar, 15000 * (sideESRearms + 1)) // capped backoff re-arm: 15/30/45s
       }
     }
   } catch (e) { console.warn('watchSidebar', e) }
@@ -3760,7 +3760,7 @@ async function login(u, p) {
   } finally { go.disabled = false; mode.disabled = false; go.textContent = regMode ? 'Sign up' : 'Sign in' }
 }
 $('login').onsubmit = e => { e.preventDefault(); login($('u').value, $('p').value).catch(err => $('err').textContent = err.message) }
-$('out').onclick = () => { try { sideES?.close() } catch (e) {}; api('POST', '/api/logout').finally(() => {
+$('out').onclick = () => { try { clearTimeout(sideESTimer); sideES?.close(); sideES = null } catch (e) {}; api('POST', '/api/logout').finally(() => {
   location.reload()
 }) }
 $('renBtn').onclick = async () => { // pencil behind title (owner only, template too)

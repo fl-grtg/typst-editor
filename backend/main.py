@@ -131,6 +131,7 @@ def notify_sidebar(user: str) -> None:
     try:
         _targets = list(_SIDEBAR_Q.get(user, ()))
     except RuntimeError:
+        log.debug("notify_sidebar race, next mutation retries")
         return  # set mutated concurrently; the next mutation notifies again
     for _loop, _q in _targets:
         try:
