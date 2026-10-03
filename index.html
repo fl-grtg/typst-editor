@@ -978,7 +978,14 @@ function typstComplete(ctx) {
   if (rf) { // after #ref(: labels from doc (vendor covers @label, not the #ref( form)
     const q = rf[2].toLowerCase(), out = [], seenL = new Set()
     for (const m of getT().matchAll(/<([^<>\s]+)>/g)) // labels use colons (<sec:intro>)
-      if (!seenL.has(m[1]) && fuzzy(q, m[1])) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
+      if (!seenL.has(m[1]) && fuzzy(q, m[1])) {
+        seenL.add(m[1])
+        const ins = '<' + m[1] + '>'
+        out.push({ label: ins, type: 'label', apply: (view, completion, from, to) => { // consume existing `>` instead of duplicating it
+          const end = view.state.sliceDoc(to, to + 1) === '>' ? to + 1 : to
+          view.dispatch({ changes: { from, to: end, insert: ins }, selection: { anchor: from + ins.length }, userEvent: 'input.complete' })
+        } })
+      }
     return out.length ? { from: pos - rf[2].length - rf[1].length, filter: false, options: out.slice(0, 50), validFor: /^<?[\p{ID_Continue}:.-]*>?$/u } : null
   }
   const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
@@ -986,7 +993,7 @@ function typstComplete(ctx) {
     if (!bibKeys.length) return null
     const q = ct[1].toLowerCase()
     const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
-    return out.length ? { from: pos - ct[1].length, filter: false, options: out.slice(0, 50), validFor: /^[\p{ID_Continue}:.-]*$/u } : null
+    return out.length ? { from: pos - ct[1].length, filter: false, options: out.slice(0, 50), validFor: /^[\p{ID_Continue}:.+/-]*$/u } : null
   }
   const sr = (() => { // innermost unclosed `#set FUNC(` (nesting-aware; parens in strings ignored)
     const re = /#set\s+([\w.]+)\s*\(/g
@@ -994,10 +1001,13 @@ function typstComplete(ctx) {
     while ((m = re.exec(before))) last = m
     if (!last) return null
     const args = before.slice(last.index + last[0].length)
-    let depth = 0
-    for (const ch of args.replace(/"[^"\n]*"?/g, '')) {
-      if (ch === '(') depth++
-      else if (ch === ')') { if (--depth < 0) return null } // call already closed
+    const pairs = { ')': '(', ']': '[', '}': '{' }, stack = []
+    for (const ch of args.replace(/"(\\.|[^"\\\n])*"?/g, '')) { // strings (escapes aware) don't count
+      if (ch === '(' || ch === '[' || ch === '{') stack.push(ch)
+      else if (pairs[ch]) {
+        if (!stack.length) return null // call already closed
+        if (stack[stack.length - 1] === pairs[ch]) stack.pop() // matched; stray closers in content ignored
+      }
     }
     return { name: last[1], args } // depth >= 0: still inside (nested or not)
   })()
@@ -1010,23 +1020,28 @@ function typstComplete(ctx) {
         if (pcDoc !== doc) { pcDoc = doc; pcTree = typstParser.parse(doc.toString()) }
         let n = pcTree && pcTree.resolveInner(Math.min(pos, doc.length), -1)
         for (; n; n = n.parent) if (T_BLOCKED.has(n.name)) { blocked = n.name; break }
-      }
+      } else blocked = 'SizeCap' // same silence as comment/string: no keywords, no fallback in huge docs
     } catch (e) { pcDoc = null; pcTree = null }
   }
-  if (blocked && blocked !== 'Error') return null // comment/string/raw: vendor silent by design, project stays silent too
+  if (blocked === 'LineComment' || blocked === 'BlockComment') return null // comments: full silence (file/label/cite ran before; keywords/params stay silent like vendor)
   if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gaps: vendor hides non-settable flags (paper, gutter, radius...) although valid
     const sig = typstBuiltinSignatures[sr.name]
     if (Array.isArray(sig)) {
-      let flat = sr.args.replace(/"[^"\n]*"?/g, '""') // strings blanked: commas/colons inside don't split
-      for (let k = 0; k < 6 && /\([^()]*\)/.test(flat); k++) flat = flat.replace(/\([^()]*\)/g, '') // nested groups stripped for analysis (positions stay original)
+      let flat = sr.args.replace(/"(\\.|[^"\\\n])*"?/g, '""') // strings blanked: commas/colons inside don't split
+      const grpRe = /\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}/g
+      for (let k = 0; k < 6; k++) { const nx = flat.replace(grpRe, ''); if (nx === flat) break; flat = nx } // nested groups stripped for analysis (positions stay original)
       const cur = flat.split(',').pop()
-      const trail = (sr.args.match(/("?[\p{ID_Continue}_.-]*)$/u) || [])[1] || ''
+      const trail = (sr.args.match(/("[^"\n]*|[\p{ID_Continue}_:.-]*)$/u) || [])[1] || '' // full partial incl. `:` (vendor-token level): `a:b` matches nothing instead of corrupting via truncated `b`
       const vmName = (cur.match(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:[^:]*$/u) || [])[1]
       const pm = vmName && sig.find(p => p[0] === vmName && (p[1] & 16) === 0 && Array.isArray(p[2])) // gap params only: settable values come from the vendor (no dupes)
       if (pm) { // value after `name:`: paper sizes etc. (vendor shows nothing here for gap params)
         const quoted = trail.charCodeAt(0) === 34, q = (quoted ? trail.slice(1) : trail).toLowerCase(), out = []
+        const quoteApply = v => (view, completion, from, to) => { // consume existing closing `"` instead of duplicating it
+          const end = view.state.sliceDoc(to, to + 1) === '"' && v.endsWith('"') ? to + 1 : to
+          view.dispatch({ changes: { from, to: end, insert: v }, selection: { anchor: from + v.length }, userEvent: 'input.complete' })
+        }
         for (const part of pm[2]) {
-          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: v, type: 'enum', detail: 'Accepted value', boost: 55 }) }
+          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: quoteApply(v), type: 'enum', detail: 'Accepted value', boost: 55 }) }
           else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: 'Boolean value', boost: 55 }) }
           else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: 'Typst ' + v + ' value', boost: 55 }) }
         }
@@ -1048,7 +1063,7 @@ function typstComplete(ctx) {
       }
     }
   }
-  if (kwm) { // control keywords live in no vendor list (#se -> #set; apply bare: # already typed)
+  if (kwm && (!blocked || blocked === 'Error')) { // control keywords live in no vendor list (#se -> #set; apply bare: # already typed)
     const q = kwm[1].toLowerCase()
     const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: k, type: 'keyword', boost: 60 }))
     if (out.length) return { from: pos - kwm[1].length, filter: false, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
@@ -1060,6 +1075,7 @@ function typstComplete(ctx) {
     if (out.length) return { from: pos - kwm[1].length, filter: false, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
   }
   if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
+    if (imp || rf || ct || sr) return null // context recognized but empty (no labels/keys/params): no file noise
     const w = ctx.matchBefore(/[\p{ID_Continue}.\-/]*$/u)
     const pre = (w ? w.text : '').toLowerCase()
     const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
@@ -1231,6 +1247,7 @@ const cm = new EditorView({
       { // Tab like IDE: selection/line-start indents, open box accepts, else autocomplete
       key: 'Tab',
       run: v => {
+        if (v.state.readOnly) return false // reviewer/comment mode: no accept, no indent, no completion
         const m = v.state.selection.main
         if (!m.empty) return indentMore(v)
         if (currentCompletions(v.state).length) { acceptCompletion(v); return true }
