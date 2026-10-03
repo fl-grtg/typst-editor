@@ -2,9 +2,10 @@ HOST = "127.0.0.1" # Bind address.
 PORT = 8978 # HTTP port.
 DATA_DIR = "./data" # SQLite + files directory.
 TRUST_PROXY = false # Trust X-Forwarded-Proto/For from the reverse proxy. Set in config.toml or via env; env wins.
+# FORWARDED_ALLOW_IPS is env-only (uvicorn flag, not a config.toml key) — see .env.example and Dockerfile.
 COOKIE_SECURE = "auto" # auto|true|false.
 REGISTRATION = "invite-only" # closed|invite-only|open. open only for local tests, never on the public internet.
-REGISTRATION_INVITE_TOKEN = "" # Invite code for accounts after the first; if set, even the first account needs it. Set before first start on public servers.
+REGISTRATION_INVITE_TOKEN = "" # Invite code for accounts after the first; if set, even the first account needs it. Set before first start on public servers. Min 16 chars (generate: openssl rand -hex 32); a shorter non-empty value refuses to start.
 SESSION_SECONDS = 1209600 # Session lifetime in seconds (14 days).
 MAX_DOCS_PER_USER = 100 # Max docs per user.
 MAX_BYTES_PER_USER = 524288000 # Max storage bytes per user (500 MB).

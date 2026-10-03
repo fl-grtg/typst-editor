@@ -4,30 +4,11 @@ import pytest
 from conftest import login, make_doc, register_user
 from fastapi.websockets import WebSocketDisconnect
 from pycrdt import Doc, Text
+from ws_helpers import _parse, _step1, _update_msg
 
 from backend import config as backend_config
 from backend import db, ratelimit, sync
 from backend import main as backend_main
-
-
-def _step1(sv=None):
-    if sv is None:
-        sv = Doc().get_state()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.STEP1),
-                     sync.write_var(len(sv)), sv)
-
-
-def _parse(data):
-    t, p = sync.read_var(data, 0)
-    st, p = sync.read_var(data, p)
-    ln, p = sync.read_var(data, p)
-    return t, st, data[p:p + ln]
-
-
-def _update_msg(doc):
-    upd = doc.get_update()
-    return sync.blob(sync.write_var(sync.MSG_SYNC), sync.write_var(sync.UPDATE),
-                     sync.write_var(len(upd)), upd)
 
 
 def test_api_docs_lists_own(c):
@@ -76,7 +57,7 @@ def test_members_forbidden(c):
     login(c, "bob")
     assert c.get(f"/api/docs/{did}/members").status_code == 200
     login(c, "eve")
-    assert c.get(f"/api/docs/{did}/members").status_code in (403, 404)
+    assert c.get(f"/api/docs/{did}/members").status_code == 404  # need_access hides existence
 
 
 def test_ws_auth_expiry(c):
@@ -123,7 +104,7 @@ def test_bootstrap_first_user(c, monkeypatch):
     monkeypatch.setenv("REGISTRATION", "invite-only")
     monkeypatch.setenv("REGISTRATION_INVITE_TOKEN", "")
     r1 = c.post("/api/register", json={"username": "first", "password": "pass1234"})
-    assert r1.status_code == 200
+    assert r1.status_code == 403
     c.post("/api/logout")
     r2 = c.post("/api/register", json={"username": "second", "password": "pass1234"})
     assert r2.status_code == 403

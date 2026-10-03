@@ -182,8 +182,10 @@ def load() -> Config:
         vals["COOKIE_SECURE"] = d.COOKIE_SECURE
     tok = str(vals["REGISTRATION_INVITE_TOKEN"] or "")
     if tok and len(tok) < 16:
-        # No hard block: container bootstrap sets the token after first user.
-        log.warning("REGISTRATION_INVITE_TOKEN is set but short (%d chars); use >=16 chars", len(tok))
+        # Warning only here: the fail-closed gate is the startup check in
+        # backend/main.py lifespan (refuses to start with <16 chars).
+        # Empty token path unchanged (B11 scope).
+        log.warning("REGISTRATION_INVITE_TOKEN is set but short (%d chars); server refuses to start with <16 chars, use openssl rand -hex 32", len(tok))
     cfg = Config(**vals)
     _CACHE = (key, cfg)
     return cfg

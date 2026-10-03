@@ -35,7 +35,14 @@ def test_rename_spaces_trimmed(c):
 def test_rename_20_chars_ok_21_rejected(c):
     register_user(c, "alice")
     assert c.post("/api/me/name", json={"name": "a" * 20, "password": "pass1234"}).status_code == 200
-    assert c.post("/api/me/name", json={"name": "b" * 21, "password": "pass1234"}).status_code in (400, 422)
+    assert c.post("/api/me/name", json={"name": "b" * 21, "password": "pass1234"}).status_code == 400
+
+
+def test_register_unicode_invite_403_not_500(c, monkeypatch):
+    monkeypatch.setenv("REGISTRATION", "invite-only")
+    monkeypatch.setenv("REGISTRATION_INVITE_TOKEN", "0123456789abcdef")
+    r = c.post("/api/register", json={"username": "alice", "password": "pass1234", "invite": "🔑🔑"})
+    assert r.status_code == 403
 
 
 def test_rename_wrong_password_401(c):
