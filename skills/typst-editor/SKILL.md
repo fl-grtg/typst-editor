@@ -4,7 +4,7 @@ Work on the user's self-hosted Typst docs through MCP (Streamable HTTP).
 
 ## 0. Human setup (once — walk the user through this if anything is missing)
 
-1. Server URL: local `http://127.0.0.1:8978` or remote `https://host`. The user needs an account on it — server default is `invite-only`, so an invite code (or the admin) may be required first (see README “Invite links”).
+1. Server URL: local `http://127.0.0.1:8978` (start: `docker compose up`, port via `PORT`) or remote `https://host`. The user needs an account on it — server default is `invite-only`, so an invite code (or the admin) may be required first; `closed` needs the admin, no self-registration. Fresh Docker installs print the token once on first start (also stored `chmod 600` as `DATA_DIR/.invite_token`).
 2. In the web UI (login → Settings → API keys → Create), with a **name** (required):
    - **Role: Reviewer** for read/comment jobs; **Editor** only if files must change. (Default: Editor.)
    - **Expires:** 30–90 days recommended. (Default: never.)
@@ -44,16 +44,16 @@ Copy paths from `ls` output, never invent them.
 | --- | --- |
 | `ls(path="/")` | `/`, `/docs`, `/shared`, `/templates`, or a doc path (its files) |
 | `read(path)` | doc / text file / template → `content` + `last_seen` (pass to `edit`) |
-| `create(path, content="")` | new doc, file, or template. `400` if it exists; binary names need `upload` instead |
+| `create(path, content="")` | new doc, file, or template (needs `.typ` suffix, else `404`). `400` if it exists; binary names need `upload` instead |
 | `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§4), max 200 KB text |
-| `search(query)` | titles + content, min 2 chars, max 20 hits |
+| `search(query)` | doc main text (titles + content, no files/templates), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
-| `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = line number (`0` = top); **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
-| `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"`, `"1,3"` all work, max 5 |
+| `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = line number (`0` = top, max 10M); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
+| `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, max 5 |
 
 ## 4. Paths
 
-- `/docs/{Title}` = doc (readable AND its file list; `ls` a file path → `400`, use `read`), `/docs/{Title}/{File}` = text/attachment
+- `/docs/{Title}` = doc (readable AND its file list; `ls` a file or template path → `400`, use `read`), `/docs/{Title}/{File}` = text/attachment
 - `/shared/{Owner}/{Title}[/{File}]` = shared with the key owner
 - `/templates/{Name}.typ` = reusable template
 - `/` inside a title breaks the path → such titles are unreachable (`400` at create)
@@ -75,4 +75,4 @@ Copy paths from `ls` output, never invent them.
 
 ## 7. Limits
 
-- `search` <2 chars: no hits. `upload`: 200 files/doc, 500 MB/user. Text files: max 200 KB (`create`/`edit` fail above). `view`: needs the `typst` CLI on the server (Docker image has it).
+- `search` <2 chars: no hits. `upload`: 200 files/doc, 500 MB/user. Text: max 200_000 chars (`create`/`edit` fail above). `view`: needs the `typst` CLI on the server (Docker image has it).

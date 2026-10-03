@@ -1715,15 +1715,22 @@ function jumpWant() { // jump to search hit (once after open)
   wantPos = -1
   cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
 }
-let sideES = null, sideESErr = 0
+let sideES = null, sideESErr = 0, sideESRearms = 0, sideESTimer = 0
 function watchSidebar() { // live sidebar: external list changes (MCP, other tab) repaint without reload
   try {
     if (sideES) sideES.close()
+    clearTimeout(sideESTimer)
     sideESErr = 0
-    sideES = new EventSource('/api/events')
-    sideES.onopen = () => { sideESErr = 0 } // reconnect resets transient-error count
-    sideES.addEventListener('sidebar', () => { if (!user) return sideES.close(); sidebar().catch(() => {}) })
-    sideES.onerror = () => { if (++sideESErr > 3) { sideES.close(); sideES = null } } // dead session: stop retry storm, reload reconnects
+    const es = sideES = new EventSource('/api/events')
+    es.onopen = () => { sideESErr = 0; sideESRearms = 0 } // (re)connect resets counters
+    es.addEventListener('sidebar', () => { if (!user) return es.close(); sidebar().catch(() => {}) })
+    es.onerror = () => {
+      if (es !== sideES) return // superseded stream: ignore
+      if (++sideESErr > 3) {
+        es.close(); if (sideES === es) sideES = null
+        if (sideESRearms++ < 3) sideESTimer = setTimeout(watchSidebar, 15000 * sideESRearms) // capped backoff re-arm
+      }
+    }
   } catch (e) { console.warn('watchSidebar', e) }
 }
 if (!window.__sideArmed) { window.__sideArmed = true; addEventListener('online', () => { watchSidebar(); sidebar().catch(() => {}) }) } // sleep/offline: re-arm stream + catch up
@@ -1746,7 +1753,8 @@ async function sidebar() {
   lastOwn = d.own; lastShared = d.shared
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
   paintTpls()
-  const nv = $('nav'); nv.onscroll = updNavFade; addEventListener('resize', updNavFade); updNavFade()
+  const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
+  if (!window.__navFadeArmed) { window.__navFadeArmed = true; addEventListener('resize', updNavFade) } // once: sidebar() runs per SSE push
 }
 function updNavFade() { // bottom fade only while more content below
   const n = $('nav')

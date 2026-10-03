@@ -40,6 +40,27 @@ async def test_notify_on_delete_restore(c):
 
 
 @pytest.mark.anyio
+async def test_notify_on_mutations(c):
+    register_user(c, "uM")
+    did = make_doc(c, title="Mut")
+    entry = _watch("uM")
+
+    async def _one(call):
+        r = call()
+        assert r.status_code == 200, r.text
+        assert await asyncio.wait_for(entry[1].get(), timeout=5) == "sidebar"
+
+    try:
+        await _one(lambda: c.post(f"/api/docs/{did}/rename", json={"title": "Mut2"}))
+        await _one(lambda: c.post(f"/api/docs/{did}/folder", json={"folder": "F"}))
+        await _one(lambda: c.post(f"/api/docs/{did}/duplicate"))
+        await _one(lambda: c.post("/api/folders", json={"folder": "G"}))
+        await _one(lambda: c.post("/api/templates", json={"name": "t.typ", "content": "x"}))
+    finally:
+        main._SIDEBAR_Q.get("uM", set()).discard(entry)
+
+
+@pytest.mark.anyio
 async def test_cross_user_isolation(c):
     register_user(c, "uA")
     register_user(c, "uB")  # now acting as uB
@@ -48,6 +69,7 @@ async def test_cross_user_isolation(c):
         r = c.post("/api/docs/create", json={"title": "B-doc", "content": "x"})
         assert r.status_code == 200, r.text
         assert await asyncio.wait_for(eb[1].get(), timeout=5) == "sidebar"
+        await asyncio.sleep(0.2)  # grace: a late stray event must still fail this
         assert ea[1].empty(), "uA got uB's event"
     finally:
         main._SIDEBAR_Q.get("uA", set()).discard(ea)

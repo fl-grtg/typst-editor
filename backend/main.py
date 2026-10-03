@@ -128,12 +128,16 @@ def notify_sidebar(user: str) -> None:
     # Own list changed elsewhere (MCP, other tab): wake every open sidebar stream of this user.
     # Def endpoints run in a worker thread: schedule into the loop thread-safely.
     # Coalesce: one pending event is enough, sidebar() refetches everything anyway.
-    for _loop, _q in list(_SIDEBAR_Q.get(user, ())):
+    try:
+        _targets = list(_SIDEBAR_Q.get(user, ()))
+    except RuntimeError:
+        return  # set mutated concurrently; the next mutation notifies again
+    for _loop, _q in _targets:
         try:
             if _q.empty():
                 _loop.call_soon_threadsafe(_q.put_nowait, "sidebar")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("notify_sidebar dropped: %s", e)
 
 
 def _drop_doc_locks(doc_id: str) -> None:
@@ -2367,6 +2371,7 @@ def _redeem_invite(token: str, user: str) -> dict:
                         "ON CONFLICT (doc_id, username) DO NOTHING",
                         (inv["doc_id"], user, inv["role"]))
             con.commit()
+            notify_sidebar(user)  # joiner's shared list changed
         return {"id": inv["doc_id"]}
     finally:
         con.close()
@@ -2683,6 +2688,7 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
 
 @app.get("/api/events")
 async def sidebar_events(req: Request, user: str = Depends(me)):
+    limited(req, "files_list")  # like other list reads; churn-reconnects still count
     if len(_SIDEBAR_Q.get(user, ())) >= 5:
         raise HTTPException(429, "Too many streams")
     loop = asyncio.get_running_loop()
