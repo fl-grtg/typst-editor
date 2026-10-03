@@ -802,7 +802,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 import * as Y from 'https://esm.sh/yjs@13.6.27'
 import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
 import * as CMV from './vendor-cm.js?v=3' // bundled locally: single instance, no CDN risk
-const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, typstBuiltinSignatures, forEachDiagnostic } = CMV // namespace import: works with older and newer vendor builds
+const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, forEachDiagnostic } = CMV // namespace import: works with older and newer vendor builds
 // CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
 //   once the backend refactor lands — kept inline + unminified for reviewability in this run.
@@ -938,6 +938,19 @@ const groupBy = list => { // top-level first + folder map (caller adds empty fol
 // #ref(<label>, #cite("key", Ctrl-Space/Tab file fallback.
 // Typst control keywords (stable language, not in vendor function data)
 const T_KW = 'set show let import include context if else for while return break continue in and or not as'.split(' ')
+// Functions insert with parens (cursor inside): vendor options carry no apply,
+// but unique() keeps object refs, so enhancing the shared arrays affects the vendor source (no wrapper, no dupes)
+const parenApply = (view, completion, from, to) => {
+  const ins = completion.label, next = view.state.sliceDoc(to, to + 1)
+  if (next === '(' || next === '[') { // already a call: keep the name only
+    view.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length } })
+    return
+  }
+  view.dispatch({ changes: { from, to, insert: ins + '()' }, selection: { anchor: from + ins.length + 1 } })
+}
+for (const arr of [typstGlobalCompletions, typstMathCompletions])
+  if (arr) for (const c of arr) if (c && c.type === 'function' && !c.apply) c.apply = parenApply
+const T_BLOCKED = new Set(['Shebang', 'LineComment', 'BlockComment', 'Raw', 'Str', 'Link', 'Label', 'Ref', 'Error']) // mirror of vendor blockedNodes + Error
 function typstComplete(ctx) {
   const pos = ctx.pos
   const before = ctx.state.doc.sliceString(Math.max(0, pos - 64), pos)
@@ -963,25 +976,55 @@ function typstComplete(ctx) {
     return out.length ? { from: pos - ct[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*$/ } : null
   }
   const sr = before.match(/#set\s+([\w.]+)\s*\(([^()]*)$/)
-  if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gap: vendor hides non-settable flags (paper, gutter, radius...) although valid
+  if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gaps: vendor hides non-settable flags (paper, gutter, radius...) although valid
     const sig = typstBuiltinSignatures[sr[1]]
     if (sig) {
-      const used = new Set([...sr[2].matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
-      const wm = sr[2].match(/([\p{ID_Continue}_-]*)$/u), pre = (wm ? wm[1] : '').toLowerCase()
-      const gap = sig.filter(p => (p[1] & 2) && !(p[1] & 16) && !used.has(p[0]) && p[0].toLowerCase().includes(pre))
-      if (gap.length) {
-        return { from: pos - (wm ? wm[1].length : 0), options: gap.slice(0, 20).map(p => {
-          const accepts = p[2].map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
-          return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? 'parameter · ' + accepts : 'parameter', boost: 50 }
-        }), validFor: /^[\p{ID_Continue}_-]*$/u }
+      const cur = sr[2].split(',').pop()
+      const vm = cur.match(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:\s*("?[\p{ID_Continue}_.-]*)$/u)
+      const pm = vm && sig.find(p => p[0] === vm[1])
+      if (pm) { // value after `name:`: paper sizes etc. (vendor shows nothing here for gap params)
+        const q = vm[2].replace(/^"/, '').toLowerCase(), out = []
+        for (const part of pm[2]) {
+          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: v, type: 'enum', detail: 'Accepted value', boost: 55 }) }
+          else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: 'Boolean value', boost: 55 }) }
+          else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: 'Typst ' + v + ' value', boost: 55 }) }
+        }
+        if (out.length) {
+          const qn = q
+          out.sort((a, b) => (b.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0) - (a.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0))
+          return { from: pos - vm[2].length, options: out.slice(0, 50), validFor: /^"?[\w:.-]*$/u }
+        }
+      } else if (!cur.includes(':')) { // param name (no colon yet): only params vendor hides
+        const used = new Set([...sr[2].matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
+        const wm = sr[2].match(/([\p{ID_Continue}_-]*)$/u), pre = (wm ? wm[1] : '').toLowerCase()
+        const gap = sig.filter(p => p[0] !== 'body' && (p[1] & 2) && !(p[1] & 16) && !used.has(p[0]) && p[0].toLowerCase().includes(pre))
+        if (gap.length) {
+          return { from: pos - (wm ? wm[1].length : 0), options: gap.slice(0, 20).map(p => {
+            const accepts = p[2].map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
+            return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? 'parameter · ' + accepts : 'parameter', boost: 50 }
+          }), validFor: /^[\p{ID_Continue}_-]*$/u }
+        }
       }
     }
   }
   const kwm = before.match(/#([\p{ID_Continue}_-]*)$/u)
-  if (kwm) { // control keywords live in no vendor list (#se -> #set)
+  if (kwm) { // control keywords live in no vendor list (#se -> #set; apply bare: # already typed)
     const q = kwm[1].toLowerCase()
-    const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: '#' + k, type: 'keyword', boost: 60 }))
-    return out.length ? { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u } : null
+    const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: k, type: 'keyword', boost: 60 }))
+    if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
+  }
+  if (kwm && typeof typstParser !== 'undefined' && typeof typstGlobalCompletions !== 'undefined') {
+    // broken syntax (##, unclosed delimiters): vendor is tree-based and silent -> text fallback from vendor data
+    try {
+      const doc = ctx.state.doc.toString()
+      let n = typstParser.parse(doc).resolveInner(Math.min(pos, doc.length), -1), broken = false
+      for (; n; n = n.parent) if (T_BLOCKED.has(n.name)) { broken = true; break }
+      if (broken) {
+        const q = kwm[1].toLowerCase(), out = []
+        for (const c of typstGlobalCompletions) { if (out.length >= 50) break; if (c.label.toLowerCase().includes(q)) out.push(c) }
+        if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
+      }
+    } catch (e) {}
   }
   if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
     const w = ctx.matchBefore(/[\w.\-/]*/)
