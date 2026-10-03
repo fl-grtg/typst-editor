@@ -801,8 +801,8 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 <script type="module">
 import * as Y from 'https://esm.sh/yjs@13.6.27'
 import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
-import * as CMV from './vendor-cm.js?v=2' // bundled locally: single instance, no CDN risk
-const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, forEachDiagnostic } = CMV // namespace import: works with older and newer vendor builds
+import * as CMV from './vendor-cm.js?v=3' // bundled locally: single instance, no CDN risk
+const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, typstBuiltinSignatures, forEachDiagnostic } = CMV // namespace import: works with older and newer vendor builds
 // CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
 //   once the backend refactor lands — kept inline + unminified for reviewability in this run.
@@ -936,6 +936,8 @@ const groupBy = list => { // top-level first + folder map (caller adds empty fol
 // builtins, params, let-scope, @labels). Returns null everywhere else so the
 // vendor source answers alone. Triggers: file paths in "..." strings,
 // #ref(<label>, #cite("key", Ctrl-Space/Tab file fallback.
+// Typst control keywords (stable language, not in vendor function data)
+const T_KW = 'set show let import include context if else for while return break continue in and or not as'.split(' ')
 function typstComplete(ctx) {
   const pos = ctx.pos
   const before = ctx.state.doc.sliceString(Math.max(0, pos - 64), pos)
@@ -946,12 +948,12 @@ function typstComplete(ctx) {
     const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(q, n))
     return files.length ? { from: pos - imp[2].length, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[^"\n]*$/ } : null
   }
-  const rf = before.match(/#ref\s*\(<?([^)>]*)$/)
+  const rf = before.match(/#ref\s*\((<?)([^)>]*)$/)
   if (rf) { // after #ref(: labels from doc (vendor covers @label, not the #ref( form)
-    const q = rf[1].toLowerCase(), out = [], seenL = new Set()
-    for (const m of getT().matchAll(/<([\w-]+)>/g))
+    const q = rf[2].toLowerCase(), out = [], seenL = new Set()
+    for (const m of getT().matchAll(/<([^<>\s]+)>/g)) // labels use colons (<sec:intro>)
       if (!seenL.has(m[1]) && fuzzy(q, m[1])) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
-    return out.length ? { from: pos - rf[1].length, options: out.slice(0, 50), validFor: /^[\w-]*>?$/ } : null
+    return out.length ? { from: pos - rf[2].length - rf[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*>?$/ } : null
   }
   const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
   if (ct) {
@@ -959,6 +961,27 @@ function typstComplete(ctx) {
     const q = ct[1].toLowerCase()
     const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
     return out.length ? { from: pos - ct[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*$/ } : null
+  }
+  const sr = before.match(/#set\s+([\w.]+)\s*\(([^()]*)$/)
+  if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gap: vendor hides non-settable flags (paper, gutter, radius...) although valid
+    const sig = typstBuiltinSignatures[sr[1]]
+    if (sig) {
+      const used = new Set([...sr[2].matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
+      const wm = sr[2].match(/([\p{ID_Continue}_-]*)$/u), pre = (wm ? wm[1] : '').toLowerCase()
+      const gap = sig.filter(p => (p[1] & 2) && !(p[1] & 16) && !used.has(p[0]) && p[0].toLowerCase().includes(pre))
+      if (gap.length) {
+        return { from: pos - (wm ? wm[1].length : 0), options: gap.slice(0, 20).map(p => {
+          const accepts = p[2].map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
+          return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? 'parameter · ' + accepts : 'parameter', boost: 50 }
+        }), validFor: /^[\p{ID_Continue}_-]*$/u }
+      }
+    }
+  }
+  const kwm = before.match(/#([\p{ID_Continue}_-]*)$/u)
+  if (kwm) { // control keywords live in no vendor list (#se -> #set)
+    const q = kwm[1].toLowerCase()
+    const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: '#' + k, type: 'keyword', boost: 60 }))
+    return out.length ? { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u } : null
   }
   if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
     const w = ctx.matchBefore(/[\w.\-/]*/)
