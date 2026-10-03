@@ -441,7 +441,7 @@ async def validation_400(req: Request, exc: RequestValidationError) -> JSONRespo
 
 
 # B15: long-cached shell assets. Immutable only where the URL carries a
-# ?v= cache-buster (vendor-cm.js?v=2, manifest.json?v=2, icons, icon.svg?v=3);
+# ?v= cache-buster (vendor-cm.js?v=4, manifest.json?v=2, icons, icon.svg?v=3);
 # keep ?v in sync on redeploy or a stale bundle lingers in HTTP cache
 # (content-hashed filenames = proper fix).
 # sw.js is gone (worker dropped 2026-10-03): .js stays no-store for future scripts.
