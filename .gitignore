@@ -43,3 +43,5 @@ exports/
 !.env.example
 # Local-only plan, never commit.
 PLAN.md
+# Local-only roadmap page, never commit.
+roadmap.html

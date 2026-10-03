@@ -6,7 +6,7 @@ Collaborative Typst editor in the browser: code on the left, live PDF on the rig
 
 One process: FastAPI serves the API, Yjs syncs the edits, and SQLite stores everything. No Node needed at runtime.
 
-<img width="1440" height="774" alt="editor" src="./screenshot.png" />
+<img width="1440" height="774" alt="editor" src="./docs/screenshot.png" />
 
 ## ✨ Features
 
@@ -48,7 +48,7 @@ pip install -r requirements.txt
 uvicorn backend.main:app --host 127.0.0.1 --port 8978 --workers 1
 ```
 
-Registration defaults to `invite-only`. Fresh Docker installs generate an invite token on first start (see logs, stored `chmod 600` as `DATA_DIR/.invite_token`) — every account including the first needs it. Set your own token before first start on public servers (`openssl rand -hex 32`). Without a token (bare-metal default), the first account registers freely (bootstrap). Use `open` for local tests only, never on the public internet.
+Registration defaults to `invite-only`. Fresh Docker installs generate an invite token on first start (see logs, stored `chmod 600` as `DATA_DIR/.invite_token`) — every account including the first needs it. Set your own token before first start on public servers (`openssl rand -hex 32`). Without a token, registration is blocked (fail-closed, including the first account) — set `REGISTRATION_INVITE_TOKEN` first. Use `open` for local tests only, never on the public internet.
 
 ## ⚙️ Configuration
 
@@ -60,7 +60,7 @@ File plus env overrides; env wins (parsed and validated in `backend/config.py`, 
 | `COMPOSE_DATA_PATH` | managed volume | Optional host path instead, e.g. `/srv/typst-data`. |
 | `TRUST_PROXY` | `false` | Required `true` behind a proxy, else cookies break. Set in `config.toml` or `.env`; env wins. |
 | `REGISTRATION` | `invite-only` | `closed`, `invite-only`, or `open`. |
-| `REGISTRATION_INVITE_TOKEN` | empty | `openssl rand -hex 32`. |
+| `REGISTRATION_INVITE_TOKEN` | empty | `openssl rand -hex 32`. Min 16 chars when set — shorter non-empty values refuse to start.
 | `SESSION_SECONDS` | `1209600` | 14 days. |
 | `MAX_DOCS_PER_USER` | `100` | Plus 500 MB and 200 files per doc (see `backend/config.py`). |
 
@@ -72,7 +72,12 @@ Never commit local `config.toml` or `.env`; only the `.example` files are tracke
 curl -s http://127.0.0.1:8978/healthz
 ```
 
-Live sync runs over `WS /ws/{doc_id}` via y-websocket. Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax): API clients must store cookies, there is no token in body or URL (invite redemption takes the token in the POST body, never in the URL).
+Live sync runs over `WS /ws/{doc_id}` via y-websocket. Auth is cookie-only (`typst_session`, HttpOnly, SameSite=lax): API clients must store cookies. Invite tokens travel in the POST body, never as a GET path — `/?join=TOKEN` (doc invite) and `/?invite=CODE` (registration) are entry-point links only: the app reads the code, strips it from the URL/history immediately, and sends it in the POST body.
+
+### 🔗 Invite links
+
+- `https://host/?invite=CODE` opens the registration view with the code prefilled (no auto-submit — the user still picks name/password). Needs a logged-out browser.
+- `https://host/?join=TOKEN` redeems a doc invite after login (POST body, token cleared from URL). Share it via the doc's Share → invite link button.
 
 ## 💾 Backup
 
@@ -123,6 +128,8 @@ server {
 
 Without `proxy_http_version 1.1` + `Upgrade`/`Connection`, the live sync WebSocket (`WS /ws/{doc_id}`) stays dead while plain HTTP works. `client_max_body_size 12M` covers 10 MB file uploads plus overhead. With a custom `PORT` in `.env`, point `reverse_proxy`/`proxy_pass` at that port instead of `8978`.
 
+Uvicorn only honors `X-Forwarded-For`/`Proto` from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose/Caddy the proxy arrives via a `172.x` bridge IP, so extend (not replace) the default in `.env`, e.g. `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12` (passed through to the container); otherwise every client looks like the proxy IP and shares one rate-limit bucket. Never use `*` with `TRUST_PROXY=true` — any client could then spoof its IP and dodge rate limits.
+
 Always one worker (`--workers 1`) and one replica: rooms live in process memory. 512 MB RAM minimum, 1 GB recommended. No public demo instance; self-host.
 
 Limits, openly: docs 200000 characters each (`MAX_TXT` in `backend/constants.py`, counted as characters so non-ASCII text can exceed 200 KB on disk); titles 100 chars, folder names 40; uploads 10 MB per file; 50 snapshots per doc, auto at most every 15 min, restore auto-saves a `Before restore` snapshot first; doc invites valid 7 days, max 20 per doc, redeemable any number of times within that window (the token is shown once at creation — copy it then); search needs 2 chars, max 20 hits, docs only (no templates/files); quotas 100 docs and 500 MB per user, 200 files per doc; avatars 200 KB (PNG/JPEG/WebP); all-docs `.zip` capped at 100 MB, files over 10 MB land in `SKIPPED.txt` instead; reads share the `files_list` bucket (120/min), writes have their own.
@@ -133,7 +140,7 @@ Report vulnerabilities via GitHub Private Vulnerability Reporting.
 Do not open public issues for security problems.
 Allow time for a fix before any disclosure.
 
-Unshare wipes all pending invite links for the doc (they carry no username). Preview needs internet on first load (CDN: cdnjs/esm.sh/jsdelivr — never cached by the service worker by design, always network; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27); afterwards the shell works offline, saving needs network (24 h local stash). The server sends `Cache-Control: no-store` on `/`, `.html`, `.js` and `/api/*` (see `backend/main.py`), so the app shell always revalidates. CSP allows `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` plus pinned CDN origins — Typst WASM cannot run without them; user content is rendered via `textContent` only.
+Unshare wipes all pending invite links for the doc (they carry no username). Preview needs internet on first load (CDN: cdnjs/esm.sh/jsdelivr — always network, no offline cache; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0); afterwards the shell stays cached by the browser, saving needs network (24 h local stash). There is no service worker (dropped 2026-10-03; plain HTTP caching). The server sends `Cache-Control: no-store` on `/`, `*.html`, `*.js` and `/api/*` (see `backend/main.py`), while versioned shell assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP allows `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` plus pinned CDN origins — Typst WASM cannot run without them; user content is rendered via `textContent` only.
 
 ### 🛠 Troubleshooting
 
@@ -148,10 +155,12 @@ Unshare wipes all pending invite links for the doc (they carry no username). Pre
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 152 tests
+python -m pytest            # 156 tests
 ruff check backend/ scripts/ tests/
 mypy backend/ scripts/ tests/
 ```
+
+Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build` (writes `../vendor-cm.js`). CI `vendor-bundle` fails on diff or >600 KB.
 
 ### 📦 Changelog
 

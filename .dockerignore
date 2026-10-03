@@ -23,3 +23,5 @@ backup/
 exports/
 *.tmp
 .cache/
+docs/
+roadmap.html
