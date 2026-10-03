@@ -943,17 +943,17 @@ const T_KW = 'set show let import include context if else for while return break
 const parenApply = (view, completion, from, to) => {
   const ins = completion.label, next = view.state.sliceDoc(to, to + 1)
   if (next === '(' || next === '[') { // already a call: keep the name only
-    view.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length } })
+    view.dispatch({ changes: { from, to, insert: ins }, selection: { anchor: from + ins.length }, userEvent: 'input.complete' })
     return
   }
-  view.dispatch({ changes: { from, to, insert: ins + '()' }, selection: { anchor: from + ins.length + 1 } })
+  view.dispatch({ changes: { from, to, insert: ins + '()' }, selection: { anchor: from + ins.length + 1 }, userEvent: 'input.complete' })
 }
 for (const arr of [typstGlobalCompletions, typstMathCompletions])
-  if (arr) for (const c of arr) if (c && c.type === 'function' && !c.apply) c.apply = parenApply
+  if (arr) for (const c of arr) if (c && c.type === 'function' && !c.apply) { c.apply = parenApply; delete c.commitCharacters } // no (-commit: apply already adds (); typed ( pairs via closeBrackets
 const T_BLOCKED = new Set(['Shebang', 'LineComment', 'BlockComment', 'Raw', 'Str', 'Link', 'Label', 'Ref', 'Error']) // mirror of vendor blockedNodes + Error
 function typstComplete(ctx) {
   const pos = ctx.pos
-  const before = ctx.state.doc.sliceString(Math.max(0, pos - 64), pos)
+  const before = ctx.state.doc.sliceString(Math.max(0, pos - 256), pos)
   const fuzzy = (q, s) => s.toLowerCase().includes(q) // substring, not prefix-only
   const imp = before.match(/(import|include|image|bibliography|read|csv|json)\s*[( ]"([^"]*)$/)
   if (imp) { // after import/include/#image(": global templates + manager files
@@ -966,7 +966,7 @@ function typstComplete(ctx) {
     const q = rf[2].toLowerCase(), out = [], seenL = new Set()
     for (const m of getT().matchAll(/<([^<>\s]+)>/g)) // labels use colons (<sec:intro>)
       if (!seenL.has(m[1]) && fuzzy(q, m[1])) { seenL.add(m[1]); out.push({ label: '<' + m[1] + '>', type: 'label' }) }
-    return out.length ? { from: pos - rf[2].length - rf[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*>?$/ } : null
+    return out.length ? { from: pos - rf[2].length - rf[1].length, options: out.slice(0, 50), validFor: /^<?[\p{ID_Continue}:.-]*>?$/u } : null
   }
   const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
   if (ct) {
@@ -976,12 +976,22 @@ function typstComplete(ctx) {
     return out.length ? { from: pos - ct[1].length, options: out.slice(0, 50), validFor: /^[\w:.-]*$/ } : null
   }
   const sr = before.match(/#set\s+([\w.]+)\s*\(([^()]*)$/)
+  const kwm = before.match(/#([\p{ID_Continue}_-]*)$/u)
+  let blocked = null // ancestor blocking completion (mirror of vendor blockedNodes + Error); one parse shared by the #word branches
+  if ((sr || kwm) && typeof typstParser !== 'undefined') {
+    try {
+      const doc = ctx.state.doc.toString()
+      let n = typstParser.parse(doc).resolveInner(Math.min(pos, doc.length), -1)
+      for (; n; n = n.parent) if (T_BLOCKED.has(n.name)) { blocked = n.name; break }
+    } catch (e) {}
+  }
+  if (blocked && blocked !== 'Error') return null // comment/string/raw: vendor silent by design, project stays silent too
   if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gaps: vendor hides non-settable flags (paper, gutter, radius...) although valid
     const sig = typstBuiltinSignatures[sr[1]]
     if (sig) {
       const cur = sr[2].split(',').pop()
       const vm = cur.match(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:\s*("?[\p{ID_Continue}_.-]*)$/u)
-      const pm = vm && sig.find(p => p[0] === vm[1])
+      const pm = vm && sig.find(p => p[0] === vm[1] && (p[1] & 16) === 0) // gap params only: settable values come from the vendor (no dupes)
       if (pm) { // value after `name:`: paper sizes etc. (vendor shows nothing here for gap params)
         const q = vm[2].replace(/^"/, '').toLowerCase(), out = []
         for (const part of pm[2]) {
@@ -992,7 +1002,7 @@ function typstComplete(ctx) {
         if (out.length) {
           const qn = q
           out.sort((a, b) => (b.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0) - (a.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0))
-          return { from: pos - vm[2].length, options: out.slice(0, 50), validFor: /^"?[\w:.-]*$/u }
+          return { from: pos - vm[2].length, options: out.slice(0, 50), validFor: /^"?[\p{ID_Continue}:.-]*$/u }
         }
       } else if (!cur.includes(':')) { // param name (no colon yet): only params vendor hides
         const used = new Set([...sr[2].matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
@@ -1007,30 +1017,22 @@ function typstComplete(ctx) {
       }
     }
   }
-  const kwm = before.match(/#([\p{ID_Continue}_-]*)$/u)
   if (kwm) { // control keywords live in no vendor list (#se -> #set; apply bare: # already typed)
     const q = kwm[1].toLowerCase()
     const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: k, type: 'keyword', boost: 60 }))
     if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
   }
-  if (kwm && typeof typstParser !== 'undefined' && typeof typstGlobalCompletions !== 'undefined') {
-    // broken syntax (##, unclosed delimiters): vendor is tree-based and silent -> text fallback from vendor data
-    try {
-      const doc = ctx.state.doc.toString()
-      let n = typstParser.parse(doc).resolveInner(Math.min(pos, doc.length), -1), broken = false
-      for (; n; n = n.parent) if (T_BLOCKED.has(n.name)) { broken = true; break }
-      if (broken) {
-        const q = kwm[1].toLowerCase(), out = []
-        for (const c of typstGlobalCompletions) { if (out.length >= 50) break; if (c.label.toLowerCase().includes(q)) out.push(c) }
-        if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
-      }
-    } catch (e) {}
+  if (kwm && blocked === 'Error' && typeof typstGlobalCompletions !== 'undefined') {
+    // broken syntax (##, unclosed forms): vendor is tree-based and silent -> text fallback from vendor data
+    const q = kwm[1].toLowerCase(), out = []
+    for (const c of typstGlobalCompletions) { if (out.length >= 50) break; if (c.label.toLowerCase().includes(q)) out.push(c) }
+    if (out.length) return { from: pos - kwm[1].length, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
   }
   if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
-    const w = ctx.matchBefore(/[\w.\-/]*/)
+    const w = ctx.matchBefore(/[\p{ID_Continue}.\-/]*$/u)
     const pre = (w ? w.text : '').toLowerCase()
     const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
-    return files.length ? { from: w ? w.from : pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\w.\-/]*$/ } : null
+    return files.length ? { from: w ? w.from : pos, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\p{ID_Continue}.\-/]*$/u } : null
   }
   return null
 }
