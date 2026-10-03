@@ -4,6 +4,7 @@ __pycache__/
 .coverage
 htmlcov/
 data/
+data-*/
 .env
 .env.*
 .venv/
