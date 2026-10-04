@@ -93,7 +93,7 @@ Claude Code: `claude mcp add --transport http typst-editor http://127.0.0.1:8978
 
 OpenCode (`opencode.json`): server `"typst-editor"` with `"type": "remote"`, `"url": "http://127.0.0.1:8978/mcp"`, `"headers": {"Authorization": "Bearer tpe_..."}`.
 
-Agent loop `ls -> read -> edit -> view -> fix`; see `skills/typst-editor/SKILL.md` for path model and edit rules.
+Agent loop `ls -> read -> edit -> view -> fix`; see `skills/typst-editor/SKILL.md` for path model and edit rules. Note: `view` returns native image blocks (longest side ≤1280px) + `count`/`cache_hit`/`last_seen` — update server and skill together, the old base64 `pages[]` field is gone.
 
 ## 💾 Backup
 

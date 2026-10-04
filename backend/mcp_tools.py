@@ -32,6 +32,9 @@ from urllib.parse import unquote
 
 from fastapi import HTTPException
 from fastapi import UploadFile as FastUploadFile
+from fastmcp.tools import ToolResult
+from fastmcp.utilities.types import Image
+from mcp.types import Annotations
 
 from backend import config as _config
 from backend import db, sync
@@ -42,7 +45,7 @@ log = logging.getLogger("typst.mcp")
 
 TEXT_SUFFIX = {".typ", ".bib", ".csv"}
 VIEW_MAX_PAGES = 5
-VIEW_MAX_WIDTH = 1024
+VIEW_MAX_SIDE = 1280
 VIEW_TIMEOUT = 10.0
 VIEW_CACHE_MAX = 20
 VIEW_CACHE_BYTES = 20 * 1024 * 1024
@@ -698,7 +701,7 @@ def _view_key(doc_id: str, main_text: str, files: list[tuple[str, bytes]], pages
         h.update(name.encode("utf-8"))
         h.update(b"\0")
         h.update(data)
-    return f"{doc_id}:{pages}:{h.hexdigest()}"
+    return f"{doc_id}:{pages}:{VIEW_MAX_SIDE}:{h.hexdigest()}"
 
 
 def _view_cache_get(key: str) -> dict | None:
@@ -724,7 +727,7 @@ def _png_bytes(im) -> bytes:
 
 
 def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) -> list[bytes]:
-    """Temp-dir typst compile, 10s timeout. Returns PNG bytes (<=5, width <=1024)."""
+    """Temp-dir typst compile, 10s timeout. Returns PNG bytes (<=5, longest side <=1280)."""
     typst = shutil.which("typst")
     if not typst:
         raise _bad("typst CLI missing (Dockerfile installs it)", 500)
@@ -773,9 +776,11 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) ->
             try:
                 with _Image.open(shot) as im:
                     im.load()
-                    if im.width > VIEW_MAX_WIDTH:
+                    side = max(im.width, im.height)
+                    if side > VIEW_MAX_SIDE:
+                        s = VIEW_MAX_SIDE / side
                         out.append(_png_bytes(im.resize(
-                            (VIEW_MAX_WIDTH, round(im.height * VIEW_MAX_WIDTH / im.width)))))
+                            (round(im.width * s), round(im.height * s)))))
                     else:
                         out.append(_png_bytes(im))
             except OSError as e:
@@ -783,7 +788,16 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) ->
         return out
 
 
-async def op_view(user: str, cap: str, path: str, pages: str = "1-5") -> dict:
+def _view_result(pngs: list[bytes], cache_hit: bool, last_seen: str) -> ToolResult:
+    text = f"{len(pngs)} page(s) rendered"
+    ann = Annotations(audience=["user"], priority=0.9)
+    return ToolResult(
+        content=[text, *[Image(data=b, format="png", annotations=ann) for b in pngs]],
+        structured_content={"count": len(pngs), "cache_hit": cache_hit, "last_seen": last_seen},
+    )
+
+
+async def op_view(user: str, cap: str, path: str, pages: str = "1-5") -> ToolResult:
     res = resolve_path(user, cap, path)
     if res["kind"] != "doc":
         raise _bad("view renders documents, use /docs/{Title}")
@@ -819,9 +833,7 @@ async def op_view(user: str, cap: str, path: str, pages: str = "1-5") -> dict:
     key = _view_key(res["doc_id"], main_text, files, pages)
     hit = _view_cache_get(key)
     if hit is not None:
-        return {"pages": [base64.b64encode(b).decode() for b in hit["pngs"]],
-                "count": len(hit["pngs"]), "cache_hit": True, "last_seen": row["updated_at"]}
+        return _view_result(hit["pngs"], True, row["updated_at"])
     pngs = await asyncio.to_thread(_compile_pngs, main_text, files, pages)
     _view_cache_put(key, {"pngs": pngs})
-    return {"pages": [base64.b64encode(b).decode() for b in pngs],
-            "count": len(pngs), "cache_hit": False, "last_seen": row["updated_at"]}
+    return _view_result(pngs, False, row["updated_at"])
