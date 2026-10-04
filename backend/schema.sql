@@ -35,12 +35,12 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 CREATE INDEX IF NOT EXISTS idx_shares_doc ON shares(doc_id);
 
--- parent_id NULL = top-level comment, else reply (mini chat). anchor = line number.
+-- parent_id NULL = top-level comment, else reply (mini chat). anchor = 1-based line number.
 CREATE TABLE IF NOT EXISTS comments (
     id TEXT PRIMARY KEY,
     doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
     username TEXT NOT NULL,
-    anchor INTEGER NOT NULL DEFAULT 0,
+    anchor INTEGER NOT NULL DEFAULT 1,
     quote TEXT NOT NULL DEFAULT '', -- marked span: moves along, gone = thread gone
     text TEXT NOT NULL DEFAULT '',
     parent_id TEXT NULL REFERENCES comments(id) ON DELETE CASCADE,

@@ -1215,7 +1215,7 @@ function refreshHl() { // highlight from saved ranges: never breaks on typing
   }
   cm.dispatch({ effects: setHl.of(RangeSet.of(rs, true)) }) // true: CM sorts (same from-pos allowed)
 }
-let threads = [], marks = new Set(), popAnchor = 0 // before cm: gutter mapper runs during setup
+let threads = [], marks = new Set(), popAnchor = null // null = closed (anchors are 1-based)
 let applying = false // remote sync writes: triggers no push
 const typstSupport = typst_lezer() // hoisted: project completions register via .language.data below
 // Var-driven token colors: one HighlightStyle for both modes (light/dark differ only
@@ -1278,7 +1278,7 @@ const cm = new EditorView({
 const Transaction = cm.state.update({}).constructor // vendor bundle exports no Transaction: take the class from a throwaway transaction
 const NO_HIST = [Transaction.addToHistory.of(false), Transaction.remote.of(true)] // remote/programmatic text: never in own undo stack
 cm.scrollDOM.addEventListener('scroll', () => {
-  if (popAnchor) movePop()
+  if (popAnchor != null) movePop()
 })
 let redir = false // event redirect active (no loop)
 cm.scrollDOM.addEventListener('mousemove', e => { // empty right of error: redirect to text end, CM shows hover
@@ -1349,7 +1349,7 @@ function mapThreads(mapPos, paint = true) { // start left, end right: typing bef
   }
   if (!paint) return
   gutter(); refreshHl()
-  if (popAnchor) movePop()
+  if (popAnchor != null) movePop()
 }
 function initRanges() { // ranges from quote (once; then mapping keeps them alive)
   const t = getT()
@@ -2451,7 +2451,7 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
 }
 let popFresh = false, popQuote = '', popT = 0
 function openPop(anchor, fresh, quote = '') {
-  popAnchor = anchor; popFresh = !!fresh; popQuote = quote || ''
+  popAnchor = Math.max(1, +anchor || 1); popFresh = !!fresh; popQuote = quote || ''
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
   const pp = $('pop'); pp.classList.remove('errs'); pp.style.display = ''; pp.setAttribute('role', 'dialog')
@@ -2460,7 +2460,7 @@ function openPop(anchor, fresh, quote = '') {
   movePop()
 }
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
-  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = 0; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false') }
+  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false') }
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn) { btn.setAttribute('aria-expanded', 'false'); if (b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } } }
@@ -2583,10 +2583,11 @@ async function loadComments(force) {
   const s = JSON.stringify(d.comments)
   if (s === lastC) return // poll: nothing new, keep inputs untouched
   lastC = s; threads = d.comments
+  for (const t of threads) t.anchor = Math.max(1, +t.anchor || 1) // heal legacy anchor 0 -> 1
   if (!activeFile) { initRanges(); reanchor(); gutter(); refreshHl() } // file tab: do not touch main anchors (Fix #4/#5)
   paintBadge()
   const draft = [...$('pop').querySelectorAll('input')].some(i => i.value.trim())
-  if (popAnchor && !draft && (force || !$('pop').contains(document.activeElement))) renderPop() // draft + blur: keep text
+  if (popAnchor != null && !draft && (force || !$('pop').contains(document.activeElement))) renderPop() // draft + blur: keep text
 }
 function paintBadge() { // count open threads, click jumps to next
   const b = $('cBadge'), open = threads.filter(t => !t.resolved)
@@ -2618,7 +2619,7 @@ function reanchor() { // find quote: moves along; not found = keep old line, no 
   }
   if (moved) { // refresh icon at once, not only on save
     gutter(); refreshHl()
-    if (popAnchor) movePop()
+    if (popAnchor != null) movePop()
   }
 }
 async function jumpThread(t) {
@@ -2637,7 +2638,7 @@ async function jumpThread(t) {
 }
 async function refresh(focusId) {
   await loadComments(true)
-  if (popAnchor && focusId) document.getElementById(focusId)?.focus()
+  if (popAnchor != null && focusId) document.getElementById(focusId)?.focus()
 }
 function updCNewTip() {
   const m = cm.state.selection.main
@@ -2992,7 +2993,7 @@ $('colPick').onchange = () => {
 let members = []
 async function loadMembers() {
   try { members = (await api('GET', `/api/docs/${docId}/members`)).members } catch (e) { members = [] }
-  if (popAnchor && !$('pop').contains(document.activeElement)
+  if (popAnchor != null && !$('pop').contains(document.activeElement)
       && ![...$('pop').querySelectorAll('input')].some(i => i.value.trim())) renderPop() // refresh @-colors, keep drafts untouched
 }
 function wireMentions(inp) {
@@ -3158,7 +3159,7 @@ document.addEventListener('click', e => {
       box.style.display = 'none'
   }
   const pop = $('pop') // click outside closes, never with text draft (highlight/tooltip opens, not closes)
-  if (pop && popAnchor && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,.cm-tooltip')
+  if (pop && popAnchor != null && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,.cm-tooltip')
       && ![...pop.querySelectorAll('input')].some(i => i.value.trim()))
     closePop()
 })
@@ -3449,7 +3450,7 @@ function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode b
   }
   $('leftCol').style.height = ''; $('leftCol').style.flex = '' // mobile drag height must not survive view switch
   updVsplitAria()
-  if (popAnchor) movePop()
+  if (popAnchor != null) movePop()
 }
 $('vEdit').onclick = () => setView('editor')
 $('vSplit').onclick = () => setView('split')
@@ -3462,7 +3463,7 @@ function applyEd() {
   $('cmWrap').style.setProperty('--ed', edSize + 'px')
   $('cmWrap').style.setProperty('--lh', lh + 'px')
   $('editWrap').style.setProperty('--lh', lh + 'px')
-  if (popAnchor) movePop()
+  if (popAnchor != null) movePop()
 }
 function applyPv() {
   const z = $('zoomV'); if (z) z.textContent = pvZoom + '%'

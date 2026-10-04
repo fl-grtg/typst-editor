@@ -1881,9 +1881,10 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(me
             if p["parent_id"]:
                 raise HTTPException(400, "Nested replies not allowed")
         q = b.quote[:500]
+        anchor = max(1, b.anchor)  # 1-based (UI); 0 = top alias -> line 1
         con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, created_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (cid, doc_id, user, "", b.anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
+                    (cid, doc_id, user, "", anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
         con.commit()
         return {"id": cid}
     finally:
@@ -1928,7 +1929,7 @@ def move_comment(doc_id: str, cid: str, b: AnchorSet, req: Request, user: str = 
             raise HTTPException(404, "Comment gone")
         if r["username"] != user:
             raise HTTPException(403, "Only author")
-        con.execute("UPDATE comments SET anchor=? WHERE id=?", (b.anchor, cid))
+        con.execute("UPDATE comments SET anchor=? WHERE id=?", (max(1, b.anchor), cid))
         con.commit()
         return {"ok": True}
     finally:
