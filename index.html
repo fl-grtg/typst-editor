@@ -1113,7 +1113,7 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
     const div = document.createElement('div'); div.className = 'typ-hover full'
     for (const t of list.slice(0, 3)) {
       const h = document.createElement('div'); h.style.marginBottom = '6px'
-      const nm = document.createElement('b'); nm.textContent = t.username; nm.style.color = colOf(t.username)
+      const nm = document.createElement('b'); nm.textContent = t.author || t.username; nm.style.color = colOf(t.username)
       h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(t.created_at)))
       const p = document.createElement('div'); p.textContent = t.text; h.appendChild(p)
       if (t.replies && t.replies.length) {
