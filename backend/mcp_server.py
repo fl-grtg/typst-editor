@@ -71,10 +71,10 @@ def ls(path: str = "/") -> dict:
 
 
 @mcp.tool()
-def read(path: str) -> dict:
-    """Read a doc, text file or template. Returns content + last_seen (pass it to edit)."""
+def read(path: str, offset: int = 1, limit: int = 0) -> dict:
+    """Read a doc, text file or template. Line window: offset 1-based, limit 0 = all. Returns content + total_lines + last_seen (pass it to edit)."""
     user, cap, _ = _auth()
-    return _wrap(t.op_read, user, cap, path)
+    return _wrap(t.op_read, user, cap, path, offset, limit)
 
 
 @mcp.tool()

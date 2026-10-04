@@ -242,7 +242,22 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
         con.close()
 
 
-def op_read(user: str, cap: str, path: str) -> dict:
+def _page_text(text: str, offset: int, limit: int) -> tuple[str, int]:
+    """1-based line window over text; limit 0 = all. Returns (slice, total_lines)."""
+    if (isinstance(offset, bool) or not isinstance(offset, int)
+            or isinstance(limit, bool) or not isinstance(limit, int)):
+        raise _bad("offset/limit must be integers")
+    if offset < 1 or limit < 0:
+        raise _bad("offset >= 1, limit >= 0")
+    if not text:
+        return "", 0
+    lines = text.split("\n")
+    total = len(lines)
+    sel = lines[offset - 1:] if limit == 0 else lines[offset - 1:offset - 1 + limit]
+    return "\n".join(sel), total
+
+
+def op_read(user: str, cap: str, path: str, offset: int = 1, limit: int = 0) -> dict:
     res = resolve_path(user, cap, path)
     kind = res["kind"]
     if kind == "doc":
@@ -254,8 +269,9 @@ def op_read(user: str, cap: str, path: str) -> dict:
             con.close()
         if not row:
             raise _bad("Doc gone", 404)
+        content, total = _page_text(live if live is not None else (row["content"] or ""), offset, limit)
         return {"kind": "doc", "title": res["title"], "role": res["role"],
-                "content": live if live is not None else (row["content"] or ""),
+                "content": content, "offset": offset, "total_lines": total,
                 "last_seen": row["updated_at"], "live": live is not None}
     if kind == "file":
         p = _files_dir() / res["doc_id"] / res["filename"]
@@ -264,13 +280,15 @@ def op_read(user: str, cap: str, path: str) -> dict:
         if not p.is_file():
             raise _bad("File gone", 404)
         try:
-            content = p.read_text(encoding="utf-8", errors="replace")
+            raw = p.read_text(encoding="utf-8", errors="replace")
             mtime = p.stat().st_mtime
         except OSError as e:
             log.warning("mcp read gone %s: %s", p.name, e)
             raise _bad("File gone", 404) from e
+        content, total = _page_text(raw, offset, limit)
         return {"kind": "file", "title": res["title"], "name": res["filename"],
-                "content": content, "last_seen": str(mtime)}
+                "content": content, "offset": offset, "total_lines": total,
+                "last_seen": str(mtime)}
     if kind == "template":
         con = db.connect()
         try:
@@ -280,8 +298,9 @@ def op_read(user: str, cap: str, path: str) -> dict:
             con.close()
         if not row:
             raise _bad("Template gone", 404)
-        return {"kind": "template", "name": res["tpl"], "content": row["content"] or "",
-                "last_seen": row["updated_at"]}
+        content, total = _page_text(row["content"] or "", offset, limit)
+        return {"kind": "template", "name": res["tpl"], "content": content,
+                "offset": offset, "total_lines": total, "last_seen": row["updated_at"]}
     raise _bad("read needs a document, file or template path, use ls to browse")
 
 

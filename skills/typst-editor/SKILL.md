@@ -1,6 +1,6 @@
 ---
 name: typst-editor
-description: Self-hosted Typst docs via MCP (ls, read, edit, view, search, upload, comment). Use for /docs, /shared, /templates work through the typst-editor server.
+description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, search, upload, comment). Use for /docs, /shared, /templates work through the typst-editor server.
 ---
 
 # Typst Editor — MCP Agent Skill
@@ -38,7 +38,7 @@ Work on the user's self-hosted Typst docs through MCP (Streamable HTTP).
 ## 2. Work loop
 
 ```
-ls -> read -> edit -> view -> fix
+ls -> read -> edit -> view -> see (§8) -> fix (= re-edit + re-view)
 ```
 
 Copy paths from `ls` output, never invent them.
@@ -48,13 +48,13 @@ Copy paths from `ls` output, never invent them.
 | Tool | Does |
 | --- | --- |
 | `ls(path="/")` | `/`, `/docs`, `/shared`, `/templates`, or a doc path (its files) |
-| `read(path)` | doc / text file / template → `content` + `last_seen` (pass to `edit`) |
+| `read(path, offset=1, limit=0)` | line window over doc / text file / template (offset 1-based, limit 0 = all, past-the-end → `""`) → `content` + echoed `offset` + `total_lines` + `last_seen` (pass to `edit`) |
 | `create(path, content="")` | new doc, file, or template (needs `.typ` suffix, else `404`). `400` if it exists; binary names need `upload` instead |
-| `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§4), max 200_000 chars |
+| `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§5), max 200_000 chars |
 | `search(query)` | doc main text (titles + content, no files/templates), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
 | `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
-| `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, max 5 |
+| `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, pages 1-5 only, max 5. Base64 is NOT viewable — see §8 for the pixel check |
 
 ## 4. Paths
 
@@ -81,3 +81,10 @@ Copy paths from `ls` output, never invent them.
 ## 7. Limits
 
 - `search` <2 chars: no hits. `upload`: 200 files/doc, 500 MB/user. Text: max 200_000 chars (`create`/`edit` fail above). `view`: needs the `typst` CLI on the server (Docker image has it).
+
+## 8. Seeing pages (pixel check)
+
+- `view` returns base64 PNG strings inside JSON. Most harnesses (CLI agents, serialized tool calls) show them as truncated text, NOT as images. Never judge layout from string length — a 25 KB string can be a perfect page or a compile-error page.
+- To actually SEE a page: base64-decode each entry of `pages[]` to a local file in the system temp dir (e.g. `/tmp/typst-view/<Title>-p1.png`), then open it with your image-capable file reader (`read` in this harness shows images directly). Only that shows real pixels.
+- Max 5 pages per `view` call, pages 1-5 only — longer docs render just the first 5.
+- `cache_hit: true` means identical input to a previous render: reuse the file you already saw, no need to re-save.

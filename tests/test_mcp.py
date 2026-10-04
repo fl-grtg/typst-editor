@@ -213,6 +213,31 @@ def test_read_binary_hint_and_upload_roundtrip(c):
     assert e.value.status_code == 400 and "view" in e.value.detail and "upload" in e.value.detail
 
 
+def test_read_paging_window_and_errors(c):
+    register_user(c, "u1")
+    t.op_create("u1", "owner", "/docs/P", "l1\nl2\nl3\nl4\nl5")
+    full = t.op_read("u1", "owner", "/docs/P")
+    assert full["content"] == "l1\nl2\nl3\nl4\nl5"
+    assert full["total_lines"] == 5
+    assert full["offset"] == 1
+    win = t.op_read("u1", "owner", "/docs/P", offset=2, limit=2)
+    assert win["content"] == "l2\nl3"
+    assert win["offset"] == 2
+    assert win["total_lines"] == 5
+    past = t.op_read("u1", "owner", "/docs/P", offset=99)
+    assert past["content"] == ""
+    assert past["total_lines"] == 5
+    t.op_create("u1", "owner", "/docs/P/f.csv", "a\nb\nc")
+    assert t.op_read("u1", "owner", "/docs/P/f.csv", offset=3)["content"] == "c"
+    t.op_create("u1", "owner", "/templates/p.typ", "x\ny")
+    assert t.op_read("u1", "owner", "/templates/p.typ", limit=1)["content"] == "x"
+    assert t.op_read("u1", "owner", "/docs/P", limit=0)["total_lines"] == 5
+    for bad in ({"offset": 0}, {"limit": -1}, {"offset": "2"}, {"limit": True}):
+        with pytest.raises(HTTPException) as e:
+            t.op_read("u1", "owner", "/docs/P", **bad)
+        assert e.value.status_code == 400
+
+
 def test_keys_survive_rename(c):
     register_user(c, "u1")
     created = make_key(c, name="keep")
