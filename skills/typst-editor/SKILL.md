@@ -54,7 +54,7 @@ Copy paths from `ls` output, never invent them.
 | `search(query)` | doc main text (titles + content, no files/templates), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
 | `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
-| `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, pages 1-5 only, max 5. Base64 is NOT viewable — see §8 for the pixel check |
+| `view(path, pages="1-5")` | doc pages as viewable image blocks (longest side ≤1280px) → image blocks + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, pages 1-5 only, max 5. No manual decode needed — see §8 |
 
 ## 4. Paths
 
@@ -84,7 +84,6 @@ Copy paths from `ls` output, never invent them.
 
 ## 8. Seeing pages (pixel check)
 
-- `view` returns base64 PNG strings inside JSON. Most harnesses (CLI agents, serialized tool calls) show them as truncated text, NOT as images. Never judge layout from string length — a 25 KB string can be a perfect page or a compile-error page.
-- To actually SEE a page: base64-decode each entry of `pages[]` to a local file in the system temp dir (e.g. `/tmp/typst-view/<Title>-p1.png`), then open it with your image-capable file reader (`read` in this harness shows images directly). Only that shows real pixels.
+- `view` returns directly viewable image blocks plus structured `count` + `cache_hit` + `last_seen`. Look at the images, never decode or save anything manually.
 - Max 5 pages per `view` call, pages 1-5 only — longer docs render just the first 5.
-- `cache_hit: true` means identical input to a previous render: reuse the file you already saw, no need to re-save.
+- `cache_hit: true` means identical input to a previous render: reuse what you already saw.

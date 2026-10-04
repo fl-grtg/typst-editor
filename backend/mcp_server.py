@@ -12,6 +12,8 @@ import logging
 from fastapi import HTTPException
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.tools import ToolResult
+from mcp.types import ToolAnnotations
 
 from backend import mcp_tools as t
 
@@ -115,9 +117,21 @@ def comment(path: str, anchor: int, text: str, quote: str = "",
     return _wrap(t.op_comment, user, cap, path, anchor, text, quote, parent_id, author)
 
 
-@mcp.tool()
-async def view(path: str, pages: str = "1-5") -> dict:
-    """Render doc pages 1-5 as PNG (base64, width <=1024px). Fix code, then re-view."""
+@mcp.tool(
+    output_schema={
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "cache_hit": {"type": "boolean"},
+            "last_seen": {"type": "string"},
+        },
+        "required": ["count", "cache_hit", "last_seen"],
+        "additionalProperties": False,
+    },
+    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+)
+async def view(path: str, pages: str = "1-5") -> ToolResult:
+    """Render doc pages 1-5 as viewable image blocks (no manual decode needed). Returns image blocks + count/cache_hit/last_seen. Fix code, then re-view."""
     user, cap, _ = _auth()
     return await _awrap(t.op_view(user, cap, path, pages))
 

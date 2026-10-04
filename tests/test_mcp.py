@@ -195,8 +195,14 @@ def test_view_cache_hit(c, monkeypatch):
     t._VIEW_CACHE.clear()
     v1 = asyncio.run(t.op_view("u1", "owner", "/docs/V"))
     v2 = asyncio.run(t.op_view("u1", "owner", "/docs/V"))
-    assert v1["cache_hit"] is False and v2["cache_hit"] is True
-    assert v1["pages"] == v2["pages"] and v1["count"] == 2
+    assert v1.structured_content["count"] == 2
+    assert v1.structured_content["cache_hit"] is False
+    assert v2.structured_content["cache_hit"] is True
+    assert set(v1.structured_content) == {"count", "cache_hit", "last_seen"}
+    assert len(v1.content) == 3 and v1.content[0].type == "text"
+    assert all(getattr(b, "type", None) == "image" for b in v1.content[1:])
+    assert all(getattr(b, "mime_type", None) == "image/png" for b in v1.content[1:])
+    assert [b.data for b in v1.content[1:]] == [b.data for b in v2.content[1:]]
     assert len(calls) == 1  # second call served from content-hash cache
     t._VIEW_CACHE.clear()
 
