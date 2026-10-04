@@ -21,6 +21,7 @@ import base64
 import hashlib
 import io
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -719,8 +720,25 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) ->
             (root / name).write_bytes(data)
         cmd = [typst, "compile", "--format", "png", "--ppi", "144",
                "--pages", pages, "main.typ", "page-{p}.png"]
+        # Container runs read-only (USER 999, read_only:true): typst's package
+        # cache defaults to a non-writable location, so any @preview import
+        # fails with "failed to create temporary package directory: Permission
+        # denied". Point it at DATA_DIR/typst-cache (persistent, survives
+        # views) with a tmp fallback. TYPST_PACKAGE_CACHE_PATH is the
+        # documented override (typst 0.15.1, also as --package-cache-path);
+        # XDG_CACHE_HOME covers the dirs-crate fallback on Linux.
         try:
-            proc = subprocess.run(cmd, cwd=tmp, capture_output=True, timeout=VIEW_TIMEOUT)
+            persistent = _files_dir().parent / "typst-cache"
+            persistent.mkdir(parents=True, exist_ok=True)
+            cache_home = str(persistent)
+        except OSError:
+            cache_home = str(root / "typst-cache")
+            Path(cache_home).mkdir(exist_ok=True)
+        env = dict(os.environ)
+        env["TYPST_PACKAGE_CACHE_PATH"] = cache_home
+        env["XDG_CACHE_HOME"] = cache_home
+        try:
+            proc = subprocess.run(cmd, cwd=tmp, capture_output=True, timeout=VIEW_TIMEOUT, env=env)
         except subprocess.TimeoutExpired as e:
             raise _bad("compile timed out (10s)", 500) from e
         except OSError as e:
