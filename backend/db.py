@@ -171,9 +171,17 @@ def _migrate_v10(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE comments ADD COLUMN author TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_v11(con: sqlite3.Connection) -> None:
+    # Anchors are 1-based line numbers; 0 ("top" via old MCP/skill doc)
+    # broke the comment card (Line 0, no gutter dot, no re-render on
+    # close/reopen). Heal existing rows to line 1.
+    con.execute("UPDATE comments SET anchor=1 WHERE anchor < 1")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
+    _migrate_v11,
 )
 
 

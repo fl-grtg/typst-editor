@@ -327,3 +327,29 @@ def test_ls_search_comment_basics(c):
         assert con.execute("SELECT username FROM comments WHERE id=?", (cid["id"],)).fetchone()["username"] == "u1"
     finally:
         con.close()
+
+
+def test_comment_anchor_zero_clamped_to_one(c):
+    register_user(c, "u1")
+    t.op_create("u1", "owner", "/docs/Plan", "line1\nline2\n")
+    cid = t.op_comment("u1", "owner", "/docs/Plan", 0, "top")["id"]
+    con = db.connect()
+    try:
+        assert con.execute("SELECT anchor FROM comments WHERE id=?", (cid,)).fetchone()["anchor"] == 1
+    finally:
+        con.close()
+
+
+def test_migrate_v11_heals_anchor_zero(c):
+    register_user(c, "u1")
+    t.op_create("u1", "owner", "/docs/Plan", "line1\nline2\n")
+    cid = t.op_comment("u1", "owner", "/docs/Plan", 1, "top")["id"]
+    con = db.connect()
+    try:
+        con.execute("UPDATE comments SET anchor=0 WHERE id=?", (cid,))
+        con.commit()
+        db._migrate_v11(con)
+        con.commit()
+        assert con.execute("SELECT anchor FROM comments WHERE id=?", (cid,)).fetchone()["anchor"] == 1
+    finally:
+        con.close()

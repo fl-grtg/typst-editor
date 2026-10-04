@@ -53,7 +53,7 @@ Copy paths from `ls` output, never invent them.
 | `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§4), max 200_000 chars |
 | `search(query)` | doc main text (titles + content, no files/templates), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
-| `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = line number (`0` = top, max 10M); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
+| `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
 | `view(path, pages="1-5")` | doc pages as base64 PNG (≤1024px) → `pages` + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, max 5 |
 
 ## 4. Paths

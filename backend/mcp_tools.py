@@ -638,7 +638,7 @@ def op_comment(user: str, cap: str, path: str, anchor: int,
     if res["kind"] != "doc":
         raise _bad("comments live on documents, use /docs/{Title}")
     if not isinstance(anchor, int) or anchor < 0 or anchor > 10_000_000:
-        raise _bad("Anchor 0-10000000")
+        raise _bad("Anchor 0-10000000 (0 = line 1)")
     if not text.strip() or len(text) > 2000:
         raise _bad("Comment: 1-2000 chars")
     # Display author: key name for key auth (auth stays on the account name,
@@ -657,7 +657,7 @@ def op_comment(user: str, cap: str, path: str, anchor: int,
         q = quote[:500]
         con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, created_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (cid, res["doc_id"], user, shown, anchor, q if q.strip() else "",
+                    (cid, res["doc_id"], user, shown, max(1, anchor), q if q.strip() else "",
                      text.strip(), parent_id, db.now_iso()))
         con.commit()
         return {"id": cid}

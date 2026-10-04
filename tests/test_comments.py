@@ -50,3 +50,15 @@ def test_delete_removes_replies(c):
     c.post(f"/api/docs/{did}/comments", json={"anchor": 0, "text": "r", "parent_id": cid})
     assert c.delete(f"/api/docs/{did}/comments/{cid}").status_code == 200
     assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []
+
+
+def test_anchor_zero_clamped_to_one(c):
+    did, cid = _setup(c)
+    got = c.get(f"/api/docs/{did}/comments").json()["comments"]
+    assert got[0]["anchor"] == 3
+    cid0 = c.post(f"/api/docs/{did}/comments", json={"anchor": 0, "text": "top"}).json()["id"]
+    got = c.get(f"/api/docs/{did}/comments").json()["comments"]
+    assert [t["anchor"] for t in got if t["id"] == cid0] == [1]
+    assert c.post(f"/api/docs/{did}/comments/{cid0}/anchor", json={"anchor": 0}).status_code == 200
+    got = c.get(f"/api/docs/{did}/comments").json()["comments"]
+    assert [t["anchor"] for t in got if t["id"] == cid0] == [1]
