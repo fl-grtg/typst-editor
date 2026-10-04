@@ -128,7 +128,7 @@ def comment(path: str, anchor: int, text: str, quote: str = "",
         "required": ["count", "cache_hit", "last_seen"],
         "additionalProperties": False,
     },
-    annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
 )
 async def view(path: str, pages: str = "1-5") -> ToolResult:
     """Render doc pages 1-5 as viewable image blocks (no manual decode needed). Returns image blocks + count/cache_hit/last_seen. Fix code, then re-view."""
