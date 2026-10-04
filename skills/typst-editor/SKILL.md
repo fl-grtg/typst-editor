@@ -1,3 +1,8 @@
+---
+name: typst-editor
+description: Self-hosted Typst docs via MCP (ls, read, edit, view, search, upload, comment). Use for /docs, /shared, /templates work through the typst-editor server.
+---
+
 # Typst Editor — MCP Agent Skill
 
 Work on the user's self-hosted Typst docs through MCP (Streamable HTTP).
