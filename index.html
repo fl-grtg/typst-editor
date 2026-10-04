@@ -500,7 +500,7 @@ body.read #preview { padding-top: 24px; }
 #sharePop #shares button:hover { background: var(--hover); color: var(--text); }
 #sharePop .hintline { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 4px 0 8px; }
 #sharePop input[readonly] { background: transparent; border-style: dashed; color: var(--sub); }
-#setPop { width: min(700px, calc(100vw - 24px)); max-height: none; overflow: auto; padding: 14px 18px 18px; }
+#setPop { width: min(700px, calc(100vw - 24px)); max-height: none; overflow: visible; padding: 14px 18px 18px; }
 #setPop .setGrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
 #setPop .setCol { display: flex; flex-direction: column; min-width: 0; }
 #setPop h4 { margin: 0; padding: 14px 0 4px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
@@ -651,7 +651,7 @@ body.read #preview { padding-top: 24px; }
   #find button { min-height: 40px; }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
   #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
-  #setPop { width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: calc(100dvh - 72px); overflow: auto; }
+  #setPop { width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: none; overflow: visible; }
   #setPop .setGrid { grid-template-columns: 1fr; }
   #menu button { min-height: 40px; }
   #exportBtn span, #shareBtn span { display: none; }
@@ -1088,6 +1088,7 @@ function typstComplete(ctx) {
   return null
 }
 function typstHover(view, pos) {
+  if (urlAt(view.state.doc, pos)) return null // words inside web links: the link preview owns the hover
   const w = view.state.wordAt(pos)
   if (!w) return null
   const d = T_DOC[view.state.doc.sliceString(w.from, w.to)]
@@ -1268,6 +1269,7 @@ const cm = new EditorView({
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
       if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
+      if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
       if (u.docChanged && findOpen) markFind() // recount hits, mark follows on its own
       paintErr() // compile errors: red + hover follow text (key stops loops, no live lint)
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
@@ -1311,6 +1313,68 @@ $('cm').addEventListener('mousedown', e => { // click on line number or yellow h
     if (th) openPop(th.anchor, false)
   }
 })
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/g
+function urlAt(doc, p) { // web link at doc pos: {url, from, to} or null
+  const line = doc.lineAt(p)
+  URL_RE.lastIndex = 0
+  let m
+  while ((m = URL_RE.exec(line.text))) {
+    const url = m[0].replace(/[.,;:!?)\]]+$/, '')
+    const from = line.from + m.index
+    if (p >= from && p <= from + url.length) return { url, from, to: from + url.length }
+  }
+  return null
+}
+function pointLink(x, y) { // url under client coords, else null
+  const p = cm.posAtCoords({ x, y })
+  if (p == null) return null
+  const hit = urlAt(cm.state.doc, p)
+  return hit && hit.url
+}
+$('cm').addEventListener('click', e => { // Ctrl/Cmd+click on a web link opens it in a new tab
+  if (!e.ctrlKey && !e.metaKey) return
+  const url = pointLink(e.clientX, e.clientY)
+  if (url) window.open(url, '_blank', 'noopener')
+})
+let linkMouse = null, linkTip = null, linkShown = null, linkTimer = 0 // cursor-anchored link preview
+function hideLinkTip() { clearTimeout(linkTimer); linkTimer = 0; linkShown = null; if (linkTip) { linkTip.remove(); linkTip = null } }
+function showLinkTip(url, x, y) {
+  if (!linkTip) {
+    linkTip = el('div', 'typ-hover')
+    linkTip.style.position = 'fixed'; linkTip.style.zIndex = '500'; linkTip.style.pointerEvents = 'none'
+    linkTip.style.background = 'var(--card)'; linkTip.style.border = '1px solid var(--line-2)'
+    linkTip.style.borderRadius = 'var(--r-md)'; linkTip.style.boxShadow = 'var(--sh-pop)'
+    linkTip.style.maxWidth = '240px'; linkTip.style.padding = '4px 9px'; linkTip.style.fontSize = '12px'
+    linkTip.style.whiteSpace = 'nowrap'; linkTip.style.overflow = 'hidden'; linkTip.style.textOverflow = 'ellipsis'
+    document.body.appendChild(linkTip)
+  }
+  linkTip.textContent = url.length > 60 ? url.slice(0, 60) + '…' : url
+  const w = linkTip.offsetWidth || 240
+  linkTip.style.left = Math.max(8, Math.min(x - w / 2, innerWidth - w - 8)) + 'px'
+  linkTip.style.top = Math.max(8, y - (linkTip.offsetHeight || 32) - 10) + 'px'
+}
+function linkHoverMove(e) { // preview after short delay, pinned above cursor until the link range is left
+  if (e.ctrlKey || e.metaKey) { hideLinkTip(); return }
+  const p = cm.posAtCoords({ x: e.clientX, y: e.clientY })
+  const hit = p == null ? null : urlAt(cm.state.doc, p)
+  if (!hit) { hideLinkTip(); return }
+  if (linkShown && p >= linkShown.from && p <= linkShown.to) return
+  hideLinkTip()
+  const x = e.clientX, y = e.clientY
+  linkTimer = setTimeout(() => { linkTimer = 0; linkShown = { from: hit.from, to: hit.to }; showLinkTip(hit.url, x, y) }, 400)
+}
+function linkCursor(e) { // finger cursor only over links while ctrl/cmd is held
+  cm.contentDOM.style.cursor = (pointLink(e.clientX, e.clientY) && (e.ctrlKey || e.metaKey)) ? 'pointer' : ''
+}
+$('cm').addEventListener('mousemove', e => { linkMouse = { x: e.clientX, y: e.clientY }; linkHoverMove(e); linkCursor(e) })
+$('cm').addEventListener('mouseleave', () => { linkMouse = null; hideLinkTip(); cm.contentDOM.style.cursor = '' })
+$('cm').addEventListener('mousedown', () => { hideLinkTip(); cm.contentDOM.style.cursor = '' })
+cm.scrollDOM.addEventListener('scroll', () => { linkMouse = null; hideLinkTip(); cm.contentDOM.style.cursor = '' })
+addEventListener('keydown', e => { // ctrl pressed: hide preview, finger without moving the mouse
+  if ((e.key === 'Control' || e.key === 'Meta') && linkMouse) { hideLinkTip(); linkCursor({ clientX: linkMouse.x, clientY: linkMouse.y, ctrlKey: e.key === 'Control', metaKey: e.key === 'Meta' }) }
+})
+addEventListener('keyup', e => { if (e.key === 'Control' || e.key === 'Meta') cm.contentDOM.style.cursor = '' })
+addEventListener('blur', () => { hideLinkTip(); cm.contentDOM.style.cursor = '' })
 const getT = () => cm.state.doc.toString()
 const setT = v => { applying = true; try { cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: v }, annotations: NO_HIST }) } finally { applying = false } } // doc/tab switch: Ctrl+Z must not bring back the previous doc
 function onEdit(mapPos, changes, oldLen) {
@@ -2488,7 +2552,7 @@ function anchorPop(p, btn) { // popover under its trigger: getBoundingClientRect
     const w = p.offsetWidth || 300
     const left = Math.max(8, Math.min(r.left - pr.left, pr.width - w - 8))
     p.style.left = left + 'px'
-    p.style.maxHeight = '70vh'
+    if (p.id !== 'setPop') p.style.maxHeight = '70vh' // settings never scrolls: card grows with content
   } catch (e) {}
 }
 function movePop() { // attach card to line (real coords, wrap-safe)
@@ -3171,6 +3235,7 @@ $('who').onclick = e => {
 kb($('who'), () => $('who').click())
 let setMsg = '' // settings error inline not browser alert
 let apiKeys = null, apiKeysLoading = false, lastKeySecret = '', lastKeyName = '', lastKeyId = ''
+const AGENT_PROMPT = 'Install the Typst Editor skill from https://raw.githubusercontent.com/fl-grtg/typst-editor/main/skills/typst-editor/SKILL.md and follow its section 0 to connect to my Typst server. Ask me for server URL and API key if missing.'
 function loadKeys() {
   if (apiKeysLoading) return; apiKeysLoading = true
   api('GET', '/api/keys').then(d => { apiKeys = d.keys || [] })
@@ -3178,7 +3243,12 @@ function loadKeys() {
 }
 const shortD = s => { try { return s ? String(s).slice(0, 10) : 'Never' } catch (e) { return 'Never' } }
 function copyTxt(t, inp) {
-  const fb = () => { inp.select(); try { document.execCommand('copy'); toast('Copied') } catch (e) {} }
+  const fb = () => {
+    const f = inp || document.createElement('textarea')
+    if (!inp) { f.value = t; f.style.position = 'fixed'; f.style.opacity = '0'; document.body.appendChild(f) }
+    f.select(); try { document.execCommand('copy'); toast('Copied') } catch (e) {}
+    if (!inp) f.remove()
+  }
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('Copied')).catch(fb)
   else fb()
 }
@@ -3240,6 +3310,10 @@ function renderSettings() {
   bb.title = 'Download your documents, files and templates as .zip'
   bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
   bk.appendChild(bb); colR.appendChild(grp('Backup', sec(bk)))
+  const agCp = icoBtn(null, ICO_DUP); agCp.title = 'Copy agent prompt'; agCp.setAttribute('aria-label', 'Copy agent prompt')
+  agCp.onclick = () => copyTxt(AGENT_PROMPT)
+  const agRow = el('div', 'row'); agRow.append(el('span', null, 'Paste this prompt into your agent.'), agCp)
+  colR.appendChild(grp('Connect your agent', sec(agRow)))
   const keySecs = []
   const ksec = (...kids) => { const d = sec(...kids); d.style.padding = '6px 10px 8px'; d.style.marginBottom = '6px'
     kids.forEach(k => { if (k.classList && k.classList.contains('row')) k.style.marginTop = '6px' }); return d }
@@ -4079,7 +4153,7 @@ fmtSync()
     },
     help: function () {
       return [
-        it('Tutorial and shortcuts', function () { click('helpBtn') }, { kbd: '?' }),
+        it('Connect AI agent', function () { if ($('setPop').style.display === 'none') click('who') }),
         it('Source code on GitHub', function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
       ]
     },
