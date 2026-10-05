@@ -37,7 +37,7 @@ from fastmcp.utilities.types import Image
 from mcp.types import Annotations
 
 from backend import config as _config
-from backend import db, sync
+from backend import db, search, sync
 from backend.constants import MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.services import quota as quota_svc
 
@@ -601,29 +601,19 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
 
 def op_search(user: str, cap: str, query: str) -> dict:
     _ = cap  # read access is enough (resolve already gates per doc)
-    q = query.strip()[:50]
-    if len(q) < 2:
+    if len((query or "").strip()[:50]) < 2:
         return {"hits": []}
-    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     con = db.connect()
     try:
-        rows = con.execute(
-            "SELECT d.id, d.title, d.owner, d.content FROM docs d LEFT JOIN shares s "
-            "ON s.doc_id=d.id AND s.username=? WHERE d.trashed=0 AND (d.owner=? OR s.username=?) "
-            "AND (d.title LIKE ? ESCAPE '\\' OR d.content LIKE ? ESCAPE '\\') "
-            "ORDER BY d.updated_at DESC LIMIT 20", (user, user, user, like, like)).fetchall()
-        hits = []
-        for r in rows:
-            live = sync.room_text(r["id"])
-            txt = live if live is not None else r["content"]
-            i = txt.lower().find(q.lower())
-            snippet = ("..." + txt[max(0, i - 40):i + 80].replace("\n", " ") + "...") if i >= 0 else ""
-            base = f"/docs/{r['title']}" if r["owner"] == user else f"/shared/{r['owner']}/{r['title']}"
-            hits.append({"path": base, "title": r["title"], "owner": r["owner"],
-                         "snippet": snippet, "pos": i})
-        return {"hits": hits}
+        rows = search.search_visible(user, query, con, _files_dir(), sync.room_text)
     finally:
         con.close()
+    hits = []
+    for h in rows:
+        base = f"/docs/{h['title']}" if h["owner"] == user else f"/shared/{h['owner']}/{h['title']}"
+        hits.append({"path": base, "title": h["title"], "owner": h["owner"],
+                     "snippet": h["snippet"], "pos": h["pos"]})
+    return {"hits": hits}
 
 
 def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str | None = None) -> dict:

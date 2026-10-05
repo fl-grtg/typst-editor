@@ -103,3 +103,20 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username);
+
+-- FTS5 index over docs(title, content) for /api/search + MCP search.
+-- External-content table keyed by docs.rowid (docs.id is TEXT, so FTS
+-- content-sync is not an option); triggers keep it in sync. Fresh DBs get
+-- it from here, existing DBs via db.py _migrate_v12 (same DDL + rebuild).
+CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, content, tokenize='unicode61');
+CREATE TRIGGER IF NOT EXISTS docs_fts_ai AFTER INSERT ON docs BEGIN
+  INSERT INTO docs_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS docs_fts_ad AFTER DELETE ON docs BEGIN
+  DELETE FROM docs_fts WHERE rowid=old.rowid;
+END;
+CREATE TRIGGER IF NOT EXISTS docs_fts_au AFTER UPDATE ON docs
+  WHEN old.title IS NOT new.title OR old.content IS NOT new.content BEGIN
+  DELETE FROM docs_fts WHERE rowid=old.rowid;
+  INSERT INTO docs_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+END;
