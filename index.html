@@ -1665,7 +1665,7 @@ function diagRange(d, doc) { // F20: real column ranges from compiler diagnostic
       sl = num(raw.startLine) != null ? num(raw.startLine) : num(raw.line)
       sc = num(raw.startColumn) != null ? num(raw.startColumn) : (num(raw.startCol) != null ? num(raw.startCol) : (num(raw.column) != null ? num(raw.column) : (num(raw.col) || 0)))
       el = num(raw.endLine) != null ? num(raw.endLine) : sl
-      ec = num(raw.endColumn) != null ? num(raw.endColumn) : (num(raw.endCol) != null ? num(raw.endCol) : (num(raw.end != null && typeof raw.end !== 'object' ? raw.end : null) != null ? num(raw.end) : sc))
+      ec = num(raw.endColumn) != null ? num(raw.endColumn) : (num(raw.endCol) != null ? num(raw.endCol) : (raw.end != null && typeof raw.end !== 'object' && num(raw.end) != null ? num(raw.end) : sc))
     } else if (num(raw.from) != null && num(raw.to) != null && raw.line == null) {
       const bf = Math.max(0, Math.min(doc.length, num(raw.from))), bt = Math.max(0, Math.min(doc.length, Math.max(bf + 1, num(raw.to)))), bl = doc.lineAt(bf)
       return { from: bf, to: bt, line: bl.number, col: bf - bl.from + 1, explicit: true } // bare offsets: line/col from the doc, not hardcoded
@@ -1705,7 +1705,8 @@ function paintErr() { // compile errors via lint (F1): every column range render
   const keyOf = d => { // stable across compiles: object ranges need JSON (String() collapses them to "[object Object]")
     let r = ''
     try { const v = d && (d.range != null ? d.range : (d.span != null ? d.span : d.location)); r = v != null && typeof v === 'object' ? JSON.stringify(v) : String(v || '') } catch (_) { r = '[unserializable]' }
-    return ((d && d.path) || '') + '|' + r + '|' + ((d && d.message) || '')
+    const p = d && (d.line != null ? d.line : (d.column != null ? d.column : (d.col != null ? d.col : (d.endLine != null ? d.endLine : (d.endColumn != null ? d.endColumn : (d.endCol != null ? d.endCol : ''))))))
+    return ((d && d.path) || '') + '|' + r + '|' + String(p) + '|' + ((d && d.message) || '')
   }
   const key = cmpDiags.map(keyOf).join('\n')
   if (key === errKey) return // nothing new: no dispatch, no loop (lint maps positions across edits)
