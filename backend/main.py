@@ -1424,7 +1424,7 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
 @app.post("/api/docs/{doc_id}/rename")
 def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
-    limited(req, "save")  # reuse save scope (no dedicated rename scope)
+    limited(req, "rename")
     if need_access(user, doc_id) != "owner":
         raise HTTPException(403, "Only owner can rename")
     t = b.title.strip()
@@ -1456,7 +1456,7 @@ def list_templates(req: Request, user: str = Depends(me)) -> dict:
 
 @app.post("/api/templates")
 def save_template(b: TplSave, req: Request, user: str = Depends(me)) -> dict:
-    limited(req, "save")  # reuse save scope (no dedicated template scope)
+    limited(req, "templates")
     n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(b.name or "").name.strip().lstrip("."))[:100]
     if not n.endswith(".typ") or not b.content.strip() or len(b.content) > MAX_TXT:
         raise HTTPException(400, "Only .typ with content (max 200 KB)")
@@ -1504,7 +1504,7 @@ def save_template(b: TplSave, req: Request, user: str = Depends(me)) -> dict:
 
 @app.delete("/api/templates/{name}")
 def delete_template(name: str, req: Request, user: str = Depends(me)) -> dict:
-    limited(req, "files")  # reuse files scope (no dedicated template scope)
+    limited(req, "templates")
     n = tpl_name(name)
     con = db.connect()
     try:
@@ -1520,7 +1520,7 @@ def delete_template(name: str, req: Request, user: str = Depends(me)) -> dict:
 
 @app.post("/api/templates/{name}/folder")
 def move_template(name: str, b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
-    limited(req, "files")  # reuse files scope (no dedicated template scope)
+    limited(req, "templates")
     n = tpl_name(name)
     con = db.connect()
     try:
@@ -1562,7 +1562,7 @@ def make_tpl_folder(b: FolderSet, req: Request, user: str = Depends(me)) -> dict
 
 @app.post("/api/tplfolders/rename")
 def rename_tpl_folder(b: FolderRename, req: Request, user: str = Depends(me)) -> dict:
-    limited(req, "files")  # reuse files scope (no dedicated template scope)
+    limited(req, "tplfolders")
     old, new = b.old.strip()[:FOLDER_MAX], b.new.strip()[:FOLDER_MAX]
     if not old or not new or old == new:
         raise HTTPException(400, "Empty folder name")
@@ -1581,7 +1581,7 @@ def rename_tpl_folder(b: FolderRename, req: Request, user: str = Depends(me)) ->
 
 @app.delete("/api/tplfolders/{name}")
 def drop_tpl_folder(name: str, req: Request, user: str = Depends(me)) -> dict:
-    limited(req, "files")  # reuse files scope (no dedicated template scope)
+    limited(req, "tplfolders")
     n = name.strip()[:FOLDER_MAX]
     con = db.connect()
     try:
@@ -1597,7 +1597,7 @@ def drop_tpl_folder(name: str, req: Request, user: str = Depends(me)) -> dict:
 @app.delete("/api/docs/{doc_id}")
 async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
-    limited(req, "save")  # reuse save scope (no dedicated delete scope)
+    limited(req, "delete")
     r = need_access(user, doc_id, allow_trashed=True)
     if r != "owner":
         raise HTTPException(403, "Only owner can delete")
@@ -1631,7 +1631,7 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict
 @app.post("/api/docs/{doc_id}/restore")
 def restore_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
-    limited(req, "save")  # reuse save scope (no dedicated restore scope)
+    limited(req, "restore")
     if need_access(user, doc_id, allow_trashed=True) != "owner":
         raise HTTPException(403, "Only owner can restore")
     con = db.connect()
@@ -1654,7 +1654,7 @@ def restore_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
 @app.post("/api/docs/{doc_id}/folder")
 def move_doc(doc_id: str, b: FolderSet, req: Request, user: str = Depends(me)) -> dict:
     check_doc_id(doc_id)
-    limited(req, "files")  # reuse files scope (no dedicated move scope)
+    limited(req, "move")
     if need_access(user, doc_id) != "owner":
         raise HTTPException(403, "Only owner can move")
     if len(b.folder.strip()) > FOLDER_MAX:
