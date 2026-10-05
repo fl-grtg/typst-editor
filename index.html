@@ -1513,11 +1513,11 @@ let typstPm = null // compiler loads async: UI stays clickable while WASM loads
 let typstWarned = false // max 1 warning: no endless retry on blocked CDN
 function ensureTypst() {
   if (typstPm) return typstPm
-  typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.7.0/dist/esm/index.js').then(m => { // pinned, CSP server-side (see above)
+  typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.8.0-rc3/dist/esm/index.js').then(m => { // pinned, CSP server-side (see above); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
     if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM bundle sets no global: adopt it
     // bundle default points to missing WASM (404): pin explicitly (see docs example)
-    window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.7.0/pkg/typst_ts_web_compiler_bg.wasm' })
-    window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.7.0/pkg/typst_ts_renderer_bg.wasm' })
+    window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.8.0-rc3/pkg/typst_ts_web_compiler_bg.wasm' })
+    window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.8.0-rc3/pkg/typst_ts_renderer_bg.wasm' })
   }).catch(e => {
     typstPm = null // allow retry: watchdog retries instead of stalling
     if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
