@@ -122,18 +122,21 @@ def comment(path: str, anchor: int, text: str, quote: str = "",
         "type": "object",
         "properties": {
             "count": {"type": "integer"},
+            "total_pages": {"type": "integer"},
             "cache_hit": {"type": "boolean"},
             "last_seen": {"type": "string"},
+            "pages": {"type": "string"},
+            "scale": {"type": "number"},
         },
-        "required": ["count", "cache_hit", "last_seen"],
+        "required": ["count", "total_pages", "cache_hit", "last_seen"],
         "additionalProperties": False,
     },
     annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
 )
-async def view(path: str, pages: str = "1-5") -> ToolResult:
-    """Render doc pages 1-5 as viewable image blocks (no manual decode needed). Returns image blocks + count/cache_hit/last_seen. Fix code, then re-view."""
+async def view(path: str, pages: str = "1-5", scale: float = 1.0) -> ToolResult:
+    """Render doc pages 1-20 as viewable image blocks (no manual decode needed). Pages format: "2", "1-5", "6-10", "1-3,5" (max 20 per call); scale 0.5-3.0 (default 1.0, ppi 144*scale). Returns image blocks + count/total_pages/cache_hit/last_seen. Fix code, then re-view."""
     user, cap, _ = _auth()
-    return await _awrap(t.op_view(user, cap, path, pages))
+    return await _awrap(t.op_view(user, cap, path, pages, scale))
 
 
 # Single instance: main mounts exactly this object and runs its lifespan

@@ -44,27 +44,94 @@ from backend.services import quota as quota_svc
 log = logging.getLogger("typst.mcp")
 
 TEXT_SUFFIX = {".typ", ".bib", ".csv"}
-VIEW_MAX_PAGES = 5
+VIEW_MAX_PAGES = 20
+VIEW_MAX_NUM = 20
 VIEW_MAX_SIDE = 1280
 VIEW_TIMEOUT = 10.0
 VIEW_CACHE_MAX = 20
 VIEW_CACHE_BYTES = 20 * 1024 * 1024
 VIEW_SRC_MAX = 50 * 1024 * 1024
+VIEW_BASE_PPI = 144
+VIEW_MIN_SCALE = 0.5
+VIEW_MAX_SCALE = 3.0
+
+
+def _expand_pages(pages: str) -> list[int]:
+    """Validate pages spec and return sorted unique page numbers.
+
+    Format: comma-separated "N" or "A-B" parts, e.g. "2", "1-3", "1-3,5".
+    Page numbers 1..VIEW_MAX_NUM, at most VIEW_MAX_PAGES pages per call.
+    Raises HTTPException 400 on invalid input.
+    """
+    if not pages or not isinstance(pages, str):
+        raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)")
+    if len(pages) > 200:
+        raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)")
+    seen: list[int] = []
+    try:
+        for raw in pages.split(","):
+            part = raw.strip()
+            if not part:
+                raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)")
+            nums = [int(x) for x in part.split("-")]
+            if len(nums) > 2:
+                raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)")
+            if any(not 1 <= x <= VIEW_MAX_NUM for x in nums):
+                raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)")
+            if len(nums) == 2 and nums[0] > nums[1]:
+                raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)")
+            lo, hi = (nums[0], nums[0]) if len(nums) == 1 else (nums[0], nums[1])
+            for p in range(lo, hi + 1):
+                if p not in seen:
+                    seen.append(p)
+    except ValueError:
+        raise _bad("pages 1-20 only (e.g. 1-5, 6-10 or 2)") from None
+    if not seen or len(seen) > VIEW_MAX_PAGES:
+        raise _bad(f"pages 1-20 only, max {VIEW_MAX_PAGES} per call (e.g. 1-5, 6-10 or 2)")
+    return sorted(seen)
 
 
 def _pages_ok(pages: str) -> bool:
-    if not pages:
+    if not pages or not isinstance(pages, str):
         return False
     try:
-        for part in pages.split(","):
-            nums = [int(x) for x in part.split("-")]
-            if len(nums) > 2 or any(not 1 <= x <= VIEW_MAX_PAGES for x in nums):
-                return False
-            if len(nums) == 2 and nums[0] > nums[1]:
-                return False
-    except ValueError:
+        _expand_pages(pages)
+    except HTTPException:
         return False
     return True
+
+
+def _parse_typst_diagnostics(stderr: str) -> list[dict]:
+    """Parse typst CLI stderr into [{file, line, col, message}]."""
+    diags: list[dict] = []
+    if not stderr:
+        return diags
+    # Typst CLI prints "error: <msg>\n --> main.typ:line:col" blocks;
+    # fall back to one entry per "error:" line when no position is found.
+    blocks = re.split(r"(?m)^(?=error:|warning:)", stderr.strip())
+    for b in blocks:
+        b = b.strip()
+        if not b or not b.startswith("error:"):
+            continue
+        first, _, rest = b.partition("\n")
+        msg = first[len("error:"):].strip() or "compile error"
+        m = re.search(r"([^\s:]+\.typ):(\d+):(\d+)", b)
+        if m:
+            try:
+                line, col = int(m.group(2)), int(m.group(3))
+            except ValueError:
+                line, col = None, None
+            diags.append({"file": m.group(1), "line": line, "col": col, "message": msg})
+        else:
+            # Multi-line message without position: keep first 300 chars.
+            detail = (rest.strip().split("\n")[0].strip() if rest.strip() else "")
+            full = f"{msg} {detail}".strip()[:300] if detail else msg[:300]
+            diags.append({"file": None, "line": None, "col": None, "message": full})
+    if not diags:
+        # Unknown format: single truncated entry so callers always get context.
+        diags.append({"file": None, "line": None, "col": None,
+                      "message": stderr.strip()[:300] or "compile error"})
+    return diags
 
 
 _TYPST_TAG: str | None = None
@@ -677,12 +744,13 @@ def op_comment(user: str, cap: str, path: str, anchor: int,
         con.close()
 
 
-# --- view (M3): render doc pages as PNG via typst CLI ---
+# --- view (M3, PR4 paging): render doc pages as PNG via typst CLI ---
 
 _VIEW_CACHE: dict[str, dict] = {}
+_VIEW_TOTALS: dict[str, int] = {}
 
 
-def _view_key(doc_id: str, main_text: str, files: list[tuple[str, bytes]], pages: str) -> str:
+def _content_hash(doc_id: str, main_text: str, files: list[tuple[str, bytes]]) -> str:
     h = hashlib.sha256()
     h.update(_typst_tag().encode("utf-8"))
     h.update(b"\0")
@@ -691,7 +759,12 @@ def _view_key(doc_id: str, main_text: str, files: list[tuple[str, bytes]], pages
         h.update(name.encode("utf-8"))
         h.update(b"\0")
         h.update(data)
-    return f"{doc_id}:{pages}:{VIEW_MAX_SIDE}:{h.hexdigest()}"
+    return f"{doc_id}:{h.hexdigest()}"
+
+
+def _view_key(doc_id: str, main_text: str, files: list[tuple[str, bytes]],
+              pages: str, ppi: int = VIEW_BASE_PPI) -> str:
+    return f"{_content_hash(doc_id, main_text, files)}:{pages}:{ppi}:{VIEW_MAX_SIDE}"
 
 
 def _view_cache_get(key: str) -> dict | None:
@@ -716,39 +789,63 @@ def _png_bytes(im) -> bytes:
     return buf.getvalue()
 
 
-def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) -> list[bytes]:
-    """Temp-dir typst compile, 10s timeout. Returns PNG bytes (<=5, longest side <=1280)."""
+def _typst_env(root: Path) -> dict:
+    # Container runs read-only (USER 999, read_only:true): typst's package
+    # cache defaults to a non-writable location, so any @preview import
+    # fails with "failed to create temporary package directory: Permission
+    # denied". Point it at DATA_DIR/typst-cache (persistent, survives
+    # views) with a tmp fallback. TYPST_PACKAGE_CACHE_PATH is the
+    # documented override (typst 0.15.1, also as --package-cache-path);
+    # XDG_CACHE_HOME covers the dirs-crate fallback on Linux.
+    try:
+        persistent = _files_dir().parent / "typst-cache"
+        persistent.mkdir(parents=True, exist_ok=True)
+        cache_home = str(persistent)
+    except OSError:
+        try:
+            cache_home = str(root / "typst-cache")
+            Path(cache_home).mkdir(exist_ok=True)
+        except OSError as e:
+            raise _bad(f"compile failed: {e}", 500) from e
+    env = dict(os.environ)
+    env["TYPST_PACKAGE_CACHE_PATH"] = cache_home
+    env["XDG_CACHE_HOME"] = cache_home
+    return env
+
+
+def _pdf_page_count(pdf_bytes: bytes) -> int | None:
+    """Count pages in PDF bytes via /Type /Page markers. None when unknown."""
+    try:
+        n = len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
+        return n if n > 0 else None
+    except Exception:
+        return None
+
+
+def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
+                  pages: str, ppi: int = VIEW_BASE_PPI) -> list[bytes]:
+    """Temp-dir typst compile, 10s timeout. Returns PNG bytes (<=20, longest side <=1280)."""
     typst = shutil.which("typst")
     if not typst:
         raise _bad("typst CLI missing (Dockerfile installs it)", 500)
-    from PIL import Image as _Image
+    try:
+        from PIL import Image as _Image
+    except ImportError as e:
+        raise _bad(f"render failed: {e}", 500) from e
 
     with tempfile.TemporaryDirectory(prefix="mcp-view-") as tmp:
         root = Path(tmp)
-        (root / "main.typ").write_text(main_text, encoding="utf-8")
-        for name, data in files:
-            if ".tmp." in name:
-                continue
-            (root / name).write_bytes(data)
-        cmd = [typst, "compile", "--format", "png", "--ppi", "144",
-               "--pages", pages, "main.typ", "page-{p}.png"]
-        # Container runs read-only (USER 999, read_only:true): typst's package
-        # cache defaults to a non-writable location, so any @preview import
-        # fails with "failed to create temporary package directory: Permission
-        # denied". Point it at DATA_DIR/typst-cache (persistent, survives
-        # views) with a tmp fallback. TYPST_PACKAGE_CACHE_PATH is the
-        # documented override (typst 0.15.1, also as --package-cache-path);
-        # XDG_CACHE_HOME covers the dirs-crate fallback on Linux.
         try:
-            persistent = _files_dir().parent / "typst-cache"
-            persistent.mkdir(parents=True, exist_ok=True)
-            cache_home = str(persistent)
-        except OSError:
-            cache_home = str(root / "typst-cache")
-            Path(cache_home).mkdir(exist_ok=True)
-        env = dict(os.environ)
-        env["TYPST_PACKAGE_CACHE_PATH"] = cache_home
-        env["XDG_CACHE_HOME"] = cache_home
+            (root / "main.typ").write_text(main_text, encoding="utf-8")
+            for name, data in files:
+                if ".tmp." in name:
+                    continue
+                (root / name).write_bytes(data)
+        except OSError as e:
+            raise _bad(f"compile failed: {e}", 500) from e
+        cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
+               "--pages", pages, "main.typ", "page-{p}.png"]
+        env = _typst_env(root)
         try:
             proc = subprocess.run(cmd, cwd=tmp, capture_output=True, timeout=VIEW_TIMEOUT, env=env)
         except subprocess.TimeoutExpired as e:
@@ -756,8 +853,11 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) ->
         except OSError as e:
             raise _bad(f"compile failed: {e}", 500) from e
         if proc.returncode != 0:
-            err = (proc.stderr or b"").decode("utf-8", "replace").strip()[-500:]
-            raise _bad(f"compile error: {err or 'unknown'}")
+            raw = (proc.stderr or b"").decode("utf-8", "replace").strip()
+            diags = _parse_typst_diagnostics(raw)
+            short = raw.strip()[-500:] or "unknown"
+            raise HTTPException(422, {"message": f"compile error: {short}",
+                                      "diagnostics": diags})
         shots = sorted(root.glob("page-*.png"))[:VIEW_MAX_PAGES]
         if not shots:
             raise _bad("no pages rendered", 500)
@@ -778,21 +878,84 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]], pages: str) ->
         return out
 
 
-def _view_result(pngs: list[bytes], cache_hit: bool, last_seen: str) -> ToolResult:
-    text = f"{len(pngs)} page(s) rendered"
+def _compile_pdf_pages(main_text: str, files: list[tuple[str, bytes]]) -> int | None:
+    """Compile to PDF and count pages. None when the count is unknown."""
+    typst = shutil.which("typst")
+    if not typst:
+        raise _bad("typst CLI missing (Dockerfile installs it)", 500)
+    with tempfile.TemporaryDirectory(prefix="mcp-view-total-") as tmp:
+        root = Path(tmp)
+        try:
+            (root / "main.typ").write_text(main_text, encoding="utf-8")
+            for name, data in files:
+                if ".tmp." in name:
+                    continue
+                (root / name).write_bytes(data)
+        except OSError:
+            return None
+        cmd = [typst, "compile", "--format", "pdf", "main.typ", "out.pdf"]
+        try:
+            proc = subprocess.run(cmd, cwd=tmp, capture_output=True,
+                                  timeout=VIEW_TIMEOUT, env=_typst_env(root))
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+        if proc.returncode != 0:
+            return None
+        try:
+            return _pdf_page_count((root / "out.pdf").read_bytes())
+        except OSError:
+            return None
+
+
+def _total_pages_cached(doc_id: str, main_text: str,
+                        files: list[tuple[str, bytes]], fallback: int) -> int:
+    """Total doc pages via cached PDF page count, fallback = max requested page."""
+    key = _content_hash(doc_id, main_text, files)
+    hit = _VIEW_TOTALS.get(key)
+    if hit is not None:
+        _VIEW_TOTALS[key] = _VIEW_TOTALS.pop(key)  # LRU refresh
+        return hit
+    try:
+        n = _compile_pdf_pages(main_text, files)
+    except HTTPException:
+        n = None
+    if n is None:
+        return fallback  # transient PDF failure: do not poison the cache
+    if len(_VIEW_TOTALS) >= VIEW_CACHE_MAX:
+        _VIEW_TOTALS.pop(next(iter(_VIEW_TOTALS)), None)
+    _VIEW_TOTALS[key] = n
+    return n
+
+
+def _view_result(pngs: list[bytes], cache_hit: bool, last_seen: str,
+                 total_pages: int, pages: str = "1-5", scale: float = 1.0) -> ToolResult:
+    text = f"{len(pngs)} page(s) rendered (pages {pages}, {total_pages} total)"
     ann = Annotations(audience=["user"], priority=0.9)
     return ToolResult(
         content=[text, *[Image(data=b, format="png", annotations=ann) for b in pngs]],
-        structured_content={"count": len(pngs), "cache_hit": cache_hit, "last_seen": last_seen},
+        structured_content={"count": len(pngs), "total_pages": total_pages,
+                            "cache_hit": cache_hit, "last_seen": last_seen,
+                            "pages": pages, "scale": scale},
     )
 
 
-async def op_view(user: str, cap: str, path: str, pages: str = "1-5") -> ToolResult:
+def _check_scale(scale: float) -> int:
+    if isinstance(scale, bool) or not isinstance(scale, (int, float)):
+        raise _bad("scale 0.5-3.0 (default 1.0)")
+    f = float(scale)
+    if not VIEW_MIN_SCALE <= f <= VIEW_MAX_SCALE:
+        raise _bad("scale 0.5-3.0 (default 1.0)")
+    return round(VIEW_BASE_PPI * f)
+
+
+async def op_view(user: str, cap: str, path: str,
+                  pages: str = "1-5", scale: float = 1.0) -> ToolResult:
     res = resolve_path(user, cap, path)
     if res["kind"] != "doc":
         raise _bad("view renders documents, use /docs/{Title}")
-    if not _pages_ok(pages or ""):
-        raise _bad("pages 1-5 only (e.g. 1-5 or 2)")
+    wanted = _expand_pages(pages or "")
+    ppi = _check_scale(scale)
+    pages_arg = ",".join(str(p) for p in wanted)
     live = sync.room_text(res["doc_id"])
     con = db.connect()
     try:
@@ -820,10 +983,15 @@ async def op_view(user: str, cap: str, path: str, pages: str = "1-5") -> ToolRes
                 if src_bytes > VIEW_SRC_MAX:
                     raise _bad("too many files for view", 413)
                 files.append((p.name, data))
-    key = _view_key(res["doc_id"], main_text, files, pages)
+    key = _view_key(res["doc_id"], main_text, files, pages_arg, ppi)
     hit = _view_cache_get(key)
     if hit is not None:
-        return _view_result(hit["pngs"], True, row["updated_at"])
-    pngs = await asyncio.to_thread(_compile_pngs, main_text, files, pages)
-    _view_cache_put(key, {"pngs": pngs})
-    return _view_result(pngs, False, row["updated_at"])
+        cached_total = hit.get("total_pages")
+        total_hit: int = (cached_total if isinstance(cached_total, int) else
+                          _total_pages_cached(res["doc_id"], main_text, files, max(wanted)))
+        hit["total_pages"] = total_hit
+        return _view_result(hit["pngs"], True, row["updated_at"], total_hit, pages_arg, float(scale))
+    pngs = await asyncio.to_thread(_compile_pngs, main_text, files, pages_arg, ppi)
+    total = await asyncio.to_thread(_total_pages_cached, res["doc_id"], main_text, files, max(wanted))
+    _view_cache_put(key, {"pngs": pngs, "total_pages": total})
+    return _view_result(pngs, False, row["updated_at"], total, pages_arg, float(scale))
