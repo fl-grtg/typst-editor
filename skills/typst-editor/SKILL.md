@@ -54,7 +54,7 @@ Copy paths from `ls` output, never invent them.
 | `search(query)` | doc main text (titles + content, no files/templates), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
 | `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
-| `view(path, pages="1-5")` | doc pages as viewable image blocks (longest side ≤1280px) → image blocks + `count` + `cache_hit` + `last_seen`; `"2"`, `"1-3"` work, pages 1-5 only, max 5. No manual decode needed — see §8 |
+| `view(path, pages="1-5", scale=1.0)` | doc pages as viewable image blocks (longest side ≤1280px) → image blocks + `count` + `total_pages` + `cache_hit` + `last_seen`; pages format `"2"`, `"1-5"`, `"6-10"`, `"1-3,5"` — numbers 1-20, max 20 per call; `scale` 0.5-3.0 (default 1.0 → 144 ppi). Compile errors → `422` with `diagnostics: [{file, line, col, message}]`. No manual decode needed — see §8 |
 
 ## 4. Paths
 
@@ -84,6 +84,9 @@ Copy paths from `ls` output, never invent them.
 
 ## 8. Seeing pages (pixel check)
 
-- `view` returns directly viewable image blocks plus structured `count` + `cache_hit` + `last_seen`. Look at the images, never decode or save anything manually.
-- Max 5 pages per `view` call, pages 1-5 only — longer docs render just the first 5.
+- `view` returns directly viewable image blocks plus structured `count` + `total_pages` + `cache_hit` + `last_seen` (+ echoed `pages`, `scale`). Look at the images, never decode or save anything manually.
+- Pages format: comma-separated `"N"` or `"A-B"` parts (e.g. `"2"`, `"1-5"`, `"6-10"`, `"1-3,5"`). Page numbers 1-20, at most 20 pages per call — longer docs need several calls (`1-5`, `6-10`, …). Default `pages="1-5"` renders the first five. `count` = images in this call, `total_pages` = pages in the whole doc.
+- `scale` 0.5-3.0 (default 1.0 = 144 ppi): higher = sharper at the same 1280px cap. Cache holds 20 entries / 20 MB (key includes pages + scale).
+- `total_pages` = whole-doc page count via PDF compile (cached per content, 20 entries); if the count fails, it falls back to the highest requested page.
+- Compile errors come back as `422` with structured `diagnostics` (`[{file, line, col, message}]`): fix the quoted line, then re-`view`. `typst` CLI missing → `500`.
 - `cache_hit: true` means identical input to a previous render: reuse what you already saw.
