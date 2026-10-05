@@ -1705,7 +1705,7 @@ function paintErr() { // compile errors via lint (F1): every column range render
   const keyOf = d => { // stable across compiles: object ranges need JSON (String() collapses them to "[object Object]")
     let r = ''
     try { const v = d && (d.range != null ? d.range : (d.span != null ? d.span : d.location)); r = v != null && typeof v === 'object' ? JSON.stringify(v) : String(v || '') } catch (_) { r = '[unserializable]' }
-    const p = d && (d.line != null ? d.line : (d.column != null ? d.column : (d.col != null ? d.col : (d.endLine != null ? d.endLine : (d.endColumn != null ? d.endColumn : (d.endCol != null ? d.endCol : ''))))))
+    const p = d ? [d.line, d.column, d.col, d.endLine, d.endColumn, d.endCol].map(v => v != null ? v : '').join(',') : ''
     return ((d && d.path) || '') + '|' + r + '|' + String(p) + '|' + ((d && d.message) || '')
   }
   const key = cmpDiags.map(keyOf).join('\n')
