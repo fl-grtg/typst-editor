@@ -1160,23 +1160,25 @@ function errTipPlace(msg, x, yBottom) {
   errTipEl.style.left = Math.max(8, Math.min(x, innerWidth - 330)) + 'px'
   errTipEl.style.top = (yBottom + 6) + 'px'
 }
-function errTipLiveAnchor(e) { // live screen anchor for an error entry: mapped diagnostic pos, else line start
-  let from = -1
-  try { forEachDiagnostic(cm.state, (d, p) => { if (d.message === e.raw && (from < 0 || Math.abs(p - e.from) < Math.abs(from - e.from))) from = p }) } catch (_) {}
-  try {
-    if (from >= 0) { const c = cm.coordsAtPos(from); if (c) return c }
-    const ln = cm.state.doc.line(e.line); const c2 = cm.coordsAtPos(ln.from); if (c2) return c2
-  } catch (_) {}
-  return null
+function errTipAnchor(lineEl) { // precise error spot on a red line: lint mark/widget first (carrier opens first in DOM order), carrier as fallback
+  if (!lineEl) return null
+  return lineEl.querySelector('.cm-lintRange-error, .cm-lintPoint-error') || lineEl.querySelector('.cm-errMark') || null
 }
 function errTipCursor() { // cursor sits on an error line: keep the message visible without hovering
   let ln = null
   try { ln = cm.state.doc.lineAt(cm.state.selection.main.head).number } catch (_) {}
-  const e = ln != null ? errLines.find(x => x.line === ln) : null
-  if (!e) return false
-  const a = errTipLiveAnchor(e)
+  if (ln == null) return false
+  let carrier = null
+  try {
+    document.querySelectorAll('#cmWrap .cm-errMark').forEach(m => {
+      if (!carrier && m.dataset.line != null && +m.dataset.line === ln) carrier = m
+    })
+  } catch (_) {}
+  if (!carrier) return false
+  const a = errTipAnchor(carrier.closest('.cm-errLine'))
   if (!a) return false
-  errTipPlace(e.msg, a.left, a.bottom)
+  const r = a.getBoundingClientRect()
+  errTipPlace(carrier.dataset.err, r.left, r.bottom)
   return true
 }
 function errTipMove(ev) { // any spot on a red line shows the message anchored at the error; tooltip itself never eats clicks
@@ -1184,7 +1186,8 @@ function errTipMove(ev) { // any spot on a red line shows the message anchored a
   const m = t && t.querySelector('.cm-errMark')
   errTipHover = (m && m.dataset.err) || null
   if (!errTipHover) { if (!errTipCursor()) errTipHide(); return }
-  const r = m.getBoundingClientRect() // anchored at the error, not at the mouse: trigger anywhere, tip stays put
+  const a = errTipAnchor(t) || m
+  const r = a.getBoundingClientRect() // anchored at the error, not at the mouse: trigger anywhere, tip stays put
   errTipPlace(errTipHover, r.left, r.bottom)
 }
 const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
@@ -1324,7 +1327,7 @@ const cm = new EditorView({
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
       if (u.docChanged && findOpen) markFind() // recount hits, mark follows on its own
       paintErr() // compile errors via lint: key stops loops, positions map across edits (no live lint)
-      if (u.docChanged || u.selectionSet) { errTipHover = null; if (!errTipCursor()) errTipHide() } // cursor on an error line: message stays without hovering
+      if (u.docChanged || u.selectionSet) { errTipHover = null; errTipHide(); requestAnimationFrame(() => { if (!errTipHover) errTipCursor() }) } // cursor on an error line: message stays without hovering; positioned after layout so the anchor tracks exactly
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
       if (u.selectionSet) try { updCNewTip() } catch (e) {}
       if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
@@ -1751,7 +1754,7 @@ function paintErr() { // compile errors via lint (F1): every column range render
     const r = d && d.path === '/main.typ' ? diagRange(d, doc) : null
     if (r) {
       diags.push({ from: r.from, to: r.to, severity: 'error', message: msg, source: 'typst' })
-      if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, raw: msg, msg: msg + ' · line ' + r.line + (r.explicit ? ':' + r.col : '') })
+      if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + ' · line ' + r.line + (r.explicit ? ':' + r.col : '') })
     } else { // foreign file (package) or no position: no mark possible, but never drop it
       let where = (d && d.package ? d.package + ' ' : '') + (d && d.path && d.path !== '/main.typ' ? d.path : '')
       const at = String((d && (d.range || d.span || d.location)) || '').match(/(\d+)/)
@@ -1774,9 +1777,8 @@ function paintErr() { // compile errors via lint (F1): every column range render
   for (const [, e] of byLine) { try {
     const ln = doc.line(e.line)
     lineDeco.push(Decoration.line({ class: 'cm-errLine' }).range(ln.from))
-    if (ln.to > ln.from) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': e.msg } }).range(ln.from, ln.to)) // full-line carrier: tooltip fires anywhere on the line
+    if (ln.to > ln.from) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': e.msg, 'data-line': String(e.line) } }).range(ln.from, Math.max(e.to || ln.from, ln.from + 1))) // trigger carrier: line start through error end (hover fires anywhere on the line)
   } catch (_) {} }
-  for (const dg of diags) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': dg.message } }).range(dg.from, dg.to)) // message carrier for the full-line hover tooltip
   cm.dispatch({ effects: setErrLine.of(RangeSet.of(lineDeco, true)) })
   cm.dispatch(setDiagnostics(cm.state, diags))
   updErrBadge()
