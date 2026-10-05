@@ -429,6 +429,7 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 /* Hover carrier: transparent extension makes the whole editor width hoverable, so no aim is needed */
 #cmWrap .cm-errMark { position: relative; }
 #cmWrap .cm-errMark::after { content: ''; position: absolute; left: 100%; top: 0; bottom: 0; width: 100vw; }
+#cmWrap .cm-scroller { overflow-x: clip; } /* carrier extension must never cause a horizontal scrollbar (lineWrapping is always on) */
 #cmWrap .cm-hl { background: rgba(255, 196, 0, .28); border-radius: 3px; }
 #cmWrap .cm-hl:hover { background: rgba(255, 196, 0, .46); cursor: pointer; }
 #cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
@@ -1158,8 +1159,9 @@ function errTipMove(ev) { // any spot on a red line shows the message; tooltip i
     document.body.appendChild(errTipEl)
   }
   if (errTipEl.textContent !== m.dataset.err) errTipEl.textContent = m.dataset.err
-  errTipEl.style.left = Math.min(ev.clientX + 14, innerWidth - 330) + 'px'
-  errTipEl.style.top = (ev.clientY + 16) + 'px'
+  const r = m.getBoundingClientRect() // anchored at the error, not at the mouse: trigger anywhere, tip stays put
+  errTipEl.style.left = Math.max(8, Math.min(r.left, innerWidth - 330)) + 'px'
+  errTipEl.style.top = (r.bottom + 6) + 'px'
 }
 const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
 const editableComp = new Compartment(), hlComp = new Compartment()
@@ -1307,7 +1309,7 @@ const Transaction = cm.state.update({}).constructor // vendor bundle exports no 
 const NO_HIST = [Transaction.addToHistory.of(false), Transaction.remote.of(true)] // remote/programmatic text: never in own undo stack
 cm.scrollDOM.addEventListener('scroll', () => {
   if (popAnchor != null) movePop()
-  errTipHide() // error tooltip is cursor-anchored: never stale after scroll
+  errTipHide() // error tooltip is error-anchored: never stale after scroll
 })
 $('cm').addEventListener('mousemove', errTipMove) // full-line error tooltip: any spot on a red line, no aim needed
 $('cm').addEventListener('mouseleave', errTipHide)
