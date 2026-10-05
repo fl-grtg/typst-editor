@@ -19,4 +19,6 @@ RATE_DEFAULTS = {"login": (10, 60), "register": (20, 3600), "auth": (60, 60), "j
                  "search": (60, 60), "files": (20, 60), "files_list": (120, 60), "save": (30, 60), "comments": (30, 60),
                  "export": (5, 60), "pw": (10, 60), "invite": (10, 60), "share": (10, 60),
                  "snapshots": (60, 60), "create": (20, 60), "duplicate": (10, 60),
-                 "avatar": (10, 60), "folders": (20, 60), "keys": (30, 60), "mcp": (60, 60)}
+                 "avatar": (10, 60), "folders": (20, 60), "keys": (30, 60), "mcp": (60, 60),
+                 "rename": (10, 60), "delete": (10, 60), "restore": (10, 60),
+                 "move": (20, 60), "templates": (20, 60), "tplfolders": (20, 60)}

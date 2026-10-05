@@ -30,4 +30,10 @@ RATE_AVATAR_PER_MIN = 10 # Avatar uploads per minute.
 RATE_FOLDERS_PER_MIN = 20 # Folder operations per minute.
 RATE_KEYS_PER_MIN = 30 # API key management per minute.
 RATE_MCP_PER_MIN = 60 # MCP tool calls per minute.
+RATE_RENAME_PER_MIN = 10 # Doc renames per minute (own bucket, no longer shares save).
+RATE_DELETE_PER_MIN = 10 # Doc deletes per minute (own bucket, no longer shares save).
+RATE_RESTORE_PER_MIN = 10 # Doc restores per minute (own bucket, no longer shares save).
+RATE_MOVE_PER_MIN = 20 # Doc moves per minute (own bucket, no longer shares files).
+RATE_TEMPLATES_PER_MIN = 20 # Template saves/deletes/moves per minute (own bucket, no longer shares save/files).
+RATE_TPLFOLDERS_PER_MIN = 20 # Template folder ops per minute (own bucket, no longer shares files).
 # Full table: see backend/config.py (single source of truth for file+env parsing).
