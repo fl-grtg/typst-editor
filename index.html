@@ -426,6 +426,9 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 .typ-hover.err { background: var(--danger-soft); border-left: 3px solid var(--danger); }
 /* Error lines (old full-line red look on top of the lint engine): whole line tinted, hover anywhere shows the message */
 #cmWrap .cm-errLine { background: var(--danger-soft); }
+/* Hover carrier: transparent extension makes the whole editor width hoverable, so no aim is needed */
+#cmWrap .cm-errMark { position: relative; }
+#cmWrap .cm-errMark::after { content: ''; position: absolute; left: 100%; top: 0; bottom: 0; width: 100vw; }
 #cmWrap .cm-hl { background: rgba(255, 196, 0, .28); border-radius: 3px; }
 #cmWrap .cm-hl:hover { background: rgba(255, 196, 0, .46); cursor: pointer; }
 #cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
@@ -1142,13 +1145,23 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
     div.style.cursor = 'pointer'; div.onclick = () => openPop(list[0].anchor, false)
     return { dom: div } } }
 }
-function errHover(view, pos) { // error line shows message anywhere on the line (no aim needed, old behavior)
-  const e = errLines.find(x => x.line === view.state.doc.lineAt(pos).number)
-  if (!e) return null
-  return { pos, end: pos, above: false, create: () => {
-    const div = document.createElement('div'); div.className = 'typ-hover err'; div.textContent = e.msg; return { dom: div } } }
+let errTipEl = null // full-line error tooltip: manual div (no aim needed, works on empty line area too)
+function errTipHide() { if (errTipEl) { errTipEl.remove(); errTipEl = null } }
+function errTipMove(ev) { // any spot on a red line shows the message; tooltip itself never eats clicks
+  const t = ev.target && ev.target.closest ? ev.target.closest('.cm-errLine') : null
+  const m = t && t.querySelector('.cm-errMark')
+  if (!m || !m.dataset.err) { errTipHide(); return }
+  if (!errTipEl) {
+    errTipEl = document.createElement('div')
+    errTipEl.className = 'typ-hover err'
+    errTipEl.style.cssText = 'position:fixed;z-index:90;pointer-events:none;max-width:320px'
+    document.body.appendChild(errTipEl)
+  }
+  if (errTipEl.textContent !== m.dataset.err) errTipEl.textContent = m.dataset.err
+  errTipEl.style.left = Math.min(ev.clientX + 14, innerWidth - 330) + 'px'
+  errTipEl.style.top = (ev.clientY + 16) + 'px'
 }
-const hoverAll = (v, p) => errHover(v, p) || commentHover(v, p) || typstHover(v, p) // error line first, then comments/typst
+const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
 const editableComp = new Compartment(), hlComp = new Compartment()
 const setHl = StateEffect.define() // mark comment ranges, follow edits via mapping
 const hlField = StateField.define({
@@ -1294,7 +1307,10 @@ const Transaction = cm.state.update({}).constructor // vendor bundle exports no 
 const NO_HIST = [Transaction.addToHistory.of(false), Transaction.remote.of(true)] // remote/programmatic text: never in own undo stack
 cm.scrollDOM.addEventListener('scroll', () => {
   if (popAnchor != null) movePop()
+  errTipHide() // error tooltip is cursor-anchored: never stale after scroll
 })
+$('cm').addEventListener('mousemove', errTipMove) // full-line error tooltip: any spot on a red line, no aim needed
+$('cm').addEventListener('mouseleave', errTipHide)
 $('cm').addEventListener('mousedown', e => { // click on line number or yellow highlight opens card
   const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
   if (g && marks.has(+g.textContent)) { openPop(+g.textContent, false); return }
@@ -1651,7 +1667,7 @@ async function render() {
 }
 let lastErrToast = '' // same non-line error: toast once, not per render
 let errKey = '', errLines = [], cmpDiags = [] // compiler errors: lint renders ranges (F1+F20), badge keeps one row per line
-function clearErr() { errKey = ''; errLines = []; cmpDiags = []; cm.dispatch({ effects: setErrLine.of(RangeSet.of([])) }); cm.dispatch(setDiagnostics(cm.state, [])); updErrBadge() }
+function clearErr() { errKey = ''; errLines = []; cmpDiags = []; errTipHide(); cm.dispatch({ effects: setErrLine.of(RangeSet.of([])) }); cm.dispatch(setDiagnostics(cm.state, [])); updErrBadge() }
 async function errDiags() { // fallback only: pre-compile failure (render reuses its own compile)
   if (!typstReady()) return []
   try {
@@ -1728,7 +1744,12 @@ function paintErr() { // compile errors via lint (F1): every column range render
   errKey = key
   errLines = [...byLine].map(([, e]) => e).sort((a, b) => a.line - b.line).concat(general)
   const lineDeco = []
-  for (const [, e] of byLine) { try { const ln = doc.line(e.line); lineDeco.push(Decoration.line({ class: 'cm-errLine' }).range(ln.from)) } catch (_) {} }
+  for (const [, e] of byLine) { try {
+    const ln = doc.line(e.line)
+    lineDeco.push(Decoration.line({ class: 'cm-errLine' }).range(ln.from))
+    if (ln.to > ln.from) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': e.msg } }).range(ln.from, ln.to)) // full-line carrier: tooltip fires anywhere on the line
+  } catch (_) {} }
+  for (const dg of diags) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': dg.message } }).range(dg.from, dg.to)) // message carrier for the full-line hover tooltip
   cm.dispatch({ effects: setErrLine.of(RangeSet.of(lineDeco, true)) })
   cm.dispatch(setDiagnostics(cm.state, diags))
   updErrBadge()
