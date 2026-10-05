@@ -1147,21 +1147,45 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
     return { dom: div } } }
 }
 let errTipEl = null // full-line error tooltip: manual div (no aim needed, works on empty line area too)
+let errTipHover = null // message under the mouse, or null
 function errTipHide() { if (errTipEl) { errTipEl.remove(); errTipEl = null } }
-function errTipMove(ev) { // any spot on a red line shows the message; tooltip itself never eats clicks
-  const t = ev.target && ev.target.closest ? ev.target.closest('.cm-errLine') : null
-  const m = t && t.querySelector('.cm-errMark')
-  if (!m || !m.dataset.err) { errTipHide(); return }
+function errTipPlace(msg, x, yBottom) {
   if (!errTipEl) {
     errTipEl = document.createElement('div')
     errTipEl.className = 'typ-hover err'
     errTipEl.style.cssText = 'position:fixed;z-index:90;pointer-events:none;max-width:320px;background:var(--card);border:1px solid var(--line-2);border-left:3px solid var(--danger);border-radius:12px;box-shadow:var(--sh-pop)'
     document.body.appendChild(errTipEl)
   }
-  if (errTipEl.textContent !== m.dataset.err) errTipEl.textContent = m.dataset.err
+  if (errTipEl.textContent !== msg) errTipEl.textContent = msg
+  errTipEl.style.left = Math.max(8, Math.min(x, innerWidth - 330)) + 'px'
+  errTipEl.style.top = (yBottom + 6) + 'px'
+}
+function errTipLiveAnchor(e) { // live screen anchor for an error entry: mapped diagnostic pos, else line start
+  let from = -1
+  try { forEachDiagnostic(cm.state, (d, p) => { if (d.message === e.raw && (from < 0 || Math.abs(p - e.from) < Math.abs(from - e.from))) from = p }) } catch (_) {}
+  try {
+    if (from >= 0) { const c = cm.coordsAtPos(from); if (c) return c }
+    const ln = cm.state.doc.line(e.line); const c2 = cm.coordsAtPos(ln.from); if (c2) return c2
+  } catch (_) {}
+  return null
+}
+function errTipCursor() { // cursor sits on an error line: keep the message visible without hovering
+  let ln = null
+  try { ln = cm.state.doc.lineAt(cm.state.selection.main.head).number } catch (_) {}
+  const e = ln != null ? errLines.find(x => x.line === ln) : null
+  if (!e) return false
+  const a = errTipLiveAnchor(e)
+  if (!a) return false
+  errTipPlace(e.msg, a.left, a.bottom)
+  return true
+}
+function errTipMove(ev) { // any spot on a red line shows the message anchored at the error; tooltip itself never eats clicks
+  const t = ev.target && ev.target.closest ? ev.target.closest('.cm-errLine') : null
+  const m = t && t.querySelector('.cm-errMark')
+  errTipHover = (m && m.dataset.err) || null
+  if (!errTipHover) { if (!errTipCursor()) errTipHide(); return }
   const r = m.getBoundingClientRect() // anchored at the error, not at the mouse: trigger anywhere, tip stays put
-  errTipEl.style.left = Math.max(8, Math.min(r.left, innerWidth - 330)) + 'px'
-  errTipEl.style.top = (r.bottom + 6) + 'px'
+  errTipPlace(errTipHover, r.left, r.bottom)
 }
 const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
 const editableComp = new Compartment(), hlComp = new Compartment()
@@ -1298,9 +1322,9 @@ const cm = new EditorView({
     EditorView.updateListener.of(u => {
       if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
-      if (u.docChanged) errTipHide() // error tooltip is a snapshot: never floats stale while typing
       if (u.docChanged && findOpen) markFind() // recount hits, mark follows on its own
       paintErr() // compile errors via lint: key stops loops, positions map across edits (no live lint)
+      if (u.docChanged || u.selectionSet) { errTipHover = null; if (!errTipCursor()) errTipHide() } // cursor on an error line: message stays without hovering
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
       if (u.selectionSet) try { updCNewTip() } catch (e) {}
       if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
