@@ -423,6 +423,9 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 .typ-hover { max-width: 280px; padding: 9px 12px; font: 12.5px/1.55 var(--ui); color: var(--text); white-space: pre-line; }
 .typ-hover.full { max-width: 320px; }
 .typ-hover b { font-weight: 650; }
+.typ-hover.err { background: var(--danger-soft); border-left: 3px solid var(--danger); }
+/* Error lines (old full-line red look on top of the lint engine): whole line tinted, hover anywhere shows the message */
+#cmWrap .cm-errLine { background: var(--danger-soft); }
 #cmWrap .cm-hl { background: rgba(255, 196, 0, .28); border-radius: 3px; }
 #cmWrap .cm-hl:hover { background: rgba(255, 196, 0, .46); cursor: pointer; }
 #cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
@@ -1139,7 +1142,13 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
     div.style.cursor = 'pointer'; div.onclick = () => openPop(list[0].anchor, false)
     return { dom: div } } }
 }
-const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // error hover comes from the lint extension (F1), not a custom tooltip
+function errHover(view, pos) { // error line shows message anywhere on the line (no aim needed, old behavior)
+  const e = errLines.find(x => x.line === view.state.doc.lineAt(pos).number)
+  if (!e) return null
+  return { pos, end: pos, above: false, create: () => {
+    const div = document.createElement('div'); div.className = 'typ-hover err'; div.textContent = e.msg; return { dom: div } } }
+}
+const hoverAll = (v, p) => errHover(v, p) || commentHover(v, p) || typstHover(v, p) // error line first, then comments/typst
 const editableComp = new Compartment(), hlComp = new Compartment()
 const setHl = StateEffect.define() // mark comment ranges, follow edits via mapping
 const hlField = StateField.define({
@@ -1151,6 +1160,12 @@ const setFind = StateEffect.define() // search hits, follow edits via mapping
 const findField = StateField.define({
   create: () => Decoration.none,
   update: (v, tr) => { for (const e of tr.effects) if (e.is(setFind)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
+const setErrLine = StateEffect.define() // error lines: full-line red tint (old look), follows edits via mapping
+const errLineField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setErrLine)) v = e.value; return v.map(tr.changes) },
   provide: f => EditorView.decorations.from(f),
 })
 const setPeer = StateEffect.define() // remote cursor: colored bar, no blink
@@ -1261,8 +1276,8 @@ const cm = new EditorView({
     }, { key: 'Ctrl-Space', run: startCompletion }]),
     minimalSetup, typstSupport, Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping,
     autocompletion({ defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
-    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField,
-    linter(null), lintGutter(), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits
+    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField,
+    linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
     markField, lineNumbers(),
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
@@ -1636,7 +1651,7 @@ async function render() {
 }
 let lastErrToast = '' // same non-line error: toast once, not per render
 let errKey = '', errLines = [], cmpDiags = [] // compiler errors: lint renders ranges (F1+F20), badge keeps one row per line
-function clearErr() { errKey = ''; errLines = []; cmpDiags = []; cm.dispatch(setDiagnostics(cm.state, [])); updErrBadge() }
+function clearErr() { errKey = ''; errLines = []; cmpDiags = []; cm.dispatch({ effects: setErrLine.of(RangeSet.of([])) }); cm.dispatch(setDiagnostics(cm.state, [])); updErrBadge() }
 async function errDiags() { // fallback only: pre-compile failure (render reuses its own compile)
   if (!typstReady()) return []
   try {
@@ -1712,6 +1727,9 @@ function paintErr() { // compile errors via lint (F1): every column range render
   if (key === errKey) return // nothing new: no dispatch, no loop (lint maps positions across edits)
   errKey = key
   errLines = [...byLine].map(([, e]) => e).sort((a, b) => a.line - b.line).concat(general)
+  const lineDeco = []
+  for (const [, e] of byLine) { try { const ln = doc.line(e.line); lineDeco.push(Decoration.line({ class: 'cm-errLine' }).range(ln.from)) } catch (_) {} }
+  cm.dispatch({ effects: setErrLine.of(RangeSet.of(lineDeco, true)) })
   cm.dispatch(setDiagnostics(cm.state, diags))
   updErrBadge()
 } // no cursor steal: typing stays put
