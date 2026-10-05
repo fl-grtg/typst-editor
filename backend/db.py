@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 import sqlite3
 from collections.abc import Callable, Iterator
@@ -178,10 +179,40 @@ def _migrate_v11(con: sqlite3.Connection) -> None:
     con.execute("UPDATE comments SET anchor=1 WHERE anchor < 1")
 
 
+def _migrate_v12(con: sqlite3.Connection) -> None:
+    # FTS5 index over docs(title, content). External-content table keyed by
+    # docs.rowid (docs.id is TEXT, so content-sync is not an option);
+    # triggers keep it in sync, the WHEN clause skips no-op rewrites
+    # (touch_doc bumps updated_at without touching title/content).
+    # Rebuild is a single DELETE + INSERT ... SELECT: one write txn, WAL
+    # stays responsive (no exclusive lock beyond the statement).
+    # Without FTS5 (minimal SQLite builds) skip gracefully: search.py
+    # falls back to LIKE + filesystem scan.
+    try:
+        con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts "
+                    "USING fts5(title, content, tokenize='unicode61')")
+    except sqlite3.OperationalError as e:
+        logging.getLogger(__name__).warning("fts5 unavailable, skipping docs_fts: %s", e)
+        return
+    con.execute("CREATE TRIGGER IF NOT EXISTS docs_fts_ai AFTER INSERT ON docs BEGIN "
+                "INSERT INTO docs_fts(rowid, title, content) "
+                "VALUES (new.rowid, new.title, new.content); END")
+    con.execute("CREATE TRIGGER IF NOT EXISTS docs_fts_ad AFTER DELETE ON docs BEGIN "
+                "DELETE FROM docs_fts WHERE rowid=old.rowid; END")
+    con.execute("CREATE TRIGGER IF NOT EXISTS docs_fts_au AFTER UPDATE ON docs "
+                "WHEN old.title IS NOT new.title OR old.content IS NOT new.content BEGIN "
+                "DELETE FROM docs_fts WHERE rowid=old.rowid; "
+                "INSERT INTO docs_fts(rowid, title, content) "
+                "VALUES (new.rowid, new.title, new.content); END")
+    con.execute("DELETE FROM docs_fts")
+    con.execute("INSERT INTO docs_fts(rowid, title, content) "
+                "SELECT rowid, title, content FROM docs")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11,
+    _migrate_v11, _migrate_v12,
 )
 
 

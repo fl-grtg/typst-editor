@@ -35,7 +35,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend import auth, config, db, ratelimit, sync
+from backend import auth, config, db, ratelimit, search, sync
 from backend.constants import (
     EXPORT_MAX,
     FOLDER_MAX,
@@ -2498,28 +2498,12 @@ def list_members(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
 @app.get("/api/search")
 def search_docs(req: Request, q: str = "", user: str = Depends(me)) -> dict:
     limited(req, "search")
-    q = q.strip()[:50]
-    if len(q) < 2:
-        return {"hits": []}
-    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     con = db.connect()
     try:
-        rows = con.execute(
-            "SELECT d.id, d.title, d.owner, d.content FROM docs d LEFT JOIN shares s "
-            "ON s.doc_id=d.id AND s.username=? WHERE d.trashed=0 AND (d.owner=? OR s.username=?) "
-            "AND (d.title LIKE ? ESCAPE '\\' OR d.content LIKE ? ESCAPE '\\') "
-            "ORDER BY d.updated_at DESC LIMIT 20", (user, user, user, like, like)).fetchall()
-        hits = []
-        for r in rows:
-            live = sync.room_text(r["id"])
-            txt = live if live is not None else r["content"]
-            i = txt.lower().find(q.lower())
-            snippet = ("..." + txt[max(0, i - 40):i + 80].replace("\n", " ") + "...") if i >= 0 else ""
-            hits.append({"id": r["id"], "title": r["title"], "owner": r["owner"],
-                         "snippet": snippet, "pos": i})
-        return {"hits": hits}
+        rows = search.search_visible(user, q, con, get_files_dir(), sync.room_text)
     finally:
         con.close()
+    return {"hits": [{k: h[k] for k in ("id", "title", "owner", "snippet", "pos")} for h in rows]}
 
 
 def zip_name(s: str) -> str:

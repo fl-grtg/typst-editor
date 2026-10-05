@@ -384,3 +384,33 @@ def test_migrate_v11_heals_anchor_zero(c):
         assert con.execute("SELECT anchor FROM comments WHERE id=?", (cid,)).fetchone()["anchor"] == 1
     finally:
         con.close()
+
+
+def test_search_parity_files_bib_live(c):
+    import base64
+
+    from backend import sync as _sync
+
+    register_user(c, "u1")
+    t.op_create("u1", "owner", "/docs/Parity", "persistierter Inhalt ohne Treffer")
+    con = db.connect()
+    try:
+        did = con.execute("SELECT id FROM docs WHERE owner='u1' AND title='Parity'").fetchone()["id"]
+    finally:
+        con.close()
+    png = base64.b64encode(b"binary-data").decode()
+    t.op_upload("u1", "owner", "/docs/Parity/anhang-notizen.pdf", png)
+    bib = base64.b64encode(b"@article{Paritaet2024schluessel, author={M}}").decode()
+    t.op_upload("u1", "owner", "/docs/Parity/refs.bib", bib)
+    by_file = t.op_search("u1", "owner", "anhang-notizen")
+    assert by_file["hits"] and by_file["hits"][0]["path"] == "/docs/Parity"
+    by_key = t.op_search("u1", "owner", "paritaet2024schluessel")
+    assert by_key["hits"] and by_key["hits"][0]["path"] == "/docs/Parity"
+    assert t.op_search("u1", "owner", "x")["hits"] == []
+    room = _sync.room(did)
+    from pycrdt import Text as _Text
+    with room["doc"].transaction():
+        room["doc"].get("typst", type=_Text).__iadd__(" mcp-live-sonderwort")
+    room["dirty"] = True
+    live = t.op_search("u1", "owner", "mcp-live-sonderwort")
+    assert live["hits"] and live["hits"][0]["path"] == "/docs/Parity"
