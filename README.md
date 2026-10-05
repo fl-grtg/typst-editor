@@ -10,7 +10,7 @@ One process: FastAPI serves the API, Yjs syncs edits, SQLite stores all. No Node
 
 ## ✨ Features
 
-- Live PDF preview, compiled in browser (Typst 0.7.0 WASM, pdf.js render)
+- Live PDF preview, compiled in browser (Typst 0.15.1 via typst.ts 0.8.0-rc3 WASM, pdf.js render)
 - Realtime collab via Yjs over `WS /ws/{doc_id}`, presence included, cookie-only auth
 - Owner/editor/reviewer roles (reviewer = Reader: comment only), share links, doc invites
 - Comment threads with line anchors, @-mentions, one-level replies, resolve, edit
@@ -155,7 +155,7 @@ Report vulns via GitHub Private Vulnerability Reporting.
 No public issues for security problems.
 Allow time for a fix before disclosure.
 
-Unshare wipes pending invite links (they carry no username). First load needs internet (CDN: cdnjs/esm.sh/jsdelivr; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0). Afterwards the shell stays in browser cache; saving needs net (24 h stash). No service worker (dropped 2026-10-03, plain HTTP cache). `Cache-Control: no-store` on `/`, `*.html`, `*.js`, `/api/*` (see `backend/main.py`); versioned assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP needs `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` for Typst WASM; user content renders via `textContent` only.
+Unshare wipes pending invite links (they carry no username). First load needs internet (CDN: cdnjs/esm.sh/jsdelivr; pins: typst.ts 0.8.0-rc3 = bundled Typst 0.15.1 = CLI 0.15.1, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0). Typst alignment (2026-10-05): no 0.16 release exists (0.15.1 is newest), so CLI stays 0.15.1; WASM is 0.8.0-rc3 on purpose — latest stable (0.7.0) still bundles Typst 0.14.2, only the RC bundles 0.15.1. View cache is salted with `typst --version`, so CLI bumps auto-bust it. Afterwards the shell stays in browser cache; saving needs net (24 h stash). No service worker (dropped 2026-10-03, plain HTTP cache). `Cache-Control: no-store` on `/`, `*.html`, `*.js`, `/api/*` (see `backend/main.py`); versioned assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP needs `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` for Typst WASM; user content renders via `textContent` only.
 
 ### 🛠 Troubleshooting
 

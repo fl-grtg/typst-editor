@@ -24,11 +24,15 @@ Third-party components:
 5. pdf.js 3.11.174 - Apache-2.0
    PDF rendering in the browser.
 
-6. @myriaddreamin/typst-all-in-one.ts 0.7.0 - Apache-2.0
-   Typst compiler and renderer (WASM).
+6. @myriaddreamin/typst-all-in-one.ts 0.8.0-rc3 - Apache-2.0
+   Typst compiler and renderer (WASM), bundles Typst 0.15.1 (= CLI).
+   RC chosen deliberately: latest stable (0.7.0) still bundles Typst 0.14.2.
 
-7. @myriaddreamin/typst-ts-web-compiler 0.7.0 - Apache-2.0
+7. @myriaddreamin/typst-ts-web-compiler 0.8.0-rc3 - Apache-2.0
    Typst compiler WASM, loaded from jsDelivr.
 
-8. @myriaddreamin/typst-ts-renderer 0.7.0 - Apache-2.0
+8. @myriaddreamin/typst-ts-renderer 0.8.0-rc3 - Apache-2.0
    Typst renderer WASM, loaded from jsDelivr.
+
+Server-side CLI: Typst 0.15.1 (Dockerfile TYPST_VERSION, newest release;
+no 0.16 exists as of 2026-10-05). View cache is salted with `typst --version`.
