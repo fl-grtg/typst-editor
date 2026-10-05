@@ -1743,7 +1743,11 @@ function diagRange(d, doc) { // F20: real column ranges from compiler diagnostic
   if (ec < 0) to = eLine.to // whole line (legacy): no column info
   else to = eLine.from + Math.max(0, Math.min(eLen, ec))
   if (to <= from) { to = Math.min(sLine.to, from + 1); if (to <= from) to = Math.min(doc.length, from + 1) } // point/empty: widen to 1 char
-  if (to <= from) return null // empty doc edge: nothing to mark
+  if (to <= from) {
+    if (doc.length < 1 || from < doc.length) return null // empty doc edge: nothing to mark
+    from = doc.length - 1; to = doc.length // empty span at EOF (e.g. lone `#` with no trailing newline): anchor on the last char instead of dropping the mark
+    const bl = doc.lineAt(from); sl = bl.number - 1; sc = from - bl.from
+  }
   return { from, to, line: sl + 1, col: sc + 1, explicit }
 }
 // </diagRange>
@@ -1778,6 +1782,7 @@ function paintErr() { // compile errors via lint (F1): every column range render
     const ln = doc.line(e.line)
     lineDeco.push(Decoration.line({ class: 'cm-errLine' }).range(ln.from))
     if (ln.to > ln.from) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': e.msg, 'data-line': String(e.line) } }).range(ln.from, Math.max(e.to || ln.from, ln.from + 1))) // trigger carrier: line start through error end (hover fires anywhere on the line)
+    else if (ln.from < doc.length) lineDeco.push(Decoration.mark({ class: 'cm-errMark', attributes: { 'data-err': e.msg, 'data-line': String(e.line) } }).range(ln.from, ln.from + 1)) // empty error line: carrier on the newline keeps hover + cursor tooltip working
   } catch (_) {} }
   cm.dispatch({ effects: setErrLine.of(RangeSet.of(lineDeco, true)) })
   cm.dispatch(setDiagnostics(cm.state, diags))
