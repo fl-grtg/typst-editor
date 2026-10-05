@@ -1667,7 +1667,8 @@ function diagRange(d, doc) { // F20: real column ranges from compiler diagnostic
       el = num(raw.endLine) != null ? num(raw.endLine) : sl
       ec = num(raw.endColumn) != null ? num(raw.endColumn) : (num(raw.endCol) != null ? num(raw.endCol) : (num(raw.end != null && typeof raw.end !== 'object' ? raw.end : null) != null ? num(raw.end) : sc))
     } else if (num(raw.from) != null && num(raw.to) != null && raw.line == null) {
-      return { from: Math.max(0, Math.min(doc.length, num(raw.from))), to: Math.max(0, Math.min(doc.length, Math.max(num(raw.from) + 1, num(raw.to)))), line: 1, col: 1, explicit: true } // bare offsets
+      const bf = Math.max(0, Math.min(doc.length, num(raw.from))), bt = Math.max(0, Math.min(doc.length, Math.max(bf + 1, num(raw.to)))), bl = doc.lineAt(bf)
+      return { from: bf, to: bt, line: bl.number, col: bf - bl.from + 1, explicit: true } // bare offsets: line/col from the doc, not hardcoded
     } else if (num(raw.line) != null) { sl = num(raw.line); sc = 0; el = sl; ec = -1; explicit = false }
   } else if (typeof d.line === 'number') { sl = d.line; sc = typeof d.column === 'number' ? d.column : (typeof d.col === 'number' ? d.col : 0); el = typeof d.endLine === 'number' ? d.endLine : sl; ec = typeof d.endColumn === 'number' ? d.endColumn : (typeof d.endCol === 'number' ? d.endCol : sc) } // top-level line/col shape
   if (sl < 0) return null
@@ -1701,7 +1702,12 @@ function paintErr() { // compile errors via lint (F1): every column range render
       if (!general.some(g => g.msg === full)) general.push({ line: 0, col: 0, from: -1, raw: msg, msg: full })
     }
   }
-  const key = cmpDiags.map(d => ((d && d.path) || '') + '|' + String((d && (d.range != null ? d.range : (d.span != null ? d.span : d.location))) || '') + '|' + ((d && d.message) || '')).join('\n')
+  const keyOf = d => { // stable across compiles: object ranges need JSON (String() collapses them to "[object Object]")
+    let r = ''
+    try { const v = d && (d.range != null ? d.range : (d.span != null ? d.span : d.location)); r = v != null && typeof v === 'object' ? JSON.stringify(v) : String(v || '') } catch (_) { r = '[unserializable]' }
+    return ((d && d.path) || '') + '|' + r + '|' + ((d && d.message) || '')
+  }
+  const key = cmpDiags.map(keyOf).join('\n')
   if (key === errKey) return // nothing new: no dispatch, no loop (lint maps positions across edits)
   errKey = key
   errLines = [...byLine].map(([, e]) => e).sort((a, b) => a.line - b.line).concat(general)
