@@ -2672,6 +2672,45 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
         raise
 
 
+@app.post("/api/docs/{doc_id}/export")
+def export_doc(doc_id: str, req: Request, format: str = "pdf", user: str = Depends(me)) -> Response:
+    """Per-doc export via typst CLI (W2-A, MCP `export` parity).
+
+    ?format=pdf|svg|png|zip. pdf = full multi-page PDF; svg/png = the single
+    page directly, or a ZIP of all pages for multi-page docs; zip = source
+    bundle (main.typ + files/). Read-only: any role with access may export
+    (reviewer included). Own `export_doc` rate scope (isolated from the full
+    `export.zip` backup); per-user `_export_lock` (429 while one runs).
+    Sync endpoint: runs in a worker thread, the blocking CLI call never
+    touches the event loop (B13). Compile errors -> 422 with diagnostics,
+    missing typst -> 500, oversize -> 413. No migration. (MCP `export`
+    shares the pipeline via op_export under the `mcp` scope, like `view`.)
+    """
+    from backend import mcp_tools as _mt
+
+    limited(req, "export_doc", user)
+    check_doc_id(doc_id)
+    need_access(user, doc_id)
+    fmt = _mt._check_export_format(format)  # single source (same 400 as MCP)
+    con = db.connect()
+    try:
+        row = con.execute("SELECT title FROM docs WHERE id=?", (doc_id,)).fetchone()
+    finally:
+        con.close()
+    if not row:
+        raise HTTPException(404, "Doc gone")
+    lock = _export_lock(user)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(429, "Export already running")
+    try:
+        payload, mime, filename = _mt._export_doc_sync(doc_id, row["title"], fmt)
+    finally:
+        lock.release()
+    return Response(content=payload, media_type=mime,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                             "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+
 @app.get("/api/events")
 async def sidebar_events(req: Request, user: str = Depends(me)):
     limited(req, "files_list")  # like other list reads; churn-reconnects still count

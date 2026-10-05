@@ -1,4 +1,4 @@
-"""MCP server: FastMCP typst-editor + 8 tools (M2: 7, M3: view).
+"""MCP server: FastMCP typst-editor + 9 tools (M2: 7, M3: view, W2: export).
 
 Mounted in backend/main.py: app.mount("/mcp", _mcp_app).
 Auth per request: Authorization Bearer API key only (no cookie fallback,
@@ -137,6 +137,15 @@ async def view(path: str, pages: str = "1-5", scale: float = 1.0) -> ToolResult:
     """Render doc pages 1-20 as viewable image blocks (no manual decode needed). Pages format: "2", "1-5", "6-10", "1-3,5" (max 20 per call); scale 0.5-3.0 (default 1.0, ppi 144*scale). Returns image blocks + count/total_pages/cache_hit/last_seen. Fix code, then re-view."""
     user, cap, _ = _auth()
     return await _awrap(t.op_view(user, cap, path, pages, scale))
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
+async def export(path: str, format: str = "pdf") -> dict:
+    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + files/). Returns base64 payload + mime + filename (decode and save)."""
+    user, cap, _ = _auth()
+    return await _awrap(t.op_export(user, cap, path, format))
 
 
 # Single instance: main mounts exactly this object and runs its lifespan
