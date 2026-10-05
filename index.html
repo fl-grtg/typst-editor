@@ -1155,7 +1155,7 @@ function errTipMove(ev) { // any spot on a red line shows the message; tooltip i
   if (!errTipEl) {
     errTipEl = document.createElement('div')
     errTipEl.className = 'typ-hover err'
-    errTipEl.style.cssText = 'position:fixed;z-index:90;pointer-events:none;max-width:320px'
+    errTipEl.style.cssText = 'position:fixed;z-index:90;pointer-events:none;max-width:320px;background:var(--card);border:1px solid var(--line-2);border-left:3px solid var(--danger);border-radius:12px;box-shadow:var(--sh-pop)'
     document.body.appendChild(errTipEl)
   }
   if (errTipEl.textContent !== m.dataset.err) errTipEl.textContent = m.dataset.err
@@ -1298,6 +1298,7 @@ const cm = new EditorView({
     EditorView.updateListener.of(u => {
       if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
+      if (u.docChanged) errTipHide() // error tooltip is a snapshot: never floats stale while typing
       if (u.docChanged && findOpen) markFind() // recount hits, mark follows on its own
       paintErr() // compile errors via lint: key stops loops, positions map across edits (no live lint)
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
