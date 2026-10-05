@@ -170,7 +170,7 @@ Unshare wipes pending invite links (they carry no username). First load needs in
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 176 tests
+python -m pytest            # 215 tests
 ruff check backend/ scripts/ tests/
 mypy backend/ scripts/ tests/
 ```
