@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import hmac
+import ipaddress
 import logging
 import os
 import re
@@ -113,7 +114,11 @@ def _lock_for(store: dict[str, threading.Lock], key: str) -> threading.Lock:
         return lock
 
 
-def _doc_lock(key: str) -> threading.Lock:
+def _named_lock(key: str) -> threading.Lock:
+    # B7 (renamed from _doc_lock): a generic named-lock registry, NOT only
+    # for docs — keys are heterogeneous ("register", "dup:{user}",
+    # "upload:{doc_id}"). Keys are case-sensitive dict keys: "dup:Alice"
+    # and "dup:alice" are different locks (see tests/test_locks.py).
     return _lock_for(_DOC_LOCKS, key)
 
 
@@ -348,6 +353,22 @@ def reap_trash_dirs() -> dict[str, int]:
         log.warning("trash sweep list failed: %s", e)
         return counts
     trash = [p for p in entries if p.name.startswith(".trash-")]
+    # B9: duplicate stages file trees in .tmp.dup-<id> before the atomic
+    # rename; a crash between copytree and os.replace orphans the staging
+    # dir (invisible to quota/list walks via the ".tmp." rule). Sweep them
+    # here: they are never a publish target, only garbage.
+    for p in entries:
+        if p.name.startswith(".tmp.dup-"):
+            try:
+                if p.is_dir():
+                    shutil.rmtree(p)
+                else:
+                    p.unlink()
+            except OSError as e:
+                log.warning("trash sweep skipping %s: %s", p.name, e)
+                counts["skipped"] += 1
+            else:
+                counts["removed"] += 1
     if not trash:
         return counts
     con = db.connect()
@@ -436,6 +457,9 @@ async def _app_lifespan(app: FastAPI):
             log.error("REGISTRATION_INVITE_TOKEN too short (%d chars); refusing to start, use >=16 chars (openssl rand -hex 32)",
                         len(_cfg.REGISTRATION_INVITE_TOKEN))
             _sys.exit(1)
+        # C10: refuse TRUST_PROXY=true with an open FORWARDED_ALLOW_IPS.
+        # SystemExit (BaseException) propagates through the except below.
+        _proxy_startup_check(_cfg)
     except Exception:
         pass
     # Paths resolve lazily (db.get_db_path/get_files_dir follow DATA_DIR).
@@ -510,7 +534,7 @@ async def no_cache_html(req: Request, call: Any):
     proto = req.url.scheme
     fwd_proto = ""
     try:
-        if config.load().TRUST_PROXY:
+        if _proxy_trusted(req):
             fwd_proto = (req.headers.get("x-forwarded-proto", "") or "").split(",")[-1].strip().lower()
     except Exception:
         pass
@@ -536,9 +560,77 @@ def need_access(user: str, doc_id: str, allow_trashed: bool = False) -> str:
     return r
 
 
+def _fwd_entries(allow: str) -> list[str]:
+    # C10: one normalizer for FORWARDED_ALLOW_IPS entries, shared by the
+    # runtime trust check and the startup gate (they must agree on what is
+    # "open"): split on comma/space, drop empties, strip whitespace and
+    # [brackets] (IPv6 is written both ways).
+    return [e for raw in (allow or "").replace(",", " ").split() if (e := raw.strip().strip("[]"))]
+
+
+def _proxy_peer_allowed(peer: str, allow: str) -> bool:
+    # C10: is the TCP peer (req.client.host, already de-spoofed by uvicorn's
+    # --forwarded-allow-ips at the edge) inside FORWARDED_ALLOW_IPS?
+    # Entries are IPs or CIDRs, comma/space separated. "*" matches (startup
+    # refuses it together with TRUST_PROXY=true); invalid entries are
+    # ignored fail-closed (never widen trust).
+    try:
+        ip = ipaddress.ip_address((peer or "").strip())
+    except ValueError:
+        return False
+    for e in _fwd_entries(allow):
+        if e == "*":
+            return True
+        try:
+            if "/" in e:
+                if ip in ipaddress.ip_network(e, strict=False):
+                    return True
+            elif ip == ipaddress.ip_address(e):
+                return True
+        except ValueError:
+            log.warning("FORWARDED_ALLOW_IPS ignoring invalid entry %r", e)
+    return False
+
+
+def _proxy_trusted(req: Request) -> bool:
+    # C10: single gate for every X-Forwarded-* use. TRUST_PROXY=true alone is
+    # not enough: it would let any direct client spoof X-Forwarded-For
+    # (rotate rate-limit buckets at will) and X-Forwarded-Proto (force the
+    # Secure cookie flag / HSTS). Headers count only from allowlisted peers.
+    try:
+        cfg = config.load()
+    except Exception:
+        return False
+    if not cfg.TRUST_PROXY:
+        return False
+    try:
+        peer = req.client.host if req.client else ""
+    except Exception:
+        peer = ""
+    return _proxy_peer_allowed(peer or "", cfg.FORWARDED_ALLOW_IPS)
+
+
+def _proxy_startup_check(cfg: Any) -> None:
+    # C10: refuse to start with TRUST_PROXY=true and an effectively-open
+    # allowlist (README: never '*' — any client could spoof IP/proto and the
+    # rate limiter would key on attacker-chosen buckets). Empty allowlist is
+    # only a warning: it fails closed (headers ignored, same as TRUST_PROXY=false).
+    if not cfg.TRUST_PROXY:
+        return
+    allow = str(cfg.FORWARDED_ALLOW_IPS or "")
+    if not allow.strip():
+        log.warning("TRUST_PROXY=true but FORWARDED_ALLOW_IPS is empty: proxy headers ignored")
+        return
+    for e in _fwd_entries(allow):
+        if e == "*" or e in ("0.0.0.0/0", "::/0"):
+            log.error("refusing to start: TRUST_PROXY=true with open FORWARDED_ALLOW_IPS=%r "
+                      "(any client could spoof IP/proto); restrict it to the proxy", e)
+            raise SystemExit(1)
+
+
 def client_ip(req: Request) -> str:
     try:
-        if config.load().TRUST_PROXY:
+        if _proxy_trusted(req):
             fwd = req.headers.get("x-forwarded-for", "")
             if len(fwd) > 1000:
                 log.warning("suspicious X-Forwarded-For length (%d)", len(fwd))
@@ -605,6 +697,27 @@ def need_edit(user: str, doc_id: str) -> str:
     if role not in ("owner", "editor"):
         raise HTTPException(403, "Reviewer can only comment")
     return role
+
+
+def _tx_role(con: sqlite3.Connection, user: str, doc_id: str) -> str:
+    # B5: authoritative role re-check ON the tx connection. need_access /
+    # need_edit open their own connection, so a pre-tx check can go stale
+    # between the check and BEGIN IMMEDIATE (owner unshares/downgrades in
+    # the gap). Call this as the first statement of every mutating db.tx()
+    # block; the outer check stays as a cheap fast-path only. Same
+    # fail-closed codes as need_access (404 hides existence, 410 trash).
+    d = con.execute("SELECT owner, trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
+    if not d:
+        raise HTTPException(404, "Document not found")
+    if d["trashed"]:
+        raise HTTPException(410, "In trash - restore first")
+    if d["owner"] == user:
+        return "owner"
+    s = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
+                    (doc_id, user)).fetchone()
+    if not s:
+        raise HTTPException(404, "Document not found")
+    return s["role"]
 
 
 class Login(BaseModel):
@@ -731,7 +844,7 @@ def _cookie_secure(req: Request) -> bool:
     if cfg.COOKIE_SECURE == "false":
         return False
     proto = req.url.scheme
-    if cfg.TRUST_PROXY:
+    if _proxy_trusted(req):
         proto = ((req.headers.get("x-forwarded-proto", "") or proto).split(",")[-1].strip().lower() or proto)
     return proto == "https"
 
@@ -758,7 +871,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
         raise HTTPException(400, "Name: 2-20 chars, letters/numbers/_-")
     if not MIN_PW <= len(b.password) <= MAX_PW:
         raise HTTPException(400, "Password: 8-200 chars")
-    with _doc_lock("register"):
+    with _named_lock("register"):
         try:
             with db.tx() as con:
                 empty = con.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
@@ -1395,7 +1508,10 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(me
                         raise HTTPException(404, "Doc gone")
                     if trashed["trashed"]:
                         raise HTTPException(410, "In trash - restore first")
-                    if need_access(user, doc_id) not in ("owner", "editor"):
+                    # B5: pre-tx need_edit is a fast-path only; the role must
+                    # hold on THIS connection (unshare/downgrade may land in
+                    # the gap between check and BEGIN IMMEDIATE).
+                    if _tx_role(con, user, doc_id) not in ("owner", "editor"):
                         raise HTTPException(403, "Reviewer can only comment")
                     con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
                                 (content, db.now_iso(), doc_id))
@@ -1718,9 +1834,13 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
         max_docs = 100
     nid, now = db.new_id("d_"), db.now_iso()
     src = get_files_dir() / doc_id
-    with _doc_lock(f"dup:{user}"):
+    with _named_lock(f"dup:{user}"):
         try:
             with db.tx() as con:
+                # B5: outer need_edit is a fast-path only; re-check on the tx
+                # connection before inserting (role may change in the gap).
+                if _tx_role(con, user, doc_id) not in ("owner", "editor"):
+                    raise HTTPException(403, "Reviewer can only comment")
                 if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
                     raise HTTPException(400, "Too many docs")
                 d = con.execute("SELECT title, content, folder, trashed FROM docs WHERE id=?",
@@ -1763,23 +1883,43 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(me)) -> dict:
             raise HTTPException(400, "Title already exists") from e
         except sqlite3.OperationalError as e:
             raise busy_503("duplicate_doc", e) from e
+    # B9: publish the file tree atomically. copytree straight into the final
+    # dir leaves a partial tree visible on crash/failure (and dirs_exist_ok
+    # would merge into a pre-existing dir); stage into a hidden tmp sibling
+    # (skipped by every files walk via the ".tmp." rule, never quota-counted)
+    # and publish with one atomic os.replace.
     if src.is_dir():
-        try:
-            shutil.copytree(src, get_files_dir() / nid, ignore=shutil.ignore_patterns(".*", "*.tmp.*"), dirs_exist_ok=True)
-        except (OSError, shutil.Error) as e:
-            log.warning("duplicate %s -> %s: copytree failed: %s", doc_id, nid, e)
+        dst = get_files_dir() / nid
+        tmpd = get_files_dir() / f".tmp.dup-{nid}"
+
+        def _drop_tmp() -> None:
+            # rmtree is a no-op on a file; unlink it instead (practically
+            # unreachable with random nids, but cleanup must be total).
             try:
-                shutil.rmtree(get_files_dir() / nid, ignore_errors=True)
+                if tmpd.is_dir() and not tmpd.is_symlink():
+                    shutil.rmtree(tmpd, ignore_errors=True)
+                else:
+                    tmpd.unlink(missing_ok=True)
             except OSError:
                 pass
-            con = db.connect()
+
+        try:
+            if dst.exists():
+                raise OSError(f"duplicate target exists: {nid}")
+            _drop_tmp()
+            shutil.copytree(src, tmpd, ignore=shutil.ignore_patterns(".*", "*.tmp.*"))
+            os.replace(tmpd, dst)
+        except (OSError, shutil.Error) as e:
+            log.warning("duplicate %s -> %s: copy failed: %s", doc_id, nid, e)
+            _drop_tmp()
+            _rb = db.connect()
             try:
-                con.execute("DELETE FROM docs WHERE id=?", (nid,))
-                con.commit()
+                _rb.execute("DELETE FROM docs WHERE id=?", (nid,))
+                _rb.commit()
             except Exception as e:
                 log.warning("duplicate rollback %s failed: %s", nid, e)
             finally:
-                con.close()
+                _rb.close()
             raise HTTPException(500, "Copy failed") from None
     notify_sidebar(user)
     return {"id": nid}
@@ -1793,9 +1933,12 @@ async def share_doc(doc_id: str, b: Share, req: Request, user: str = Depends(me)
         raise HTTPException(403, "Only owner can invite")
     if b.role not in ("editor", "reviewer"):
         raise HTTPException(400, "role must be editor or reviewer")
-    con = db.connect()
     downgraded = False
-    try:
+    # B5: single tx with the owner check on the tx connection (the outer
+    # need_access is a fast-path only); invite/share writes commit atomically.
+    with db.tx() as con:
+        if _tx_role(con, user, doc_id) != "owner":
+            raise HTTPException(403, "Only owner can invite")
         if not con.execute("SELECT 1 FROM users WHERE name=?", (b.username,)).fetchone():
             raise HTTPException(400, "Sharing failed")
         prev = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
@@ -1810,9 +1953,6 @@ async def share_doc(doc_id: str, b: Share, req: Request, user: str = Depends(me)
                 # is impossible without migration; wipe editor links fail-closed.
                 con.execute("DELETE FROM invites WHERE doc_id=? AND role='editor'",
                             (doc_id,))
-        con.commit()
-    finally:
-        con.close()
     sync.drop_role_cache(b.username)
     if downgraded:
         await sync.kick_user(doc_id, b.username)
@@ -1826,15 +1966,20 @@ async def unshare_doc(doc_id: str, username: str, req: Request, user: str = Depe
     limited(req, "share")
     if need_access(user, doc_id) != "owner":
         raise HTTPException(403, "Only owner can remove")
-    con = db.connect()
-    try:
-        con.execute("DELETE FROM shares WHERE doc_id=? AND username=?", (doc_id, username))
+    # B5+B24: single tx with the owner check on the tx connection (the outer
+    # need_access is a fast-path only). B24: only wipe invites when a share
+    # row was actually removed — unsharing a never-shared username must not
+    # nuke every pending link (fail-closed wipe stays for real removals, and
+    # per-invite attribution would need a migration, which is out of scope).
+    with db.tx() as con:
+        if _tx_role(con, user, doc_id) != "owner":
+            raise HTTPException(403, "Only owner can remove")
+        cur = con.execute("DELETE FROM shares WHERE doc_id=? AND username=?", (doc_id, username))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Not shared")
         # invites carry no username (token -> doc + role), so per-user delete is
         # impossible without migration; wipe all links fail-closed (no rejoin).
         con.execute("DELETE FROM invites WHERE doc_id=?", (doc_id,))
-        con.commit()
-    finally:
-        con.close()
     await sync.kick_user(doc_id, username)
     notify_sidebar(username)  # ex-sharee's list changed
     return {"ok": True}
@@ -2034,7 +2179,7 @@ def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(me
     check_doc_id(doc_id)
     need_edit(user, doc_id)
     n = safe_name(f.filename or "")
-    with _doc_lock(f"upload:{doc_id}"):
+    with _named_lock(f"upload:{doc_id}"):
         return _upload_locked(doc_id, f, n, user)
 
 
@@ -2167,7 +2312,7 @@ def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(me)) -
     check_doc_id(doc_id)
     limited(req, "files")
     need_edit(user, doc_id)
-    with _doc_lock(f"upload:{doc_id}"):
+    with _named_lock(f"upload:{doc_id}"):
         p = get_files_dir() / doc_id / safe_name(name)
         if p.is_file():
             try:
@@ -2220,7 +2365,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
     need_edit(user, doc_id)
     if len(b.content) > MAX_TXT:
         raise HTTPException(400, "Max 200 KB")
-    with _doc_lock(f"upload:{doc_id}"):
+    with _named_lock(f"upload:{doc_id}"):
         p = get_files_dir() / doc_id / need_text(name)
         try:
             _old_sz = p.stat().st_size if p.is_file() else 0
@@ -2442,6 +2587,10 @@ async def restore_snap(doc_id: str, sid: str, req: Request, user: str = Depends(
     auto = sync.room_text(doc_id)
     try:
         with db.tx() as con:
+            # B5: outer need_edit is a fast-path only; re-check on the tx
+            # connection before restoring (role may change in the gap).
+            if _tx_role(con, user, doc_id) not in ("owner", "editor"):
+                raise HTTPException(403, "Reviewer can only comment")
             s = con.execute("SELECT content FROM snapshots WHERE id=? AND doc_id=?", (sid, doc_id)).fetchone()
             if not s:
                 raise HTTPException(404, "Snapshot gone")

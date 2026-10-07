@@ -2,7 +2,7 @@ HOST = "127.0.0.1" # Bind address.
 PORT = 8978 # HTTP port.
 DATA_DIR = "./data" # SQLite + files directory.
 TRUST_PROXY = false # Trust X-Forwarded-Proto/For from the reverse proxy. Set in config.toml or via env; env wins.
-# FORWARDED_ALLOW_IPS is env-only (uvicorn flag, not a config.toml key) — see .env.example and Dockerfile.
+FORWARDED_ALLOW_IPS = "127.0.0.1,::1" # Peers allowed to send X-Forwarded-* (comma-separated, CIDR ok). Also passed to uvicorn via env (see Dockerfile/.env.example) — keep both in sync; env wins. Never '*' with TRUST_PROXY=true (refuses to start).
 COOKIE_SECURE = "auto" # auto|true|false.
 REGISTRATION = "invite-only" # closed|invite-only|open. open only for local tests, never on the public internet.
 REGISTRATION_INVITE_TOKEN = "" # Invite code for accounts after the first; if set, even the first account needs it. Set before first start on public servers. Min 16 chars (generate: openssl rand -hex 32); a shorter non-empty value refuses to start.

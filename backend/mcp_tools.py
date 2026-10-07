@@ -478,7 +478,7 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
 
     if len(content) > MAX_TXT:
         raise _bad("Max 200 KB")
-    with _main._doc_lock(f"upload:{doc_id}"):
+    with _main._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
         p = _files_dir() / doc_id / filename
         try:
@@ -627,7 +627,16 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
                             raise _bad("Doc gone", 404)
                         if cur["trashed"]:
                             raise _bad("In trash - restore first", 410)
-                        if _main.cap_min(cap, db.doc_role(user, doc_id) or "") not in ("owner", "editor"):
+                        # B5: role re-check ON the tx connection (db.doc_role
+                        # opens its own connection and can go stale in the gap).
+                        _orow = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
+                        if _orow and _orow["owner"] == user:
+                            _role = "owner"
+                        else:
+                            _srow = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
+                                                (doc_id, user)).fetchone()
+                            _role = _srow["role"] if _srow else ""
+                        if _main.cap_min(cap, _role) not in ("owner", "editor"):
                             raise _bad("Reviewer can only comment", 403)
                         con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
                                     (new_text, db.now_iso(), doc_id))
@@ -704,7 +713,7 @@ def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str
     if len(data) > UPLOAD_MAX:
         raise _bad("Max 10 MB")
     n = _main.safe_name(fname)
-    with _main._doc_lock(f"upload:{doc_id}"):
+    with _main._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
         uf = FastUploadFile(file=io.BytesIO(data), filename=n)
         return _main._upload_locked(doc_id, uf, n, user)
