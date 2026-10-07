@@ -58,6 +58,7 @@ File + env overrides; env wins. Parsed in `backend/config.py`. `.env.example`/`c
 | `DATA_DIR` | `./data` | SQLite + uploads; `/app/data` in container. |
 | `COMPOSE_DATA_PATH` | managed volume | Host path instead, e.g. `/srv/typst-data`. |
 | `TRUST_PROXY` | `false` | Set `true` behind a proxy, else cookies break. |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Peers allowed to send `X-Forwarded-*` (CIDR ok); same value goes to uvicorn. Never `*` with `TRUST_PROXY=true` (refuses to start). |
 | `REGISTRATION` | `invite-only` | `closed`, `invite-only`, or `open`. |
 | `REGISTRATION_INVITE_TOKEN` | empty | Min 16 chars when set, else start refuses. |
 | `SESSION_SECONDS` | `1209600` | 14 days. |
