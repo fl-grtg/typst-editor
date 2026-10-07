@@ -1,4 +1,4 @@
-"""MCP core: path resolver + doc/file/template ops for the 8 MCP tools.
+"""MCP core: path resolver + doc/file/template ops for the 9 MCP tools.
 
 Pure logic with explicit (user, cap); backend/mcp_server.py wraps these as
 FastMCP tools, tests call them directly. Raises HTTPException (the MCP
@@ -27,6 +27,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -38,7 +39,7 @@ from mcp.types import Annotations
 
 from backend import config as _config
 from backend import db, search, sync
-from backend.constants import MAX_TXT, TITLE_MAX, UPLOAD_MAX
+from backend.constants import EXPORT_FORMATS, EXPORT_MAX, MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.services import quota as quota_svc
 
 log = logging.getLogger("typst.mcp")
@@ -995,3 +996,215 @@ async def op_view(user: str, cap: str, path: str,
     total = await asyncio.to_thread(_total_pages_cached, res["doc_id"], main_text, files, max(wanted))
     _view_cache_put(key, {"pngs": pngs, "total_pages": total})
     return _view_result(pngs, False, row["updated_at"], total, pages_arg, float(scale))
+
+
+# --- export (W2-A): per-doc export via typst CLI, REST + MCP parity ---
+
+EXPORT_TIMEOUT = 30.0
+EXPORT_PPI = VIEW_BASE_PPI
+EXPORT_MIMES = {"pdf": "application/pdf", "svg": "image/svg+xml",
+                "png": "image/png", "zip": "application/zip"}
+
+
+def _check_export_format(fmt: str) -> str:
+    f = (fmt or "").strip().lower()
+    if f not in EXPORT_FORMATS:
+        raise _bad("format must be pdf, svg, png or zip")
+    return f
+
+
+def _export_stem(title: str) -> str:
+    # Same sanitizer as main.zip_name (filenames must stay in sync).
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", (title or "").strip())[:80].strip("._") or "document"
+
+
+def _collect_export_source(doc_id: str) -> tuple[str, list[tuple[str, bytes]], list[str]]:
+    """(main_text, files, skipped) for one doc: live room text wins, then DB content.
+
+    Attachments over UPLOAD_MAX land in skipped (the zip bundle reports them
+    via SKIPPED.txt, like the full backup); symlinks are never followed.
+    The total source size is capped at EXPORT_MAX (413 beyond).
+    """
+    live = sync.room_text(doc_id)
+    if live is not None:
+        main_text = live
+    else:
+        con = db.connect()
+        try:
+            row = con.execute("SELECT content FROM docs WHERE id=?", (doc_id,)).fetchone()
+        finally:
+            con.close()
+        if not row:
+            raise _bad("Doc gone", 404)
+        main_text = row["content"] or ""
+    files: list[tuple[str, bytes]] = []
+    skipped: list[str] = []
+    src_bytes = len(main_text.encode("utf-8"))
+    d = _files_dir() / doc_id
+    if d.is_dir():
+        try:
+            entries = sorted(d.iterdir())
+        except OSError:
+            entries = []
+        for p in entries:
+            if not p.is_file() or p.is_symlink() or ".tmp." in p.name:
+                continue
+            try:
+                if p.stat().st_size > UPLOAD_MAX:
+                    skipped.append(p.name)
+                    continue
+                data = p.read_bytes()
+            except OSError:
+                continue
+            src_bytes += len(data)
+            if src_bytes > EXPORT_MAX:
+                raise _bad("Export too large (max 100 MB)", 413)
+            files.append((p.name, data))
+    if src_bytes > EXPORT_MAX:
+        raise _bad("Export too large (max 100 MB)", 413)
+    return main_text, files, skipped
+
+
+def _typst_compile(args: list[str], tmp: str) -> None:
+    """Run `typst <args>` in tmp. Compile errors -> 422 with diagnostics."""
+    typst = shutil.which("typst")
+    if not typst:
+        raise _bad("typst CLI missing (Dockerfile installs it)", 500)
+    try:
+        proc = subprocess.run([typst, *args], cwd=tmp, capture_output=True,
+                              timeout=EXPORT_TIMEOUT, env=_typst_env(Path(tmp)))
+    except subprocess.TimeoutExpired as e:
+        raise _bad("compile timed out (30s)", 500) from e
+    except OSError as e:
+        raise _bad(f"compile failed: {e}", 500) from e
+    if proc.returncode != 0:
+        raw = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        diags = _parse_typst_diagnostics(raw)
+        short = raw.strip()[-500:] or "unknown"
+        raise HTTPException(422, {"message": f"compile error: {short}",
+                                  "diagnostics": diags})
+
+
+def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str,
+                        skipped: list[str] | None = None) -> tuple[bytes, str, bool]:
+    """Compile one doc to (payload, mime, pages_zip).
+
+    pdf = full multi-page PDF. svg/png = the single page directly, or a ZIP
+    of all pages when the doc has more than one (typst needs a {p} template
+    for multi-page image output). zip = source bundle (main.typ + files/).
+    Outputs over EXPORT_MAX -> 413. Temp dirs auto-clean (no migration).
+    """
+    f = _check_export_format(fmt)
+    if f == "zip":
+        buf = io.BytesIO()
+        total = len(main_text.encode("utf-8"))
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("main.typ", main_text)
+            for name, data in files:
+                if ".tmp." in name:
+                    continue
+                total += len(data)
+                if total > EXPORT_MAX:
+                    raise _bad("Export too large (max 100 MB)", 413)
+                z.writestr(f"files/{name}", data)
+            if skipped:
+                z.writestr("SKIPPED.txt", "Oversized files left out:\n" + "\n".join(skipped) + "\n")
+        payload = buf.getvalue()
+        if len(payload) > EXPORT_MAX:
+            raise _bad("Export too large (max 100 MB)", 413)
+        return payload, EXPORT_MIMES["zip"], False
+    with tempfile.TemporaryDirectory(prefix="export-doc-") as tmp:
+        root = Path(tmp)
+        try:
+            (root / "main.typ").write_text(main_text, encoding="utf-8")
+            for name, data in files:
+                if ".tmp." in name:
+                    continue
+                (root / name).write_bytes(data)
+        except OSError as e:
+            raise _bad(f"compile failed: {e}", 500) from e
+        if f == "pdf":
+            _typst_compile(["compile", "--format", "pdf", "main.typ", "out.pdf"], tmp)
+            try:
+                payload = (root / "out.pdf").read_bytes()
+            except OSError as e:
+                raise _bad(f"compile failed: {e}", 500) from e
+            return _sized(payload, EXPORT_MIMES["pdf"], False)
+        if f == "svg":
+            _typst_compile(["compile", "--format", "svg", "main.typ", "page-{p}.svg"], tmp)
+            shots = sorted(root.glob("page-*.svg"))
+            return _pages_or_zip(shots, EXPORT_MIMES["svg"])
+        _typst_compile(["compile", "--format", "png", "--ppi", str(EXPORT_PPI),
+                        "main.typ", "page-{p}.png"], tmp)
+        shots = sorted(root.glob("page-*.png"))
+        return _pages_or_zip(shots, EXPORT_MIMES["png"])
+
+
+def _sized(payload: bytes, mime: str, multi: bool) -> tuple[bytes, str, bool]:
+    if len(payload) > EXPORT_MAX:
+        raise _bad("Export too large (max 100 MB)", 413)
+    return payload, mime, multi
+
+
+def _pages_or_zip(shots: list[Path], mime: str) -> tuple[bytes, str, bool]:
+    if not shots:
+        raise _bad("no pages rendered", 500)
+    if len(shots) == 1:
+        try:
+            return _sized(shots[0].read_bytes(), mime, False)
+        except OSError as e:
+            raise _bad(f"compile failed: {e}", 500) from e
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        added = 0
+        for shot in shots:
+            try:
+                data = shot.read_bytes()
+            except OSError:
+                continue
+            z.writestr(shot.name, data)
+            added += 1
+    if not added:
+        raise _bad("no pages rendered", 500)
+    payload = buf.getvalue()
+    return _sized(payload, EXPORT_MIMES["zip"], True)
+
+
+def build_export_payload(title: str, main_text: str, files: list[tuple[str, bytes]],
+                         fmt: str, skipped: list[str] | None = None) -> tuple[bytes, str, str]:
+    """(payload, mime, filename) for REST responses. Multi-page svg/png
+    arrive as `<stem>-<fmt>.zip`, everything else as `<stem>.<fmt>`."""
+    f = _check_export_format(fmt)
+    payload, mime, multi = _compile_export_doc(main_text, files, f, skipped)
+    stem = _export_stem(title)
+    suffix = "zip" if (multi or f == "zip") else f
+    name = f"{stem}-{f}.zip" if multi else f"{stem}.{suffix}"
+    return payload, mime, name
+
+
+def _export_doc_sync(doc_id: str, title: str, fmt: str) -> tuple[bytes, str, str]:
+    """Blocking collect + compile. Callers must offload (B13): the REST
+    endpoint is sync (worker thread), op_export uses asyncio.to_thread."""
+    main_text, files, skipped = _collect_export_source(doc_id)
+    return build_export_payload(title, main_text, files, fmt, skipped)
+
+
+async def op_export(user: str, cap: str, path: str, format: str = "pdf") -> dict:
+    """Export a document via typst CLI (read-only: any role with access).
+
+    format pdf = full PDF; svg/png = single page directly, multi-page docs
+    as ZIP of pages; zip = source bundle (main.typ + files/). Returns
+    base64 payload + mime + filename (REST parity, no worker block: compile
+    runs in asyncio.to_thread). Like view: MCP rate scope (`mcp`) applies,
+    no per-user export lock (REST serializes via _export_lock).
+    """
+    _ = cap  # read access is enough (resolve already gates per doc)
+    res = resolve_path(user, cap, path)
+    if res["kind"] != "doc":
+        raise _bad("export needs a document path, use /docs/{Title}")
+    fmt = _check_export_format(format)
+    payload, mime, filename = await asyncio.to_thread(
+        _export_doc_sync, res["doc_id"], res["title"], fmt)
+    return {"format": fmt, "mime": mime, "filename": filename,
+            "content_base64": base64.b64encode(payload).decode("ascii"),
+            "size_bytes": len(payload)}

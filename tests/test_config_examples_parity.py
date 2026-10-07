@@ -27,7 +27,7 @@ def test_config_examples_parity():
 def test_rate_scopes_parity():
     from backend.constants import RATE_DEFAULTS
 
-    expected = {"rename", "delete", "restore", "move", "templates", "tplfolders"}
+    expected = {"rename", "delete", "restore", "move", "templates", "tplfolders", "export_doc"}
     assert {s.upper() for s in expected} <= set(backend_config._RATE_KEYS)
     assert expected <= set(RATE_DEFAULTS)
     for scope in expected:
