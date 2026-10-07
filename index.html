@@ -330,9 +330,10 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 #role, #roBanner { font-size: 11px; font-weight: 500; color: var(--sub); white-space: nowrap; }
 #role:not(:empty)::after { content: '·'; margin: 0 0 0 6px; opacity: .6; }
 #roBanner { padding: 0 7px; border-radius: 10px; background: var(--hover); }
-#wsTxt, #save { font-size: 11px; color: var(--sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
+#wsTxt, #save, #pos { font-size: 11px; color: var(--sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
 #save { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #save:not(:empty)::before { content: '·'; margin-right: 6px; opacity: .6; }
+#pos:not(:empty)::before { content: '·'; margin: 0 6px 0 0; opacity: .6; }
 #cBadge, #eBadge { height: 22px; min-width: 0; padding: 0 9px; border-radius: 11px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 #cBadge { background: var(--hover); color: var(--text); }
 #eBadge { background: var(--danger-soft); color: var(--danger); }
@@ -406,6 +407,15 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 #cmWrap .cm-lineNumbers .cm-gutterElement { padding: 0 12px 0 16px; font: 11.5px var(--mono); line-height: var(--lh); text-align: right; }
 #cmWrap .cm-scroller { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 #cmWrap .cm-lineNumbers .cm-gutterElement.hasThread { color: var(--acc); font-weight: 700; cursor: pointer; }
+/* Fold lane right of numbers: shares editor bg, chevrons hover-revealed, folded stays visible */
+#cmWrap .cm-foldGutter { background: var(--editor); }
+#cmWrap .cm-foldGutter .cm-gutterElement { padding: 0 4px 0 0; line-height: var(--lh); min-width: 18px; }
+#cmWrap .cm-foldGutter .foldMk { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: var(--lh); border-radius: 4px; color: var(--faint); cursor: pointer; opacity: 0; transition: opacity .12s; }
+#cmWrap .cm-gutters:hover .cm-foldGutter .foldMk { opacity: 1; }
+#cmWrap .cm-foldGutter .foldMk.fold-closed { opacity: 1; color: var(--text); }
+#cmWrap .cm-foldGutter .foldMk:hover { background: var(--hover); color: var(--text); opacity: 1; }
+@media (hover: none) { #cmWrap .cm-foldGutter .foldMk { opacity: 1; } } /* touch: no hover-reveal, always show */
+#cmWrap .cm-foldPlaceholder { background: var(--hover); color: var(--sub); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; margin: 0 4px; font-size: 11px; }
 #cmWrap .cm-tooltip { border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: var(--sh-pop); overflow: hidden; background: var(--card); }
 #cmWrap .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--ink); color: var(--on-ink); }
 #cmWrap .cm-tooltip-autocomplete ul li { color: var(--text); }
@@ -759,7 +769,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
       </div>
       <div id="docHead">
         <div class="l1"><h1 id="title" class="is-empty">Welcome</h1><button id="renBtn" aria-label="Rename" title="Rename" style="display:none"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg></button><button id="cBadge" title="Open comments: jump to next" aria-label="Open comments: jump to next" style="display:none"></button><button id="eBadge" title="Show errors" aria-label="Show errors" aria-expanded="false" style="display:none"></button></div>
-        <div class="l2"><span id="role"></span><span id="wsDot" class="dot" title="Offline" aria-hidden="true" style="background:#8e8e93"></span><span id="wsTxt" role="status" aria-live="polite"></span><span id="save" aria-live="polite"></span><span id="roBanner" style="display:none">Read-only</span></div>
+        <div class="l2"><span id="role"></span><span id="wsDot" class="dot" title="Offline" aria-hidden="true" style="background:#8e8e93"></span><span id="wsTxt" role="status" aria-live="polite"></span><span id="save" aria-live="polite"></span><span id="pos"></span><span id="roBanner" style="display:none">Read-only</span></div>
       </div>
       <div class="hr">
         <span id="peers" role="list" aria-label="People in this document"></span>
@@ -809,7 +819,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
           <div id="cmWrap"><div id="cm" tabindex="-1"></div></div>
           <div id="pop" style="display:none" role="dialog" aria-label="Comments"></div>
         </div>
-        <div id="find" style="display:none"><label class="sr-only" for="fQ">Find</label><input id="fQ" placeholder="Find" aria-label="Find"><label class="sr-only" for="fR">Replace with</label><input id="fR" placeholder="Replace with" aria-label="Replace with"><span class="n" id="fN" role="status" aria-live="polite"></span><span class="fgroup"><button id="fPrev" aria-label="Previous (Shift+Enter)" title="Previous (Shift+Enter)">↑</button><button id="fNext" aria-label="Next (Enter)" title="Next (Enter)">↓</button></span><button id="fRep" title="Replace this occurrence" aria-label="Replace this occurrence">Replace</button><button id="fAll" title="Replace all occurrences" aria-label="Replace all occurrences">All</button><button id="fCase" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button><button id="fX" class="x" title="Close (Esc)" aria-label="Close (Esc)">✕</button></div>
+        <div id="find" style="display:none"><label class="sr-only" for="fQ">Find</label><input id="fQ" placeholder="Find" aria-label="Find"><label class="sr-only" for="fR">Replace with</label><input id="fR" placeholder="Replace with" aria-label="Replace with"><span class="n" id="fN" role="status" aria-live="polite"></span><span class="fgroup"><button id="fPrev" aria-label="Previous (Shift+Enter)" title="Previous (Shift+Enter)">↑</button><button id="fNext" aria-label="Next (Enter)" title="Next (Enter)">↓</button></span><button id="fRep" title="Replace this occurrence" aria-label="Replace this occurrence">Replace</button><button id="fAll" title="Replace all occurrences" aria-label="Replace all occurrences">All</button><button id="fCase" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button><button id="fRe" title="Regular expression" aria-label="Regular expression" aria-pressed="false">.*</button><button id="fX" class="x" title="Close (Esc)" aria-label="Close (Esc)">✕</button></div>
       </div>
       <div id="split" role="separator" tabindex="0" title="Drag to resize width (arrows)" aria-label="Drag to resize width (arrows)" aria-orientation="vertical" aria-valuemin="15" aria-valuemax="85" aria-valuenow="50"></div><div id="vsplit" title="Drag to resize height (arrows)" role="separator" tabindex="0" aria-label="Drag to resize height (arrows)" aria-orientation="horizontal" aria-valuemin="120" aria-valuemax="600" aria-valuenow="300"></div>
       <div id="rightCol">
@@ -827,8 +837,8 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 <script type="module">
 import * as Y from 'https://esm.sh/yjs@13.6.27'
 import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
-import * as CMV from './vendor-cm.js?v=5' // bundled locally: single instance, no CDN risk
-const { EditorView, minimalSetup, Compartment, StateField, StateEffect, RangeSet, Prec, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, indentMore, indentLess, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, typstTags, syntaxHighlighting, HighlightStyle, tags, linter, lintGutter, setDiagnostics, forEachDiagnostic } = CMV // must match vendor build (cache-busted via ?v=5)
+import * as CMV from './vendor-cm.js?v=6' // bundled locally: single instance, no CDN risk
+const { EditorView, minimalSetup, Compartment, EditorState, StateField, StateEffect, RangeSet, Prec, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, snippetCompletion, nextSnippetField, prevSnippetField, indentMore, indentLess, foldGutter, foldKeymap, bracketMatching, indentUnit, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, typstTags, syntaxHighlighting, HighlightStyle, tags, linter, lintGutter, setDiagnostics, forEachDiagnostic } = CMV // must match vendor build (cache-busted via ?v=6)
 // CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
 //   once the backend refactor lands — kept inline + unminified for reviewability in this run.
@@ -837,7 +847,9 @@ if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.clo
 setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
 const $ = id => document.getElementById(id)
 let toastT = 0
-function toast(m, retry, label, ms) { let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
+let lastToastM = '', lastToastT = 0
+const TOAST_DUP_MS = 2000 // same text within this window: show once (F24)
+function toast(m, retry, label, ms) { if (!retry && m === lastToastM && Date.now() - lastToastT < TOAST_DUP_MS) return; lastToastM = m; lastToastT = Date.now(); let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function api(m, url, body, tries = 3) { // Error carries .status/.detail; GET auto-retries 503 with backoff (idempotent only, never 429: a limit hit must surface, not re-hit the bucket)
   let lastErr = null
@@ -881,8 +893,10 @@ const ED_MIN = 10, ED_MAX = 24, ED_STEP = 1 // editor font
 const PV_MIN = 30, PV_MAX = 400, PV_STEP = 10 // preview zoom (400: zoom may exceed container, preview scrolls)
 const SIDE_MIN = 200, SIDE_MAX = 420 // sidebar width in px
 let edSize = 14, pvZoom = 110 // editor font + preview zoom
+let tabW = 2 // F25: tab width (persisted below); wrap always on, no compile-delay option
 try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MAX) edSize = e } catch (err) {}
 try { const z = +localStorage.getItem('typst_pv'); if (z >= PV_MIN && z <= PV_MAX) pvZoom = z } catch (err) {}
+try { const t = +localStorage.getItem('typst_tab'); if ([2, 4, 8].includes(t)) tabW = t } catch (err) {}
 const saveSet = () => { lsSet('typst_ed', edSize); lsSet('typst_pv', pvZoom) }
 
 // --- CodeMirror: vendor Typst completions (typst_lezer language data: builtins, params, let-scope, labels) + project source below (files/templates/bib/#ref). Hover docs stay static (T_DOC). ---
@@ -964,6 +978,15 @@ const groupBy = list => { // top-level first + folder map (caller adds empty fol
 // #ref(<label>, #cite("key", Ctrl-Space/Tab file fallback.
 // Typst control keywords (stable language, not in vendor function data)
 const T_KW = 'set show let import include context if else for while return break continue in and or not as'.split(' ')
+// F10 snippets: Typst blocks with tabstops (additive to vendor completions)
+const T_SNIP = [
+  ['#fig', '#figure(caption: [${cap}])[${body}]'],
+  ['#tbl', '#table(columns: (${cols}))[${body}]'],
+  ['#img', '#image("${file}", width: ${w}%)'],
+  ['#math', '$${x}$'],
+  ['#head', '= ${title}'],
+  ['#code', '```${lang}\n${body}\n```'],
+].map(([label, template]) => snippetCompletion(template, { label, type: 'snippet', boost: 45 }))
 // Functions insert with parens (cursor inside): vendor options carry no apply,
 // but unique() keeps object refs, so enhancing the shared arrays affects the vendor source (no wrapper, no dupes)
 const parenApply = (view, completion, from, to) => {
@@ -1077,10 +1100,11 @@ function typstComplete(ctx) {
       }
     }
   }
-  if (kwm && (!blocked || blocked === 'Error')) { // control keywords live in no vendor list (#se -> #set; apply bare: # already typed)
+  if (kwm && (!blocked || blocked === 'Error')) { // keywords + snippets share one range incl. # (templates carry # or are markup)
     const q = kwm[1].toLowerCase()
-    const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: k, type: 'keyword', boost: 60 }))
-    if (out.length) return { from: pos - kwm[1].length, filter: false, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
+    const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: '#' + k, type: 'keyword', boost: 60 }))
+    for (const s of T_SNIP) if (s.label.toLowerCase().includes('#' + q) || s.label.toLowerCase().includes(q)) out.push(s) // F10 snippets alongside keywords
+    if (out.length) return { from: pos - kwm[1].length - 1, filter: false, options: out.slice(0, 50), validFor: /^#?[\p{ID_Continue}_-]*$/u }
   }
   if (kwm && blocked === 'Error' && typeof typstGlobalCompletions !== 'undefined') {
     // broken syntax (##, unclosed forms): vendor is tree-based and silent -> text fallback from vendor data
@@ -1192,6 +1216,7 @@ function errTipMove(ev) { // any spot on a red line shows the message anchored a
 }
 const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
 const editableComp = new Compartment(), hlComp = new Compartment()
+const tabComp = new Compartment() // F25: tab width (settings, persisted)
 const setHl = StateEffect.define() // mark comment ranges, follow edits via mapping
 const hlField = StateField.define({
   create: () => Decoration.none,
@@ -1303,10 +1328,11 @@ const cm = new EditorView({
       { key: 'ArrowRight', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
       { key: 'Home', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
       { key: 'End', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
-      { // Tab like IDE: selection/line-start indents, open box accepts, else autocomplete
+      { // Tab like IDE: snippet fields first, selection/line-start indents, open box accepts, else autocomplete
       key: 'Tab',
       run: v => {
         if (v.state.readOnly) return false // reviewer/comment mode: no accept, no indent, no completion
+        if (nextSnippetField(v)) return true // F10: Tab walks snippet tabstops before anything else
         const m = v.state.selection.main
         if (!m.empty) return indentMore(v)
         if (currentCompletions(v.state).length) { acceptCompletion(v); return true }
@@ -1314,23 +1340,24 @@ const cm = new EditorView({
         if (/^\s*$/.test(line.text.slice(0, m.head - line.from))) return indentMore(v)
         return startCompletion(v)
       },
-      shift: v => indentLess(v),
-    }, { key: 'Ctrl-Space', run: startCompletion }]),
-    minimalSetup, typstSupport, Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping,
-    autocompletion({ defaultKeymap: false }), closeBrackets(), hoverTooltip(hoverAll), // vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
+      shift: v => prevSnippetField(v) || indentLess(v), // F10: Shift-Tab walks snippet fields back, else dedent
+    }, { key: 'Ctrl-Space', run: startCompletion }, ...foldKeymap]), // F10: fold shortcuts alongside completion keys
+    minimalSetup, typstSupport, Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping, tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
+    autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
-    markField, lineNumbers(),
+    markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? 'Fold' : 'Unfold'; s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
       if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
-      if (u.docChanged && findOpen) markFind() // recount hits, mark follows on its own
+      if (u.docChanged && findOpen) markFind(false) // recount only: typing beside an open find must not yank the cursor back to a hit
       paintErr() // compile errors via lint: key stops loops, positions map across edits (no live lint)
       if (u.docChanged || u.selectionSet) { errTipHover = null; errTipHide(); requestAnimationFrame(() => { if (!errTipHover) errTipCursor() }) } // cursor on an error line: message stays without hovering; positioned after layout so the anchor tracks exactly
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
       if (u.selectionSet) try { updCNewTip() } catch (e) {}
       if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
+      if (u.selectionSet || u.docChanged) try { updPos() } catch (e) {} // F24 status: Ln/Col/words follow cursor
     })]
 })
 const Transaction = cm.state.update({}).constructor // vendor bundle exports no Transaction: take the class from a throwaway transaction
@@ -1342,6 +1369,7 @@ cm.scrollDOM.addEventListener('scroll', () => {
 $('cm').addEventListener('mousemove', errTipMove) // full-line error tooltip: any spot on a red line, no aim needed
 $('cm').addEventListener('mouseleave', errTipHide)
 $('cm').addEventListener('mousedown', e => { // click on line number or yellow highlight opens card
+  if (findOpen && findI >= 0) { findI = -1; paintFind(false) } // manual click drops the current hit: all blue, typing stays where clicked
   const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
   if (g && marks.has(+g.textContent)) { openPop(+g.textContent, false); return }
   const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
@@ -1591,7 +1619,7 @@ setInterval(() => { // watchdog: dead render (init race, dropped retry) heals it
   if (docId && !tplName && lastInfra && !$('preview').querySelector('canvas')) render()
 }, 3000)
 const fileCache = new Map() // name -> {mtime, bytes}: reload binaries only on change
-function queueRender() { clearTimeout(renderT); renderT = setTimeout(render, RENDER_MS) }
+function queueRender() { clearTimeout(renderT); renderT = setTimeout(render, RENDER_MS) } // fixed 300ms compile debounce
 async function shadowAll(main) { // files + templates as shadow: preview and PDF export share it
   if (filesDirty || Date.now() - filesAt > FILES_TTL) try { // list only when changed/stale, not per keystroke
     const forDoc = docId
@@ -2578,6 +2606,13 @@ function wc() { // word count for #save display
   const n = t.split(/\s+/).length
   return ' · ' + n + (n === 1 ? ' word' : ' words')
 }
+function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR spam per keystroke)
+  const p = $('pos')
+  if (!p) return
+  let ln = 1, col = 1
+  try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
+  p.textContent = 'Ln ' + ln + ', Col ' + col + (wc() || '') + ' · Sync ' + (syncOn ? 'on' : 'off')
+}
 function openTutorial() { // help = tutorial doc (backend creates per account)
   const t = lastOwn.find(x => x.title === 'Tutorial')
   if (t) openDoc(t.id)
@@ -3371,6 +3406,12 @@ function renderSettings() {
   zp.onclick = () => { stepPv(PV_STEP); renderSettings() }
   zr.appendChild(zp)
   colL.appendChild(grp('Appearance', sec(fr, zr)))
+  const tr = el('div', 'row'); tr.append(el('label', null, 'Tabs '))
+  const ts = el('select'); ts.setAttribute('aria-label', 'Tab width')
+  ;[2, 4, 8].forEach(n => { const o = el('option', null, String(n)); o.value = String(n); if (n === tabW) o.selected = true; ts.appendChild(o) })
+  ts.onchange = () => { tabW = +ts.value || 2; lsSet('typst_tab', tabW); cm.dispatch({ effects: tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]) }); renderSettings() }
+  tr.append(ts, el('span', 'val', tabW + ' sp'))
+  colL.appendChild(grp('Editor', sec(tr))) // wrap always on, sync lives on the preview button, no compile-delay option
   const ar = el('div', 'row avatarRow')
   const im = el('img', 'av'); im.alt = 'Your avatar'
   if (avatarV) im.src = `/api/avatar/${encodeURIComponent(user)}?v=${avatarV}`; else { im.style.display = 'none'; const fb = el('span', 'avFallback'); fb.textContent = (user || '?').slice(0, 2).toUpperCase(); ar.appendChild(fb) }
@@ -3637,6 +3678,8 @@ function applyPv() {
   document.querySelectorAll('#preview canvas').forEach(sizeCanvas)
 }
 let syncOn = true, syncT = 0, syncPage = 0, pvT = 0 // click sync editor<->preview, last hit page
+try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
+function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
 function queueSyncPv() { clearTimeout(syncT); syncT = setTimeout(syncToPv, SYNC_MS) }
 function syncToPv() { // editor -> preview: page with most line words, hit centered
   if (!syncOn || !docId || tplName || activeFile || Date.now() - pvT < 1000) return // preview click: paper stays put
@@ -3731,8 +3774,9 @@ $('preview').addEventListener('click', e => { // preview -> editor: text anchors
   while (line > 1 && !lines[line - 1].trim()) line-- // snap to paragraph start
   jumpPos(posOfLine(getT(), line))
 })
-$('syncBtn').onclick = () => { syncOn = !syncOn; $('syncBtn').classList.toggle('on', syncOn)
-  $('syncBtn').setAttribute('aria-pressed', syncOn) }
+$('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_sync', syncOn ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} }
+applySyncBtn() // F25: persisted follow state on boot
+try { updPos() } catch (e) {} // F24: status filled before first keystroke
 function fitPv() { // fit paper exactly to preview width, centered via margin
   const c = document.querySelector('#preview canvas')
   const avail = $('preview').clientWidth - 32
@@ -3807,7 +3851,7 @@ setInterval(() => { // heals sets without input event (extensions, autofill): te
   }
 }, SAVE_MS)
 // --- Find + replace: bottom bar (Ctrl+F), hits as marks, Enter = next ---
-let findOpen = false, findHits = [], findI = 0, findCase = false
+let findOpen = false, findHits = [], findI = 0, findCase = false, findRe = false // F10: regex toggle; hits are {a,b} (literal: b = a + q.length)
 function openFind() {
   if (!$('app').classList.contains('on')) return
   findOpen = true; $('find').style.display = ''
@@ -3820,29 +3864,41 @@ function closeFind() {
   cm.dispatch({ effects: setFind.of(RangeSet.of([])) }); cm.focus()
 }
 function paintFind(sel) { // hits blue, current orange; sel = also jump
-  const q = $('fQ').value
-  cm.dispatch({ effects: setFind.of(RangeSet.of(findHits.map((a, i) =>
-    Decoration.mark({ class: i === findI ? 'cm-find-cur' : 'cm-find' }).range(a, a + q.length)), true)) })
+  cm.dispatch({ effects: setFind.of(RangeSet.of(findHits.map((h, i) =>
+    Decoration.mark({ class: i === findI ? 'cm-find-cur' : 'cm-find' }).range(h.a, h.b)), true)) })
   if (sel && findHits.length) {
-    const a = findHits[findI]
-    cm.dispatch({ selection: { anchor: a, head: a + q.length }, effects: EditorView.scrollIntoView(a, { y: 'center' }) })
+    const h = findHits[findI]
+    cm.dispatch({ selection: { anchor: h.a, head: h.b }, effects: EditorView.scrollIntoView(h.a, { y: 'center' }) })
   }
-  $('fN').textContent = findHits.length ? (findI + 1) + '/' + findHits.length : (q ? '0' : '')
+  const q = $('fQ').value
+  $('fN').textContent = findHits.length ? (findI >= 0 ? (findI + 1) + '/' + findHits.length : '' + findHits.length) : (q ? '0' : '')
 }
-function markFind() {
-  findHits = []; findI = 0
+function markFind(sel = true) { // sel=false: recount only, never steal selection/scroll (typing beside an open find)
+  findHits = []; findI = -1
   const q = $('fQ').value
   if (!q) { paintFind(false); return }
-  const t = findCase ? getT() : getT().toLowerCase(), n = findCase ? q : q.toLowerCase()
-  let p = 0, hit
-  while ((hit = t.indexOf(n, p)) >= 0 && findHits.length < 500) { findHits.push(hit); p = hit + q.length } // no overlap: else replace-all breaks transaction
+  if (findRe) { // F10 regex: invalid pattern shows 'bad regex', never throws
+    let re
+    try { re = new RegExp(q, findCase ? 'g' : 'gi') } catch (e) { cm.dispatch({ effects: setFind.of(RangeSet.of([])) }); $('fN').textContent = 'bad regex'; return }
+    try {
+      for (const m of getT().matchAll(re)) {
+        if (m[0].length && findHits.length < 500) findHits.push({ a: m.index, b: m.index + m[0].length })
+      } // zero-length matches skipped (matchAll steps on by itself, no hang)
+    } catch (e) { $('fN').textContent = 'bad regex'; return }
+  } else {
+    const t = findCase ? getT() : getT().toLowerCase(), n = findCase ? q : q.toLowerCase()
+    let p = 0, hit
+    while ((hit = t.indexOf(n, p)) >= 0 && findHits.length < 500) { findHits.push({ a: hit, b: hit + q.length }); p = hit + q.length } // no overlap: else replace-all breaks transaction
+  }
   if (!findHits.length) { paintFind(false); return }
-  findI = findHits.findIndex(a => a >= cm.state.selection.main.head)
+  if (!sel) { paintFind(false); return } // all blue, none current: cursor stays where the user works
+  findI = findHits.findIndex(h => h.a >= cm.state.selection.main.head)
   if (findI < 0) findI = 0
   paintFind(true)
 }
 function stepFind(d) {
   if (!findHits.length) return
+  if (findI < 0 || findI >= findHits.length) findI = d > 0 ? -1 : 0 // resume from the ends when nothing is current
   findI = (findI + d + findHits.length) % findHits.length
   paintFind(true)
 }
@@ -3850,14 +3906,24 @@ function doRep(all) {
   if (docRole === 'reviewer' || openedTrashed) return // read yes, replace no
   const q = $('fQ').value, r = $('fR').value
   if (!q || !findHits.length) return
-  const a = findHits[findI]
-  cm.dispatch(all
-    ? { changes: findHits.map(x => ({ from: x, to: x + q.length, insert: r })) }
-    : { changes: { from: a, to: a + q.length, insert: r }, selection: { anchor: a + r.length } })
+  if (findI < 0 || findI >= findHits.length) { const hd = cm.state.selection.main.head; findI = findHits.findIndex(h => hd >= h.a && hd <= h.b); if (findI < 0) findI = findHits.findIndex(h => h.a >= hd); if (findI < 0) findI = 0 } // deselected by click: hit under cursor first, else nearest ahead
+  if (findRe) { // F10: regex replace, $1 groups supported (lookbehind across hit edges unsupported: silent no-op)
+    let one
+    try { one = new RegExp('^(?:' + q + ')$', (findCase ? '' : 'i') + 's') } catch (e) { return }
+    const t = getT(), rep = h => t.slice(h.a, h.b).replace(one, r)
+    if (all) cm.dispatch({ changes: findHits.map(h => ({ from: h.a, to: h.b, insert: rep(h) })) })
+    else { const h = findHits[findI], ins = rep(h); cm.dispatch({ changes: { from: h.a, to: h.b, insert: ins }, selection: { anchor: h.a + ins.length } }) }
+  } else {
+    const h = findHits[findI]
+    cm.dispatch(all
+      ? { changes: findHits.map(x => ({ from: x.a, to: x.b, insert: r })) }
+      : { changes: { from: h.a, to: h.b, insert: r }, selection: { anchor: h.a + r.length } })
+  }
   markFind() // onEdit recounts anyway, here at once for counter
 }
-$('fQ').oninput = markFind
+$('fQ').oninput = () => markFind(true)
 $('fCase').onclick = () => { findCase = !findCase; $('fCase').classList.toggle('on', findCase); $('fCase').setAttribute('aria-pressed', findCase); markFind(); $('fQ').focus() }
+$('fRe').onclick = () => { findRe = !findRe; $('fRe').classList.toggle('on', findRe); $('fRe').setAttribute('aria-pressed', findRe); markFind(); $('fQ').focus() }
 $('fPrev').onclick = () => stepFind(-1)
 $('fNext').onclick = () => stepFind(1)
 $('fRep').onclick = () => doRep(false)
