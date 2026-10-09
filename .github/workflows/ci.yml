@@ -34,6 +34,7 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: ruff check backend/ scripts/ tests/ e2e/
       - run: mypy backend/ scripts/ tests/ e2e/
+      - run: python web/check_i18n.py
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15

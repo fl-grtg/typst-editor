@@ -28,7 +28,7 @@ function renderSettings() {
   const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
   const grp = (title, ...secs) => { const w = el('div', 'grp'); w.appendChild(el('h4', null, title)); secs.forEach(s => w.appendChild(s)); return w }
   const top = el('div', 'sTop')
-  const close = icoBtn(null, ICO_X); close.title = 'Close'; close.setAttribute('aria-label', close.title)
+  const close = icoBtn(null, ICO_X); close.title = t('common.close'); close.setAttribute('aria-label', close.title)
   close.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; p.style.display = 'none' }
   top.append(el('b', null, t('settings.title')), close); p.appendChild(top)
   if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }

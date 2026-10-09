@@ -144,7 +144,7 @@ $('new').onclick = async () => {
   const r = await askNewDoc()
   if (!r) return
   const b = $('new'), old = b.textContent; b.disabled = true; b.textContent = t('docs.creating')
-  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || 'New document', content: STARTERS[r.tpl] || '', folder: r.folder })).id) }
+  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('docs.newDocTitle'), content: STARTERS[r.tpl] || '', folder: r.folder })).id) }
   catch (e) { toast(e.message) } finally { b.disabled = false; b.textContent = old }
 }
 let upBusy = false // double-click: no second doc
@@ -159,8 +159,8 @@ $('docPick').onchange = async () => { // .typ as normal doc (not template): titl
     const txt = await f.text()
     if (!txt.trim()) { toast(t('common.emptyFile')); return }
     if (txt.length > 200 * 1024) { toast(t('docs.maxKb')); return }
-    const t = f.name.replace(/\.typ$/i, '').replace(/\s+/g, ' ').trim().slice(0, 100) || 'New document'
-    openDoc((await api('POST', '/api/docs/create', { title: t, content: txt })).id)
+    const ttl = f.name.replace(/\.typ$/i, '').replace(/\s+/g, ' ').trim().slice(0, 100) || t('docs.newDocTitle')
+    openDoc((await api('POST', '/api/docs/create', { title: ttl, content: txt })).id)
   } catch (e) { toast(e.message) } finally { upBusy = false }
 }
 $('del').onclick = async () => {

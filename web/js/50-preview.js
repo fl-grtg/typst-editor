@@ -25,7 +25,7 @@ function ensureTypst() {
   }).catch(e => {
     typstPm = null // allow retry: watchdog retries instead of stalling
     if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
-    throw new Error('Compiler still loading')
+    throw new Error(t('downloads.compilerLoading'))
   })
   return typstPm
 }
