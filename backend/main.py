@@ -25,6 +25,7 @@ from backend.routers import (
     export,
     files,
     frontend,
+    readmode,
     share,
     snapshots,
     system,
@@ -150,7 +151,8 @@ async def no_cache_html(req: Request, call: Any):
                 log.warning("csrf-block %s", req.url.path)
                 return JSONResponse({"detail": "Forbidden"}, status_code=403)
     res = await call(req)
-    if req.url.path.rsplit("/", 1)[-1] in deps.IMMUTABLE_SHELL or req.url.path.startswith("/vendor/"):
+    if res.status_code == 200 and (
+            req.url.path.rsplit("/", 1)[-1] in deps.IMMUTABLE_SHELL or req.url.path.startswith("/vendor/")):
         res.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     elif req.url.path == "/" or req.url.path.endswith((".html", ".js")) or req.url.path.startswith("/api/"):
         res.headers["Cache-Control"] = "no-store"
@@ -161,7 +163,7 @@ async def no_cache_html(req: Request, call: Any):
     # stays in connect-src (data-only @preview registry, no script from it).
     res.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; "
-        "connect-src 'self' https://packages.typst.org wss: ws:; worker-src 'self' blob:; img-src 'self' data: blob:; "
+        "connect-src 'self' https://packages.typst.org; worker-src 'self' blob:; img-src 'self' data: blob:; "
         "style-src 'self' 'unsafe-inline'; font-src 'self' data:; base-uri 'self'; object-src 'none'; frame-ancestors 'none';")
     proto = req.url.scheme
     fwd_proto = ""
@@ -199,5 +201,6 @@ app.include_router(files.router)
 app.include_router(snapshots.router)
 app.include_router(export.router)
 app.include_router(events.router)
+app.include_router(readmode.router)
 app.include_router(system.router)
 app.include_router(frontend.router)

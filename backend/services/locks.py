@@ -73,14 +73,14 @@ def _filelock(fh: Any, lock: bool) -> None:
             import fcntl as _f
 
             _fcntl = _f
-        except ImportError:
-            pass
+        except ImportError as e:
+            log.warning("fcntl unavailable, try msvcrt: %s", e)
     try:
         import msvcrt as _m
 
         _msvcrt = _m
-    except ImportError:
-        pass
+    except ImportError as e:
+        log.debug("msvcrt unavailable (expected on linux): %s", e)
     if _fcntl is not None:
         _fcntl.flock(fh.fileno(), (_fcntl.LOCK_EX | _fcntl.LOCK_NB) if lock else _fcntl.LOCK_UN)
     elif _msvcrt is not None:
@@ -104,12 +104,12 @@ def _acquire_single_lock() -> None:
             fh.flush()
         _filelock(fh, True)
         _LOCK_FH = fh
-    except Exception:
+    except Exception as e:
         try:
             fh.close()
-        except Exception:
-            pass
-        log.error("another instance is already running, exit")
+        except Exception as ce:
+            log.warning("single-lock close after acquire fail: %s", ce)
+        log.error("another instance is already running, exit: %s", e)
         raise SystemExit(1) from None
 
 
@@ -121,8 +121,8 @@ def _release_single_lock() -> None:
     try:
         try:
             _filelock(fh, False)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("single-lock unlock failed: %s", e)
         fh.close()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("single-lock release failed: %s", e)

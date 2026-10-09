@@ -120,3 +120,41 @@ CREATE TRIGGER IF NOT EXISTS docs_fts_au AFTER UPDATE ON docs
   DELETE FROM docs_fts WHERE rowid=old.rowid;
   INSERT INTO docs_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
 END;
+
+-- files: one row per on-disk attachment (doc_id, relative path, size,
+-- mtime, type). Quota and search read this table, never the filesystem.
+-- FK CASCADE: hard doc delete drops the rows (docs.py owns that path).
+CREATE TABLE IF NOT EXISTS files (
+    doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    mtime REAL NOT NULL DEFAULT 0,
+    type TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (doc_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_files_doc ON files(doc_id);
+
+-- notifications: minimal backend write path (services/notifications.py),
+-- inbox UI follows in Wave 3D (owns routers/notifications.py). No FK to
+-- docs on purpose: the inbox keeps its text snapshot after doc delete.
+CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    recipient TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT '',
+    doc_id TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL DEFAULT '',
+    is_read INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient, created_at);
+
+-- read_tokens: token-hash -> doc for account-less reading
+-- (routers/readmode.py, no UI in Wave 1). Revoke = DELETE the row.
+CREATE TABLE IF NOT EXISTS read_tokens (
+    token_hash TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+    hint TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_read_tokens_doc ON read_tokens(doc_id);

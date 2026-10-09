@@ -19,6 +19,7 @@ def _clear_ratelimit():
 def _clear_sync():
     sync.rooms.clear()
     sync._sess_cache.clear()
+    sync._quota_cache.clear()
     main._SIDEBAR_Q.clear()
     with main._DOC_LOCKS_GUARD:
         main._DOC_LOCKS.clear()
@@ -26,6 +27,7 @@ def _clear_sync():
     yield
     sync.rooms.clear()
     sync._sess_cache.clear()
+    sync._quota_cache.clear()
     main._SIDEBAR_Q.clear()
     with main._DOC_LOCKS_GUARD:
         main._DOC_LOCKS.clear()

@@ -56,9 +56,13 @@ def quota_cap() -> int:
 
 
 def user_bytes(user: str) -> int:
+    # File sizes come from the files table (1D), never from a filesystem
+    # walk. Write-through on every mutation keeps it exact; list_files()
+    # reconciles external writers (duplicate, MCP text edit) on next read.
+    # Signatures stay put: sync.py reads quota through these (short-lived
+    # cache there, Interna here).
     from backend import db as _db
 
-    fdir = files_dir()
     con = _db.connect()
     try:
         r = con.execute(
@@ -82,26 +86,14 @@ def user_bytes(user: str) -> int:
         a = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
         if a and a["avatar"]:
             total += len(a["avatar"].encode("utf-8"))
-        ids = [x["id"] for x in con.execute("SELECT id FROM docs WHERE owner=?", (user,)).fetchall()]
+        f = con.execute(
+            "SELECT COALESCE(SUM(fl.size),0) AS n FROM files fl "
+            "JOIN docs d ON d.id=fl.doc_id WHERE d.owner=?",
+            (user,),
+        ).fetchone()
+        total += int(f["n"] or 0)
     finally:
         con.close()
-    # Second walk over files/: needed, sizes live outside the DB.
-    for did in ids:
-        d = fdir / did
-        if d.is_dir():
-            try:
-                entries = list(d.iterdir())
-            except OSError:
-                continue
-            for p in entries:
-                if p.is_file() and ".tmp." not in p.name:
-                    # Skip in-flight upload buffers (*.tmp.*): they are counted
-                    # via the caller's delta instead (else overwrites 413 near
-                    # quota). Same hiding rule as list_files/upload recount.
-                    try:
-                        total += p.stat().st_size
-                    except OSError:
-                        pass
     return total
 
 
@@ -124,6 +116,23 @@ def doc_owner(doc_id: str, fallback: str = "") -> str:
 def check_quota(user: str, extra: int) -> None:
     if user_bytes(user) + extra > quota_cap():
         raise HTTPException(413, "Quota exceeded")
+
+
+def invalidate_quota_cache(owner: str) -> None:
+    """Drop sync's short-lived quota verdict after a quota-relevant write.
+
+    sync.py (track 1C) owns the cache and the real invalidate function;
+    this wrapper lazy-resolves it so callers stay cycle-free and keep
+    working standalone (no-op until the 1C side is merged). Never raises.
+    """
+    try:
+        from backend import sync as _sync
+
+        inv = getattr(_sync, "invalidate_quota_cache", None)
+        if inv is not None:
+            inv(owner)
+    except Exception as e:
+        log.warning("invalidate_quota_cache failed for %s: %s", owner, e)
 
 
 @contextmanager
