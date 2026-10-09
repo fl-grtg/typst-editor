@@ -118,6 +118,23 @@ def check_quota(user: str, extra: int) -> None:
         raise HTTPException(413, "Quota exceeded")
 
 
+def invalidate_quota_cache(owner: str) -> None:
+    """Drop sync's short-lived quota verdict after a quota-relevant write.
+
+    sync.py (track 1C) owns the cache and the real invalidate function;
+    this wrapper lazy-resolves it so callers stay cycle-free and keep
+    working standalone (no-op until the 1C side is merged). Never raises.
+    """
+    try:
+        from backend import sync as _sync
+
+        inv = getattr(_sync, "invalidate_quota_cache", None)
+        if inv is not None:
+            inv(owner)
+    except Exception as e:
+        log.warning("invalidate_quota_cache failed for %s: %s", owner, e)
+
+
 @contextmanager
 def quota_guard(
     owner: str,

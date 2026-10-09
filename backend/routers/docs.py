@@ -12,6 +12,7 @@ from backend import config, db, deps, search, sync
 from backend.constants import FOLDER_MAX, MAX_TXT, TITLE_MAX
 from backend.schemas import DocCreate, DocSave, FolderRename, FolderSet, TitleSet
 from backend.services import quota as quota_svc
+from backend.services.docfiles import sync_doc_files
 from backend.services.locks import _drop_doc_locks, _named_lock
 from backend.services.sidebar import notify_sidebar
 from backend.services.snapshots import auto_snap
@@ -418,6 +419,16 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
             finally:
                 _rb.close()
             raise HTTPException(500, "Copy failed") from None
+    # Files-table rows for the copied tree (quota/search read the table,
+    # never the filesystem). Best-effort: the doc + tree are committed, so
+    # even a transient lock must not turn success into a 503 (a failed
+    # request would read as "retry" and mint a second copy; the next
+    # list_files heals via sync_doc_files anyway).
+    try:
+        sync_doc_files(nid)
+    except HTTPException as e:
+        log.warning("duplicate files sync %s failed: %s", nid, e)
+    quota_svc.invalidate_quota_cache(user)
     notify_sidebar(user)
     return {"id": nid}
 

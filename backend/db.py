@@ -99,15 +99,24 @@ def _needs_migrate_backup(con: sqlite3.Connection, done: set[int]) -> bool:
 
 
 def backup_before_migrate(con: sqlite3.Connection, done: set[int]) -> Path | None:
-    """VACUUM INTO a timestamped file next to the DB. None when skipped."""
+    """VACUUM INTO a timestamped file next to the DB. None when skipped.
+
+    Fail-open: a backup failure only warns and returns None so startup
+    migration still runs (a half-migrated DB is worse than a missing
+    pre-migrate snapshot).
+    """
     if not get_db_path().is_file():
         return None
     if not _needs_migrate_backup(con, done):
         return None
     target = _migrate_backup_target()
     target.parent.mkdir(parents=True, exist_ok=True)
-    con.commit()  # VACUUM cannot run inside a transaction
-    con.execute("VACUUM INTO ?", (str(target),))
+    try:
+        con.commit()  # VACUUM cannot run inside a transaction
+        con.execute("VACUUM INTO ?", (str(target),))
+    except (OSError, sqlite3.Error) as e:
+        logging.getLogger(__name__).warning("pre-migrate backup failed, continuing: %s", e)
+        return None
     logging.getLogger(__name__).info("pre-migrate backup: %s", target)
     return target
 

@@ -118,7 +118,7 @@ def drop_read_token(doc_id: str, hint: str, req: Request, user: str = Depends(de
 @router.get("/api/r/{token}")
 def read_public(token: str, req: Request) -> dict:
     # No account: one charge on the IP bucket plus one on the per-token
-    # bucket, so a hot link cannot starve other readers ("read" has no
-    # config key yet and falls back to 30/min).
+    # bucket, so a hot link cannot starve other readers (RATE_READ_PER_MIN,
+    # default 30/min, via deps.limited scope "read").
     deps.limited(req, "read", key=(token or "")[:16])
     return check_read_token(token)

@@ -356,6 +356,7 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
             pass
         raise
     touch_doc(doc_id)
+    quota_svc.invalidate_quota_cache(_up_owner)
     return {"name": n, "size": size}
 
 
@@ -412,6 +413,7 @@ def save_text_file(doc_id: str, name: str, content: str, owner: str) -> None:
     except sqlite3.OperationalError as e:
         raise deps.busy_503("save_text_file", e) from e
     touch_doc(doc_id)
+    quota_svc.invalidate_quota_cache(owner)
 
 
 def touch_doc(doc_id: str) -> None:

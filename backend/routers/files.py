@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from backend import db, deps
 from backend.schemas import FileText
+from backend.services import quota as quota_svc
 from backend.services.docfiles import (
     _upload_locked,
     drop_file,
@@ -57,6 +58,7 @@ def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(de
     n = safe_name(f.filename or "")
     with _named_lock(f"upload:{doc_id}"):
         out = _upload_locked(doc_id, f, n, user)
+    quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
     emit_doc(doc_id, "file")
     return out
 
@@ -88,6 +90,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
             save_text_file(doc_id, n, b.content, deps._owner(doc_id, user))
         except sqlite3.OperationalError as e:
             raise deps.busy_503("save_file_text", e) from e
+    quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
     emit_doc(doc_id, "file")
     return {"ok": True}
 
@@ -134,5 +137,6 @@ def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(deps.m
         if gone:
             drop_file(doc_id, n)
             touch_doc(doc_id)
+            quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
             emit_doc(doc_id, "file")
     return {"ok": True}

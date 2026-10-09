@@ -373,3 +373,52 @@ def test_events_doc_filter_guards_access(c):
     login(c, "bob")
     assert c.get("/api/events", params={"doc_id": did}).status_code == 404
     assert c.get("/api/events", params={"doc_id": "nope"}).status_code == 404
+
+
+def test_mcp_text_write_updates_table_and_quota(c):
+    """R1 blocker 1: MCP file writes hit the files table immediately."""
+    from backend import mcp_tools as mcp
+
+    register_user(c, "alice")
+    make_doc(c, "MCPDatei")
+    base = quota_svc.user_bytes("alice")
+    mcp.op_create("alice", "owner", "/docs/MCPDatei/notizen.typ", "eins zwei drei")
+    con = db.connect()
+    try:
+        row = con.execute("SELECT size FROM files WHERE path=? AND doc_id IN "
+                          "(SELECT id FROM docs WHERE owner=? AND title=?)",
+                          ("notizen.typ", "alice", "MCPDatei")).fetchone()
+    finally:
+        con.close()
+    assert row is not None  # write-through, no list_files healing needed
+    assert row["size"] == len(b"eins zwei drei")
+    assert quota_svc.user_bytes("alice") == base + row["size"]
+
+
+def test_duplicate_copies_files_table_rows(c):
+    """R1 blocker 1: duplicated docs carry their files-table rows."""
+    register_user(c, "alice")
+    did = make_doc(c, "Vorlage")
+    assert c.post(f"/api/docs/{did}/files", files={"f": ("bild.png", b"x" * 30)}).status_code == 200
+    assert c.post(f"/api/docs/{did}/files/data.typ/text", json={"content": "hallo"}).status_code == 200
+    nid = c.post(f"/api/docs/{did}/duplicate").json()["id"]
+    con = db.connect()
+    try:
+        src = con.execute("SELECT path, size FROM files WHERE doc_id=? ORDER BY path", (did,)).fetchall()
+        dst = con.execute("SELECT path, size FROM files WHERE doc_id=? ORDER BY path", (nid,)).fetchall()
+    finally:
+        con.close()
+    assert [(r["path"], r["size"]) for r in dst] == [(r["path"], r["size"]) for r in src] != []
+    listed = {f["name"]: f["size"] for f in c.get(f"/api/docs/{nid}/files").json()["files"]}
+    assert listed == {r["path"]: r["size"] for r in src}
+
+
+def test_search_finds_duplicated_filename(c):
+    """R1 blocker 1: search reads the copied rows (filename hit on the copy)."""
+    register_user(c, "alice")
+    did = make_doc(c, "Original", content="ganz normaler Inhalt")
+    name = "zqxwjk-protokoll.csv"
+    assert c.post(f"/api/docs/{did}/files", files={"f": (name, b"a,b\n1,2\n")}).status_code == 200
+    nid = c.post(f"/api/docs/{did}/duplicate").json()["id"]
+    hits = c.get("/api/search", params={"q": "zqxwjk-protokoll"}).json()["hits"]
+    assert {h["id"] for h in hits} == {did, nid}

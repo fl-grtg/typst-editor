@@ -71,6 +71,7 @@ def save_template(b: TplSave, req: Request, user: str = Depends(deps.me)) -> dic
                 con.close()
     except sqlite3.OperationalError as e:
         raise deps.busy_503("save_template", e) from e
+    quota_svc.invalidate_quota_cache(user)
     if _old is None or (_old["folder"] or "") != b.folder.strip()[:FOLDER_MAX]:
         notify_sidebar(user)  # content-only updates don't change the list
     return {"name": n}
@@ -86,6 +87,7 @@ def delete_template(name: str, req: Request, user: str = Depends(deps.me)) -> di
         con.commit()
         if cur.rowcount == 0:
             raise HTTPException(404, "Template gone")
+        quota_svc.invalidate_quota_cache(user)
         notify_sidebar(user)
         return {"ok": True}
     finally:
