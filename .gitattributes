@@ -2,6 +2,8 @@
 *.png binary
 *.ico binary
 *.wasm binary
+*.ttf binary
+*.otf binary
 *.db binary
 *.sqlite binary
 .gitattributes text eol=lf
@@ -16,5 +18,10 @@ compose.yml text eol=lf
 *.sh text eol=lf
 *.toml text eol=lf
 vendor-cm.js text eol=lf linguist-generated linguist-vendored -diff
+vendor/* text eol=lf linguist-generated linguist-vendored -diff
+vendor/*.wasm binary linguist-generated linguist-vendored -diff
+vendor/*.ttf binary linguist-generated linguist-vendored -diff
+vendor/*.otf binary linguist-generated linguist-vendored -diff
+index.html linguist-generated=true
 *.js text eol=lf
 *.html text eol=lf

@@ -1,0 +1,2 @@
+/* esm.sh - lib0@0.2.119/number */
+import*as e from"./lib0-0.2.119-es2022-math.mjs-08fd787d32ff.js";import*as r from"./lib0-0.2.119-es2022-binary.mjs-43b973f0db85.js";var s=Number.MAX_SAFE_INTEGER,I=Number.MIN_SAFE_INTEGER,N=1<<31,n=r.BITS31,i=r.BITS32,E=Number.isInteger||(t=>typeof t=="number"&&isFinite(t)&&e.floor(t)===t),p=Number.isNaN,T=Number.parseInt,a=t=>{t&=r.BITS32;let o=0;for(;t;)t&=t-1,o++;return o};export{n as HIGHEST_INT32,i as HIGHEST_UINT32,N as LOWEST_INT32,s as MAX_SAFE_INTEGER,I as MIN_SAFE_INTEGER,a as countBits,E as isInteger,p as isNaN,T as parseInt};

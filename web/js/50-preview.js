@@ -4,13 +4,24 @@ let cmpWait = 0, lastInfra = false // compiler missing / last render infra error
 const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived
 let typstPm = null // compiler loads async: UI stays clickable while WASM loads
 let typstWarned = false // max 1 warning: no endless retry on blocked CDN
+const typstFonts = [ // self-hosted default text set (see vendor/manifest.json): replaces the bundle's remote default
+  '/vendor/font-DejaVuSansMono-Bold-bce60f1b4421.ttf', '/vendor/font-DejaVuSansMono-BoldOblique-91713a71d550.ttf',
+  '/vendor/font-DejaVuSansMono-Oblique-742097840c54.ttf', '/vendor/font-DejaVuSansMono-b4a6c3e4faab.ttf',
+  '/vendor/font-LibertinusSerif-Bold-0264914210ed.otf', '/vendor/font-LibertinusSerif-BoldItalic-47a665259f09.otf',
+  '/vendor/font-LibertinusSerif-Italic-9a393d63d6e0.otf', '/vendor/font-LibertinusSerif-Regular-fcf06307a773.otf',
+  '/vendor/font-LibertinusSerif-Semibold-a4b3f28e8588.otf', '/vendor/font-LibertinusSerif-SemiboldItalic-397f0d7aba35.otf',
+  '/vendor/font-NewCM10-Bold-947931c42ca3.otf', '/vendor/font-NewCM10-BoldItalic-0ddd9bab5b7d.otf',
+  '/vendor/font-NewCM10-Italic-70c9c811bb0e.otf', '/vendor/font-NewCM10-Regular-2f751e3082ce.otf',
+  '/vendor/font-NewCMMath-Bold-8956f7ef6c21.otf', '/vendor/font-NewCMMath-Book-b2e655d5cae5.otf',
+  '/vendor/font-NewCMMath-Regular-bfd2f9b22caa.otf']
 function ensureTypst() {
   if (typstPm) return typstPm
-  typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.8.0-rc3/dist/esm/index.js').then(m => { // pinned, CSP server-side (see above); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
+  typstPm = import('/vendor/typst-all-in-one-0.8.0-rc3-89646b6f5523.js').then(m => { // pinned, self-hosted (see vendor/); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
     if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM bundle sets no global: adopt it
     // bundle default points to missing WASM (404): pin explicitly (see docs example)
-    window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.8.0-rc3/pkg/typst_ts_web_compiler_bg.wasm' })
-    window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.8.0-rc3/pkg/typst_ts_renderer_bg.wasm' })
+    const fontLoader = (m.preloadRemoteFonts || m.loadFonts)(typstFonts, { assets: false }) // local fonts, no remote fetch
+    window.$typst.setCompilerInitOptions({ getModule: () => '/vendor/typst-compiler-0.8.0-rc3-85a071522388.wasm', beforeBuild: [fontLoader] })
+    window.$typst.setRendererInitOptions({ getModule: () => '/vendor/typst-renderer-0.8.0-rc3-b6947e0293db.wasm', beforeBuild: [fontLoader] })
   }).catch(e => {
     typstPm = null // allow retry: watchdog retries instead of stalling
     if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
@@ -98,7 +109,7 @@ async function render() {
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   if (!docId) return
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; queueTypstRender(); return } // loads in background, renders after
-  if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // cdnjs blocked: retry later
+  if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
   cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
   try {
     await shadowAll(activeFile ? shadow : getT()) // file tab: preview still compiles main.typ

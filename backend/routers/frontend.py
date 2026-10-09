@@ -20,6 +20,18 @@ def frontend_root() -> FileResponse:
         raise HTTPException(404, "Not found") from None
 
 
+@router.get("/vendor/{name}")
+def frontend_vendor(name: str) -> FileResponse:
+    if name in deps.VENDOR_FILES:
+        p = deps.ROOT / "vendor" / name
+        if p.is_file():
+            try:
+                return FileResponse(str(p))
+            except (FileNotFoundError, RuntimeError, OSError):
+                pass
+    raise HTTPException(404, "Not found")
+
+
 @router.get("/{name}")
 def frontend_file(name: str) -> FileResponse:
     if name in FRONT_FILES:
