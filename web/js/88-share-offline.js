@@ -9,17 +9,23 @@ async function loadShares() {
   if (id !== shareN || doc !== docId) return
   renderShares()
 }
+function roleSel(cur) { // Reader/Editor options, translated labels, backend values untouched
+  const s = el('select')
+  ;[['reviewer', t('common.roleReader')], ['editor', t('common.roleEditor')]].forEach(([v, lab]) => {
+    const o = el('option', null, lab); o.value = v; if (v === cur) o.selected = true; s.appendChild(o)
+  })
+  return s
+}
 function renderShares() {
   const p = $('sharePop'); p.replaceChildren()
   const top = el('div', 'sTop')
-  const close = icoBtn(null, ICO_X); close.title = 'Close'; close.setAttribute('aria-label', close.title)
+  const close = icoBtn(null, ICO_X); close.title = t('common.close'); close.setAttribute('aria-label', close.title)
   close.onclick = e => { e.stopPropagation(); p.style.display = 'none' }
-  top.append(el('b', null, 'Share'), close); p.appendChild(top)
+  top.append(el('b', null, t('share.title')), close); p.appendChild(top)
   const row = el('div', 'row')
-  const inp = el('input'); inp.placeholder = 'Username'; inp.setAttribute('aria-label', 'Username')
-  const sel = el('select'); sel.setAttribute('aria-label', 'Role')
-  sel.innerHTML = '<option value="reviewer">Reader</option><option value="editor">Editor</option>'
-  const ok = el('button', null, 'Add')
+  const inp = el('input'); inp.placeholder = t('share.userPh'); inp.setAttribute('aria-label', t('share.userPh'))
+  const sel = roleSel('reviewer'); sel.setAttribute('aria-label', t('common.roleAria'))
+  const ok = el('button', null, t('share.add'))
   const go = () => { if (ok.disabled || !inp.value.trim()) return; ok.disabled = true; api('POST', `/api/docs/${docId}/share`,
     { username: inp.value.trim(), role: sel.value })
     .then(() => { inp.value = ''; loadShares() }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
@@ -29,37 +35,34 @@ function renderShares() {
   shares.forEach(s => {
     const div = el('div')
     div.appendChild(el('span', 'who', s.username + ' '))
-    const rs = el('select'); rs.setAttribute('aria-label', 'Role for ' + s.username) // role editable inline (same endpoint as invite)
-    rs.innerHTML = '<option value="reviewer">Reader</option><option value="editor">Editor</option>'
-    rs.value = s.role
+    const rs = roleSel(s.role); rs.setAttribute('aria-label', t('share.roleFor', { user: s.username })) // role editable inline (same endpoint as invite)
     rs.onchange = async () => {
-      if (s.role === 'editor' && rs.value === 'reviewer' && !await ask('Downgrade to Reader? This wipes all Editor invite links for the doc.', { noInput: true, danger: true, ok: 'Downgrade' })) { rs.value = s.role; return }
+      if (s.role === 'editor' && rs.value === 'reviewer' && !await ask(t('share.downgradeConfirm'), { noInput: true, danger: true, ok: t('share.downgrade') })) { rs.value = s.role; return }
       api('POST', `/api/docs/${docId}/share`, { username: s.username, role: rs.value })
         .then(loadShares).catch(e => toast(e.message))
     }
-    const x = icoBtn(null, ICO_X); x.title = 'Remove share'; x.setAttribute('aria-label', x.title)
+    const x = icoBtn(null, ICO_X); x.title = t('share.removeShare'); x.setAttribute('aria-label', x.title)
     x.onclick = async () => {
-      if (!await ask('Remove ' + s.username + '? This also wipes all invite links for the doc.', { noInput: true, danger: true, ok: 'Remove' })) return
+      if (!await ask(t('share.removeConfirm', { user: s.username }), { noInput: true, danger: true, ok: t('share.remove') })) return
       api('DELETE', `/api/docs/${docId}/share/${s.username}`).then(loadShares).catch(e => toast(e.message))
     }
     div.append(rs, x); list.appendChild(div)
   })
   p.appendChild(list)
-  p.appendChild(el('b', null, 'Invite via link'))
-  const hint = el('div', 'hintline'); hint.textContent = 'Anyone with this link can open the document. You can create a new link anytime.'; p.appendChild(hint)
+  p.appendChild(el('b', null, t('share.inviteTitle')))
+  const hint = el('div', 'hintline'); hint.textContent = t('share.inviteHint'); p.appendChild(hint)
   const irow = el('div', 'row')
-  const isel = el('select'); isel.setAttribute('aria-label', 'Role')
-  isel.innerHTML = '<option value="reviewer">Reader</option><option value="editor">Editor</option>'
-  const ibtn = el('button', null, 'Create link')
-  const ilink = el('input'); ilink.placeholder = 'No link yet — create one'; ilink.setAttribute('aria-label', 'Invite link'); ilink.readOnly = true
+  const isel = roleSel('reviewer'); isel.setAttribute('aria-label', t('common.roleAria'))
+  const ibtn = el('button', null, t('share.createLink'))
+  const ilink = el('input'); ilink.placeholder = t('share.noLink'); ilink.setAttribute('aria-label', t('share.linkAria')); ilink.readOnly = true
   ilink.onclick = () => ilink.select()
-  const cbtn = el('button', null, 'Copy link'); cbtn.style.display = 'none'
+  const cbtn = el('button', null, t('share.copyLink')); cbtn.style.display = 'none'
   cbtn.onclick = async () => {
-    try { await navigator.clipboard.writeText(ilink.value); toast('Copied') }
-    catch (e) { ilink.select(); try { document.execCommand('copy') } catch (_) {} toast('Copied') }
+    try { await navigator.clipboard.writeText(ilink.value); toast(t('common.copied')) }
+    catch (e) { ilink.select(); try { document.execCommand('copy') } catch (_) {} toast(t('common.copied')) }
   }
   ibtn.onclick = async () => {
-    ibtn.disabled = true; const old = ibtn.textContent; ibtn.textContent = 'Creating...'
+    ibtn.disabled = true; const old = ibtn.textContent; ibtn.textContent = t('share.creating')
     try {
       const r = await api('POST', `/api/docs/${docId}/invite`, { role: isel.value })
       ilink.value = location.origin + '/?join=' + r.token
@@ -81,12 +84,13 @@ async function loadInvites() { // open links: display + revoke only (link only a
   try { list = (await api('GET', `/api/docs/${doc}/invites`)).invites } catch (e) { console.warn('invites failed', e); return }
   if (id !== invN || doc !== docId) return
   box.replaceChildren()
-  if (list.length) box.appendChild(el('div', null, 'Links can only be copied when created'))
-  list.forEach(t => {
+  if (list.length) box.appendChild(el('div', null, t('share.linksHint')))
+  list.forEach(inv => {
     const div = el('div')
-    div.appendChild(el('span', 'who', (({ owner: 'Owner', editor: 'Editor', reviewer: 'Reader' })[t.role] || t.role) + ': ' + t.hint + '… (' + (t.created_at || '').slice(0, 10) + ') '))
-    const x = icoBtn(null, ICO_X); x.title = 'Revoke'; x.setAttribute('aria-label', x.title)
-    x.onclick = () => api('DELETE', `/api/docs/${docId}/invites/${t.hint}`).then(loadInvites)
+    const roleName = ({ owner: t('common.roleOwner'), editor: t('common.roleEditor'), reviewer: t('common.roleReader') })[inv.role] || inv.role
+    div.appendChild(el('span', 'who', t('share.inviteRow', { role: roleName, hint: inv.hint, date: (inv.created_at || '').slice(0, 10) })))
+    const x = icoBtn(null, ICO_X); x.title = t('share.revoke'); x.setAttribute('aria-label', x.title)
+    x.onclick = () => api('DELETE', `/api/docs/${docId}/invites/${inv.hint}`).then(loadInvites)
     div.append(x); box.appendChild(div)
   })
 }
