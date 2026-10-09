@@ -239,3 +239,254 @@ def test_new_hash_uses_600k_rounds():
     assert int(h.split("$", 3)[1]) >= 600_000
     assert auth.check_password("pass1234", h) is True
     assert auth.check_password("wrongpass1", h) is False
+
+
+def test_b1_room_race_single_doc(c):
+    """B1: 20 parallele Erst-Connects -> genau 1 Doc-Objekt, kein Dirt-Verlust."""
+    import concurrent.futures as _fut
+    import threading as _th
+
+    from pycrdt import Text as _Text
+
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "B1Race", content="base")
+    sync.rooms.pop(did, None)
+    n = 20
+    barrier = _th.Barrier(n)
+    out: list = [None] * n
+
+    def _worker(i: int) -> None:
+        barrier.wait(timeout=5.0)
+        out[i] = sync.room(did)
+
+    with _fut.ThreadPoolExecutor(max_workers=n) as ex:
+        list(ex.map(_worker, range(n)))
+    first = out[0]
+    assert first is not None
+    for r in out[1:]:
+        assert r is first
+    assert sync.rooms.get(did) is first
+    # Kein Dirt-Verlust: Edit über eine Referenz ist über alle sichtbar.
+    with sync._doc_lock(first):
+        with first["doc"].transaction():
+            first["doc"].get("typst", type=_Text).__iadd__("-b1")
+    first["dirty"] = True
+    for r in out:
+        assert r.get("dirty") is True
+    assert "-b1" in (sync.room_text(did) or "")
+
+
+def test_b2_writer_flusher_consistent(c):
+    """B2: parallele Writer+Flusher -> Inhalt konsistent (kein Datenrennen)."""
+    import concurrent.futures as _fut
+
+    from pycrdt import Text as _Text
+
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "B2Race", content="base")
+    r = sync.room(did)
+    NW, NOPS, NF = 8, 20, 4
+
+    def _writer(i: int) -> None:
+        for j in range(NOPS):
+            with sync._doc_lock(r):
+                with r["doc"].transaction():
+                    r["doc"].get("typst", type=_Text).__iadd__(f"-w{i}-{j}")
+            r["dirty"] = True
+
+    def _flusher() -> None:
+        for _ in range(NOPS):
+            try:
+                sync.persist(did)
+            except Exception:
+                pass
+            try:
+                sync.flush_all()
+            except Exception:
+                pass
+
+    with _fut.ThreadPoolExecutor(max_workers=NW + NF) as ex:
+        futs = [ex.submit(_writer, i) for i in range(NW)]
+        futs += [ex.submit(_flusher) for _ in range(NF)]
+        for f in _fut.as_completed(futs, timeout=30):
+            f.result()
+    sync._quota_cache.clear()
+    sync.flush_all()
+    live = sync.room_text(did) or ""
+    for i in range(NW):
+        for j in range(NOPS):
+            assert f"-w{i}-{j}" in live
+    con = db.connect()
+    try:
+        row = con.execute("SELECT content FROM docs WHERE id=?", (did,)).fetchone()
+        db_text = row["content"] if row else ""
+    finally:
+        con.close()
+    assert db_text == live
+    assert sync.save_status(did) is not None
+    assert sync.save_status(did)["quota_blocked"] is False
+
+
+def test_b5_foreign_revoke_kicks_idle_ws(c):
+    """B5: Single-Revoke schließt fremde idle WS-Conns aktiv (Kick)."""
+    import pytest as _pt
+    from fastapi.websockets import WebSocketDisconnect as _WD
+
+    register_user(c, "alice")
+    tok_a = c.cookies.get(auth.COOKIE)
+    assert tok_a
+    r_login = c.post("/api/login", json={"username": "alice", "password": "pass1234"})
+    assert r_login.status_code == 200, r_login.text
+    tok_b = c.cookies.get(auth.COOKIE)
+    assert tok_b and tok_b != tok_a
+    did = make_doc(c, "B5Kick", content="hi")
+    # Fremde Session (wird revoked) + eigene Survivor-Session.
+    c.cookies.set(auth.COOKIE, tok_a)
+    with c.websocket_connect(f"/ws/{did}") as wa:
+        wa.receive_bytes()
+        c.cookies.set(auth.COOKIE, tok_b)
+        with c.websocket_connect(f"/ws/{did}") as wb:
+            wb.receive_bytes()
+            # Revoke der fremden Session als Survivor.
+            rr = c.delete(f"/api/sessions/{auth.sha(tok_a)}")
+            assert rr.status_code == 200, rr.text
+            # Idle Fremd-Client wird getrennt (Close 4403), kein Broadcast mehr.
+            with _pt.raises(_WD) as ei:
+                wa.receive_bytes()
+            assert ei.value.code == 4403
+            # Survivor lebt: STEP1 -> STEP2 antwortet noch.
+            wb.send_bytes(_step1())
+            _t, _s, _d = _parse(wb.receive_bytes())
+            assert (_t, _s) == (sync.MSG_SYNC, sync.STEP2)
+
+
+def test_b6_session_async_fail_closed(c, monkeypatch):
+    """B6: _session_async fail-closed bei DB-Exception (wie session_ok)."""
+    import asyncio as _aio
+    import time as _tm
+
+    from backend.constants import SESSION_RECHECK_TTL as _TTL
+
+    register_user(c, "alice")
+    tok = c.cookies.get(auth.COOKIE)
+    assert tok
+    sync._sess_cache.clear()
+
+    def _boom(_t: str):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(auth, "verify_session", _boom)
+    # Cache-miss + DB-Fehler -> None (kein Zutritt).
+    assert _aio.run(sync._session_async(tok)) is None
+    # Stale Hit + DB-Fehler -> ebenfalls None (kein fail-open).
+    sync._sess_cache[tok] = ("alice", _tm.monotonic() - _TTL - 1.0)
+    assert _aio.run(sync._session_async(tok)) is None
+
+
+def test_b7_typst_tag_sandbox(c, monkeypatch):
+    """B7: _typst_tag läuft in der Sandbox (Slot + env-Whitelist + preexec)."""
+    import sys as _sys
+
+    monkeypatch.setenv("REGISTRATION_INVITE_TOKEN", "tag-secret-invite")
+    monkeypatch.setenv("SECRET_X_TAG", "tag-shhh")
+    seen: dict = {}
+
+    class _FakeProc:
+        stdout = b"typst 0.12.0 (test)"
+        returncode = 0
+
+    def _fake_run(cmd, **kw):
+        seen.update(kw)
+        seen["cmd"] = cmd
+        return _FakeProc()
+
+    monkeypatch.setattr(t.shutil, "which", lambda *a, **k: "/usr/bin/typst")
+    monkeypatch.setattr(t.subprocess, "run", _fake_run)
+    t._TYPST_TAG = None
+    try:
+        tag = t._typst_tag()
+    finally:
+        t._TYPST_TAG = None
+    assert tag.startswith("typst 0.12.0")
+    env = seen.get("env") or {}
+    flat = " ".join(f"{k}={v}" for k, v in env.items())
+    assert "tag-secret-invite" not in flat
+    assert "tag-shhh" not in flat
+    assert "REGISTRATION_INVITE_TOKEN" not in env
+    assert env.get("TYPST_PACKAGE_CACHE_PATH")
+    if _sys.platform != "win32":
+        assert seen.get("preexec_fn") is not None
+    # Volle Slots -> 503-Fallback "unknown", kein subprocess-Aufruf.
+    monkeypatch.setattr(t, "COMPILE_QUEUE_MAX", 0)
+    held = []
+    for _ in range(t.COMPILE_MAX_CONCURRENT):
+        assert t._COMPILE_SLOTS.acquire(blocking=False)
+        held.append(True)
+    called = {"n": 0}
+
+    def _must_not_run(*a, **k):
+        called["n"] += 1
+        raise AssertionError("must not run when slots are full")
+
+    monkeypatch.setattr(t.subprocess, "run", _must_not_run)
+    t._TYPST_TAG = None
+    try:
+        assert t._typst_tag() == "unknown"
+    finally:
+        t._TYPST_TAG = None
+        for _ in held:
+            t._COMPILE_SLOTS.release()
+    assert called["n"] == 0
+
+
+def test_b4_quota_persist_under_over(c, monkeypatch):
+    """B4/G4-4: persist/flush_all enforcen Quota ohne stillen Datenverlust."""
+    from backend.services import quota as _qs
+
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "B4Q", content="base")
+    r = sync.room(did)
+
+    def _dirty(text: str) -> None:
+        from pycrdt import Text as _Text
+
+        with sync._doc_lock(r):
+            with r["doc"].transaction():
+                cur = r["doc"].get("typst", type=_Text)
+                cur.clear()
+                cur += text
+        r["dirty"] = True
+        r["text_len"] = len(text)
+
+    # Under-quota persistiert (beide Pfade: persist + flush_all).
+    sync._quota_cache.clear()
+    monkeypatch.setattr(_qs, "is_over_quota", lambda _u: False)
+    _dirty("under-ok")
+    assert sync.persist(did) is True
+    assert _db_content(did) == "under-ok"
+    assert sync.rooms[did].get("dirty") in (False, None)
+    assert sync.save_status(did)["quota_blocked"] is False
+    _dirty("under-ok2")
+    sync.flush_all()
+    assert _db_content(did) == "under-ok2"
+    assert sync.save_status(did)["quota_blocked"] is False
+    # Over-quota: weder persistiert noch gedroppt (dirty + sichtbarer Status).
+    sync._quota_cache.clear()
+    monkeypatch.setattr(_qs, "is_over_quota", lambda _u: True)
+    _dirty("over-blocked-content")
+    assert sync.persist(did) is False
+    assert _db_content(did) == "under-ok2"
+    assert sync.rooms[did].get("dirty") is True
+    st = sync.save_status(did)
+    assert st is not None and st["dirty"] is True and st["quota_blocked"] is True
+    sync.flush_all()
+    assert _db_content(did) == "under-ok2"
+    assert sync.rooms[did].get("dirty") is True
+    assert sync.save_status(did)["quota_blocked"] is True
+    # Disconnect-Pfad (persist) behält Dirt ebenfalls; nächster Connect meldet.
+    assert sync.persist(did) is False
+    assert sync.save_status(did)["quota_blocked"] is True
+    assert "over-blocked-content" in (sync.room_text(did) or "")

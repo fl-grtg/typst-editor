@@ -189,9 +189,10 @@ async def revoke_session(sid: str, req: Request, res: Response,
             con.close()
         except Exception as e:
             log.warning("revoke_session close failed: %s", e)
-    # Force re-verify so the revoked token dies on next WS message; other
-    # sessions re-verify fine (still in DB). No kick_all: that would log out
-    # every device instead of just the revoked one.
+    # B5: actively kick the revoked session's WS conns (idle clients die
+    # immediately, not on their next message). Self-revoke keeps the
+    # existing kick_all (all devices of this user); foreign revoke kicks
+    # only the revoked token hash.
     try:
         sync.drop_sess_cache(user)
     except Exception as e:
@@ -207,6 +208,11 @@ async def revoke_session(sid: str, req: Request, res: Response,
             await sync.kick_all(user)
         except Exception as e:
             log.warning("revoke_session kick failed: %s", e)
+    else:
+        try:
+            await sync.kick_token_hash(sid)
+        except Exception as e:
+            log.warning("revoke_session kick_token failed: %s", e)
     return {"ok": True}
 
 

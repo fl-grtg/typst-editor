@@ -141,12 +141,45 @@ _TYPST_TAG: str | None = None
 
 
 def _typst_tag() -> str:
-    """Cache-busting salt: fonts/packages/env changes alter the render."""
+    """Cache-busting salt: fonts/packages/env changes alter the render.
+
+    B7: runs inside the same compile sandbox as every other typst call
+    (slot + whitelisted env + rlimit preexec). A full slot queue (503) or
+    any sandbox failure falls back to "unknown" instead of raising, so view
+    caching never hard-fails on contention.
+    """
     global _TYPST_TAG
     if _TYPST_TAG is None:
         try:
             exe = shutil.which("typst") or "typst"
-            p = subprocess.run([exe, "--version"], capture_output=True, timeout=10)
+            try:
+                root = _files_dir()
+            except Exception:
+                root = Path(tempfile.gettempdir())
+            try:
+                with _compile_slot():
+                    try:
+                        env = _typst_env(root)
+                    except HTTPException as e:
+                        log.warning("typst tag env failed, use unknown: %s", e.detail)
+                        _TYPST_TAG = "unknown"
+                        return _TYPST_TAG
+                    except Exception as e:
+                        log.warning("typst tag env failed, use unknown: %s", e)
+                        _TYPST_TAG = "unknown"
+                        return _TYPST_TAG
+                    try:
+                        cwd = str(root) if Path(root).is_dir() else None
+                    except Exception:
+                        cwd = None
+                    p = subprocess.run([exe, "--version"], capture_output=True, timeout=10,
+                                       env=env, preexec_fn=_subprocess_preexec(), cwd=cwd)
+            except HTTPException as e:
+                if getattr(e, "status_code", 0) == 503:
+                    log.warning("typst tag busy, use unknown")
+                    _TYPST_TAG = "unknown"
+                    return _TYPST_TAG
+                raise
             _TYPST_TAG = (p.stdout or b"").decode("utf-8", "replace").strip()[:80] if p.returncode == 0 else "unknown"
         except Exception as e:
             log.warning("typst tag failed, use unknown: %s", e)
