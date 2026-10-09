@@ -75,3 +75,28 @@ def test_6_export_typ_downloads(page):
     with page.expect_download() as dl:
         page.locator("#menu").get_by_text("Download as .typ").click()
     assert dl.value.suggested_filename.endswith(".typ")
+
+
+def test_7_mobile_viewport_login_and_open_doc(browser, base_url):
+    mctx = browser.new_context(base_url=base_url, viewport={"width": 390, "height": 844})
+    mctx.set_default_timeout(15_000)
+    try:
+        mp = mctx.new_page()
+        register(mp, "e2e_grace")
+        mp.click("#navToggle")  # <=720px the sidebar is a closed drawer; open it first
+        create_doc(mp, "Mobile doc")
+        expect(mp.locator("#title")).to_have_text("Mobile doc")
+        expect(mp.locator("#cm .cm-content")).to_be_visible()
+    finally:
+        mctx.close()
+
+
+def test_8_wrong_password_shows_error(page):
+    register(page, "e2e_heidi")
+    page.context.clear_cookies()  # drop the session, then sign in with a bad password
+    page.goto("/")
+    page.fill("#u", "e2e_heidi")
+    page.fill("#p", "wrongpassword1")  # >=8 chars: passes minlength so the form submits
+    page.click("#go")
+    expect(page.locator("#err")).to_contain_text("Invalid login")
+    expect(page.locator("#app")).not_to_be_visible()

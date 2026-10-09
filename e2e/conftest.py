@@ -17,7 +17,9 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import sync_playwright  # noqa: E402
+from playwright.sync_api import expect, sync_playwright  # noqa: E402
+
+expect.set_options(timeout=15_000)  # assertion waits match the ctx action timeout (expect default is only 5s)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,7 +34,11 @@ def _free_port() -> int:
 def base_url(tmp_path_factory):
     data = tmp_path_factory.mktemp("e2e-data")
     port = _free_port()
-    env = {**os.environ, "DATA_DIR": str(data), "REGISTRATION": "open", "PYTHONUNBUFFERED": "1"}
+    env = {**os.environ, "DATA_DIR": str(data), "REGISTRATION": "open", "PYTHONUNBUFFERED": "1",
+           # All smoke tests share one egress IP, hence one per-IP rate-limit bucket
+           # (production clients have distinct IPs). Raise the chatty list/poll
+           # budget so the suite can't 429 itself; app limits stay untouched.
+           "RATE_FILES_LIST_PER_MIN": "1000"}
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
