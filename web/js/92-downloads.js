@@ -44,6 +44,6 @@ $('dlPdf').onclick = async () => {
 }
 setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
   if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {
-  pushLocal(changes, oldLen); queueRender(); queueSave()
+  pushLocal(); queueRender(); queueSave()
   }
 }, SAVE_MS)

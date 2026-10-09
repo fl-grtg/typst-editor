@@ -3485,17 +3485,17 @@ function renderSettings() {
   grid.append(colL, colR); p.appendChild(grid) // deterministic 2-col grid: left = profile, right = backup + keys
   const fr = el('div', 'row'); fr.append(el('label', null, t('settings.font')))
   const fm = el('button', 'step', 'A−'); fm.title = t('settings.fontMinus'); fm.setAttribute('aria-label', fm.title)
-  fm.onclick = () => { stepEd(-ED_STEP); renderSettings() }
+  fm.onclick = e => { e.stopPropagation(); stepEd(-ED_STEP); renderSettings() }
   fr.append(fm, el('span', 'val', edSize + 'px'))
   const fp = el('button', 'step', 'A+'); fp.title = t('settings.fontPlus'); fp.setAttribute('aria-label', fp.title)
-  fp.onclick = () => { stepEd(ED_STEP); renderSettings() }
+  fp.onclick = e => { e.stopPropagation(); stepEd(ED_STEP); renderSettings() }
   fr.appendChild(fp)
   const zr = el('div', 'row'); zr.append(el('label', null, t('settings.zoom')))
   const zm = el('button', 'step', '−'); zm.title = t('settings.zoomMinus'); zm.setAttribute('aria-label', zm.title)
-  zm.onclick = () => { stepPv(-PV_STEP); renderSettings() }
+  zm.onclick = e => { e.stopPropagation(); stepPv(-PV_STEP); renderSettings() }
   zr.append(zm, el('span', 'val', pvZoom + ' %'))
   const zp = el('button', 'step', '+'); zp.title = t('settings.zoomPlus'); zp.setAttribute('aria-label', zp.title)
-  zp.onclick = () => { stepPv(PV_STEP); renderSettings() }
+  zp.onclick = e => { e.stopPropagation(); stepPv(PV_STEP); renderSettings() }
   zr.appendChild(zp)
   colL.appendChild(grp(t('settings.appearance'), sec(fr, zr)))
   const tr = el('div', 'row'); tr.append(el('label', null, t('settings.tabs')))
@@ -3939,7 +3939,7 @@ $('dlPdf').onclick = async () => {
 }
 setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
   if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {
-  pushLocal(changes, oldLen); queueRender(); queueSave()
+  pushLocal(); queueRender(); queueSave()
   }
 }, SAVE_MS)
 // --- Find + replace: bottom bar (Ctrl+F), hits as marks, Enter = next ---
