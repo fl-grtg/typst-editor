@@ -1,6 +1,6 @@
 from conftest import login, make_doc, register_user
 
-from backend import main as backend_main
+from backend import deps
 
 
 def _up(c, did, name, data=b"abc"):
@@ -64,7 +64,7 @@ def test_write_leaves_no_tmp(c):
     assert _up(c, did, "bild.png", b"abc").status_code == 200
     assert c.post(f"/api/docs/{did}/files/notizen.typ/text",
                  json={"content": "hallo"}).status_code == 200
-    d = backend_main.FILES_DIR / did
+    d = deps.get_files_dir() / did
     assert list(d.glob("*.tmp.*")) == []
     names = [f["name"] for f in c.get(f"/api/docs/{did}/files").json()["files"]]
     assert "bild.png" in names

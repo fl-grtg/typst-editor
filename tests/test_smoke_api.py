@@ -15,16 +15,16 @@ def test_smoke(c):
 
 
 def test_spa_root_serves_html_with_csp(c):
-    # IST (backend/main.py frontend_root): GET / -> index.html, 200 text/html.
+    # Current behaviour (backend/routers/frontend.py): GET / -> index.html, 200 text/html.
     r = c.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers.get("content-type", "")
     assert "Content-Security-Policy" in r.headers or "content-security-policy" in r.headers
-    assert b"<" in r.content  # html, kein JSON
+    assert b"<" in r.content  # html, not JSON
 
 
 def test_spa_unknown_name_is_404_no_fallback(c):
-    # IST (backend/main.py frontend_file): nur FRONT_FILES werden serviert,
-    # unbekannte Namen -> 404 (kein SPA-Fallback auf /).
+    # Current behaviour (backend/routers/frontend.py): only FRONT_FILES are served,
+    # unknown names -> 404 (no SPA fallback to /).
     assert c.get("/esgibtmichnicht123").status_code == 404
     assert c.get("/api/esgibtmichnicht123").status_code == 404

@@ -1,0 +1,21 @@
+/* ==========================================================================
+   Empty state, toast
+   ========================================================================== */
+#emptyCard { max-width: 420px; margin: 9vh auto 0; padding: 30px; text-align: left; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-pop); }
+#emptyCard h2 { margin: 0 0 4px; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
+#emptyCard .sub { margin: 0 0 16px; color: var(--sub); font-size: 13px; }
+#emptyCard .step { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; font-size: 13px; background: none; border: 0; box-shadow: none; padding: 0; min-height: 0; font-weight: 400; }
+#emptyCard .step .n { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--hover); color: var(--text); font-weight: 650; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+#emptyCard .ctaRow { display: flex; gap: 8px; margin-top: 20px; }
+#emptyCard button { flex: 1; min-height: 34px; padding: 7px 14px; font-size: 13px; border-radius: var(--r-sm); margin: 0; }
+#emptyCard .hint { margin: 16px 0 0; font-size: 12px; color: var(--faint); }
+#emptyCard kbd { background: var(--hover); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; font: 11px var(--mono); color: var(--sub); }
+#toast {
+  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  z-index: var(--z-toast); display: none; max-width: min(480px, calc(100vw - 32px));
+  padding: 10px 16px; font-size: 13px; white-space: pre-line;
+  background: #202226; color: #f2f2f4; border-radius: var(--r-md); box-shadow: var(--sh-pop); transition: opacity .4s ease;
+}
+#toast button { margin-left: 10px; background: rgba(255, 255, 255, .14); color: inherit; border: 0; box-shadow: none; min-height: 28px; padding: 3px 12px; }
+#toast button:hover { background: rgba(255, 255, 255, .24); }
+

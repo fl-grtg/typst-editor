@@ -1,0 +1,67 @@
+/* ==========================================================================
+   Base
+   ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flow-root;
+  font: 13px/1.5 var(--ui);
+  background: var(--bg); color: var(--text);
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-text-size-adjust: 100%;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; transition: background-color .12s ease, color .12s ease, box-shadow .12s ease, opacity .12s ease; }
+button:disabled { cursor: default; opacity: .4; }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+input:focus-visible, select:focus-visible { outline: none; }
+input[type=checkbox] { accent-color: var(--ink); width: 15px; height: 15px; margin: 0; }
+svg { display: block; flex: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: -9999px; top: 8px; z-index: var(--z-modal); background: var(--ink); color: var(--on-ink); padding: 8px 14px; border-radius: var(--r-sm); font-weight: 600; text-decoration: none; }
+.skip:focus { left: 12px; }
+[hidden] { display: none !important; }
+
+input[type=text], input:not([type]), input[type=password], select, #mInp, #mExtra input[type=text] {
+  width: 100%; min-height: 32px; padding: 5px 10px;
+  background: var(--field); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+input::placeholder { color: var(--faint); }
+input:focus, select:focus { border-color: var(--acc); box-shadow: var(--ring); }
+select {
+  appearance: none; padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa0ae' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+select option { background: var(--card); color: var(--text); }
+
+/* Buttons: default = quiet tinted, primary = ink, danger */
+.btn, #preview .empty button, .row button, #mYes, #mNo, .mTop button, .save, #emptyCard button, #login #go,
+#setPop .step, #setPop .btnSecondary, #setPop .btnDanger, #media > button, #find button,
+#histPop .srow button, aside .empty button, aside #new, aside #upDoc, #userBox button, #toast button {
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--card); color: var(--text);
+  font-weight: 500; font-size: 12.5px; padding: 5px 12px; min-height: 30px;
+  box-shadow: var(--sh-1);
+}
+.btn:hover, #preview .empty button:hover, .row button:hover, #mNo:hover, .mTop button:hover, .save:hover, #emptyCard button.ghost:hover,
+#setPop .step:hover, #setPop .btnSecondary:hover, #media > button:hover, #find button:hover,
+#histPop .srow button:hover, aside .empty button:hover, aside #upDoc:hover, #userBox button:hover { background: var(--hover); }
+.row button:not(.ghost), #mYes, .save.primary, #emptyCard button:not(.ghost), #login #go, aside #new, #pop .rr .ib {
+  background: var(--ink); color: var(--on-ink); border-color: transparent; box-shadow: none; font-weight: 600;
+}
+.row button:not(.ghost):hover, #mYes:hover, .save.primary:hover, #emptyCard button:not(.ghost):hover, #login #go:hover, aside #new:hover, #pop .rr .ib:hover {
+  background: var(--ink); filter: opacity(.86);
+}
+#setPop .btnDanger { color: var(--danger); background: var(--danger-soft); border-color: transparent; box-shadow: none; }
+#setPop .btnDanger:hover { background: var(--danger-soft); filter: brightness(.96); }
+
+/* Icon buttons */
+.ibtn, header button, #tools button, #pvTools button, .sTop button, #pop .ib, aside .mini, .sbRail button, .sbHead button {
+  background: none; border: 0; box-shadow: none; color: var(--sub);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: var(--r-sm);
+}
+.ibtn:hover, header button:hover, #tools button:hover, #pvTools button:hover, .sTop button:hover, aside .mini:hover, .sbRail button:hover, .sbHead button:hover, #userBox .ibtn:hover { background: var(--hover); color: var(--text); }
+header button:active, #tools button:active, #pvTools button:active, .sbRail button:active, .sbHead button:active { background: var(--press); }
+

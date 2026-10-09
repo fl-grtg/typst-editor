@@ -4,13 +4,13 @@ import zipfile
 
 from conftest import make_doc, register_user
 
-from backend import main as backend_main
+from backend.routers import export as export_routes
 
 
 def test_export_too_big_413(c, monkeypatch):
     register_user(c, "alice")
     make_doc(c, "Gross", content="x" * 100)
-    monkeypatch.setattr(backend_main, "EXPORT_MAX", 10)
+    monkeypatch.setattr(export_routes, "EXPORT_MAX", 10)
     assert c.get("/api/export.zip").status_code == 413
 
 

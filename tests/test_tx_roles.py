@@ -12,8 +12,7 @@ import pytest
 from conftest import login, make_doc, register_user
 from fastapi import HTTPException
 
-import backend.main as main
-from backend import db
+from backend import db, deps
 from backend import mcp_tools as t
 
 
@@ -56,7 +55,7 @@ def _setup_editor_doc(c):
 def test_tx_recheck_save_revoked(c, monkeypatch):
     did = _setup_editor_doc(c)
     _revoke_share(did, "bob")
-    monkeypatch.setattr(main, "need_edit", lambda u, d: "editor")  # stale pre-tx grant
+    monkeypatch.setattr(deps, "need_edit", lambda u, d: "editor")  # stale pre-tx grant
     login(c, "bob")
     assert c.post(f"/api/docs/{did}/save", json={"content": "hijack"}).status_code == 404
     assert c.get(f"/api/docs/{did}").status_code == 404  # no enumeration either way
@@ -66,7 +65,7 @@ def test_tx_recheck_save_downgraded(c, monkeypatch):
     did = _setup_editor_doc(c)
     login(c, "alice")
     assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"}).status_code == 200
-    monkeypatch.setattr(main, "need_edit", lambda u, d: "editor")  # stale: was editor
+    monkeypatch.setattr(deps, "need_edit", lambda u, d: "editor")  # stale: was editor
     login(c, "bob")
     assert c.post(f"/api/docs/{did}/save", json={"content": "hijack"}).status_code == 403
 
@@ -74,7 +73,7 @@ def test_tx_recheck_save_downgraded(c, monkeypatch):
 def test_tx_recheck_duplicate_revoked(c, monkeypatch):
     did = _setup_editor_doc(c)
     _revoke_share(did, "bob")
-    monkeypatch.setattr(main, "need_edit", lambda u, d: "editor")
+    monkeypatch.setattr(deps, "need_edit", lambda u, d: "editor")
     login(c, "bob")
     assert c.post(f"/api/docs/{did}/duplicate").status_code == 404
 
@@ -82,7 +81,7 @@ def test_tx_recheck_duplicate_revoked(c, monkeypatch):
 def test_tx_recheck_duplicate_downgraded(c, monkeypatch):
     did = _setup_editor_doc(c)
     _set_role(did, "bob", "reviewer")
-    monkeypatch.setattr(main, "need_edit", lambda u, d: "editor")
+    monkeypatch.setattr(deps, "need_edit", lambda u, d: "editor")
     login(c, "bob")
     assert c.post(f"/api/docs/{did}/duplicate").status_code == 403
 
@@ -91,7 +90,7 @@ def test_tx_recheck_snap_restore_revoked(c, monkeypatch):
     did = _setup_editor_doc(c)
     sid = c.post(f"/api/docs/{did}/snapshots", json={"label": "base"}).json()["id"]
     _revoke_share(did, "bob")
-    monkeypatch.setattr(main, "need_edit", lambda u, d: "editor")
+    monkeypatch.setattr(deps, "need_edit", lambda u, d: "editor")
     login(c, "bob")
     assert c.post(f"/api/docs/{did}/snapshots/{sid}/restore").status_code == 404
 
@@ -102,7 +101,7 @@ def test_tx_recheck_share_after_trash(c, monkeypatch):
     login(c, "alice")
     did = make_doc(c, "TrashShare")
     _trash(did)
-    monkeypatch.setattr(main, "need_access", lambda *a, **k: "owner")  # stale pre-tx grant
+    monkeypatch.setattr(deps, "need_access", lambda *a, **k: "owner")  # stale pre-tx grant
     assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "editor"}).status_code == 410
 
 
@@ -113,7 +112,7 @@ def test_tx_recheck_unshare_after_trash(c, monkeypatch):
     did = make_doc(c, "TrashUnshare")
     assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "editor"}).status_code == 200
     _trash(did)
-    monkeypatch.setattr(main, "need_access", lambda *a, **k: "owner")
+    monkeypatch.setattr(deps, "need_access", lambda *a, **k: "owner")
     assert c.delete(f"/api/docs/{did}/share/bob").status_code == 410
 
 

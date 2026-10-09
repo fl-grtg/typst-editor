@@ -1,0 +1,23 @@
+/* ==========================================================================
+   Sign in
+   ========================================================================== */
+#login {
+  width: min(380px, 92vw); margin: max(48px, 13vh) auto 0;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 34px 32px 28px; background: var(--card);
+  border-radius: var(--r-xl); box-shadow: var(--sh-pop);
+}
+#login .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+#login .brand img { width: 32px; height: 32px; border-radius: 9px; }
+#login h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+#login .vp { margin: 0 0 8px; font-size: 13.5px; color: var(--sub); line-height: 1.45; }
+#login input[type=text], #login input:not([type]), #login input[type=password] { min-height: 40px; padding: 9px 12px; border-radius: var(--r-md); font-size: 14px; }
+#login .pwRow { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--sub); min-height: 22px; }
+#login .pwRow label { cursor: pointer; }
+#login #go { min-height: 40px; font-size: 14px; border-radius: var(--r-md); margin-top: 4px; }
+#login .mode { background: none; border: 0; box-shadow: none; text-align: center; font-size: 13px; color: var(--sub); padding: 10px; border-radius: var(--r-sm); }
+#login .mode b { color: var(--text); font-weight: 600; }
+#login #err { min-height: 18px; font-size: 12.5px; color: var(--danger); }
+#booterr { display: none; margin: 8px; padding: 10px 14px; background: var(--danger-soft); color: var(--danger); border-radius: var(--r-md); font-size: 13px; }
+#offline { display: none; margin: 8px; padding: 8px 14px; background: var(--hover); color: var(--sub); border-radius: var(--r-md); font-size: 12.5px; text-align: center; }
+

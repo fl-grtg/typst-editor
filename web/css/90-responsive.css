@@ -1,0 +1,41 @@
+/* ==========================================================================
+   Small screens
+   ========================================================================== */
+@media (max-width: 720px) {
+  .sbRail { display: none !important; }
+  #menubar { display: none; }
+  #menuMore { display: inline-flex; }
+  header { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; padding-left: calc(6px + env(safe-area-inset-left)); padding-right: calc(6px + env(safe-area-inset-right)); }
+  header .hr #peers, header .hr #viewSeg { display: none; }
+  #docHead { align-items: flex-start; max-width: none; }
+  #docHead .l2 #wsTxt { display: none; }
+  #mid { flex-direction: column; }
+  #leftCol { width: 100% !important; flex: 1; min-height: 40vh; }
+  #rightCol { flex: 1; min-height: 30vh; }
+  #split, #sideSplit { display: none; }
+  #vsplit { display: block; flex: none; height: 16px; cursor: row-resize; position: relative; touch-action: none; }
+  #vsplit::before { content: ''; position: absolute; left: 0; right: 0; top: -14px; height: 44px; }
+  #vsplit::after { top: 7px; bottom: auto; left: 16px; right: 16px; width: auto; height: 2px; border-radius: 2px; }
+  header button, #tools button, #pvTools button, #userBox button { min-height: 40px; min-width: 40px; }
+  #tools .colBtn { width: 40px; height: 40px; }
+  aside .mini { min-width: 40px; min-height: 40px; }
+  aside .doc, aside .fhd { height: auto; min-height: 40px; }
+  body:not(.noside) aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: var(--z-drawer); width: min(300px, 86vw) !important; min-width: 0; background: var(--panel); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); padding-top: calc(var(--bar) + 12px + env(safe-area-inset-top)); }
+  body.noside aside { width: 0 !important; padding: 0; border-right: 0; pointer-events: none; }
+  body.noside .sbPanel { display: flex; }
+  .sbHead .mark, .sbHead .name { display: none; }
+  .sbHead { justify-content: flex-end; margin: 0 0 8px; }
+  #cBadge, #eBadge { min-height: 24px; min-width: 0; height: 24px; }
+  body.noside #scrim { display: none; }
+  #find { flex-wrap: nowrap; overflow-x: auto; }
+  #find button { min-height: 40px; }
+  #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
+  #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
+  #setPop { width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: none; overflow: visible; }
+  #setPop .setGrid { grid-template-columns: 1fr; }
+  #menu button { min-height: 40px; }
+  #exportBtn span, #shareBtn span { display: none; }
+  #exportBtn, #shareBtn { padding: 0; }
+}
+@media (prefers-reduced-transparency: reduce) { #pvTools, #modal { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

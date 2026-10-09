@@ -166,10 +166,10 @@ def drop_sess_cache(username: str) -> None:
 
 
 def _drop_locks(doc_id: str) -> None:
-    # Room gone: drop per-doc locks via main (lazy: main imports sync).
+    # Room gone: drop per-doc locks (lazy import keeps sync free of import cycles).
     try:
-        from backend import main as _main
-        _main._drop_doc_locks(doc_id)
+        from backend.services.locks import _drop_doc_locks
+        _drop_doc_locks(doc_id)
     except Exception:
         pass
 

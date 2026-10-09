@@ -1,0 +1,16 @@
+/* ==========================================================================
+   Menus (dropdowns)
+   ========================================================================== */
+#menu {
+  position: fixed; z-index: var(--z-menu); min-width: 232px; max-width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 24px); overflow: auto; padding: 5px;
+  background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop);
+}
+#menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; padding: 4px 10px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); }
+#menu button:hover:not(:disabled), #menu button:focus-visible { background: var(--ink); color: var(--on-ink); outline: none; }
+#menu button:disabled { opacity: .38; }
+#menu .chk { width: 14px; flex: none; font-size: 12px; text-align: center; }
+#menu .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .kbd { flex: none; font: 11.5px var(--ui); opacity: .55; letter-spacing: .02em; }
+#menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
+#menu .mh { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+

@@ -25,3 +25,5 @@ exports/
 .cache/
 docs/
 roadmap.html
+web/
+e2e/

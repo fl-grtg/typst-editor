@@ -24,3 +24,8 @@ RATE_DEFAULTS = {"login": (10, 60), "register": (20, 3600), "auth": (60, 60), "j
                  "avatar": (10, 60), "folders": (20, 60), "keys": (30, 60), "mcp": (60, 60),
                  "rename": (10, 60), "delete": (10, 60), "restore": (10, 60),
                  "move": (20, 60), "templates": (20, 60), "tplfolders": (20, 60)}
+
+# Account validation (used by schemas and auth routes)
+NAME_RE = r"[A-Za-z0-9_-]{2,20}"
+MIN_PW = 8
+MAX_PW = 200

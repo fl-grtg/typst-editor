@@ -1,7 +1,6 @@
 from conftest import login, make_doc, register_user
 
-from backend import auth, db
-from backend import main as backend_main
+from backend import auth, db, deps
 
 
 def test_rename_happy(c):
@@ -26,9 +25,9 @@ def test_delete_me_clears_db_and_files(c):
     register_user(c, "alice")
     did = make_doc(c, "Weg")
     assert c.post(f"/api/docs/{did}/files", files={"f": ("bild.png", b"abc")}).status_code == 200
-    assert (backend_main.FILES_DIR / did).is_dir()
+    assert (deps.get_files_dir() / did).is_dir()
     assert c.post("/api/me/delete", json={"password": "pass1234"}).status_code == 200
-    assert not (backend_main.FILES_DIR / did).exists()
+    assert not (deps.get_files_dir() / did).exists()
     con = db.connect()
     try:
         assert con.execute("SELECT 1 FROM users WHERE name='alice'").fetchone() is None

@@ -91,7 +91,7 @@ def test_join_invalid(c):
 
 
 def test_join_legacy_path_always_410(c):
-    # IST: POST /api/join/{token} ist Legacy und antwortet immer 410
+    # Current behaviour: POST /api/join/{token} is legacy and always answers 410
     # (auch mit gueltigem Token). Token gehoert in den POST-Body.
     register_user(c, "alice")
     login(c, "alice")
@@ -99,7 +99,7 @@ def test_join_legacy_path_always_410(c):
     tok = c.post(f"/api/docs/{did}/invite", json={"role": "reviewer"}).json()["token"]
     assert c.post(f"/api/join/{tok}").status_code == 410
     assert c.post("/api/join/invalidtoken123").status_code == 410
-    # Unauthentifiziert greift zuerst Depends(me) -> 401 (IST, kein 410).
+    # Unauthenticated: Depends(me) fires first -> 401 (not 410).
     c.post("/api/logout")
     assert c.post(f"/api/join/{tok}").status_code == 401
 
