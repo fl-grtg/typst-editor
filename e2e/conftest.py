@@ -21,6 +21,28 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
+_SERVER_LOG_PATH: Path | None = None
+
+
+def _server_tail(n: int = 100) -> str:
+    try:
+        if _SERVER_LOG_PATH is None or not _SERVER_LOG_PATH.exists():
+            return "<no server log>"
+        lines = _SERVER_LOG_PATH.read_text(errors="replace").splitlines()
+        return "\n".join(lines[-n:])
+    except OSError as e:
+        return f"<server log unreadable: {e}>"
+
+
+def pytest_runtest_logreport(report):
+    if report.when == "call" and report.failed:
+        tail = _server_tail(100)
+        print(f"\n[server-log-tail last 100 lines]\n{tail}\n[/server-log-tail]")
+        try:
+            report.sections.append(("server log tail", tail))
+        except Exception:
+            pass
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -30,12 +52,15 @@ def _free_port() -> int:
 
 @pytest.fixture(scope="session")
 def base_url(tmp_path_factory):
+    global _SERVER_LOG_PATH
     data = tmp_path_factory.mktemp("e2e-data")
     port = _free_port()
     env = {**os.environ, "DATA_DIR": str(data), "REGISTRATION": "open", "PYTHONUNBUFFERED": "1"}
+    _SERVER_LOG_PATH = data / "server.log"
+    logf = open(_SERVER_LOG_PATH, "wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", str(port)],
-        cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cwd=ROOT, env=env, stdout=logf, stderr=subprocess.STDOUT,
     )
     url = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + 30
@@ -47,8 +72,13 @@ def base_url(tmp_path_factory):
         except OSError:
             pass
         if proc.poll() is not None or time.monotonic() > deadline:
-            out = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
+            try:
+                logf.flush()
+                out = _SERVER_LOG_PATH.read_text(errors="replace") if _SERVER_LOG_PATH else ""
+            except OSError:
+                out = ""
             proc.kill()
+            logf.close()
             raise RuntimeError("server did not start:\n" + out[-2000:])
         time.sleep(0.2)
     yield url
@@ -57,6 +87,8 @@ def base_url(tmp_path_factory):
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
+    finally:
+        logf.close()
 
 
 @pytest.fixture(scope="session")
