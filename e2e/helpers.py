@@ -1,9 +1,19 @@
 """Shared selectors/flows for the browser smoke tests (ids come from web/index.shell.html)."""
 from playwright.sync_api import Page, expect
+from playwright.sync_api import TimeoutError as PwTimeout
+
+
+def _goto_home(page: Page) -> None:
+    # Ein Retry nur bei Navigation-Timeout: CI-Runner stallsen gelegentlich
+    # beim Kaltaufbau frischer Kontexte (15s), lokal + App-seitig unauffällig.
+    try:
+        page.goto("/")
+    except PwTimeout:
+        page.goto("/")
 
 
 def register(page: Page, name: str, pw: str = "pass1234pass") -> None:
-    page.goto("/")
+    _goto_home(page)
     page.click("#mode")  # switch "Sign in" -> "Sign up"
     page.fill("#u", name)
     page.fill("#p", pw)
@@ -12,7 +22,7 @@ def register(page: Page, name: str, pw: str = "pass1234pass") -> None:
 
 
 def login(page: Page, name: str, pw: str = "pass1234pass") -> None:
-    page.goto("/")
+    _goto_home(page)
     page.fill("#u", name)
     page.fill("#p", pw)
     page.click("#go")
