@@ -25,6 +25,7 @@ from backend.routers import (
     export,
     files,
     frontend,
+    readmode,
     share,
     snapshots,
     system,
@@ -200,5 +201,6 @@ app.include_router(files.router)
 app.include_router(snapshots.router)
 app.include_router(export.router)
 app.include_router(events.router)
+app.include_router(readmode.router)
 app.include_router(system.router)
 app.include_router(frontend.router)

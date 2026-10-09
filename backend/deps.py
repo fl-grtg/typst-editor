@@ -43,12 +43,14 @@ def get_files_dir() -> Path:
     """
     try:
         live = config.load().DATA_DIR / "files"
-    except Exception:
+    except Exception as e:
+        log.warning("get_files_dir config fallback: %s", e)
         return FILES_DIR
     try:
         if FILES_DIR != _FILES_DIR_STARTUP:
             return FILES_DIR
-    except Exception:
+    except Exception as e:
+        log.warning("get_files_dir override check failed: %s", e)
         return FILES_DIR
     return live
 
@@ -110,7 +112,8 @@ def limited(req: Request, scope: str, key: str = "") -> None:
             lim, win = int(cfg.RATE_REGISTER_PER_HOUR), 3600
         else:
             lim, win = int(getattr(cfg, f"RATE_{s.upper()}_PER_MIN", RATE_DEFAULTS.get(s, (30, 60))[0])), 60
-    except Exception:
+    except Exception as e:
+        log.warning("limited config fallback for %s: %s", scope, e)
         lim, win = RATE_DEFAULTS.get(s, (30, 60))
     if not ratelimit.allow(f"{scope}:{client_ip(req)}", lim, win):
         log.warning("rate-limit %s (ip-bucket)", scope)

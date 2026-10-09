@@ -17,7 +17,9 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import sync_playwright  # noqa: E402
+from playwright.sync_api import expect, sync_playwright  # noqa: E402
+
+expect.set_options(timeout=15_000)  # assertion waits match the ctx action timeout (expect default is only 5s)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -55,7 +57,11 @@ def base_url(tmp_path_factory):
     global _SERVER_LOG_PATH
     data = tmp_path_factory.mktemp("e2e-data")
     port = _free_port()
-    env = {**os.environ, "DATA_DIR": str(data), "REGISTRATION": "open", "PYTHONUNBUFFERED": "1"}
+    env = {**os.environ, "DATA_DIR": str(data), "REGISTRATION": "open", "PYTHONUNBUFFERED": "1",
+           # All smoke tests share one egress IP, hence one per-IP rate-limit bucket
+           # (production clients have distinct IPs). Raise the chatty list/poll
+           # budget so the suite can't 429 itself; app limits stay untouched.
+           "RATE_FILES_LIST_PER_MIN": "1000"}
     _SERVER_LOG_PATH = data / "server.log"
     # NOTE: never stdout=PIPE here without a reader: once the pipe buffer
     # (64KB on GH runners) fills, uvicorn blocks on its next access-log
