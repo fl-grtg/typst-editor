@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 import sqlite3
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -298,28 +299,42 @@ def _migrate_v13(con: sqlite3.Connection) -> None:
     except OSError as e:
         logging.getLogger(__name__).warning("v13 start-scan skipped: %s", e)
         return
+    scanned = 0
     for d in top:
-        if not d.is_dir() or d.name.startswith(".") or ".tmp." in d.name:
+        try:
+            if d.is_symlink() or not d.is_dir() or d.name.startswith(".") or ".tmp." in d.name:
+                continue
+        except OSError:
             continue
         if d.name not in known:
             continue  # orphan dir (doc gone): no rows, FK would reject them anyway
         try:
-            walking = list(d.rglob("*"))
-        except OSError:
+            # Iterator, never list(rglob): a huge tree must not be
+            # materialized, and one bad entry must not kill the dir.
+            for p in d.rglob("*"):
+                try:
+                    if p.is_symlink():
+                        continue  # like the export walk: never follow/count links
+                    if not p.is_file():
+                        continue
+                    rel = p.relative_to(d).as_posix()
+                    if any(seg.startswith(".") for seg in rel.split("/")) or ".tmp." in p.name:
+                        continue
+                    st = p.stat()
+                    con.execute("INSERT OR REPLACE INTO files (doc_id, path, size, mtime, type) "
+                                "VALUES (?,?,?,?,?)",
+                                (d.name, rel, st.st_size, st.st_mtime, p.suffix.lower()))
+                except (OSError, ValueError, sqlite3.Error) as e:
+                    # Broken name (surrogates), unreadable file, bad row:
+                    # skip the file, never abort the migration.
+                    logging.getLogger(__name__).warning("v13 scan skipped %s: %s", d.name, e)
+                    continue
+                scanned += 1
+                if scanned % 200 == 0:
+                    con.commit()  # chunk-commits, no giant txn
+        except OSError as e:
+            logging.getLogger(__name__).warning("v13 scan skipped dir %s: %s", d.name, e)
             continue
-        for p in walking:
-            try:
-                if not p.is_file():
-                    continue
-                rel = p.relative_to(d).as_posix()
-                if any(seg.startswith(".") for seg in rel.split("/")) or ".tmp." in p.name:
-                    continue
-                st = p.stat()
-            except OSError:
-                continue
-            con.execute("INSERT OR REPLACE INTO files (doc_id, path, size, mtime, type) "
-                        "VALUES (?,?,?,?,?)",
-                        (d.name, rel, st.st_size, st.st_mtime, p.suffix.lower()))
 
 
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
@@ -329,20 +344,76 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
 )
 
 
+_MIGRATE_RETRIES = 10
+
+
+def _rollback_quiet(con: sqlite3.Connection) -> None:
+    try:
+        con.execute("ROLLBACK")
+    except Exception:
+        pass
+
+
+def _begin_immediate(con: sqlite3.Connection) -> None:
+    # Serialize parallel starters (init_db runs at import, so two workers
+    # can migrate the same DB at once): take the write lock up-front,
+    # backing off on locked/busy instead of crashing.
+    for attempt in range(_MIGRATE_RETRIES):
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if ("locked" not in msg and "busy" not in msg) or attempt + 1 >= _MIGRATE_RETRIES:
+                raise
+            _rollback_quiet(con)
+            time.sleep(0.05 * (attempt + 1))
+    raise sqlite3.OperationalError("database is locked")
+
+
 def migrate(con: sqlite3.Connection) -> None:
     # Idempotent: every step checks before writing; applied versions recorded
     # so re-runs and fresh DBs converge to the same schema. Before any
     # pending step runs on a returning DB, VACUUM INTO a timestamped file
     # next to the DB (fresh DBs are skipped: nothing to lose).
-    con.execute("CREATE TABLE IF NOT EXISTS schema_version (v INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+    # Parallel-safe: each step runs in its own BEGIN IMMEDIATE txn with
+    # busy-retry. A peer that commits the version first shows up as an
+    # IntegrityError on the schema_version INSERT, which is swallowed
+    # (the step itself is idempotent: IF NOT EXISTS / OR REPLACE), so the
+    # second starter wins nothing and loses nothing.
+    _begin_immediate(con)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS schema_version (v INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+        con.commit()
+    except Exception:
+        _rollback_quiet(con)
+        raise
     done = {r[0] for r in con.execute("SELECT v FROM schema_version").fetchall()}
     pending = [(i, step) for i, step in enumerate(_MIGRATIONS, start=1) if i not in done]
     if pending:
         backup_before_migrate(con, done)
     for i, step in pending:
-        step(con)
-        con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
-        con.commit()
+        for attempt in range(_MIGRATE_RETRIES):
+            _begin_immediate(con)
+            try:
+                step(con)
+            except sqlite3.OperationalError as e:
+                _rollback_quiet(con)
+                msg = str(e).lower()
+                if ("locked" not in msg and "busy" not in msg) or attempt + 1 >= _MIGRATE_RETRIES:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            except Exception:
+                _rollback_quiet(con)
+                raise
+            try:
+                con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
+                con.commit()
+            except sqlite3.IntegrityError:
+                _rollback_quiet(con)
+                break  # peer applied this version first: their rows stand
+            break
 
 
 def init_db() -> None:

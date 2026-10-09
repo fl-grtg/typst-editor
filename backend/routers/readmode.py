@@ -26,7 +26,7 @@ class ReadTokenNew(BaseModel):
 
 
 def check_read_token(token: str) -> dict:
-    """Validate a read token (check + expiry + trash). Raises 404/410."""
+    """Validate a read token (check + expiry + trash). Raises 404."""
     tok = (token or "").strip()
     if not tok or len(tok) > 200:
         raise HTTPException(404, "Link invalid")
@@ -52,7 +52,8 @@ def check_read_token(token: str) -> dict:
         if not d:
             raise HTTPException(404, "Doc gone")
         if d["trashed"]:
-            raise HTTPException(410, "In trash")
+            # 404 like a dead link: no validity oracle for the unauthenticated.
+            raise HTTPException(404, "Link invalid")
         return {"id": d["id"], "title": d["title"], "content": d["content"],
                 "owner": d["owner"], "updated_at": d["updated_at"]}
     finally:

@@ -262,12 +262,12 @@ def test_read_token_trash_and_expiry(c):
     finally:
         con.close()
     assert c.get(f"/api/r/{tok}").status_code == 404
-    # Trashed doc reads 410.
+    # Trashed doc reads 404, like an invalid link (no validity oracle).
     login(c, "alice")
     tok2 = c.post(f"/api/docs/{did}/read-token", json={}).json()["token"]
     assert c.delete(f"/api/docs/{did}").status_code == 200
     c.post("/api/logout")
-    assert c.get(f"/api/r/{tok2}").status_code == 410
+    assert c.get(f"/api/r/{tok2}").status_code == 404
 
 
 def test_read_token_rate_limit(c, monkeypatch):
