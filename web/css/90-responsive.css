@@ -20,12 +20,22 @@
   #tools .colBtn { width: 40px; height: 40px; }
   aside .mini { min-width: 40px; min-height: 40px; }
   aside .doc, aside .fhd { height: auto; min-height: 40px; }
-  body:not(.noside) aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: 230; width: min(300px, 86vw) !important; min-width: 0; background: var(--panel); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); padding-top: calc(12px + env(safe-area-inset-top)); transform: translateX(0); visibility: visible; transition: transform .22s ease; }
+  body:not(.noside) aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: 230; width: min(300px, 86vw) !important; min-width: 0; height: 100vh; height: 100dvh; background: var(--panel); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); padding: calc(12px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left)); transform: translateX(0); visibility: visible; transition: transform .22s ease; }
   body.noside aside { position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw) !important; min-width: 0; padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); border-right: 0; pointer-events: none; transform: translateX(-105%); visibility: hidden; transition: transform .22s ease, visibility 0s linear .22s; }
   body.noside .sbPanel { display: flex; }
   body:not(.noside) #scrim { z-index: 225; }
-  .sbHead .mark, .sbHead .name { display: none; }
-  .sbHead { justify-content: flex-end; margin: 0 0 8px; }
+  /* Drawer head like desktop: logo + name visible, actions left-aligned (old hide/flex-end hack removed) */
+  .sbHead { margin: 0 2px 14px; }
+  .sbHead .mark { width: 40px; height: 40px; }
+  .sbHead button { min-width: 40px; min-height: 40px; }
+  .sbHead .hact button { width: 40px; height: 40px; }
+  /* Drawer scrolls inside #nav only (single scroller, no traps); footer stays pinned */
+  #nav { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  /* Remaining touch-target gaps (>=40px): search field, new/upload buttons, section toggles */
+  aside .sideSearch input { min-height: 40px; }
+  aside #new, aside #upDoc { min-height: 40px; }
+  aside #upDoc { width: 40px; }
+  aside h3 { height: auto; min-height: 40px; }
   #cBadge, #eBadge { min-height: 24px; min-width: 0; height: 24px; }
   body.noside #scrim { display: none; }
   #find { flex-wrap: nowrap; overflow-x: auto; }
