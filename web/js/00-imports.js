@@ -22,8 +22,8 @@ async function api(m, url, body, tries = 3) { // Error carries .status/.detail; 
     const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) })
     if (r.status === 204) return null
     if (r.status === 503 && a < n - 1) { lastErr = new Error(t('common.busyRetry')); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
-    const t = await r.text()
-    let j = null; try { j = t ? JSON.parse(t) : null } catch (e) { j = null } // HTML error page: no crash
+    const txt = await r.text()
+    let j = null; try { j = txt ? JSON.parse(txt) : null } catch (e) { j = null } // HTML error page: no crash
     if (!r.ok) { const e = new Error((j && j.detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = (j && j.detail) || ''; throw e }
     return j
   }

@@ -41,8 +41,8 @@ async function login(u, p) {
     watchSidebar()
     loadTpl(); const joined = await checkJoin()
     if (!docId && !tplName && !hadJoin && !joined) {
-      const t = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
-      if (t) openDoc(t.id)
+      const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
+      if (pick) openDoc(pick.id)
     }
   } finally { go.disabled = false; mode.disabled = false; go.textContent = regMode ? t('login.signUp') : t('login.signIn') }
 }
@@ -215,8 +215,8 @@ api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
   watchSidebar()
   loadTpl(); const joined = await checkJoin()
   if (!docId && !tplName && !hadJoin && !joined) {
-    const t = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
-    if (t) openDoc(t.id)
+    const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
+    if (pick) openDoc(pick.id)
   }
 }).catch(e => console.warn('session restore failed', e))
 try { (window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => ensureTypst().catch(() => {})) } catch (e) {} // warm compiler when idle: UI paints first

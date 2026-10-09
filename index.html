@@ -914,8 +914,8 @@ async function api(m, url, body, tries = 3) { // Error carries .status/.detail; 
     const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) })
     if (r.status === 204) return null
     if (r.status === 503 && a < n - 1) { lastErr = new Error(t('common.busyRetry')); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
-    const t = await r.text()
-    let j = null; try { j = t ? JSON.parse(t) : null } catch (e) { j = null } // HTML error page: no crash
+    const txt = await r.text()
+    let j = null; try { j = txt ? JSON.parse(txt) : null } catch (e) { j = null } // HTML error page: no crash
     if (!r.ok) { const e = new Error((j && j.detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = (j && j.detail) || ''; throw e }
     return j
   }
@@ -4080,8 +4080,8 @@ async function login(u, p) {
     watchSidebar()
     loadTpl(); const joined = await checkJoin()
     if (!docId && !tplName && !hadJoin && !joined) {
-      const t = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
-      if (t) openDoc(t.id)
+      const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
+      if (pick) openDoc(pick.id)
     }
   } finally { go.disabled = false; mode.disabled = false; go.textContent = regMode ? t('login.signUp') : t('login.signIn') }
 }
@@ -4254,8 +4254,8 @@ api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
   watchSidebar()
   loadTpl(); const joined = await checkJoin()
   if (!docId && !tplName && !hadJoin && !joined) {
-    const t = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
-    if (t) openDoc(t.id)
+    const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
+    if (pick) openDoc(pick.id)
   }
 }).catch(e => console.warn('session restore failed', e))
 try { (window.requestIdleCallback || (fn => setTimeout(fn, 1500)))(() => ensureTypst().catch(() => {})) } catch (e) {} // warm compiler when idle: UI paints first
