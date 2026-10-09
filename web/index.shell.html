@@ -20,6 +20,7 @@
 <link rel="apple-touch-icon" href="./icon-192.png?v=2">
 <title>Typst Editor</title>
 <script>try { var th = localStorage.getItem('typst_theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th) } catch (e) {}</script>
+@@i18n@@
 <style>
 @@include css/00-tokens.css@@
 @@include css/10-base.css@@
@@ -35,7 +36,7 @@
 @@include css/85-feedback.css@@
 @@include css/90-responsive.css@@
 </style>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script><!-- defer: non-blocking; pinned + SRI. Worker/ESM have no SRI: workerSrc set by this trusted script, ESM pinned via CSP -->
+<script defer src="/vendor/pdf-3.11.174-5b5799e6f8c6.min.js"></script><!-- defer: non-blocking; self-hosted, content-hashed (see vendor/manifest.json) -->
 </head>
 <body>
 
@@ -60,11 +61,11 @@ window.addEventListener('error', function (e) {
   var d = document.getElementById('booterr')
   if (d) { d.style.display = ''; d.replaceChildren(); d.appendChild(document.createTextNode('Something went wrong – ')); var rb = document.createElement('button'); rb.textContent = 'Reload'; rb.className = 'btn'; rb.style.marginLeft = '8px'; rb.onclick = function () { location.reload() }; d.appendChild(rb) }
 })
-document.getElementById('login')?.addEventListener('submit', function (e) { // module dead (esm.sh blocked): no native submit reload, hint instead
+document.getElementById('login')?.addEventListener('submit', function (e) { // module dead (import failed): no native submit reload, hint instead
   if (!window.__booted) {
     e.preventDefault()
     var m = document.getElementById('err')
-    if (m) m.textContent = 'App still loading (needs esm.sh/jsdelivr/cdnjs) – wait or reload'
+    if (m) m.textContent = 'App still loading – wait or reload'
     var b = document.getElementById('booterr')
     if (b && !b.dataset.hint) { b.style.display = ''; b.textContent = 'App still loading – check network/adblock, then '; var r = document.createElement('button'); r.textContent = 'Reload'; r.className = 'btn'; r.onclick = function () { location.reload() }; b.appendChild(r); b.dataset.hint = '1' }
   }
@@ -208,6 +209,7 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 @@include js/94-find.js@@
 @@include js/96-login-actions.js@@
 @@include js/98-format-toolbar.js@@
+@@include-glob js/features/*.js@@
 </script>
 <script>
 @@include js/ui-layer.js@@

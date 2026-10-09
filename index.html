@@ -680,7 +680,7 @@ body.read #preview { padding-top: 24px; }
 @media (prefers-reduced-transparency: reduce) { #pvTools, #modal { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script><!-- defer: non-blocking; pinned + SRI. Worker/ESM have no SRI: workerSrc set by this trusted script, ESM pinned via CSP -->
+<script defer src="/vendor/pdf-3.11.174-5b5799e6f8c6.min.js"></script><!-- defer: non-blocking; self-hosted, content-hashed (see vendor/manifest.json) -->
 </head>
 <body>
 
@@ -705,11 +705,11 @@ window.addEventListener('error', function (e) {
   var d = document.getElementById('booterr')
   if (d) { d.style.display = ''; d.replaceChildren(); d.appendChild(document.createTextNode('Something went wrong – ')); var rb = document.createElement('button'); rb.textContent = 'Reload'; rb.className = 'btn'; rb.style.marginLeft = '8px'; rb.onclick = function () { location.reload() }; d.appendChild(rb) }
 })
-document.getElementById('login')?.addEventListener('submit', function (e) { // module dead (esm.sh blocked): no native submit reload, hint instead
+document.getElementById('login')?.addEventListener('submit', function (e) { // module dead (import failed): no native submit reload, hint instead
   if (!window.__booted) {
     e.preventDefault()
     var m = document.getElementById('err')
-    if (m) m.textContent = 'App still loading (needs esm.sh/jsdelivr/cdnjs) – wait or reload'
+    if (m) m.textContent = 'App still loading – wait or reload'
     var b = document.getElementById('booterr')
     if (b && !b.dataset.hint) { b.style.display = ''; b.textContent = 'App still loading – check network/adblock, then '; var r = document.createElement('button'); r.textContent = 'Reload'; r.className = 'btn'; r.onclick = function () { location.reload() }; b.appendChild(r); b.dataset.hint = '1' }
   }
@@ -835,16 +835,16 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 <div id="menu" role="menu" hidden></div>
 
 <script type="module">
-import * as Y from 'https://esm.sh/yjs@13.6.27'
-import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
+import * as Y from '/vendor/yjs-13.6.27-232b4982bc3f.js'
+import { WebsocketProvider } from '/vendor/y-websocket-1.5.0-8a98fc0aad78.js'
 import * as CMV from './vendor-cm.js?v=6' // bundled locally: single instance, no CDN risk
 const { EditorView, minimalSetup, Compartment, EditorState, StateField, StateEffect, RangeSet, Prec, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, snippetCompletion, nextSnippetField, prevSnippetField, indentMore, indentLess, foldGutter, foldKeymap, bracketMatching, indentUnit, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, typstTags, syntaxHighlighting, HighlightStyle, tags, linter, lintGutter, setDiagnostics, forEachDiagnostic } = CMV // must match vendor build (cache-busted via ?v=6)
-// CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
+// self-hosted vendor bundle (see vendor/manifest.json): versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
 //   once the backend refactor lands — kept inline + unminified for reviewability in this run.
 
-if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' // pinned as above
-setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf-worker-3.11.174-feabdf309770.min.js' // pinned as above
+setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf-worker-3.11.174-feabdf309770.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
 const $ = id => document.getElementById(id)
 let toastT = 0
 let lastToastM = '', lastToastT = 0
@@ -1577,13 +1577,24 @@ let cmpWait = 0, lastInfra = false // compiler missing / last render infra error
 const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived
 let typstPm = null // compiler loads async: UI stays clickable while WASM loads
 let typstWarned = false // max 1 warning: no endless retry on blocked CDN
+const typstFonts = [ // self-hosted default text set (see vendor/manifest.json): replaces the bundle's remote default
+  '/vendor/font-DejaVuSansMono-Bold-bce60f1b4421.ttf', '/vendor/font-DejaVuSansMono-BoldOblique-91713a71d550.ttf',
+  '/vendor/font-DejaVuSansMono-Oblique-742097840c54.ttf', '/vendor/font-DejaVuSansMono-b4a6c3e4faab.ttf',
+  '/vendor/font-LibertinusSerif-Bold-0264914210ed.otf', '/vendor/font-LibertinusSerif-BoldItalic-47a665259f09.otf',
+  '/vendor/font-LibertinusSerif-Italic-9a393d63d6e0.otf', '/vendor/font-LibertinusSerif-Regular-fcf06307a773.otf',
+  '/vendor/font-LibertinusSerif-Semibold-a4b3f28e8588.otf', '/vendor/font-LibertinusSerif-SemiboldItalic-397f0d7aba35.otf',
+  '/vendor/font-NewCM10-Bold-947931c42ca3.otf', '/vendor/font-NewCM10-BoldItalic-0ddd9bab5b7d.otf',
+  '/vendor/font-NewCM10-Italic-70c9c811bb0e.otf', '/vendor/font-NewCM10-Regular-2f751e3082ce.otf',
+  '/vendor/font-NewCMMath-Bold-8956f7ef6c21.otf', '/vendor/font-NewCMMath-Book-b2e655d5cae5.otf',
+  '/vendor/font-NewCMMath-Regular-bfd2f9b22caa.otf']
 function ensureTypst() {
   if (typstPm) return typstPm
-  typstPm = import('https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-all-in-one.ts@0.8.0-rc3/dist/esm/index.js').then(m => { // pinned, CSP server-side (see above); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
+  typstPm = import('/vendor/typst-all-in-one-0.8.0-rc3-89646b6f5523.js').then(m => { // pinned, self-hosted (see vendor/); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
     if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM bundle sets no global: adopt it
     // bundle default points to missing WASM (404): pin explicitly (see docs example)
-    window.$typst.setCompilerInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.8.0-rc3/pkg/typst_ts_web_compiler_bg.wasm' })
-    window.$typst.setRendererInitOptions({ getModule: () => 'https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-renderer@0.8.0-rc3/pkg/typst_ts_renderer_bg.wasm' })
+    const fontLoader = (m.preloadRemoteFonts || m.loadFonts)(typstFonts, { assets: false }) // local fonts, no remote fetch
+    window.$typst.setCompilerInitOptions({ getModule: () => '/vendor/typst-compiler-0.8.0-rc3-85a071522388.wasm', beforeBuild: [fontLoader] })
+    window.$typst.setRendererInitOptions({ getModule: () => '/vendor/typst-renderer-0.8.0-rc3-b6947e0293db.wasm', beforeBuild: [fontLoader] })
   }).catch(e => {
     typstPm = null // allow retry: watchdog retries instead of stalling
     if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
@@ -1671,7 +1682,7 @@ async function render() {
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   if (!docId) return
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; queueTypstRender(); return } // loads in background, renders after
-  if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // cdnjs blocked: retry later
+  if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
   cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
   try {
     await shadowAll(activeFile ? shadow : getT()) // file tab: preview still compiles main.typ

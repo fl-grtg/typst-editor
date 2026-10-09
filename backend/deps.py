@@ -1,6 +1,7 @@
 """Shared request helpers: auth dependency, access checks, quota, file locations."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -65,6 +66,25 @@ TEXT_SUFFIX = {".typ", ".bib", ".csv"}
 # (content-hashed filenames = proper fix).
 # sw.js is gone (worker dropped 2026-10-03): .js stays no-store for future scripts.
 IMMUTABLE_SHELL = frozenset({"vendor-cm.js", "manifest.json", "icon-192.png", "icon-512.png", "icon.svg"})
+
+
+def _load_vendor_manifest() -> frozenset[str]:
+    # Self-hosted CDN replacements (scripts/vendor.py): content-hash names,
+    # served under /vendor/ with immutable caching. Missing/unreadable
+    # manifest -> serve nothing (fail closed, never directory truth).
+    try:
+        raw = json.loads((ROOT / "vendor" / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    if not isinstance(raw, dict):
+        return frozenset()
+    files = raw.get("files", [])
+    if not isinstance(files, list):
+        return frozenset()
+    return frozenset(n for n in files if isinstance(n, str) and "/" not in n and ".." not in n)
+
+
+VENDOR_FILES = _load_vendor_manifest()
 
 
 def me(session: str | None = Cookie(default=None, alias=COOKIE)) -> str:

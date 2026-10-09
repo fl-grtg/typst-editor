@@ -23,6 +23,12 @@ jobs:
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
+          # Tag -> versioned image (SemVer release); branch pushes keep branch + sha tags.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -32,5 +38,25 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Note: image scanning (e.g. trivy) is deliberately not a gate yet; add it as a
-          # separate non-blocking step when needed.
+      # Informational only, never fails the build (flaky/slow): same policy as ci.yml.
+      - uses: aquasecurity/trivy-action@v0.36.0
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+          format: table
+          exit-code: "0"
+          severity: HIGH,CRITICAL
+      - uses: anchore/sbom-action@v0
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        with:
+          image: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        with:
+          name: sbom
+          path: sbom.spdx.json

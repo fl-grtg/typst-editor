@@ -151,16 +151,19 @@ async def no_cache_html(req: Request, call: Any):
                 log.warning("csrf-block %s", req.url.path)
                 return JSONResponse({"detail": "Forbidden"}, status_code=403)
     res = await call(req)
-    if req.url.path.rsplit("/", 1)[-1] in deps.IMMUTABLE_SHELL:
+    if res.status_code == 200 and (
+            req.url.path.rsplit("/", 1)[-1] in deps.IMMUTABLE_SHELL or req.url.path.startswith("/vendor/")):
         res.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     elif req.url.path == "/" or req.url.path.endswith((".html", ".js")) or req.url.path.startswith("/api/"):
         res.headers["Cache-Control"] = "no-store"
     res.headers["X-Content-Type-Options"] = "nosniff"
     res.headers["X-Frame-Options"] = "DENY"
     res.headers["Referrer-Policy"] = "no-referrer"
+    # Self-hosted (vendor/): no code-delivery CDN left. packages.typst.org
+    # stays in connect-src (data-only @preview registry, no script from it).
     res.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://esm.sh https://cdn.jsdelivr.net; "
-        "connect-src 'self' https://esm.sh https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://packages.typst.org wss: ws:; worker-src 'self' blob: https://cdnjs.cloudflare.com; img-src 'self' data: blob:; "
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; "
+        "connect-src 'self' https://packages.typst.org; worker-src 'self' blob:; img-src 'self' data: blob:; "
         "style-src 'self' 'unsafe-inline'; font-src 'self' data:; base-uri 'self'; object-src 'none'; frame-ancestors 'none';")
     proto = req.url.scheme
     fwd_proto = ""

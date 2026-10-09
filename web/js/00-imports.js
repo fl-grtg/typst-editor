@@ -1,13 +1,13 @@
-import * as Y from 'https://esm.sh/yjs@13.6.27'
-import { WebsocketProvider } from 'https://esm.sh/y-websocket@1.5.0?deps=yjs@13.6.27'
+import * as Y from '/vendor/yjs-13.6.27-232b4982bc3f.js'
+import { WebsocketProvider } from '/vendor/y-websocket-1.5.0-8a98fc0aad78.js'
 import * as CMV from './vendor-cm.js?v=6' // bundled locally: single instance, no CDN risk
 const { EditorView, minimalSetup, Compartment, EditorState, StateField, StateEffect, RangeSet, Prec, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, snippetCompletion, nextSnippetField, prevSnippetField, indentMore, indentLess, foldGutter, foldKeymap, bracketMatching, indentUnit, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, typstTags, syntaxHighlighting, HighlightStyle, tags, linter, lintGutter, setDiagnostics, forEachDiagnostic } = CMV // must match vendor build (cache-busted via ?v=6)
-// CSP (script-src for esm.sh/jsdelivr/cdnjs) via server header: versions pinned, no SRI overhead
+// self-hosted vendor bundle (see vendor/manifest.json): versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
 //   once the backend refactor lands — kept inline + unminified for reviewability in this run.
 
-if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' // pinned as above
-setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf-worker-3.11.174-feabdf309770.min.js' // pinned as above
+setTimeout(() => { try { if (window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf-worker-3.11.174-feabdf309770.min.js' } catch (e) {} }, 2000) // defer race: set worker late if needed
 const $ = id => document.getElementById(id)
 let toastT = 0
 let lastToastM = '', lastToastT = 0
