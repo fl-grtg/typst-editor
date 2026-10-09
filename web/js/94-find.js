@@ -27,12 +27,12 @@ function markFind(sel = true) { // sel=false: recount only, never steal selectio
   if (!q) { paintFind(false); return }
   if (findRe) { // F10 regex: invalid pattern shows 'bad regex', never throws
     let re
-    try { re = new RegExp(q, findCase ? 'g' : 'gi') } catch (e) { cm.dispatch({ effects: setFind.of(RangeSet.of([])) }); $('fN').textContent = 'bad regex'; return }
+    try { re = new RegExp(q, findCase ? 'g' : 'gi') } catch (e) { cm.dispatch({ effects: setFind.of(RangeSet.of([])) }); $('fN').textContent = t('find.badRegex'); return }
     try {
       for (const m of getT().matchAll(re)) {
         if (m[0].length && findHits.length < 500) findHits.push({ a: m.index, b: m.index + m[0].length })
       } // zero-length matches skipped (matchAll steps on by itself, no hang)
-    } catch (e) { $('fN').textContent = 'bad regex'; return }
+    } catch (e) { $('fN').textContent = t('find.badRegex'); return }
   } else {
     const t = findCase ? getT() : getT().toLowerCase(), n = findCase ? q : q.toLowerCase()
     let p = 0, hit

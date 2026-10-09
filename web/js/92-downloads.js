@@ -8,27 +8,27 @@ const dlBlob = (blob, name) => {
 $('dlPng').onclick = () => { // page currently in view, straight from canvas (no compiler API needed)
   if (!docId) return
   const cs = [...document.querySelectorAll('#preview canvas')]
-  if (!cs.length) { toast('No render yet', () => $('dlPng').click()); return }
+  if (!cs.length) { toast(t('downloads.noRender'), () => $('dlPng').click()); return }
   const pr = $('preview').getBoundingClientRect()
   let c = cs[0], best = -Infinity
   for (const x of cs) { const r = x.getBoundingClientRect(), vis = Math.min(r.bottom, pr.bottom) - Math.max(r.top, pr.top); if (vis > best) { best = vis; c = x } }
   const n = cs.indexOf(c) + 1
   c.toBlob(b => {
-    if (!b) { toast('PNG error', () => $('dlPng').click()); return }
+    if (!b) { toast(t('downloads.pngError'), () => $('dlPng').click()); return }
     dlBlob(b, dlName(cs.length > 1 ? '-p' + n + '.png' : '.png'))
-    if (cs.length > 1) toast('Page ' + n + ' of ' + cs.length + ' saved as PNG (scroll to pick another)')
+    if (cs.length > 1) toast(t('downloads.pngPage', { n, total: cs.length }))
   })
 }
 $('dlSvg').onclick = async () => {
   if (!docId) return
-  if (!typstReady()) { ensureTypst().catch(() => {}); toast('Compiler still loading', () => $('dlSvg').click()); return }
+  if (!typstReady()) { ensureTypst().catch(() => {}); toast(t('downloads.compilerLoading'), () => $('dlSvg').click()); return }
   try {
-    if (!$typst.svg) throw new Error('SVG unknown to the bundle')
+    if (!$typst.svg) throw new Error(t('downloads.svgUnknown'))
     await shadowAll(activeFile ? shadow : getT())
     const svg = (await $typst.svg({ mainFilePath: '/main.typ' }))
       .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;') // raw & (text/CSV/URL) breaks XML
     dlBlob(new Blob([svg], { type: 'image/svg+xml' }), dlName('.svg'))
-  } catch (e) { toast('SVG error: ' + e.message) }
+  } catch (e) { toast(t('downloads.svgError', { msg: e.message })) }
 }
 $('dlTyp').onclick = () => {
   if (!docId && !tplName) return
@@ -36,11 +36,11 @@ $('dlTyp').onclick = () => {
 }
 $('dlPdf').onclick = async () => {
   if (!docId) return
-  if (!typstReady()) { ensureTypst().catch(() => {}); toast('Compiler still loading', () => $('dlPdf').click()); return }
+  if (!typstReady()) { ensureTypst().catch(() => {}); toast(t('downloads.compilerLoading'), () => $('dlPdf').click()); return }
   try {
     await shadowAll(activeFile ? shadow : getT()) // same shadows as preview: images/templates land in PDF
     dlBlob(new Blob([await $typst.pdf({ mainFilePath: '/main.typ' })], { type: 'application/pdf' }), dlName('.pdf'))
-  } catch (e) { toast('PDF error: ' + e.message) }
+  } catch (e) { toast(t('downloads.pdfError', { msg: e.message })) }
 }
 setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
   if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {

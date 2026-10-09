@@ -198,7 +198,7 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   if (!p) return
   let ln = 1, col = 1
   try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
-  p.textContent = t('docs.posLine', { ln, col }) + (wc() || '') + ' · Sync ' + (syncOn ? t('docs.syncOn') : t('docs.syncOff'))
+  p.textContent = t('docs.posLine', { ln, col }) + (wc() || '') + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
 function openTutorial() { // help = tutorial doc (backend creates per account)
   const t = lastOwn.find(x => x.title === 'Tutorial')
