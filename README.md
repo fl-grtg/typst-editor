@@ -182,6 +182,17 @@ Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm ru
 
 See GitHub Releases (no CHANGELOG file, single README on purpose).
 
+## 🛠 Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+make dev      # run locally with reload
+make check    # ruff + mypy + frontend build check + tests
+```
+
+The frontend source lives in `web/`; `index.html` is generated (`python web/build.py`). Backend routers are in `backend/routers/`.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
 ## 💡 Why
 
 Most collab editors need heavy infra or lock you into a cloud. This is one container you self-host: enough collab to work together, small enough to read in one sitting.

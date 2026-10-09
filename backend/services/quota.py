@@ -1,7 +1,7 @@
 """Quota accounting: single source for main + sync (no import cycle).
 
 user_bytes/check_quota lived in backend.main, which sync could only reach
-via a lazy ``from backend import main`` import. This module owns the logic;
+via a lazy ``from backend import deps`` import. This module owns the logic;
 main keeps thin wrappers for backwards compat (tests use main.user_bytes).
 """
 from __future__ import annotations
@@ -18,20 +18,20 @@ log = logging.getLogger(__name__)
 
 
 def files_dir() -> Path:
-    # Live view via main.get_files_dir() (itself follows DATA_DIR unless
+    # Live view via deps.get_files_dir() (itself follows DATA_DIR unless
     # FILES_DIR was explicitly reassigned); fall back to the patched
-    # main.FILES_DIR attr directly so tmp isolation keeps working even if
+    # deps.FILES_DIR attr directly so tmp isolation keeps working even if
     # the accessor is unavailable, then to config, then to a static default.
     try:
-        from backend import main as _main
+        from backend import deps as _deps
 
-        get = getattr(_main, "get_files_dir", None)
+        get = getattr(_deps, "get_files_dir", None)
         if callable(get):
             try:
                 return get()
             except Exception:
                 pass
-        p = getattr(_main, "FILES_DIR", None)
+        p = getattr(_deps, "FILES_DIR", None)
         if isinstance(p, Path):
             return p
         if p:

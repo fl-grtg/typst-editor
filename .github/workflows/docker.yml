@@ -26,11 +26,11 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          # PRs: nur bauen, kein Push.
+          # PRs: build only, no push.
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Hinweis: Image-Scan (z.B. trivy) bewusst kein Gate - bei Bedarf als
-          # separater Non-Blocking-Schritt ergaenzen.
+          # Note: image scanning (e.g. trivy) is deliberately not a gate yet; add it as a
+          # separate non-blocking step when needed.

@@ -42,8 +42,8 @@ def test_snapshot_get_single_404(c):
 
 
 def test_snapshot_get_access_matrix(c):
-    # IST-Matrix: reviewer darf einzelnen Snapshot lesen, Fremder bekommt 404
-    # (need_access -> 404, kein 403, um Existenz zu verbergen).
+    # Current matrix: a reviewer may read a single snapshot, a stranger gets 404
+    # (need_access -> 404, not 403, to hide existence).
     register_user(c, "alice")
     register_user(c, "bob")
     register_user(c, "carol")

@@ -1,0 +1,97 @@
+/* ==========================================================================
+   Popovers
+   ========================================================================== */
+#sharePop, #setPop, #tplPop, #histPop, #symPop {
+  position: absolute; top: calc(100% + 6px); left: 8px; z-index: var(--z-pop);
+  width: 340px; max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); max-height: 80vh; overflow: auto;
+  padding: 14px; font-size: 13px; line-height: 1.5;
+  background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); color: var(--text);
+}
+#tplPop, #histPop, #symPop { padding: 8px; }
+.sTop { display: flex; align-items: center; margin-bottom: 4px; }
+.sTop b { flex: 1; font-size: 13.5px; font-weight: 650; }
+.sTop button { min-width: 28px; height: 28px; padding: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.row input, .row select { flex: 1; min-width: 0; width: auto; }
+#sharePop b, #setPop h4 { font-size: 11.5px; }
+#sharePop #shares { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+#sharePop #shares > div { display: flex; align-items: center; gap: 6px; }
+#sharePop #shares .who { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+#sharePop #shares select { flex: none; width: auto; min-height: 28px; font-size: 12.5px; }
+#sharePop #shares button { background: none; border: 0; border-radius: var(--r-xs); padding: 0 6px; color: var(--sub); min-height: 28px; box-shadow: none; }
+#sharePop #shares button:hover { background: var(--hover); color: var(--text); }
+#sharePop .hintline { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 4px 0 8px; }
+#sharePop input[readonly] { background: transparent; border-style: dashed; color: var(--sub); }
+#setPop { width: min(700px, calc(100vw - 24px)); max-height: none; overflow: visible; padding: 14px 18px 18px; }
+#setPop .setGrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
+#setPop .setCol { display: flex; flex-direction: column; min-width: 0; }
+#setPop h4 { margin: 0; padding: 14px 0 4px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+#setPop .sec .row { flex-wrap: nowrap; align-items: center; gap: 8px; margin-top: 8px; }
+#setPop .sec .row.wrap { flex-wrap: wrap; }
+#setPop .sec .row.wrap input { flex: 1 1 140px; }
+#setPop .sec .row.wrap select { flex: 0 1 auto; }
+#setPop .sec .row.wrap > span, #setPop .sec .row.wrap > code { overflow-wrap: anywhere; min-width: 0; }
+#setPop .sec .row:first-child { margin-top: 6px; }
+#setPop .row label { min-width: 44px; color: var(--sub); font-size: 12.5px; }
+#setPop .val { min-width: 52px; text-align: center; color: var(--sub); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+#setPop .sec { background: var(--hover); border-radius: var(--r-md); padding: 4px 12px 12px; margin: 0 0 4px; }
+#setPop .serr { background: var(--danger-soft); color: var(--danger); border-radius: var(--r-sm); padding: 8px 10px; font-size: 12.5px; margin-bottom: 6px; }
+#setPop .avatarRow { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 600px) { #setPop .setGrid { grid-template-columns: 1fr; } } /* popover < ~560px: single column */
+#setPop img.av, #setPop .avFallback { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--press); flex: none; }
+#setPop .avFallback { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--sub); }
+#tplPop .tip { margin: 2px 10px 6px; font-size: 12px; color: var(--sub); line-height: 1.45; }
+#tplPop button { display: block; width: 100%; height: auto; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 10px; color: var(--text); box-shadow: none; }
+#tplPop button:hover { background: var(--hover); }
+#tplPop .use { display: block; font-weight: 600; font-size: 13px; }
+#tplPop .ins { display: block; font-size: 12px; color: var(--sub); font-weight: 400; }
+#tplPop .trow { display: flex; gap: 4px; }
+#tplPop .trow .go { flex: 1; min-width: 0; }
+#tplPop .fh { margin: 8px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+#tplPop .x { flex: none; width: auto; color: var(--sub); }
+#tplPop .x:hover { background: var(--danger-soft); color: var(--danger); }
+#histPop { font-size: 12.5px; }
+#histPop .srow { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--r-sm); }
+#histPop .srow:hover { background: var(--hover); }
+#histPop .srow .t { flex: 1; min-width: 0; font-size: 12.5px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#histPop .srow button { min-height: 26px; padding: 2px 10px; font-size: 12px; white-space: nowrap; }
+#histPop pre.diff { margin: 4px 8px 8px; padding: 10px 12px; max-height: 220px; overflow: auto; background: #16181d; color: #e6e7ea; border-radius: var(--r-md); font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+#histPop pre.diff .a { color: #ff9d9d; }
+#histPop pre.diff .b { color: #8fe8ae; }
+#histPop .save { display: flex; align-items: center; width: 100%; margin-bottom: 6px; text-align: left; min-height: 34px; }
+#histPop .histEmpty { padding: 8px; font-size: 12.5px; color: var(--sub); line-height: 1.5; }
+#symPop input { margin-bottom: 8px; }
+#symPop .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; max-height: 240px; overflow: auto; }
+#symPop .grid button { background: none; border: 0; box-shadow: none; border-radius: var(--r-sm); min-height: 38px; padding: 4px 0; font-size: 17px; color: var(--text); }
+#symPop .grid button:hover { background: var(--hover); }
+.mbox { position: absolute; top: 100%; left: 0; z-index: var(--z-pop); min-width: 160px; padding: 4px; background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop); }
+.mbox button { display: block; width: 100%; min-height: 30px; padding: 5px 10px; text-align: left; background: none; border: 0; box-shadow: none; border-radius: var(--r-xs); font-size: 13px; color: var(--text); }
+.mbox button:hover { background: var(--ink); color: var(--on-ink); }
+
+/* Comments */
+#pop { position: absolute; left: 56px; z-index: var(--z-pop); width: 320px; max-width: calc(100vw - 32px); max-height: 80vh; overflow: auto; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); font-size: 13px; }
+#pop .bar { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px 5px 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--sub); }
+#pop .bar .ib { border-radius: 50%; width: 28px; height: 28px; padding: 0; }
+#pop .th { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+#pop .hd { display: flex; align-items: baseline; gap: 6px; }
+#pop .nm { font-weight: 650; font-size: 13px; }
+#pop .tm { font-size: 11.5px; color: var(--faint); }
+#pop .tx { margin: 3px 0 0; overflow-wrap: anywhere; }
+#pop .qt { display: block; width: 100%; margin: 6px 0 0; padding: 6px 10px; text-align: left; font-size: 12px; color: var(--sub); background: var(--hover); border: 0; border-radius: var(--r-sm); overflow-wrap: anywhere; cursor: pointer; }
+#pop .rp { margin: 8px 0 0; padding: 9px 12px; background: var(--hover); border-radius: var(--r-md); }
+#pop .rr { display: flex; gap: 6px; margin-top: 6px; }
+#pop .rr input { flex: 1; min-width: 0; width: auto; min-height: 30px; font-size: 13px; }
+#pop .rr .ib { padding: 0 10px; min-width: 34px; min-height: 30px; border-radius: var(--r-sm); }
+#pop .ib { color: var(--text); background: var(--hover); }
+#pop .ib:hover { background: var(--press); }
+#pop .nw { padding: 10px 12px; }
+#pop.errs { position: fixed !important; top: var(--eTop, 60px) !important; left: var(--eLeft, 12px) !important; right: auto !important; width: 380px; max-height: min(60vh, 420px); padding: 0; }
+#pop .eh { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 14px; font-size: 13px; }
+#pop .eh .ib { background: none; width: 28px; height: 28px; padding: 0; color: var(--sub); }
+#pop .eh .ib:hover { background: var(--hover); color: var(--text); }
+#pop .er { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 14px; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.45; color: var(--text); cursor: default; }
+#pop button.er { cursor: pointer; }
+#pop button.er:hover { background: var(--hover); }
+#pop .er .ln { flex: none; min-width: 52px; font: 600 11px var(--mono); color: var(--danger); }
+#pop .er .em { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+

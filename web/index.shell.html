@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<link rel="manifest" href="./manifest.json?v=2">
+<!-- theme_color light/dark: keep in sync with manifest.json theme_color -->
+<meta name="theme-color" content="#f7f7f8">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111214">
+<meta name="description" content="Collaborative Typst editor with live preview – self-hostable">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta property="og:title" content="Typst Editor">
+<meta property="og:description" content="Collaborative Typst editor with live preview – self-hostable">
+<meta property="og:type" content="website">
+<meta property="og:image" content="./docs/screenshot.png">
+<link rel="icon" href="./icon.svg?v=3" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png?v=2">
+<link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png?v=2">
+<link rel="apple-touch-icon" href="./icon-192.png?v=2">
+<title>Typst Editor</title>
+<script>try { var th = localStorage.getItem('typst_theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th) } catch (e) {}</script>
+<style>
+@@include css/00-tokens.css@@
+@@include css/10-base.css@@
+@@include css/20-signin.css@@
+@@include css/30-shell.css@@
+@@include css/40-topbar.css@@
+@@include css/50-toolbar.css@@
+@@include css/60-editor.css@@
+@@include css/65-preview.css@@
+@@include css/70-menus.css@@
+@@include css/75-popovers.css@@
+@@include css/80-modal.css@@
+@@include css/85-feedback.css@@
+@@include css/90-responsive.css@@
+</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script><!-- defer: non-blocking; pinned + SRI. Worker/ESM have no SRI: workerSrc set by this trusted script, ESM pinned via CSP -->
+</head>
+<body>
+
+<div id="booterr" role="alert" style="display:none"></div>
+<div id="offline" role="status">You're offline — changes will sync when you reconnect</div>
+<a href="#cm" class="skip">Skip to editor</a>
+<script>
+window.addEventListener('error', function (e) {
+  try { console.error(e.error || e.message || e) } catch (_) {}
+  var msg = String((e && (e.message || (e.error && e.error.message))) || '')
+  if (/ResizeObserver|Script error|ChunkLoadError|Non-Error promise rejection/i.test(msg)) return
+  if (document.getElementById('app') && document.getElementById('app').classList.contains('on')) {
+    try { // after login: toast, not silence (module toast() may not exist if import failed)
+      var t = document.getElementById('toast')
+      if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) }
+      t.setAttribute('role', 'alert')
+      t.textContent = 'Something went wrong – ' + (msg ? msg.slice(0, 120) : 'please retry your last action')
+      t.style.display = 'block'; t.style.opacity = '1'
+    } catch (_) {}
+    return
+  }
+  var d = document.getElementById('booterr')
+  if (d) { d.style.display = ''; d.replaceChildren(); d.appendChild(document.createTextNode('Something went wrong – ')); var rb = document.createElement('button'); rb.textContent = 'Reload'; rb.className = 'btn'; rb.style.marginLeft = '8px'; rb.onclick = function () { location.reload() }; d.appendChild(rb) }
+})
+document.getElementById('login')?.addEventListener('submit', function (e) { // module dead (esm.sh blocked): no native submit reload, hint instead
+  if (!window.__booted) {
+    e.preventDefault()
+    var m = document.getElementById('err')
+    if (m) m.textContent = 'App still loading (needs esm.sh/jsdelivr/cdnjs) – wait or reload'
+    var b = document.getElementById('booterr')
+    if (b && !b.dataset.hint) { b.style.display = ''; b.textContent = 'App still loading – check network/adblock, then '; var r = document.createElement('button'); r.textContent = 'Reload'; r.className = 'btn'; r.onclick = function () { location.reload() }; b.appendChild(r); b.dataset.hint = '1' }
+  }
+}, true)
+</script>
+
+<form id="login">
+  <div class="brand"><img src="./icon.svg?v=3" alt="" width="32" height="32" onerror="this.remove()"><h2>Typst Editor</h2></div>
+  <p class="vp">Write and preview Typst documents together, live.</p>
+  <label class="sr-only" for="u">Username</label><input id="u" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false">
+  <label class="sr-only" for="p">Password</label><input id="p" type="password" placeholder="Password" autocomplete="current-password" minlength="8">
+  <label class="sr-only" for="inv">Invite code (optional)</label><input id="inv" placeholder="Invite code (optional)" autocomplete="off" aria-describedby="regHint" style="display:none">
+  <p class="vp" id="regHint" style="display:none">Ask your team for an invite code to join this server.</p>
+  <div class="pwRow"><input type="checkbox" id="showPw"><label for="showPw">Show password</label></div>
+  <button id="go" type="submit">Sign in</button>
+  <button class="mode" id="mode" type="button">Don't have an account? <b>Sign up</b></button>
+  <div id="err" role="alert"></div>
+</form>
+
+<div id="app">
+    <aside id="side" aria-label="Sidebar">
+    <div class="sbRail" aria-label="Sidebar (collapsed)">
+      <button class="mark" data-rail="toggle" aria-label="Expand sidebar" title="Expand sidebar"><img src="./icon.svg?v=3" alt="" width="32" height="32" draggable="false"></button>
+      <button data-rail="new" aria-label="New document" title="New document"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg></button>
+      <button data-rail="search" aria-label="Search documents" title="Search"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg></button>
+      <button data-rail="docs" aria-label="Documents" title="Documents"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.75h5.25L12.5 5v9.25H4z"/><path d="M9.25 1.75V5h3.25"/></svg></button>
+      <button data-rail="ol" aria-label="Outline" title="Outline"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M5 8h8.5M7.5 12h6"/></svg></button>
+      <button data-rail="tpl" aria-label="Templates" title="Templates"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 6h12M6 6v8"/></svg></button>
+      <span class="fill"></span>
+      <button data-rail="theme" aria-label="Switch theme" title="Switch theme"></button>
+      <button data-rail="help" aria-label="Help and shortcuts" title="Help"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.3c.2-.9.9-1.5 1.8-1.5 1 0 1.8.7 1.8 1.6 0 1.1-1.1 1.3-1.8 2v.5"/><circle cx="8.1" cy="11.2" r=".7" fill="currentColor" stroke="none"/></svg></button>
+      <button class="avBtn" id="railAv" data-rail="set" aria-label="Settings" title="Settings"></button>
+    </div>
+    <div class="sbPanel">
+    <div class="sbHead"><button class="mark" data-rail="toggle" aria-label="Collapse sidebar" title="Collapse sidebar"><img src="./icon.svg?v=3" alt="" width="32" height="32" draggable="false"></button><span class="name">Typst Editor</span><span class="hact"><button data-rail="theme" aria-label="Switch theme" title="Switch theme"></button><button data-rail="help" aria-label="Help and shortcuts" title="Help and shortcuts"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.3c.2-.9.9-1.5 1.8-1.5 1 0 1.8.7 1.8 1.6 0 1.1-1.1 1.3-1.8 2v.5"/><circle cx="8.1" cy="11.2" r=".7" fill="currentColor" stroke="none"/></svg></button></span></div>
+    <div class="sideSearch"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><label class="sr-only" for="q">Search documents</label><input id="q" placeholder="Search documents" autocomplete="off" aria-describedby="qCount"><span id="qCount" class="sr-only" role="status" aria-live="polite"></span></div>
+    <div class="sideActions"><button id="new">New document</button><button id="upDoc" aria-label="Upload .typ as new document" title="Upload .typ as new document"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11V3"/><path d="M5 5.5L8 2.5l3 3"/><path d="M2.5 10.5v3h11v-3"/></svg></button></div>
+    <input type="file" id="docPick" accept=".typ" style="display:none">
+    <div id="nav">
+      <h3 id="ownH" title="Drop here = no folder" role="button" tabindex="0" aria-expanded="true" aria-controls="own">Documents</h3><div id="own"></div>
+      <h3 id="tplH" role="button" tabindex="0" aria-expanded="true" aria-controls="tpls">Templates</h3><div id="tpls"></div>
+      <h3 id="sharedH" role="button" tabindex="0" aria-expanded="true" aria-controls="shared">Shared with me</h3><div id="shared"></div>
+      <h3 id="trashH" role="button" tabindex="0" aria-expanded="true" aria-controls="trash">Trash</h3><div id="trash"></div>
+      <h3 id="olH" role="button" tabindex="0" aria-expanded="true" aria-controls="ol">Outline</h3><div id="ol"></div>
+    </div>
+    <div id="userBox"><div id="userMain" data-rail="set"><span id="meDot" class="dot" aria-hidden="true"></span><span id="who" role="button" tabindex="0" title="Settings" aria-label="Settings: open settings"></span></div><button id="out" aria-label="Sign out" title="Sign out"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 2.5H4A1.5 1.5 0 0 0 2.5 4v8A1.5 1.5 0 0 0 4 13.5h2.5"/><path d="M10 5.2L12.8 8 10 10.8M12.8 8H6"/></svg></button></div>
+    </div>
+  </aside>
+  <div id="scrim" style="display:none" role="presentation" aria-hidden="true"></div>
+  <div id="sideSplit" title="Sidebar width (arrows)" role="separator" tabindex="0" aria-label="Sidebar width (arrows)" aria-orientation="vertical" aria-valuemin="150" aria-valuemax="420" aria-valuenow="256"></div>
+  <main aria-label="Editor and preview">
+    <header>
+      <div class="hl">
+        <button id="navToggle" aria-label="Toggle sidebar" aria-pressed="false" title="Toggle sidebar"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg></button>
+        <div id="menubar" role="menubar" aria-label="Menu"><button data-menu="file" aria-haspopup="menu" aria-expanded="false">File</button><button data-menu="edit" aria-haspopup="menu" aria-expanded="false">Edit</button><button data-menu="view" aria-haspopup="menu" aria-expanded="false">View</button><button data-menu="help" aria-haspopup="menu" aria-expanded="false">Help</button></div>
+        <button id="menuMore" data-menu="all" aria-haspopup="menu" aria-expanded="false" aria-label="Menu" title="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button>
+      </div>
+      <div id="docHead">
+        <div class="l1"><h1 id="title" class="is-empty">Welcome</h1><button id="renBtn" aria-label="Rename" title="Rename" style="display:none"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/></svg></button><button id="cBadge" title="Open comments: jump to next" aria-label="Open comments: jump to next" style="display:none"></button><button id="eBadge" title="Show errors" aria-label="Show errors" aria-expanded="false" style="display:none"></button></div>
+        <div class="l2"><span id="role"></span><span id="wsDot" class="dot" title="Offline" aria-hidden="true" style="background:#8e8e93"></span><span id="wsTxt" role="status" aria-live="polite"></span><span id="save" aria-live="polite"></span><span id="pos"></span><span id="roBanner" style="display:none">Read-only</span></div>
+      </div>
+      <div class="hr">
+        <span id="peers" role="list" aria-label="People in this document"></span>
+        <span id="viewSeg"><button id="vEdit" aria-label="Editor only" title="Editor only" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M6.5 2.5v11" stroke-width="2.6"/></svg></button><button id="vSplit" aria-label="Editor + Preview" title="Editor + Preview" class="on" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M8 2.5v11"/></svg></button><button id="vRead" aria-label="Preview only" title="Preview only" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M9.5 2.5v11" stroke-width="2.6"/></svg></button></span>
+        <button id="exportBtn" data-menu="export" aria-haspopup="menu" aria-expanded="false" title="Export"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8"/><path d="M4.8 7.6L8 10.8l3.2-3.2"/><path d="M2.5 13.5h11"/></svg><span>Export</span></button>
+        <button id="shareBtn" aria-label="Share" title="Share" style="display:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="5" r="2.3"/><path d="M1.8 13c.3-2.2 1.9-3.5 3.7-3.5s3.4 1.3 3.7 3.5"/><path d="M11.5 5.2v4M9.5 7.2h4"/></svg><span>Share</span></button>
+      </div>
+      <button id="helpBtn" aria-label="Help and shortcuts" title="Help and shortcuts" hidden></button>
+      <div id="setPop" style="display:none" role="dialog" aria-label="Settings"></div><input type="file" id="avPick" accept="image/*" style="display:none">
+      <div id="sharePop" style="display:none" role="dialog" aria-label="Share"></div>
+    </header>
+    <div id="mid">
+      <div id="leftCol">
+        <div id="tools">
+          <span class="fmt" role="group" aria-label="Text formatting">
+            <button data-fmt="bold" aria-label="Bold (Ctrl B)" title="Bold (Ctrl B)"><span class="glyph">B</span></button>
+            <button data-fmt="italic" aria-label="Italic (Ctrl I)" title="Italic (Ctrl I)"><span class="glyph i">I</span></button>
+            <button data-fmt="underline" aria-label="Underline (Ctrl U)" title="Underline (Ctrl U)"><span class="glyph u">U</span></button>
+          </span>
+          <span class="fmt" role="group" aria-label="Structure">
+            <button data-fmt="heading" aria-label="Heading" title="Heading (cycles level)"><span class="glyph">H</span></button>
+            <button data-fmt="bullets" aria-label="Bulleted list" title="Bulleted list"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.7" cy="4" r=".6" fill="currentColor"/><circle cx="2.7" cy="8" r=".6" fill="currentColor"/><circle cx="2.7" cy="12" r=".6" fill="currentColor"/></svg></button>
+            <button data-fmt="numbers" aria-label="Numbered list" title="Numbered list"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M7 4h7M7 8h7M7 12h7"/><path d="M2 3.2l1-.7v3M2 9.6c0-.8 1.8-.8 1.8.1 0 .8-1.8 1.1-1.8 2.2h1.9" stroke-width="1.1"/></svg></button>
+            <button data-fmt="math" aria-label="Math" title="Math"><span class="glyph m">$</span></button>
+            <button data-fmt="code" aria-label="Code" title="Code"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5"/></svg></button>
+            <button data-fmt="link" aria-label="Link" title="Link"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 9.2a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-.7.7"/><path d="M9.2 6.8a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l.7-.7"/></svg></button>
+          </span>
+          <span class="fmt last" role="group" aria-label="Insert">
+            <button id="cNew" aria-label="Comment on selected text" aria-expanded="false" title="Comment on selected text"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3h11v7h-5.5L4.5 13v-3H2.5z"/></svg></button>
+            <button id="imgBtn" aria-label="Add a picture or file" title="Add a picture or file to your document" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 11.5l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></button><input type="file" id="imgPick" accept=".png,.jpg,.jpeg,.svg,.gif,.webp,.pdf,.typ,.bib,.csv" style="display:none">
+            <button id="mediaBtn" aria-label="Media manager" title="Media manager" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h2l1.5 2H12a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5z"/></svg></button>
+            <button id="tplBtn" aria-label="Insert Typst template" title="Insert Typst template" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M2.5 6.5h11M6.5 6.5v7"/></svg></button>
+            <button id="symBtn" aria-label="Insert symbol" title="Insert symbol" style="display:none"><span class="glyph" style="font-size:14px">Ω</span></button>
+            <label class="colBtn" id="colWrap" title="Text color: wrap selection" hidden><span class="glyph" aria-hidden="true">A</span><span class="bar" aria-hidden="true"></span><input type="color" id="colPick" aria-label="Text color: wrap selection" value="#d92d20"></label>
+            <button id="histBtn" aria-label="History: save, compare, restore" title="History: save, compare, restore" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg></button>
+          </span>
+          <span class="tsp"></span>
+          <span class="grp">Font <button id="fMinus" aria-label="Smaller editor" title="Smaller editor">A−</button><button id="fPlus" aria-label="Larger editor" title="Larger editor">A+</button></span>
+          <div id="tplPop" style="display:none" role="dialog" aria-label="Templates"></div><div id="histPop" style="display:none" role="dialog" aria-label="History"></div><div id="symPop" style="display:none" role="dialog" aria-label="Symbols"></div><input type="file" id="tplPick" accept=".typ" style="display:none">
+        </div>
+        <div id="proxies" hidden>
+          <button id="del" aria-label="Delete document" title="Delete document" style="display:none"></button><button id="dlTyp" style="display:none">.typ</button><button id="dlPdf" style="display:none">.pdf</button><button id="dlPng" style="display:none">.png</button><button id="dlSvg" style="display:none">.svg</button>
+        </div>
+        <div id="media" style="display:none"></div>
+        <div id="tabs" style="display:none"></div>
+        <div id="editWrap">
+          <div id="cmWrap"><div id="cm" tabindex="-1"></div></div>
+          <div id="pop" style="display:none" role="dialog" aria-label="Comments"></div>
+        </div>
+        <div id="find" style="display:none"><label class="sr-only" for="fQ">Find</label><input id="fQ" placeholder="Find" aria-label="Find"><label class="sr-only" for="fR">Replace with</label><input id="fR" placeholder="Replace with" aria-label="Replace with"><span class="n" id="fN" role="status" aria-live="polite"></span><span class="fgroup"><button id="fPrev" aria-label="Previous (Shift+Enter)" title="Previous (Shift+Enter)">↑</button><button id="fNext" aria-label="Next (Enter)" title="Next (Enter)">↓</button></span><button id="fRep" title="Replace this occurrence" aria-label="Replace this occurrence">Replace</button><button id="fAll" title="Replace all occurrences" aria-label="Replace all occurrences">All</button><button id="fCase" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button><button id="fRe" title="Regular expression" aria-label="Regular expression" aria-pressed="false">.*</button><button id="fX" class="x" title="Close (Esc)" aria-label="Close (Esc)">✕</button></div>
+      </div>
+      <div id="split" role="separator" tabindex="0" title="Drag to resize width (arrows)" aria-label="Drag to resize width (arrows)" aria-orientation="vertical" aria-valuemin="15" aria-valuemax="85" aria-valuenow="50"></div><div id="vsplit" title="Drag to resize height (arrows)" role="separator" tabindex="0" aria-label="Drag to resize height (arrows)" aria-orientation="horizontal" aria-valuemin="120" aria-valuemax="600" aria-valuenow="300"></div>
+      <div id="rightCol">
+        <div id="cdnLine" role="status">Preparing live preview…</div>
+        <div id="preview" tabindex="0" role="region" aria-label="Document preview"></div>
+        <div id="pvTools"><button id="syncBtn" aria-label="Follow between editor and preview" class="on" aria-pressed="true" title="Follow between editor and preview"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h8M4 10h8"/><path d="M6 4L4 6l2 2M10 8l2 2-2 2"/></svg></button><span class="grp"><button id="zMinus" aria-label="Smaller preview" title="Smaller preview">−</button><span id="zoomV" aria-live="polite">110%</span><button id="zPlus" aria-label="Larger preview" title="Larger preview">+</button><button id="fitBtn" aria-label="Fit page" title="Fit page"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button></span></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="mHead"><div id="mCard"><b id="mHead"></b><input id="mInp"><div class="mRow"><button id="mNo">Cancel</button><button id="mYes">OK</button></div></div></div>
+<div id="menu" role="menu" hidden></div>
+
+<script type="module">
+@@include js/00-imports.js@@
+@@include js/10-cm-setup.js@@
+@@include js/20-completions.js@@
+@@include js/30-highlight-theme.js@@
+@@include js/40-editor-sync.js@@
+@@include js/50-preview.js@@
+@@include js/60-docs.js@@
+@@include js/70-comments-popovers.js@@
+@@include js/80-files-images.js@@
+@@include js/82-templates-ui.js@@
+@@include js/84-history.js@@
+@@include js/86-insert-tools.js@@
+@@include js/88-share-offline.js@@
+@@include js/90-settings.js@@
+@@include js/92-downloads.js@@
+@@include js/94-find.js@@
+@@include js/96-login-actions.js@@
+@@include js/98-format-toolbar.js@@
+</script>
+<script>
+@@include js/ui-layer.js@@
+</script>
+
+</body>
+</html>

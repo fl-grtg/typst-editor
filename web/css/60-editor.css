@@ -1,0 +1,63 @@
+/* ==========================================================================
+   Editor
+   ========================================================================== */
+#editWrap { flex: 1; display: flex; position: relative; background: var(--editor); min-width: 0; min-height: 0; }
+#cmWrap { flex: 1; min-width: 0; position: relative; background: var(--editor); --ed: 14px; --lh: 23px; padding: 8px 8px 0 0; }
+#cm { height: 100%; overflow: hidden; }
+#cm .cm-editor { height: 100%; }
+#cm .cm-editor.cm-focused { outline: none; }
+#cmWrap .cm-content { font: var(--ed)/var(--lh) var(--mono); color: var(--text); caret-color: var(--acc); }
+#cmWrap .cm-line { padding: 0 10px 0 6px; }
+#cmWrap .cm-cursor { border-left-color: var(--acc); border-left-width: 2px; }
+#cmWrap .cm-selectionBackground, #cmWrap .cm-focused .cm-selectionBackground { background: var(--acc-soft) !important; }
+#cmWrap .cm-activeLine { background: var(--hover); }
+#cmWrap .cm-gutters { background: var(--editor); border: 0; color: var(--faint); }
+#cmWrap .cm-lineNumbers .cm-gutterElement { padding: 0 12px 0 16px; font: 11.5px var(--mono); line-height: var(--lh); text-align: right; }
+#cmWrap .cm-scroller { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+#cmWrap .cm-lineNumbers .cm-gutterElement.hasThread { color: var(--acc); font-weight: 700; cursor: pointer; }
+/* Fold lane right of numbers: shares editor bg, chevrons hover-revealed, folded stays visible */
+#cmWrap .cm-foldGutter { background: var(--editor); }
+#cmWrap .cm-foldGutter .cm-gutterElement { padding: 0 4px 0 0; line-height: var(--lh); min-width: 18px; }
+#cmWrap .cm-foldGutter .foldMk { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: var(--lh); border-radius: 4px; color: var(--faint); cursor: pointer; opacity: 0; transition: opacity .12s; }
+#cmWrap .cm-gutters:hover .cm-foldGutter .foldMk { opacity: 1; }
+#cmWrap .cm-foldGutter .foldMk.fold-closed { opacity: 1; color: var(--text); }
+#cmWrap .cm-foldGutter .foldMk:hover { background: var(--hover); color: var(--text); opacity: 1; }
+@media (hover: none) { #cmWrap .cm-foldGutter .foldMk { opacity: 1; } } /* touch: no hover-reveal, always show */
+#cmWrap .cm-foldPlaceholder { background: var(--hover); color: var(--sub); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; margin: 0 4px; font-size: 11px; }
+#cmWrap .cm-tooltip { border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: var(--sh-pop); overflow: hidden; background: var(--card); }
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--ink); color: var(--on-ink); }
+#cmWrap .cm-tooltip-autocomplete ul li { color: var(--text); }
+#cmWrap .cm-completionDetail { color: var(--sub); font-style: italic; margin-left: 8px; }
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail { color: inherit; opacity: .7; }
+#cmWrap .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionIcon { color: inherit; }
+#cmWrap .cm-completionIcon-keyword { color: var(--tok-keyword); }
+#cmWrap .cm-completionIcon-function { color: var(--tok-func); }
+#cmWrap .cm-completionIcon-property { color: var(--tok-prop); }
+#cmWrap .cm-completionIcon-variable { color: var(--text); }
+#cmWrap .cm-completionIcon-constant, #cmWrap .cm-completionIcon-enum { color: var(--tok-number); }
+#cmWrap .cm-completionIcon-type, #cmWrap .cm-completionIcon-namespace { color: var(--tok-math); }
+#cmWrap .cm-completionIcon-label, #cmWrap .cm-completionIcon-text { color: var(--tok-label); }
+#cmWrap .cm-completionIcon-file { color: var(--faint); }
+.typ-hover { max-width: 280px; padding: 9px 12px; font: 12.5px/1.55 var(--ui); color: var(--text); white-space: pre-line; }
+.typ-hover.full { max-width: 320px; }
+.typ-hover b { font-weight: 650; }
+.typ-hover.err { background: var(--danger-soft); border-left: 3px solid var(--danger); }
+/* Error lines (old full-line red look on top of the lint engine): whole line tinted, hover anywhere shows the message */
+#cmWrap .cm-errLine { background: var(--danger-soft); }
+/* Hover carrier: transparent extension makes the whole editor width hoverable, so no aim is needed */
+#cmWrap .cm-errMark { position: relative; }
+#cmWrap .cm-errMark::after { content: ''; position: absolute; left: 100%; top: 0; bottom: 0; width: 100vw; }
+#cmWrap .cm-scroller { overflow-x: clip; } /* carrier extension must never cause a horizontal scrollbar (lineWrapping is always on) */
+#cmWrap .cm-hl { background: rgba(255, 196, 0, .28); border-radius: 3px; }
+#cmWrap .cm-hl:hover { background: rgba(255, 196, 0, .46); cursor: pointer; }
+#cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
+#cmWrap .cm-find-cur { background: rgba(255, 159, 10, .40); outline: 1px solid #ff9f0a; border-radius: 3px; }
+/* Lint (F1): compiler errors via @codemirror/lint. Var-driven so light/dark follow the theme (typstTheme untouched). */
+#cmWrap .cm-lintRange-error { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5Q1.5 0 3 2.5T6 2.5' fill='none' stroke='%23d92d20' stroke-width='1.2'/%3E%3C/svg%3E"); }
+#cmWrap .cm-lintPoint-error::after { border-bottom-color: var(--danger); }
+#cmWrap .cm-tooltip-lint { background: var(--card); color: var(--text); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: var(--sh-pop); }
+#cmWrap .cm-tooltip-lint .cm-diagnostic { border-left-color: var(--danger); font: 12.5px/1.55 var(--ui); }
+#cmWrap .cm-lintRange-active { background-color: var(--danger-soft); }
+.peer { display: inline-block; width: 0; height: 1.2em; margin-left: -1px; vertical-align: text-top; border-left: 2px solid #ff5f57; cursor: default; }
+.peerName { font: 600 11px/1.5 var(--ui); background: var(--card); border: 1px solid; border-radius: 5px; padding: 0 5px; margin-left: 4px; white-space: nowrap; box-shadow: var(--sh-pop); vertical-align: text-top; cursor: default; }
+

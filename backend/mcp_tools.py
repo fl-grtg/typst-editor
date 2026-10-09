@@ -198,7 +198,7 @@ def _doc_by_title(owner: str, title: str) -> sqlite3.Row | None:
 
 def resolve_path(user: str, cap: str, path: str) -> dict:
     """Map an MCP path to a doc/file/template + effective role."""
-    from backend import main as _main
+    from backend.services import apikeys
 
     if path in ("", "/"):
         return {"kind": "root"}
@@ -217,7 +217,7 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
             raise _bad("Document not found", 404)
         if row["trashed"]:
             raise _bad("In trash - restore first", 410)
-        role = _main.cap_min(cap, "owner")
+        role = apikeys.cap_min(cap, "owner")
         res: dict = {"kind": "doc", "doc_id": row["id"], "title": row["title"],
                      "owner": row["owner"], "role": role}
         if len(segs) == 3:
@@ -236,7 +236,7 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
         if row["trashed"]:
             raise _bad("In trash - restore first", 410)
         res = {"kind": "doc", "doc_id": row["id"], "title": row["title"],
-               "owner": row["owner"], "role": _main.cap_min(cap, base)}
+               "owner": row["owner"], "role": apikeys.cap_min(cap, base)}
         if len(segs) == 4:
             res["kind"] = "file"
             res["filename"] = _file_name(segs[3])
@@ -251,7 +251,7 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
             con.close()
         if not row:
             raise _bad("Template gone", 404)
-        return {"kind": "template", "tpl": row["name"], "role": _main.cap_min(cap, "owner")}
+        return {"kind": "template", "tpl": row["name"], "role": apikeys.cap_min(cap, "owner")}
     raise _bad("Unknown path, use /docs/..., /shared/... or /templates/...")
 
 
@@ -376,7 +376,8 @@ def op_read(user: str, cap: str, path: str, offset: int = 1, limit: int = 0) -> 
 
 
 def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
-    from backend import main as _main
+    from backend import deps
+    from backend.services import sidebar
 
     if cap == "reviewer":
         raise _bad("Reviewer can only comment", 403)
@@ -417,10 +418,10 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
                 except sqlite3.IntegrityError as e:
                     raise _bad("Title already exists") from e
                 except sqlite3.OperationalError as e:
-                    raise _main.busy_503("mcp_create", e) from e
+                    raise deps.busy_503("mcp_create", e) from e
         except sqlite3.OperationalError as e:
-            raise _main.busy_503("mcp_create", e) from e
-        _main.notify_sidebar(user)
+            raise deps.busy_503("mcp_create", e) from e
+        sidebar.notify_sidebar(user)
         return {"id": did, "title": title, "path": f"/docs/{title}"}
     if segs[0] == "docs" and len(segs) == 3:
         title = _title(segs[1])
@@ -447,8 +448,8 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
         except sqlite3.IntegrityError as e:
             raise _bad("Template already exists") from e
         except sqlite3.OperationalError as e:
-            raise _main.busy_503("mcp_create", e) from e
-        _main.notify_sidebar(user)
+            raise deps.busy_503("mcp_create", e) from e
+        sidebar.notify_sidebar(user)
         return {"name": name, "path": f"/templates/{name}"}
     if segs[0] == "shared":
         raise _bad("Cannot create in the shared namespace", 403)
@@ -457,7 +458,7 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
 
 def _recheck_edit(user: str, cap: str, doc_id: str) -> None:
     """Role/trash re-check right before a file write (closes revoke races)."""
-    from backend import main as _main
+    from backend.services import apikeys
 
     con = db.connect()
     try:
@@ -468,17 +469,18 @@ def _recheck_edit(user: str, cap: str, doc_id: str) -> None:
         raise _bad("Doc gone", 404)
     if row["trashed"]:
         raise _bad("In trash - restore first", 410)
-    if _main.cap_min(cap, db.doc_role(user, doc_id) or "") not in ("owner", "editor"):
+    if apikeys.cap_min(cap, db.doc_role(user, doc_id) or "") not in ("owner", "editor"):
         raise _bad("Reviewer can only comment", 403)
 
 
 def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: str, must_create: bool) -> None:
     """Same write path as save_file_text: upload lock, tmp+replace, quota, touch."""
-    from backend import main as _main
+    from backend import deps
+    from backend.services import docfiles, locks
 
     if len(content) > MAX_TXT:
         raise _bad("Max 200 KB")
-    with _main._named_lock(f"upload:{doc_id}"):
+    with locks._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
         p = _files_dir() / doc_id / filename
         try:
@@ -527,8 +529,8 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
                         pass
                     raise
         except sqlite3.OperationalError as e:
-            raise _main.busy_503("mcp_write", e) from e
-        _main.touch_doc(doc_id)
+            raise deps.busy_503("mcp_write", e) from e
+        docfiles.touch_doc(doc_id)
 
 
 def _current_text(user: str, res: dict) -> tuple[str, str]:
@@ -577,7 +579,9 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
     replace_all -> 409 anchor-ambiguous. last_seen (from read) only guards
     the anchor: a changed marker with a still-clean anchor proceeds (no false
     alarm on distant foreign edits)."""
-    from backend import main as _main
+    from backend import deps
+    from backend.services import apikeys
+    from backend.services import snapshots as snapsvc
 
     if not old_string:
         raise _bad("old_string required (quote 2-3 lines context around the change)")
@@ -636,18 +640,18 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
                             _srow = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
                                                 (doc_id, user)).fetchone()
                             _role = _srow["role"] if _srow else ""
-                        if _main.cap_min(cap, _role) not in ("owner", "editor"):
+                        if apikeys.cap_min(cap, _role) not in ("owner", "editor"):
                             raise _bad("Reviewer can only comment", 403)
                         con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
                                     (new_text, db.now_iso(), doc_id))
                 except sqlite3.OperationalError as e:
-                    raise _main.busy_503("mcp_edit", e) from e
+                    raise deps.busy_503("mcp_edit", e) from e
         except sqlite3.OperationalError as e:
-            raise _main.busy_503("mcp_edit", e) from e
+            raise deps.busy_503("mcp_edit", e) from e
         try:
             # Snapshot of the pre-edit state (old_db): after the commit so a
             # failed edit leaves no stray snapshot; failures only warn.
-            _main.auto_snap(doc_id, old_db, label="mcp-edit")
+            snapsvc.auto_snap(doc_id, old_db, label="mcp-edit")
         except HTTPException as e:
             log.warning("mcp_edit snap: %s", e.detail)
         if live_before is not None:
@@ -667,9 +671,9 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
                     if cur.rowcount == 0:
                         raise _bad("Template gone", 404)
                 except sqlite3.OperationalError as e:
-                    raise _main.busy_503("mcp_edit", e) from e
+                    raise deps.busy_503("mcp_edit", e) from e
         except sqlite3.OperationalError as e:
-            raise _main.busy_503("mcp_edit", e) from e
+            raise deps.busy_503("mcp_edit", e) from e
         finally:
             con.close()
     new_marker = _current_text(user, resolve_path(user, cap, path))[1]
@@ -696,7 +700,7 @@ def op_search(user: str, cap: str, query: str) -> dict:
 def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str | None = None) -> dict:
     """Upload/replace a binary or text attachment. Path is /docs/{Titel}/{Datei}
     or /docs/{Titel} + filename. Same locks/quota/size rules as the UI upload."""
-    from backend import main as _main
+    from backend.services import docfiles, locks
 
     res = resolve_path(user, cap, path)
     _need_edit(res)
@@ -712,11 +716,11 @@ def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str
         raise _bad("Invalid base64") from None
     if len(data) > UPLOAD_MAX:
         raise _bad("Max 10 MB")
-    n = _main.safe_name(fname)
-    with _main._named_lock(f"upload:{doc_id}"):
+    n = docfiles.safe_name(fname)
+    with locks._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
         uf = FastUploadFile(file=io.BytesIO(data), filename=n)
-        return _main._upload_locked(doc_id, uf, n, user)
+        return docfiles._upload_locked(doc_id, uf, n, user)
 
 
 def op_comment(user: str, cap: str, path: str, anchor: int,

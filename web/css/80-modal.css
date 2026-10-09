@@ -1,0 +1,24 @@
+/* ==========================================================================
+   Modal
+   ========================================================================== */
+#modal {
+  position: fixed; inset: 0; z-index: var(--z-modal); display: flex; align-items: center; justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  background: rgba(10, 12, 16, .32); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+#mCard { width: min(440px, 94vw); max-height: 90vh; overflow: auto; padding: 22px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
+#mCard b#mHead, .mTop b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+#mInp { margin: 12px 0 4px; min-height: 38px; padding: 8px 12px; border-radius: var(--r-md); font-size: 14px; }
+.mRow { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.mRow button { padding: 7px 16px; min-height: 34px; font-size: 13px; border-radius: var(--r-sm); }
+.mTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.mTop button { min-height: 30px; padding: 4px 12px; }
+#mExtra label { display: block; margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--sub); }
+#mExtra input[type=text] { margin-top: 6px; border-radius: var(--r-md); }
+.pk { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 6px; padding: 10px 14px; text-align: left; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-md); color: var(--text); }
+.pk:hover { background: var(--hover); }
+.pk.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.pk .pkTx { flex: 1; min-width: 0; }
+.pk b { display: block; font-size: 13.5px; font-weight: 600; }
+.pk span { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 400; color: var(--sub); }
+

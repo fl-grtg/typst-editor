@@ -3,13 +3,13 @@ repos:
     rev: v0.16.9
     hooks:
       - id: ruff-check
-        args: [--, backend/, scripts/, tests/]
-      # ruff-format bleibt unenforced: wuerde aktuell ~30 Dateien umformatieren, daher opt-in.
+        args: [--, backend/, scripts/, tests/, e2e/]
+      # ruff-format stays unenforced: it would currently reformat ~30 files, so it is opt-in.
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.3.1
     hooks:
       - id: mypy
-        args: [backend/, scripts/, tests/]
+        args: [backend/, scripts/, tests/, e2e/]
         additional_dependencies: [fastapi==0.141.1, uvicorn==0.54.0, websockets==17.1, pycrdt==0.14.6, python-multipart==0.0.32]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -22,3 +22,11 @@ repos:
       - id: check-added-large-files
         exclude: '^vendor-cm\.js$'
       - id: debug-statements
+  - repo: local
+    hooks:
+      - id: web-build-check
+        name: index.html is built from web/
+        entry: python web/build.py --check
+        language: system
+        pass_filenames: false
+        files: '^(web/|index\.html$)'

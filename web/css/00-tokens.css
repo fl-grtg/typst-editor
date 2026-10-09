@@ -1,0 +1,71 @@
+/* ==========================================================================
+   Tokens
+   ========================================================================== */
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f8;
+  --panel: #fbfbfc;
+  --card: #ffffff;
+  --editor: #ffffff;
+  --field: #ffffff;
+  --pv: #ececef;
+  --line: rgba(15, 17, 22, .09);
+  --line-2: rgba(15, 17, 22, .14);
+  --text: #16181d;
+  --sub: #6b7080;
+  --faint: #9aa0ae;
+  --ink: #16181d;
+  --on-ink: #ffffff;
+  --tok-comment: #8a8f9c; --tok-raw: #5f6675; --tok-math: #0e7490; --tok-marker: #6f4bb8; --tok-label: #0e7490;
+  --tok-keyword: #c2255c; --tok-number: #a8326b; --tok-string: #1f7a3d; --tok-func: #3b5fc4; --tok-interp: #6f4bb8; --tok-prop: #6f4bb8; --tok-link: #2f6df6; --tok-invalid: #d92d20;
+  --acc: #2f6df6;
+  --acc-soft: rgba(47, 109, 246, .13);
+  --hover: rgba(15, 17, 22, .055);
+  --press: rgba(15, 17, 22, .09);
+  --sel: rgba(15, 17, 22, .075);
+  --danger: #d92d20;
+  --danger-soft: rgba(217, 45, 32, .10);
+  --ring: 0 0 0 3px rgba(47, 109, 246, .25);
+  --r-xs: 6px; --r-sm: 8px; --r-md: 10px; --r-lg: 14px; --r-xl: 18px;
+  --sh-1: 0 1px 2px rgba(15, 17, 22, .06);
+  --sh-pop: 0 0 0 1px rgba(15, 17, 22, .06), 0 10px 30px rgba(15, 17, 22, .14);
+  --sh-modal: 0 0 0 1px rgba(15, 17, 22, .06), 0 28px 70px rgba(15, 17, 22, .28);
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --z-pop: 60; --z-menu: 250; --z-scrim: 205; --z-drawer: 210; --z-modal: 300; --z-toast: 400;
+  --rail: 52px; --bar: 48px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --bg: #111214; --panel: #16181b; --card: #1e2024; --editor: #14161a; --field: #191b1f; --pv: #0d0e10;
+    --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .14);
+    --text: #ececef; --sub: #9a9ca7; --faint: #6b6e79;
+    --ink: #f2f2f4; --on-ink: #111214;
+    --tok-comment: #8b93a5; --tok-raw: #9aa3b5; --tok-math: #5ec2d6; --tok-marker: #b79cf0; --tok-label: #5ec2d6;
+    --tok-keyword: #ff7a93; --tok-number: #e8a15c; --tok-string: #7fd49a; --tok-func: #82a8ff; --tok-interp: #d0a8ff; --tok-prop: #9db4ff; --tok-link: #7aa7ff; --tok-invalid: #ff6b60;
+    --acc: #7aa7ff; --acc-soft: rgba(122, 167, 255, .18);
+    --hover: rgba(255, 255, 255, .07); --press: rgba(255, 255, 255, .11); --sel: rgba(255, 255, 255, .10);
+    --danger: #ff6b60; --danger-soft: rgba(255, 107, 96, .18);
+    --ring: 0 0 0 3px rgba(122, 167, 255, .32);
+    --sh-pop: 0 0 0 1px rgba(255, 255, 255, .08), 0 14px 40px rgba(0, 0, 0, .6);
+    --sh-modal: 0 0 0 1px rgba(255, 255, 255, .08), 0 30px 80px rgba(0, 0, 0, .7);
+  }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111214; --panel: #16181b; --card: #1e2024; --editor: #14161a; --field: #191b1f; --pv: #0d0e10;
+  --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .14);
+  --text: #ececef; --sub: #9a9ca7; --faint: #6b6e79;
+  --ink: #f2f2f4; --on-ink: #111214;
+    --tok-comment: #8b93a5; --tok-raw: #9aa3b5; --tok-math: #5ec2d6; --tok-marker: #b79cf0; --tok-label: #5ec2d6;
+    --tok-keyword: #ff7a93; --tok-number: #e8a15c; --tok-string: #7fd49a; --tok-func: #82a8ff; --tok-interp: #d0a8ff; --tok-prop: #9db4ff; --tok-link: #7aa7ff; --tok-invalid: #ff6b60;
+  --acc: #7aa7ff; --acc-soft: rgba(122, 167, 255, .18);
+  --hover: rgba(255, 255, 255, .07); --press: rgba(255, 255, 255, .11); --sel: rgba(255, 255, 255, .10);
+  --danger: #ff6b60; --danger-soft: rgba(255, 107, 96, .18);
+  --ring: 0 0 0 3px rgba(122, 167, 255, .32);
+  --sh-pop: 0 0 0 1px rgba(255, 255, 255, .08), 0 14px 40px rgba(0, 0, 0, .6);
+  --sh-modal: 0 0 0 1px rgba(255, 255, 255, .08), 0 30px 80px rgba(0, 0, 0, .7);
+}
+

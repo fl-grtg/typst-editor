@@ -31,19 +31,20 @@ def _auth() -> tuple[str, str, str]:
     (IP + per-key buckets, same helper as the REST routes)."""
     from fastmcp.server.dependencies import get_http_headers, get_http_request
 
-    from backend import main as _main
+    from backend import deps
+    from backend.services import apikeys
 
     h = get_http_headers(include={"authorization"})
     authz = h.get("authorization", "")
     if not authz.lower().startswith("bearer "):
         raise ToolError("401: Bearer API key required")
-    hit = _main.verify_api_key(authz[7:].strip())
+    hit = apikeys.verify_api_key(authz[7:].strip())
     if not hit:
         raise ToolError("401: Invalid API key")
     user, cap = hit["user"], hit["role"]
     author = (hit.get("key_name") or "").strip() or user
     try:
-        _main.limited(get_http_request(), "mcp", f"{user}:{hit['id']}")
+        deps.limited(get_http_request(), "mcp", f"{user}:{hit['id']}")
     except RuntimeError:
         log.warning("mcp auth without request context, skipping rate limit")
     except HTTPException as e:

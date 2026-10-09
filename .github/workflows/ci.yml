@@ -19,6 +19,7 @@ jobs:
       - run: pip check
       - run: pytest -q
       - run: python scripts/backup.py --dry-run
+      - run: python web/build.py --check
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -31,8 +32,8 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: ruff check backend/ scripts/ tests/
-      - run: mypy backend/ scripts/ tests/
+      - run: ruff check backend/ scripts/ tests/ e2e/
+      - run: mypy backend/ scripts/ tests/ e2e/
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -40,8 +41,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      # Kein pip hash-lock: riskant (rotierende Wheels), pip check reicht als Konsistenz-Gate.
-      # Kein coverage-gate und kein Image-Scan-Gate: nur Hinweis, kein Fail (flaky/slow).
+      # No pip hash-lock: risky (rotating wheels); `pip check` is enough as a consistency gate.
+      # No coverage gate and no image-scan gate: informational only, never fails the build (flaky/slow).
       - run: docker build --pull -t typst-editor .
       - run: |
           docker run -d --rm -p 8978:8978 --name smoke typst-editor
@@ -74,3 +75,19 @@ jobs:
           sz=$(stat -c%s vendor-cm.js)
           echo "vendor-cm.js $sz bytes (budget 614400)"
           test "$sz" -le 614400
+  e2e:
+    # Browser smoke tests. Informational until the first green runs are confirmed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-e2e.txt
+      - run: playwright install --with-deps chromium
+      - run: pytest e2e -q

@@ -1,0 +1,27 @@
+/* ==========================================================================
+   Preview
+   ========================================================================== */
+#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 96px; background: var(--pv); position: relative; }
+#preview:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+#preview canvas { display: block; width: 100%; height: auto; margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); }
+body.read #preview { padding-top: 24px; }
+#preview .empty { max-width: 420px; margin: 12vh auto 0; text-align: center; color: var(--sub); font-size: 13.5px; line-height: 1.55; }
+#preview .empty button { display: block; margin: 14px auto 0; }
+#cdnLine { display: none; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 5px 13px; font-size: 12px; color: var(--sub); background: var(--card); border-radius: 16px; box-shadow: var(--sh-pop); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
+.spin { display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -3px; border: 2px solid var(--line-2); border-top-color: var(--text); border-radius: 50%; animation: sp .8s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* Floating zoom pill */
+#pvTools {
+  position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 15;
+  display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--sh-pop);
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
+}
+#pvTools button { min-width: 30px; height: 28px; padding: 0 6px; font-size: 15px; line-height: 1; }
+#pvTools button.on { background: var(--sel); color: var(--text); }
+#pvTools .grp { display: flex; align-items: center; gap: 1px; font-size: 0; color: var(--sub); }
+#pvTools #zoomV { min-width: 46px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+#pvTools #syncBtn { margin-right: 3px; }
+#pvTools #syncBtn + .grp { padding-left: 4px; border-left: 1px solid var(--line); }
+
