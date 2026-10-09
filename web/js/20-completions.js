@@ -122,9 +122,9 @@ function typstComplete(ctx) {
           view.dispatch({ changes: { from, to: end, insert: v }, selection: { anchor: from + v.length }, userEvent: 'input.complete' })
         }
         for (const part of pm[2]) {
-          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: quoteApply(v), type: 'enum', detail: 'Accepted value', boost: 55 }) }
-          else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: 'Boolean value', boost: 55 }) }
-          else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: 'Typst ' + v + ' value', boost: 55 }) }
+          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: quoteApply(v), type: 'enum', detail: t('editor.acceptedValue'), boost: 55 }) }
+          else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: t('editor.boolValue'), boost: 55 }) }
+          else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: t('editor.typstValue', { v }), boost: 55 }) }
         }
         if (out.length) {
           const qn = q
@@ -138,7 +138,7 @@ function typstComplete(ctx) {
         if (gap.length) {
           return { from: pos - (wm ? wm[1].length : 0), filter: false, options: gap.slice(0, 20).map(p => {
             const accepts = (Array.isArray(p[2]) ? p[2] : []).map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
-            return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? 'parameter · ' + accepts : 'parameter', boost: 50 }
+            return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? t('editor.paramWith', { accepts }) : t('editor.param'), boost: 50 }
           }), validFor: /^[\p{ID_Continue}_-]*$/u }
         }
       }
@@ -190,20 +190,20 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
   const a = Math.min(...list.map(t => t.a)), b = Math.max(...list.map(t => t.b))
   return { pos: a, end: b, above: true, create: () => {
     const div = document.createElement('div'); div.className = 'typ-hover full'
-    for (const t of list.slice(0, 3)) {
+    for (const th of list.slice(0, 3)) {
       const h = document.createElement('div'); h.style.marginBottom = '6px'
-      const nm = document.createElement('b'); nm.textContent = t.author || t.username; nm.style.color = colOf(t.username)
-      h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(t.created_at)))
-      const p = document.createElement('div'); p.textContent = t.text; h.appendChild(p)
-      if (t.replies && t.replies.length) {
+      const nm = document.createElement('b'); nm.textContent = th.author || th.username; nm.style.color = colOf(th.username)
+      h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(th.created_at)))
+      const p = document.createElement('div'); p.textContent = th.text; h.appendChild(p)
+      if (th.replies && th.replies.length) {
         const r = document.createElement('div'); r.style.color = 'var(--sub)'; r.style.fontSize = '12px'
-        r.textContent = '+' + t.replies.length + (t.replies.length === 1 ? ' reply' : ' replies'); h.appendChild(r)
+        r.textContent = th.replies.length === 1 ? t('comments.repliesOne', { n: th.replies.length }) : t('comments.repliesMany', { n: th.replies.length }); h.appendChild(r)
       }
       div.appendChild(h)
     }
     if (list.length > 3) {
       const m = document.createElement('div'); m.style.color = 'var(--sub)'; m.style.fontSize = '12px'
-      m.textContent = '+' + (list.length - 3) + ' more'; div.appendChild(m)
+      m.textContent = t('comments.moreHover', { n: list.length - 3 }); div.appendChild(m)
     }
     const d = docNear(view, pos, a, b)
     if (d) {

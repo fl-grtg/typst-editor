@@ -20,6 +20,7 @@
 <link rel="apple-touch-icon" href="./icon-192.png?v=2">
 <title>Typst Editor</title>
 <script>try { var th = localStorage.getItem('typst_theme'); if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th) } catch (e) {}</script>
+<script id="i18n-data" type="application/json">{"de":{"comments":{"moreHover":"+{n} weitere","repliesMany":"+{n} Antworten","repliesOne":"+{n} Antwort"},"common":{"busyRetry":"Ausgelastet, versuche erneut\u2026","cancel":"Abbrechen","close":"Schlie\u00dfen","copied":"Kopiert","create":"Erstellen","delete":"L\u00f6schen","ok":"OK","requestFailed":"Anfrage fehlgeschlagen","retry":"Wiederholen","roleEditor":"Bearbeiter","roleOwner":"Besitzer","roleReader":"Leser","storageFull":"Speicher voll \u2013 \u00e4lteste ungesendete Entw\u00fcrfe verworfen, bitte erneut speichern"},"editor":{"acceptedValue":"Zul\u00e4ssiger Wert","boolValue":"Wahrheitswert","fold":"Einklappen","param":"Parameter","paramWith":"Parameter \u00b7 {accepts}","typstValue":"Typst-{v}-Wert","unfold":"Ausklappen"},"preview":{"badgeMany":"{n} Fehler","badgeOne":"{n} Fehler","compileFailed":"Kompilieren fehlgeschlagen","couldNotRender":"Konnte nicht rendern: {msg}","couldNotRenderBare":"Konnte nicht rendern. ","errRow":"Zeile {line}{col}","lineRef":"Zeile {line}{col}","lineSuffix":" \u00b7 Zeile {line}{col}","loadFailed":"Vorschau konnte nicht geladen werden \u2013 braucht Internet","needsInternet":"Vorschau l\u00e4dt nicht \u2014 braucht Internet.","pageLabel":"Vorschauseite {n}","showErrors":"Fehler anzeigen: {list}","stillLoading":"Vorschau l\u00e4dt noch","tryAgain":"Erneut versuchen","typstError":"Typst-Fehler: {msg}","typstErrorBare":"Typst-Fehler"}},"en":{"comments":{"moreHover":"+{n} more","repliesMany":"+{n} replies","repliesOne":"+{n} reply"},"common":{"busyRetry":"Busy, retrying\u2026","cancel":"Cancel","close":"Close","copied":"Copied","create":"Create","delete":"Delete","ok":"OK","requestFailed":"Request failed","retry":"Retry","roleEditor":"Editor","roleOwner":"Owner","roleReader":"Reader","storageFull":"Storage full \u2013 oldest unsent drafts dropped, please save again"},"editor":{"acceptedValue":"Accepted value","boolValue":"Boolean value","fold":"Fold","param":"parameter","paramWith":"parameter \u00b7 {accepts}","typstValue":"Typst {v} value","unfold":"Unfold"},"preview":{"badgeMany":"{n} errors","badgeOne":"{n} error","compileFailed":"Compile failed","couldNotRender":"Could not render: {msg}","couldNotRenderBare":"Could not render. ","errRow":"Line {line}{col}","lineRef":"line {line}{col}","lineSuffix":" \u00b7 line {line}{col}","loadFailed":"Preview failed to load \u2014 needs internet","needsInternet":"Preview not loading \u2014 needs internet.","pageLabel":"Preview page {n}","showErrors":"Show errors: {list}","stillLoading":"Preview still loading","tryAgain":"Try again","typstError":"Typst error: {msg}","typstErrorBare":"Typst error"}}}</script>
 <style>
 /* ==========================================================================
    Tokens
@@ -835,6 +836,56 @@ document.getElementById('login')?.addEventListener('submit', function (e) { // m
 <div id="menu" role="menu" hidden></div>
 
 <script type="module">
+// --- i18n: t(key, params) over the embedded i18n-data JSON (see web/build.py) ---
+// Embedded shape: {"<lang>":{"<area>":{...}}}. Language = browser default
+// (navigator.language de -> de, else en); no settings switcher (Wave 2D).
+// Missing web/i18n/ builds without the tag: t() then falls back to en, then key.
+const I18N_DATA = (() => {
+  try {
+    const raw = (document.getElementById('i18n-data') || {}).textContent || ''
+    return raw ? JSON.parse(raw) : {}
+  } catch (e) { return {} }
+})()
+const I18N_LANG = (() => {
+  try {
+    const q = new URLSearchParams(location.search).get('lang')
+    if (q === 'de' || q === 'en') return q
+  } catch (e) {}
+  try {
+    if ((navigator.language || '').toLowerCase().startsWith('de')) return 'de'
+  } catch (e) {}
+  return 'en'
+})()
+function t(key, params) {
+  const parts = String(key).split('.')
+  const get = lang => {
+    let node = I18N_DATA[lang]
+    if (!node) return undefined
+    for (const p of parts) {
+      if (node && typeof node === 'object' && p in node) node = node[p]
+      else return undefined
+    }
+    return typeof node === 'string' ? node : undefined
+  }
+  let s = get(I18N_LANG)
+  if (s === undefined) s = get('en')
+  if (s === undefined) return String(key)
+  if (params) for (const [k, v] of Object.entries(params)) s = s.split('{' + k + '}').join(String(v))
+  return s
+}
+function applyI18n() {
+  try { document.documentElement.lang = I18N_LANG } catch (e) {}
+  try {
+    document.querySelectorAll('[data-i18n]').forEach(n => { n.textContent = t(n.getAttribute('data-i18n')) })
+    document.querySelectorAll('[data-i18n-ph]').forEach(n => n.setAttribute('placeholder', t(n.getAttribute('data-i18n-ph'))))
+    document.querySelectorAll('[data-i18n-title]').forEach(n => n.setAttribute('title', t(n.getAttribute('data-i18n-title'))))
+    document.querySelectorAll('[data-i18n-aria]').forEach(n => n.setAttribute('aria-label', t(n.getAttribute('data-i18n-aria'))))
+  } catch (e) {}
+}
+window.t = t
+window.I18N_LANG = I18N_LANG
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyI18n)
+else applyI18n()
 import * as Y from '/vendor/yjs-13.6.27-232b4982bc3f.js'
 import { WebsocketProvider } from '/vendor/y-websocket-1.5.0-8a98fc0aad78.js'
 import * as CMV from './vendor-cm.js?v=6' // bundled locally: single instance, no CDN risk
@@ -849,7 +900,7 @@ const $ = id => document.getElementById(id)
 let toastT = 0
 let lastToastM = '', lastToastT = 0
 const TOAST_DUP_MS = 2000 // same text within this window: show once (F24)
-function toast(m, retry, label, ms) { if (!retry && m === lastToastM && Date.now() - lastToastT < TOAST_DUP_MS) return; lastToastM = m; lastToastT = Date.now(); let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
+function toast(m, retry, label, ms) { if (!retry && m === lastToastM && Date.now() - lastToastT < TOAST_DUP_MS) return; lastToastM = m; lastToastT = Date.now(); let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || t('common.retry'); b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function api(m, url, body, tries = 3) { // Error carries .status/.detail; GET auto-retries 503 with backoff (idempotent only, never 429: a limit hit must surface, not re-hit the bucket)
   let lastErr = null
@@ -858,13 +909,13 @@ async function api(m, url, body, tries = 3) { // Error carries .status/.detail; 
   for (let a = 0; a < n; a++) {
     const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) })
     if (r.status === 204) return null
-    if (r.status === 503 && a < n - 1) { lastErr = new Error('Busy, retrying…'); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
+    if (r.status === 503 && a < n - 1) { lastErr = new Error(t('common.busyRetry')); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
     const t = await r.text()
     let j = null; try { j = t ? JSON.parse(t) : null } catch (e) { j = null } // HTML error page: no crash
     if (!r.ok) { const e = new Error((j && j.detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = (j && j.detail) || ''; throw e }
     return j
   }
-  throw lastErr || new Error('Request failed')
+  throw lastErr || new Error(t('common.requestFailed'))
 }
 function lsSet(k, v) { // quota: drop oldest pending stash, retry once, else smaller stash + toast (never silent)
   try { localStorage.setItem(k, v); return true }
@@ -875,7 +926,7 @@ function lsSet(k, v) { // quota: drop oldest pending stash, retry once, else sma
       olds.slice(0, Math.max(1, olds.length - 1)).forEach(kk => localStorage.removeItem(kk)) // keep newest draft only
       localStorage.setItem(k, v); return true
     } catch (e2) {}
-    try { toast('Storage full – oldest unsent drafts dropped, please save again') } catch (_) {}
+    try { toast(t('common.storageFull')) } catch (_) {}
     return false
   }
 }
@@ -1078,9 +1129,9 @@ function typstComplete(ctx) {
           view.dispatch({ changes: { from, to: end, insert: v }, selection: { anchor: from + v.length }, userEvent: 'input.complete' })
         }
         for (const part of pm[2]) {
-          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: quoteApply(v), type: 'enum', detail: 'Accepted value', boost: 55 }) }
-          else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: 'Boolean value', boost: 55 }) }
-          else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: 'Typst ' + v + ' value', boost: 55 }) }
+          if (part.startsWith('value:')) { const v = part.slice(6); if (v.toLowerCase().includes(q)) out.push({ label: quoted ? v : v.replace(/^"([\s\S]*)"$/, '$1'), apply: quoteApply(v), type: 'enum', detail: t('editor.acceptedValue'), boost: 55 }) }
+          else if (part === 'type:bool' || part === 'bool') { for (const b of ['true', 'false']) if (b.includes(q)) out.push({ label: b, type: 'constant', detail: t('editor.boolValue'), boost: 55 }) }
+          else if (part === 'type:auto' || part === 'auto' || part === 'type:none' || part === 'none') { const v = part.includes('none') ? 'none' : 'auto'; if (v.includes(q)) out.push({ label: v, type: 'constant', detail: t('editor.typstValue', { v }), boost: 55 }) }
         }
         if (out.length) {
           const qn = q
@@ -1094,7 +1145,7 @@ function typstComplete(ctx) {
         if (gap.length) {
           return { from: pos - (wm ? wm[1].length : 0), filter: false, options: gap.slice(0, 20).map(p => {
             const accepts = (Array.isArray(p[2]) ? p[2] : []).map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
-            return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? 'parameter · ' + accepts : 'parameter', boost: 50 }
+            return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? t('editor.paramWith', { accepts }) : t('editor.param'), boost: 50 }
           }), validFor: /^[\p{ID_Continue}_-]*$/u }
         }
       }
@@ -1146,20 +1197,20 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
   const a = Math.min(...list.map(t => t.a)), b = Math.max(...list.map(t => t.b))
   return { pos: a, end: b, above: true, create: () => {
     const div = document.createElement('div'); div.className = 'typ-hover full'
-    for (const t of list.slice(0, 3)) {
+    for (const th of list.slice(0, 3)) {
       const h = document.createElement('div'); h.style.marginBottom = '6px'
-      const nm = document.createElement('b'); nm.textContent = t.author || t.username; nm.style.color = colOf(t.username)
-      h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(t.created_at)))
-      const p = document.createElement('div'); p.textContent = t.text; h.appendChild(p)
-      if (t.replies && t.replies.length) {
+      const nm = document.createElement('b'); nm.textContent = th.author || th.username; nm.style.color = colOf(th.username)
+      h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(th.created_at)))
+      const p = document.createElement('div'); p.textContent = th.text; h.appendChild(p)
+      if (th.replies && th.replies.length) {
         const r = document.createElement('div'); r.style.color = 'var(--sub)'; r.style.fontSize = '12px'
-        r.textContent = '+' + t.replies.length + (t.replies.length === 1 ? ' reply' : ' replies'); h.appendChild(r)
+        r.textContent = th.replies.length === 1 ? t('comments.repliesOne', { n: th.replies.length }) : t('comments.repliesMany', { n: th.replies.length }); h.appendChild(r)
       }
       div.appendChild(h)
     }
     if (list.length > 3) {
       const m = document.createElement('div'); m.style.color = 'var(--sub)'; m.style.fontSize = '12px'
-      m.textContent = '+' + (list.length - 3) + ' more'; div.appendChild(m)
+      m.textContent = t('comments.moreHover', { n: list.length - 3 }); div.appendChild(m)
     }
     const d = docNear(view, pos, a, b)
     if (d) {
@@ -1346,7 +1397,7 @@ const cm = new EditorView({
     autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
-    markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? 'Fold' : 'Unfold'; s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
+    markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
       if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
@@ -1607,8 +1658,8 @@ setTimeout(() => {
   else $('cdnLine').style.display = 'none'
 }, 5000)
 function updExports() {
-  const r = typstReady(), t = r ? '' : 'Preview still loading'
-  for (const id of ['dlPdf', 'dlSvg']) { const b = $(id); if (!b) continue; b.disabled = !r; b.title = r ? b.getAttribute('aria-label') : t }
+  const r = typstReady(), tip = r ? '' : t('preview.stillLoading')
+  for (const id of ['dlPdf', 'dlSvg']) { const b = $(id); if (!b) continue; b.disabled = !r; b.title = r ? b.getAttribute('aria-label') : tip }
 }
 const updExportsT = setInterval(() => { updExports(); if (typstReady()) clearInterval(updExportsT) }, 2000)
 let typstQueued = false // one catch-up render: no compile queue while typing
@@ -1622,7 +1673,7 @@ function noteCompiler(preview) { // hint instead of endless rendering note (only
   if (!typstT0) typstT0 = Date.now()
   $('cdnLine').style.display = 'block'
   if (++cmpWait >= 8 && Date.now() - typstT0 > 25000 && !preview.querySelector('canvas')) {
-    preview.innerHTML = '<p class="empty">Preview not loading — needs internet. <button>Try again</button></p>'
+    preview.innerHTML = '<p class="empty">' + t('preview.needsInternet') + ' <button>' + t('preview.tryAgain') + '</button></p>'
     preview.querySelector('button').onclick = () => render()
   }
 }
@@ -1698,7 +1749,7 @@ async function render() {
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p), v = page.getViewport({ scale: 2 }), c = document.createElement('canvas')
       c.width = v.width; c.height = v.height // backing = viewport (scale 2), never touch
-      c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'Preview page ' + p)
+      c.setAttribute('role', 'img'); c.setAttribute('aria-label', t('preview.pageLabel', { n: p }))
       await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise
       sizeCanvas(c) // CSS width only, not canvas.width
       const tc = await page.getTextContent() // click anchors: each visible word knows its spot
@@ -1725,12 +1776,12 @@ async function render() {
     const lined = errLines.some(e => e.line)
     if (!$('preview').querySelector('canvas')) {
       const p = el('p', 'empty') // real message, not generic: package errors live in other files
-      p.append(document.createTextNode(firstMsg ? 'Could not render: ' + firstMsg : 'Could not render. '))
-      const btn = el('button', null, 'Try again'); btn.onclick = () => render(); p.appendChild(btn)
+      p.append(document.createTextNode(firstMsg ? t('preview.couldNotRender', { msg: firstMsg }) : t('preview.couldNotRenderBare')))
+      const btn = el('button', null, t('preview.tryAgain')); btn.onclick = () => render(); p.appendChild(btn)
       $('preview').replaceChildren(p)
-      if (firstMsg) toast('Typst error: ' + firstMsg.slice(0, 140))
-      else toast('Preview failed to load — needs internet', () => render())
-    } else if (errLines.length && !lined && errKey !== lastErrToast) { lastErrToast = errKey; toast('Typst error: ' + firstMsg.slice(0, 140)) } // line errors: red marks + badge suffice, no toast per keystroke
+      if (firstMsg) toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) }))
+      else toast(t('preview.loadFailed'), () => render())
+    } else if (errLines.length && !lined && errKey !== lastErrToast) { lastErrToast = errKey; toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) })) } // line errors: red marks + badge suffice, no toast per keystroke
     lastInfra = !errLines.length && !$('preview').querySelector('canvas') // infra (not content): watchdog retries
   } }
 }
@@ -1742,7 +1793,7 @@ async function errDiags() { // fallback only: pre-compile failure (render reuses
   try {
     const r = await (await $typst.getCompiler()).compile({ mainFilePath: '/main.typ', diagnostics: 'full' }) // vector default is fine here, diagnostics is what matters
     return (r.diagnostics || []).filter(d => d.severity === 'error')
-  } catch (err) { return [{ severity: 'error', message: String((err && err.message) || err || 'Compile failed') }] }
+  } catch (err) { return [{ severity: 'error', message: String((err && err.message) || err || t('preview.compileFailed')) }] }
 }
 // <diagRange>
 function diagRange(d, doc) { // F20: real column ranges from compiler diagnostics (0-based) -> doc offsets; null = no position in this doc
@@ -1793,11 +1844,11 @@ function diagRange(d, doc) { // F20: real column ranges from compiler diagnostic
 function paintErr() { // compile errors via lint (F1): every column range renders (F20), badge keeps one row per line
   const doc = cm.state.doc, diags = [], byLine = new Map(), general = []
   for (const d of cmpDiags) {
-    const msg = (d && d.message) || 'Typst error'
+    const msg = (d && d.message) || t('preview.typstErrorBare')
     const r = d && d.path === '/main.typ' ? diagRange(d, doc) : null
     if (r) {
       diags.push({ from: r.from, to: r.to, severity: 'error', message: msg, source: 'typst' })
-      if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + ' · line ' + r.line + (r.explicit ? ':' + r.col : '') })
+      if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + t('preview.lineSuffix', { line: r.line, col: r.explicit ? ':' + r.col : '' }) })
     } else { // foreign file (package) or no position: no mark possible, but never drop it
       let where = (d && d.package ? d.package + ' ' : '') + (d && d.path && d.path !== '/main.typ' ? d.path : '')
       const at = String((d && (d.range || d.span || d.location)) || '').match(/(\d+)/)
@@ -1838,8 +1889,8 @@ function updErrBadge() { // error counter in header: touch-friendly, hover not n
   if (!b) return
   if (!errLines.length) { b.style.display = 'none'; if ($('pop').classList.contains('errs')) closePop(true); return }
   b.style.display = ''
-  b.textContent = errLines.length + (errLines.length === 1 ? ' error' : ' errors')
-  b.title = 'Show errors: ' + errLines.map(e => e.line ? 'line ' + e.line + (e.col ? ':' + e.col : '') : e.msg.split('\n')[0].slice(0, 60)).join(', ')
+  b.textContent = errLines.length === 1 ? t('preview.badgeOne', { n: errLines.length }) : t('preview.badgeMany', { n: errLines.length })
+  b.title = t('preview.showErrors', { list: errLines.map(e => e.line ? t('preview.lineRef', { line: e.line, col: e.col ? ':' + e.col : '' }) : e.msg.split('\n')[0].slice(0, 60)).join(', ') })
   b.setAttribute('aria-label', b.title)
   const ep = $('pop'); if (ep.classList.contains('errs') && ep.style.display !== 'none') showErrList() // live: list follows the compiler
 }
@@ -1849,13 +1900,13 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   const eb = $('eBadge'); if (eb) { eb.setAttribute('aria-expanded', 'true'); if (!eb.getAttribute('aria-controls')) eb.setAttribute('aria-controls', 'pop') }
   const box = $('pop')
   box.replaceChildren()
-  const hd = el('div', 'eh'); hd.appendChild(el('b', null, errLines.length + (errLines.length === 1 ? ' error' : ' errors')))
-  const cx = icoBtn('ib', ICO_X); cx.title = 'Close'; cx.setAttribute('aria-label', 'Close'); cx.onclick = () => closePop(true); hd.appendChild(cx)
+  const hd = el('div', 'eh'); hd.appendChild(el('b', null, errLines.length === 1 ? t('preview.badgeOne', { n: errLines.length }) : t('preview.badgeMany', { n: errLines.length })))
+  const cx = icoBtn('ib', ICO_X); cx.title = t('common.close'); cx.setAttribute('aria-label', t('common.close')); cx.onclick = () => closePop(true); hd.appendChild(cx)
   box.appendChild(hd)
   errLines.forEach(e => { // no line (package error): text row, nowhere to jump
     const r = el(e.line ? 'button' : 'div', 'er')
-    if (e.line) r.appendChild(el('span', 'ln', 'Line ' + e.line + (e.col ? ':' + e.col : '')))
-    r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ · line \d+(:\d+)?$/, '')))
+    if (e.line) r.appendChild(el('span', 'ln', t('preview.errRow', { line: e.line, col: e.col ? ':' + e.col : '' })))
+    r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ · (line|Zeile) \d+(:\d+)?$/, '')))
     if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) }, scrollIntoView: true }); cm.focus() } // list stays open: only the x closes it
     box.appendChild(r)
   })

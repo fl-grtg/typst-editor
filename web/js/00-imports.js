@@ -12,7 +12,7 @@ const $ = id => document.getElementById(id)
 let toastT = 0
 let lastToastM = '', lastToastT = 0
 const TOAST_DUP_MS = 2000 // same text within this window: show once (F24)
-function toast(m, retry, label, ms) { if (!retry && m === lastToastM && Date.now() - lastToastT < TOAST_DUP_MS) return; lastToastM = m; lastToastT = Date.now(); let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || 'Retry'; b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
+function toast(m, retry, label, ms) { if (!retry && m === lastToastM && Date.now() - lastToastT < TOAST_DUP_MS) return; lastToastM = m; lastToastT = Date.now(); let t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t) } t.setAttribute('role', retry ? 'alert' : 'status'); t.setAttribute('aria-live', retry ? 'assertive' : 'polite'); t.replaceChildren(); t.appendChild(document.createTextNode(m)); if (retry) { const b = document.createElement('button'); b.textContent = label || t('common.retry'); b.onclick = () => { t.style.display = 'none'; retry() }; t.appendChild(b) } t.style.opacity = '1'; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function api(m, url, body, tries = 3) { // Error carries .status/.detail; GET auto-retries 503 with backoff (idempotent only, never 429: a limit hit must surface, not re-hit the bucket)
   let lastErr = null
@@ -21,13 +21,13 @@ async function api(m, url, body, tries = 3) { // Error carries .status/.detail; 
   for (let a = 0; a < n; a++) {
     const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) })
     if (r.status === 204) return null
-    if (r.status === 503 && a < n - 1) { lastErr = new Error('Busy, retrying…'); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
+    if (r.status === 503 && a < n - 1) { lastErr = new Error(t('common.busyRetry')); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
     const t = await r.text()
     let j = null; try { j = t ? JSON.parse(t) : null } catch (e) { j = null } // HTML error page: no crash
     if (!r.ok) { const e = new Error((j && j.detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = (j && j.detail) || ''; throw e }
     return j
   }
-  throw lastErr || new Error('Request failed')
+  throw lastErr || new Error(t('common.requestFailed'))
 }
 function lsSet(k, v) { // quota: drop oldest pending stash, retry once, else smaller stash + toast (never silent)
   try { localStorage.setItem(k, v); return true }
@@ -38,7 +38,7 @@ function lsSet(k, v) { // quota: drop oldest pending stash, retry once, else sma
       olds.slice(0, Math.max(1, olds.length - 1)).forEach(kk => localStorage.removeItem(kk)) // keep newest draft only
       localStorage.setItem(k, v); return true
     } catch (e2) {}
-    try { toast('Storage full – oldest unsent drafts dropped, please save again') } catch (_) {}
+    try { toast(t('common.storageFull')) } catch (_) {}
     return false
   }
 }
