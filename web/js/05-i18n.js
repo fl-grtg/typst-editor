@@ -39,6 +39,7 @@ function applyI18n() {
   try { document.documentElement.lang = I18N_LANG } catch (e) {}
   try {
     document.querySelectorAll('[data-i18n]').forEach(n => { n.textContent = t(n.getAttribute('data-i18n')) })
+    document.querySelectorAll('[data-i18n-html]').forEach(n => { n.innerHTML = t(n.getAttribute('data-i18n-html')) })
     document.querySelectorAll('[data-i18n-ph]').forEach(n => n.setAttribute('placeholder', t(n.getAttribute('data-i18n-ph'))))
     document.querySelectorAll('[data-i18n-title]').forEach(n => n.setAttribute('title', t(n.getAttribute('data-i18n-title'))))
     document.querySelectorAll('[data-i18n-aria]').forEach(n => n.setAttribute('aria-label', t(n.getAttribute('data-i18n-aria'))))
