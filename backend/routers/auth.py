@@ -30,7 +30,8 @@ def _invite_ok(invite: str, token: str) -> bool:
     """Constant-time invite check; False for empty/non-ASCII (no 500)."""
     try:
         return bool(token) and bool(invite) and hmac.compare_digest(invite.encode(), token.encode())
-    except Exception:
+    except Exception as e:
+        log.warning("invite check failed: %s", e)
         return False
 
 
@@ -122,7 +123,8 @@ async def logout(req: Request, res: Response) -> dict:
     if tok:
         try:
             user = auth.verify_session(tok)
-        except Exception:
+        except Exception as e:
+            log.warning("logout verify failed: %s", e)
             user = None
         # Drop cached session first so logged-out tokens die immediately.
         sync.drop_sess_token(tok)
@@ -130,6 +132,81 @@ async def logout(req: Request, res: Response) -> dict:
     if user:
         await sync.kick_all(user)
     clear_cookie(res, req)
+    return {"ok": True}
+
+
+@router.get("/api/sessions")
+def list_sessions(req: Request, res: Response, user: str = Depends(deps.me)) -> dict:
+    """1C backend-only session list (UI in Wave 2D).
+
+    Returns the caller's sessions as [{id, expires, current}]. id is the
+    stored token_hash (hex, not the secret itself); current marks the cookie
+    that made this call.
+    """
+    deps.limited(req, "auth")
+    cur_hash = auth.sha(req.cookies.get(deps.COOKIE, "")) if req.cookies.get(deps.COOKIE) else ""
+    con = db.connect()
+    try:
+        try:
+            rows = con.execute("SELECT token_hash, expires FROM sessions WHERE username=? "
+                               "ORDER BY expires DESC, rowid DESC LIMIT 20", (user,)).fetchall()
+        except Exception as e:
+            log.warning("list_sessions select failed for %s: %s", user, e)
+            raise HTTPException(500, "Session list failed") from e
+        return {"sessions": [{"id": r["token_hash"], "expires": r["expires"],
+                              "current": bool(cur_hash) and r["token_hash"] == cur_hash}
+                             for r in rows]}
+    finally:
+        try:
+            con.close()
+        except Exception as e:
+            log.warning("list_sessions close failed: %s", e)
+
+
+@router.delete("/api/sessions/{sid}")
+async def revoke_session(sid: str, req: Request, res: Response,
+                         user: str = Depends(deps.me)) -> dict:
+    """1C backend-only single revoke (UI in Wave 2D)."""
+    deps.limited(req, "auth")
+    sid = (sid or "").strip().lower()
+    if not sid or len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
+        raise HTTPException(404, "Session gone")
+    cur_tok = req.cookies.get(deps.COOKIE, "")
+    cur_hash = auth.sha(cur_tok) if cur_tok else ""
+    con = db.connect()
+    try:
+        try:
+            cur = con.execute("DELETE FROM sessions WHERE token_hash=? AND username=?",
+                              (sid, user))
+            con.commit()
+        except Exception as e:
+            log.warning("revoke_session delete failed for %s: %s", user, e)
+            raise HTTPException(500, "Revoke failed") from e
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Session gone")
+    finally:
+        try:
+            con.close()
+        except Exception as e:
+            log.warning("revoke_session close failed: %s", e)
+    # Force re-verify so the revoked token dies on next WS message; other
+    # sessions re-verify fine (still in DB). No kick_all: that would log out
+    # every device instead of just the revoked one.
+    try:
+        sync.drop_sess_cache(user)
+    except Exception as e:
+        log.warning("revoke_session cache drop failed: %s", e)
+    if cur_hash and cur_hash == sid:
+        # Revoked the calling session: clear cookie + close its WS conns.
+        try:
+            auth.delete_session(cur_tok)
+        except Exception as e:
+            log.warning("revoke_session self-delete failed: %s", e)
+        clear_cookie(res, req)
+        try:
+            await sync.kick_all(user)
+        except Exception as e:
+            log.warning("revoke_session kick failed: %s", e)
     return {"ok": True}
 
 
@@ -405,8 +482,8 @@ async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(
         for src, dst in trashed_dirs:
             try:
                 dst.rename(src)
-            except OSError:
-                pass
+            except OSError as re:
+                log.warning("delete_me %s: restore-rename failed: %s", dst.name, re)
         raise deps.busy_503("delete_me", e) from e
     for did in owned:
         await sync.drop(did)
