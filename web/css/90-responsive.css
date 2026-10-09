@@ -20,9 +20,10 @@
   #tools .colBtn { width: 40px; height: 40px; }
   aside .mini { min-width: 40px; min-height: 40px; }
   aside .doc, aside .fhd { height: auto; min-height: 40px; }
-  body:not(.noside) aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: var(--z-drawer); width: min(300px, 86vw) !important; min-width: 0; background: var(--panel); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); padding-top: calc(var(--bar) + 12px + env(safe-area-inset-top)); }
+  body:not(.noside) aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: 230; width: min(300px, 86vw) !important; min-width: 0; background: var(--panel); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); padding-top: calc(12px + env(safe-area-inset-top)); }
   body.noside aside { width: 0 !important; padding: 0; border-right: 0; pointer-events: none; }
   body.noside .sbPanel { display: flex; }
+  body:not(.noside) #scrim { z-index: 225; }
   .sbHead .mark, .sbHead .name { display: none; }
   .sbHead { justify-content: flex-end; margin: 0 0 8px; }
   #cBadge, #eBadge { min-height: 24px; min-width: 0; height: 24px; }
