@@ -10,6 +10,12 @@ Fails when:
     web/index.shell.html lacks a data-i18n* twin (outside the allowlist).
 
 Run:  python web/check_i18n.py   (also wired into `make check` + CI lint)
+
+Known limitations (documented, accepted): single-word literals are only
+flagged when they match FORBIDDEN_SINGLE (a novel one-word label slips
+through — keep the list in sync when adding UI words); backtick literals
+with ${} and whole URL lines are skipped; multiline t('…') calls are not
+seen (none exist — keep keys on one line).
 """
 from __future__ import annotations
 
@@ -107,29 +113,43 @@ FORBIDDEN_SINGLE = {
 SHELL_ALLOW_TEXT = {"Typst Editor", ".typ", ".pdf", ".png", ".svg"}
 
 
-def load_dicts() -> dict[str, set[str]]:
+DOTTED_KEY = re.compile(r"[a-z]\w*\.[A-Za-z][\w.]*\Z")
+PARAM = re.compile(r"\{(\w+)\}")
+
+
+def load_dicts() -> tuple[dict[str, set[str]], dict[str, set[str]],
+                          dict[str, dict[str, str]], list[str]]:
     keys: dict[str, set[str]] = {lang: set() for lang in LANGS}
     areas: dict[str, set[str]] = {lang: set() for lang in LANGS}
+    values: dict[str, dict[str, str]] = {lang: {} for lang in LANGS}
+    errors: list[str] = []
 
-    def walk(node: object, prefix: str, out: set[str]) -> None:
+    def walk(node: object, prefix: str, lang: str, src: str) -> None:
         if isinstance(node, dict):
             for k, v in node.items():
-                walk(v, f"{prefix}.{k}" if prefix else str(k), out)
+                walk(v, f"{prefix}.{k}" if prefix else str(k), lang, src)
         elif isinstance(node, str):
-            out.add(prefix)
+            keys[lang].add(prefix)
+            values[lang][prefix] = node
+            if node == "":
+                errors.append(f"{src}: key '{prefix}' has an empty value")
+        else:
+            errors.append(f"{src}: key '{prefix}' is not a string")
 
     for lang in LANGS:
         base = I18N / lang
         if not base.is_dir():
             continue
         for p in sorted(base.glob("*.json")):
+            src = str(p.relative_to(WEB))
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
             except ValueError as e:
-                return {"_error": {f"i18n: invalid JSON in {p.relative_to(WEB)}: {e}"}}
+                errors.append(f"i18n: invalid JSON in {src}: {e}")
+                continue
             areas[lang].add(p.stem)
-            walk(data, p.stem, keys[lang])
-    return {"keys": keys, "areas": areas}  # type: ignore[return-value]
+            walk(data, p.stem, lang, src)
+    return keys, areas, values, errors
 
 
 REGEX_AFTER = set("(,=:[!&|?{};+-*%<>^~")
@@ -209,7 +229,8 @@ def strip_line_comment(line: str) -> str:
     return tokenize_line(line)[1]
 
 
-def check_js(findings: list[str], known: set[str]) -> None:
+def check_js(findings: list[str], known: set[str], areas_en: set[str],
+             dotted: set[str]) -> None:
     for path in JS_FILES:
         if path.name in SKIP_FILES:
             continue
@@ -235,9 +256,16 @@ def check_js(findings: list[str], known: set[str]) -> None:
                 if quote == "`" and "${" in lit:
                     continue  # interpolated template: code, not prose
                 body = lit[1:-1] if len(lit) >= 2 and lit[-1] == quote else lit[1:]
-                val = (body.replace("\\'", "'").replace('\\"', '"')
-                       .replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\"))
+                val = body.replace("\\\\", "\x00")
+                val = (val.replace("\\'", "'").replace('\\"', '"')
+                       .replace("\\n", "\n").replace("\\t", "\t"))
+                val = re.sub(r"\\u([0-9a-fA-F]{4})",
+                             lambda m: chr(int(m.group(1), 16)), val)
+                val = val.replace("\x00", "\\")
                 stripped = re.sub(r"<[^>]*>", "", val)
+                if DOTTED_KEY.match(val) and val.split(".")[0] in areas_en:
+                    dotted.add(val)  # key by reference, e.g. SECS labelKeys
+                    continue
                 if val in ALLOW_EXACT or stripped in ALLOW_EXACT:
                     continue
                 if any(rx.search(val) or rx.search(stripped) for rx in ALLOW_RES):
@@ -321,18 +349,19 @@ class ShellScan(HTMLParser):
 
 
 def main() -> int:
-    loaded = load_dicts()
-    if "_error" in loaded:
-        print("\n".join(sorted(loaded["_error"])), file=sys.stderr)
-        return 1
-    keys = loaded["keys"]
-    areas = loaded["areas"]
+    keys, areas, values, errors = load_dicts()
+    findings: list[str] = list(errors)
     known = keys["en"] | keys["de"]
-    findings: list[str] = []
     for lang in LANGS:
         other = LANGS[1] if lang == LANGS[0] else LANGS[0]
         for key in sorted(keys[lang] - keys[other]):
             findings.append(f"web/i18n/{other}/{key.split('.')[0]}.json: key '{key}' missing in {other}")
+    for a, b in (("en", "de"), ("de", "en")):
+        for key in sorted(keys[a] & keys[b]):
+            pa, pb = set(PARAM.findall(values[a][key])), set(PARAM.findall(values[b][key]))
+            if pa != pb:
+                findings.append(f"web/i18n/{b}/{key.split('.')[0]}.json: key '{key}' params differ "
+                                f"({a}: {sorted(pa)} vs {b}: {sorted(pb)})")
     # unknown area (typo guard): first segment must be an existing area file
     for key in sorted(known):
         area = key.split(".")[0]
@@ -346,11 +375,17 @@ def main() -> int:
     shell_src = SHELL.read_text(encoding="utf-8")
     for m in I18N_ATTR.finditer(shell_src):
         used.add(m.group(2))
+    dotted: set[str] = set()
+    check_js(findings, known, areas["en"], dotted)
+    for key in sorted(dotted):
+        used.add(key)
+        for lang in LANGS:
+            if key not in keys[lang]:
+                findings.append(f"web/i18n/{lang}/{key.split('.')[0]}.json: key '{key}' missing in {lang}")
     for key in sorted(used):
         for lang in LANGS:
             if key not in keys[lang]:
                 findings.append(f"web/i18n/{lang}/{key.split('.')[0]}.json: key '{key}' missing in {lang}")
-    check_js(findings, known)
     ShellScan(known, findings).feed(shell_src)
     # report unused keys as warnings (no fail: shared fallbacks stay valid)
     unused = sorted(known - used)

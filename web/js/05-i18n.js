@@ -1,7 +1,10 @@
 // --- i18n: t(key, params) over the embedded i18n-data JSON (see web/build.py) ---
 // Embedded shape: {"<lang>":{"<area>":{...}}}. Language = browser default
 // (navigator.language de -> de, else en); no settings switcher (Wave 2D).
+// ?lang=de|en only whitelists the same two branches (debug/testing helper).
 // Missing web/i18n/ builds without the tag: t() then falls back to en, then key.
+// NOTE: params are substituted raw — only pass them into innerHTML with
+// trusted (dict/authored) values, never with user data (XSS).
 const I18N_DATA = (() => {
   try {
     const raw = (document.getElementById('i18n-data') || {}).textContent || ''
@@ -24,7 +27,7 @@ function t(key, params) {
     let node = I18N_DATA[lang]
     if (!node) return undefined
     for (const p of parts) {
-      if (node && typeof node === 'object' && p in node) node = node[p]
+      if (node && typeof node === 'object' && Object.prototype.hasOwnProperty.call(node, p)) node = node[p]
       else return undefined
     }
     return typeof node === 'string' ? node : undefined

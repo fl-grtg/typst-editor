@@ -1,5 +1,5 @@
 // downloads: source as .typ, preview as PDF
-const dlName = ext => (($('title').textContent || 'document').replace(/[^\p{L}\p{N}._-]+/gu, '_')) + ext // unicode names kept, rest _
+const dlName = ext => (($('title').textContent || t('downloads.untitled')).replace(/[^\p{L}\p{N}._-]+/gu, '_')) + ext // unicode names kept, rest _
 const dlBlob = (blob, name) => {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob); a.download = name; a.click()

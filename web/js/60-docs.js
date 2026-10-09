@@ -376,8 +376,8 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   const eb = $('eBadge'); if (eb) eb.style.display = 'none'
 }
 async function openTpl(name) {
-  const t = myTpl.find(x => x.name === name)
-  if (!t) return
+  const tpl = myTpl.find(x => x.name === name)
+  if (!tpl) return
   autoCloseDrawer()
   leaveDoc()
   docId = ''; tplName = name; docRole = ''
@@ -393,7 +393,7 @@ async function openTpl(name) {
   $('histBtn').style.display = 'none'; $('symBtn').style.display = ''; $('colWrap').hidden = false
   cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(true)) })
   gutter()
-  setT(t.content)
+  setT(tpl.content)
   paintOutline() // clear old outline from previous doc (templates have none)
   $('preview').innerHTML = '<p class="empty">' + t('templates.previewNa') + '</p>'
   $('save').style.display = '' // template: save feedback back (dots stay hidden, no sync)

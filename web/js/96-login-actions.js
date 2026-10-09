@@ -86,7 +86,7 @@ function askNewDoc() { // one dialog: title + folder radio + template radio (not
     let selF = ''
     const fgrp = el('div'); fgrp.setAttribute('role', 'radiogroup'); fgrp.setAttribute('aria-label', t('docs.folderLabel'))
     const nn = document.createElement('input'); nn.type = 'text'; nn.placeholder = t('docs.newFolderName'); nn.setAttribute('aria-label', t('docs.newFolderName')); nn.maxLength = 40; nn.style.display = 'none'
-    const addF = (v, t) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), t); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
+    const addF = (v, lab) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), lab); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
     addF('', t('docs.noFolder'))
     folders.forEach(f => addF(f.folder, f.n === 1 ? t('docs.folderDocsOne', { f: f.folder, n: f.n }) : t('docs.folderDocsMany', { f: f.folder, n: f.n })))
     addF('__new', t('docs.newFolderOpt'))
@@ -122,7 +122,7 @@ function askNewTpl() { // one dialog: name + folder radio (like askNewDoc, not 3
     let selF = ''
     const fgrp = el('div'); fgrp.setAttribute('role', 'radiogroup'); fgrp.setAttribute('aria-label', t('docs.folderLabel'))
     const nn = document.createElement('input'); nn.type = 'text'; nn.placeholder = t('docs.newFolderName'); nn.setAttribute('aria-label', t('docs.newFolderName')); nn.maxLength = 40; nn.style.display = 'none'
-    const addF = (v, t) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), t); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
+    const addF = (v, lab) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), lab); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
     addF('', t('docs.noFolder'))
     tplFolders.forEach(f => addF(f.folder, f.n === 1 ? t('templates.folderTplOne', { f: f.folder, n: f.n }) : t('templates.folderTplMany', { f: f.folder, n: f.n })))
     addF('__new', t('docs.newFolderOpt'))
@@ -183,13 +183,14 @@ const unsafeState = () => { // edits that may not have reached the server yet
   const s = $('save').textContent || ''
   if (!docId && !tplName) return false
   if (openedTrashed || docRole === 'reviewer') return false
-  if (!/^(…|Error|Offline)/.test(s)) return false
+  const dirtyMark = ['…', t('docs.offlineRetry'), t('docs.saveError', { msg: '' })]
+  if (!dirtyMark.some(m => m && s.startsWith(m))) return false
   return !(prov && prov.wsconnected && synced && !activeFile && !tplName) // live main.typ: Yjs already carried it
 }
 addEventListener('beforeunload', e => { if (unsafeState()) { e.preventDefault(); e.returnValue = '' } }) // offline/failed save: browser asks before closing
 addEventListener('pagehide', () => { // stash latest edits, 2s save may still be pending
   const live = !!(prov && prov.wsconnected)
-  if ($('save').textContent.startsWith('saved')) { try { if (docId) localStorage.removeItem('typst-pending-' + docId) } catch (e) {} return } // saved: no stash (a stale stash would later clobber others' edits)
+  if ($('save').textContent.startsWith(t('docs.saved'))) { try { if (docId) localStorage.removeItem('typst-pending-' + docId) } catch (e) {} return } // saved: no stash (a stale stash would later clobber others' edits)
   try { if (docId && ytext && synced && docRole !== 'reviewer' && !live) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline only: keepalive may fail, openDoc offers restore
   const head = { 'Content-Type': 'application/json' }
   if (tplName)
