@@ -70,6 +70,48 @@ def backup_to(path: Path) -> None:
         con.close()
 
 
+def _migrate_backup_target() -> Path:
+    db_path = get_db_path()
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    target = db_path.parent / f"{db_path.stem}-migrate-{stamp}.db"
+    i = 2
+    while target.exists():
+        target = db_path.parent / f"{db_path.stem}-migrate-{stamp}-{i}.db"
+        i += 1
+    return target
+
+
+def _needs_migrate_backup(con: sqlite3.Connection, done: set[int]) -> bool:
+    # Fresh DBs (nothing applied, no user data) need no backup; returning
+    # DBs always get one before any step runs.
+    if done:
+        return True
+    try:
+        for table in ("users", "docs"):
+            try:
+                if con.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+                    return True
+            except sqlite3.OperationalError:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def backup_before_migrate(con: sqlite3.Connection, done: set[int]) -> Path | None:
+    """VACUUM INTO a timestamped file next to the DB. None when skipped."""
+    if not get_db_path().is_file():
+        return None
+    if not _needs_migrate_backup(con, done):
+        return None
+    target = _migrate_backup_target()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    con.commit()  # VACUUM cannot run inside a transaction
+    con.execute("VACUUM INTO ?", (str(target),))
+    logging.getLogger(__name__).info("pre-migrate backup: %s", target)
+    return target
+
+
 @contextmanager
 def tx() -> Iterator[sqlite3.Connection]:
     # One transaction, one owner: BEGIN IMMEDIATE on entry, commit on clean
@@ -209,23 +251,89 @@ def _migrate_v12(con: sqlite3.Connection) -> None:
                 "SELECT rowid, title, content FROM docs")
 
 
+def _migrate_v13(con: sqlite3.Connection) -> None:
+    # 1D Daten-Fundament: files table (doc_id, path, size, mtime, type),
+    # notifications table, read_tokens table, plus a start-scan that
+    # populates files from existing on-disk attachments.
+    con.execute("CREATE TABLE IF NOT EXISTS files ("
+                "doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
+                "path TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, "
+                "mtime REAL NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT '', "
+                "PRIMARY KEY (doc_id, path))")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_files_doc ON files(doc_id)")
+    con.execute("CREATE TABLE IF NOT EXISTS notifications ("
+                "id TEXT PRIMARY KEY, recipient TEXT NOT NULL, type TEXT NOT NULL DEFAULT '', "
+                "doc_id TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', "
+                "is_read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_notifications_recipient "
+                "ON notifications(recipient, created_at)")
+    con.execute("CREATE TABLE IF NOT EXISTS read_tokens ("
+                "token_hash TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
+                "hint TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, expires_at TEXT NOT NULL DEFAULT '')")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_read_tokens_doc ON read_tokens(doc_id)")
+    try:
+        from backend import deps as _deps
+        base = _deps.get_files_dir()
+    except Exception as e:
+        logging.getLogger(__name__).warning("v13 start-scan skipped (files dir): %s", e)
+        return
+    try:
+        known = {r[0] for r in con.execute("SELECT id FROM docs").fetchall()}
+    except sqlite3.OperationalError:
+        return
+    try:
+        if not base.is_dir():
+            logging.getLogger(__name__).warning("v13 start-scan skipped (no files dir)")
+            return
+        top = list(base.iterdir())
+    except OSError as e:
+        logging.getLogger(__name__).warning("v13 start-scan skipped: %s", e)
+        return
+    for d in top:
+        if not d.is_dir() or d.name.startswith(".") or ".tmp." in d.name:
+            continue
+        if d.name not in known:
+            continue  # orphan dir (doc gone): no rows, FK would reject them anyway
+        try:
+            walking = list(d.rglob("*"))
+        except OSError:
+            continue
+        for p in walking:
+            try:
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(d).as_posix()
+                if any(seg.startswith(".") for seg in rel.split("/")) or ".tmp." in p.name:
+                    continue
+                st = p.stat()
+            except OSError:
+                continue
+            con.execute("INSERT OR REPLACE INTO files (doc_id, path, size, mtime, type) "
+                        "VALUES (?,?,?,?,?)",
+                        (d.name, rel, st.st_size, st.st_mtime, p.suffix.lower()))
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12,
+    _migrate_v11, _migrate_v12, _migrate_v13,
 )
 
 
 def migrate(con: sqlite3.Connection) -> None:
     # Idempotent: every step checks before writing; applied versions recorded
-    # so re-runs and fresh DBs converge to the same schema.
+    # so re-runs and fresh DBs converge to the same schema. Before any
+    # pending step runs on a returning DB, VACUUM INTO a timestamped file
+    # next to the DB (fresh DBs are skipped: nothing to lose).
     con.execute("CREATE TABLE IF NOT EXISTS schema_version (v INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
     done = {r[0] for r in con.execute("SELECT v FROM schema_version").fetchall()}
-    for i, step in enumerate(_MIGRATIONS, start=1):
-        if i not in done:
-            step(con)
-            con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
-            con.commit()
+    pending = [(i, step) for i, step in enumerate(_MIGRATIONS, start=1) if i not in done]
+    if pending:
+        backup_before_migrate(con, done)
+    for i, step in pending:
+        step(con)
+        con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
+        con.commit()
 
 
 def init_db() -> None:
