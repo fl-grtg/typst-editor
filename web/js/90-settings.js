@@ -12,15 +12,15 @@ function loadKeys() {
   api('GET', '/api/keys').then(d => { apiKeys = d.keys || [] })
     .catch(e => { setMsg = e.message; apiKeys = [] }).finally(() => { apiKeysLoading = false; renderSettings() })
 }
-const shortD = s => { try { return s ? String(s).slice(0, 10) : 'Never' } catch (e) { return 'Never' } }
-function copyTxt(t, inp) {
+const shortD = s => { try { return s ? String(s).slice(0, 10) : t('settings.never') } catch (e) { return t('settings.never') } }
+function copyTxt(txt, inp) {
   const fb = () => {
     const f = inp || document.createElement('textarea')
-    if (!inp) { f.value = t; f.style.position = 'fixed'; f.style.opacity = '0'; document.body.appendChild(f) }
-    f.select(); try { document.execCommand('copy'); toast('Copied') } catch (e) {}
+    if (!inp) { f.value = txt; f.style.position = 'fixed'; f.style.opacity = '0'; document.body.appendChild(f) }
+    f.select(); try { document.execCommand('copy'); toast(t('common.copied')) } catch (e) {}
     if (!inp) f.remove()
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast('Copied')).catch(fb)
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast(t('common.copied'))).catch(fb)
   else fb()
 }
 function renderSettings() {
@@ -28,89 +28,89 @@ function renderSettings() {
   const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
   const grp = (title, ...secs) => { const w = el('div', 'grp'); w.appendChild(el('h4', null, title)); secs.forEach(s => w.appendChild(s)); return w }
   const top = el('div', 'sTop')
-  const close = icoBtn(null, ICO_X); close.title = 'Close'; close.setAttribute('aria-label', close.title)
+  const close = icoBtn(null, ICO_X); close.title = t('common.close'); close.setAttribute('aria-label', close.title)
   close.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; p.style.display = 'none' }
-  top.append(el('b', null, 'Settings'), close); p.appendChild(top)
+  top.append(el('b', null, t('settings.title')), close); p.appendChild(top)
   if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }
   const grid = el('div', 'setGrid'), colL = el('div', 'setCol'), colR = el('div', 'setCol')
   grid.append(colL, colR); p.appendChild(grid) // deterministic 2-col grid: left = profile, right = backup + keys
-  const fr = el('div', 'row'); fr.append(el('label', null, 'Font '))
-  const fm = el('button', 'step', 'A−'); fm.title = 'Smaller editor'; fm.setAttribute('aria-label', fm.title)
-  fm.onclick = () => { stepEd(-ED_STEP); renderSettings() }
+  const fr = el('div', 'row'); fr.append(el('label', null, t('settings.font')))
+  const fm = el('button', 'step', 'A−'); fm.title = t('settings.fontMinus'); fm.setAttribute('aria-label', fm.title)
+  fm.onclick = e => { e.stopPropagation(); stepEd(-ED_STEP); renderSettings() }
   fr.append(fm, el('span', 'val', edSize + 'px'))
-  const fp = el('button', 'step', 'A+'); fp.title = 'Larger editor'; fp.setAttribute('aria-label', fp.title)
-  fp.onclick = () => { stepEd(ED_STEP); renderSettings() }
+  const fp = el('button', 'step', 'A+'); fp.title = t('settings.fontPlus'); fp.setAttribute('aria-label', fp.title)
+  fp.onclick = e => { e.stopPropagation(); stepEd(ED_STEP); renderSettings() }
   fr.appendChild(fp)
-  const zr = el('div', 'row'); zr.append(el('label', null, 'Zoom '))
-  const zm = el('button', 'step', '−'); zm.title = 'Smaller preview'; zm.setAttribute('aria-label', zm.title)
-  zm.onclick = () => { stepPv(-PV_STEP); renderSettings() }
+  const zr = el('div', 'row'); zr.append(el('label', null, t('settings.zoom')))
+  const zm = el('button', 'step', '−'); zm.title = t('settings.zoomMinus'); zm.setAttribute('aria-label', zm.title)
+  zm.onclick = e => { e.stopPropagation(); stepPv(-PV_STEP); renderSettings() }
   zr.append(zm, el('span', 'val', pvZoom + ' %'))
-  const zp = el('button', 'step', '+'); zp.title = 'Larger preview'; zp.setAttribute('aria-label', zp.title)
-  zp.onclick = () => { stepPv(PV_STEP); renderSettings() }
+  const zp = el('button', 'step', '+'); zp.title = t('settings.zoomPlus'); zp.setAttribute('aria-label', zp.title)
+  zp.onclick = e => { e.stopPropagation(); stepPv(PV_STEP); renderSettings() }
   zr.appendChild(zp)
-  colL.appendChild(grp('Appearance', sec(fr, zr)))
-  const tr = el('div', 'row'); tr.append(el('label', null, 'Tabs '))
-  const ts = el('select'); ts.setAttribute('aria-label', 'Tab width')
+  colL.appendChild(grp(t('settings.appearance'), sec(fr, zr)))
+  const tr = el('div', 'row'); tr.append(el('label', null, t('settings.tabs')))
+  const ts = el('select'); ts.setAttribute('aria-label', t('settings.tabWidth'))
   ;[2, 4, 8].forEach(n => { const o = el('option', null, String(n)); o.value = String(n); if (n === tabW) o.selected = true; ts.appendChild(o) })
   ts.onchange = () => { tabW = +ts.value || 2; lsSet('typst_tab', tabW); cm.dispatch({ effects: tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]) }); renderSettings() }
-  tr.append(ts, el('span', 'val', tabW + ' sp'))
-  colL.appendChild(grp('Editor', sec(tr))) // wrap always on, sync lives on the preview button, no compile-delay option
+  tr.append(ts, el('span', 'val', t('settings.tabUnit', { n: tabW })))
+  colL.appendChild(grp(t('settings.editorGroup'), sec(tr))) // wrap always on, sync lives on the preview button, no compile-delay option
   const ar = el('div', 'row avatarRow')
-  const im = el('img', 'av'); im.alt = 'Your avatar'
+  const im = el('img', 'av'); im.alt = t('settings.avatarAlt')
   if (avatarV) im.src = `/api/avatar/${encodeURIComponent(user)}?v=${avatarV}`; else { im.style.display = 'none'; const fb = el('span', 'avFallback'); fb.textContent = (user || '?').slice(0, 2).toUpperCase(); ar.appendChild(fb) }
   im.onerror = () => im.style.display = 'none'
-  const pick = el('button', null, 'Choose'); pick.onclick = () => $('avPick').click()
-  const rm = el('button', 'btnSecondary', 'Remove')
+  const pick = el('button', null, t('settings.choose')); pick.onclick = () => $('avPick').click()
+  const rm = el('button', 'btnSecondary', t('settings.remove'))
   rm.onclick = () => api('DELETE', '/api/me/avatar')
     .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
     .catch(e => { setMsg = e.message; renderSettings() })
-  ar.append(im, pick, rm); colL.appendChild(grp('Avatar', sec(ar)))
+  ar.append(im, pick, rm); colL.appendChild(grp(t('settings.avatar'), sec(ar)))
   const nr = el('div', 'row')
-  const nn = el('input'); nn.placeholder = 'New name'; nn.setAttribute('aria-label', 'New name'); nn.value = user
-  const npw = el('input'); npw.type = 'password'; npw.placeholder = 'Password'; npw.setAttribute('aria-label', 'Password for name change')
-  const nok = el('button', null, 'OK')
-  nok.onclick = () => { if (nok.disabled) return; if (!nn.value.trim() || !npw.value) { setMsg = 'Enter a new name and your password.'; renderSettings(); return } nok.disabled = true; api('POST', '/api/me/name',
+  const nn = el('input'); nn.placeholder = t('settings.newName'); nn.setAttribute('aria-label', t('settings.newName')); nn.value = user
+  const npw = el('input'); npw.type = 'password'; npw.placeholder = t('settings.pwGroup'); npw.setAttribute('aria-label', t('settings.pwForName'))
+  const nok = el('button', null, t('common.ok'))
+  nok.onclick = () => { if (nok.disabled) return; if (!nn.value.trim() || !npw.value) { setMsg = t('settings.needNamePw'); renderSettings(); return } nok.disabled = true; api('POST', '/api/me/name',
     { name: nn.value.trim(), password: npw.value })
     .then(d => { user = d.user; paintMe(); sidebar(); renderSettings() })
     .catch(e => { setMsg = e.message; renderSettings() }).finally(() => nok.disabled = false) }
-  nr.append(nn, npw, nok); colL.appendChild(grp('Name', sec(nr)))
+  nr.append(nn, npw, nok); colL.appendChild(grp(t('settings.nameGroup'), sec(nr)))
   const pr = el('div', 'row')
-  const po = el('input'); po.type = 'password'; po.placeholder = 'Old password'; po.setAttribute('aria-label', 'Old password')
-  const pn = el('input'); pn.type = 'password'; pn.placeholder = 'New password'; pn.setAttribute('aria-label', 'New password')
-  const pok = el('button', null, 'OK')
-  pok.onclick = () => { if (pok.disabled) return; if (!po.value || !pn.value) { setMsg = 'Enter your old and new password.'; renderSettings(); return } pok.disabled = true; api('POST', '/api/me/password', { old: po.value, new: pn.value })
-    .then(() => { po.value = pn.value = ''; toast('Password changed') })
+  const po = el('input'); po.type = 'password'; po.placeholder = t('settings.oldPw'); po.setAttribute('aria-label', t('settings.oldPw'))
+  const pn = el('input'); pn.type = 'password'; pn.placeholder = t('settings.newPw'); pn.setAttribute('aria-label', t('settings.newPw'))
+  const pok = el('button', null, t('common.ok'))
+  pok.onclick = () => { if (pok.disabled) return; if (!po.value || !pn.value) { setMsg = t('settings.needOldNew'); renderSettings(); return } pok.disabled = true; api('POST', '/api/me/password', { old: po.value, new: pn.value })
+    .then(() => { po.value = pn.value = ''; toast(t('settings.pwChanged')) })
     .catch(e => { setMsg = e.message; renderSettings() }).finally(() => pok.disabled = false) }
-  pr.append(po, pn, pok); colL.appendChild(grp('Password', sec(pr)))
+  pr.append(po, pn, pok); colL.appendChild(grp(t('settings.pwGroup'), sec(pr)))
   const bk = el('div', 'row')
-  const bb = el('button', 'btnSecondary', 'Download backup (.zip)')
-  bb.title = 'Download your documents, files and templates as .zip'
+  const bb = el('button', 'btnSecondary', t('settings.backupBtn'))
+  bb.title = t('settings.backupTitle')
   bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
-  bk.appendChild(bb); colR.appendChild(grp('Backup', sec(bk)))
-  const agCp = icoBtn(null, ICO_DUP); agCp.title = 'Copy agent prompt'; agCp.setAttribute('aria-label', 'Copy agent prompt')
+  bk.appendChild(bb); colR.appendChild(grp(t('settings.backup'), sec(bk)))
+  const agCp = icoBtn(null, ICO_DUP); agCp.title = t('settings.agentCopy'); agCp.setAttribute('aria-label', t('settings.agentCopy'))
   agCp.onclick = () => copyTxt(AGENT_PROMPT)
-  const agRow = el('div', 'row'); agRow.append(el('span', null, 'Paste this prompt into your agent.'), agCp)
-  colR.appendChild(grp('Connect your agent', sec(agRow)))
+  const agRow = el('div', 'row'); agRow.append(el('span', null, t('settings.agentHint')), agCp)
+  colR.appendChild(grp(t('settings.agent'), sec(agRow)))
   const keySecs = []
   const ksec = (...kids) => { const d = sec(...kids); d.style.padding = '6px 10px 8px'; d.style.marginBottom = '6px'
     kids.forEach(k => { if (k.classList && k.classList.contains('row')) k.style.marginTop = '6px' }); return d }
   if (lastKeySecret) {
-    const si = el('input'); si.readOnly = true; si.value = lastKeySecret; si.setAttribute('aria-label', 'New API key, shown once')
-    const cp = el('button', null, 'Copy'); cp.onclick = () => copyTxt(lastKeySecret, si)
-    const cx = el('button', 'btnSecondary', 'Close'); cx.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; renderSettings() }
+    const si = el('input'); si.readOnly = true; si.value = lastKeySecret; si.setAttribute('aria-label', t('settings.keyOnceAria'))
+    const cp = el('button', null, t('common.copy')); cp.onclick = () => copyTxt(lastKeySecret, si)
+    const cx = el('button', 'btnSecondary', t('common.close')); cx.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; renderSettings() }
     const sr = el('div', 'row wrap'); sr.append(si, cp, cx)
-    keySecs.push(ksec(el('div', null, (lastKeyName || 'Key') + ' – shown once'), sr))
+    keySecs.push(ksec(el('div', null, t('settings.shownOnce', { name: lastKeyName || t('settings.keys') })), sr))
   }
-  const kn = el('input'); kn.placeholder = 'Key name'; kn.maxLength = 40; kn.setAttribute('aria-label', 'Key name')
-  const rs = el('select'); rs.setAttribute('aria-label', 'Role')
-  ;['editor', 'reviewer'].forEach(v => { const o = el('option', null, v); o.value = v; rs.appendChild(o) })
-  const es = el('select'); es.setAttribute('aria-label', 'Expiry')
-  ;[['Never', ''], ['30 days', '30'], ['90 days', '90'], ['365 days', '365']].forEach(([t, v]) => { const o = el('option', null, t); o.value = v; es.appendChild(o) })
-  const cb = el('button', null, 'Create')
+  const kn = el('input'); kn.placeholder = t('settings.keyName'); kn.maxLength = 40; kn.setAttribute('aria-label', t('settings.keyName'))
+  const rs = el('select'); rs.setAttribute('aria-label', t('common.roleAria'))
+  ;[['editor', t('common.roleEditor')], ['reviewer', t('common.roleReader')]].forEach(([v, lab]) => { const o = el('option', null, lab); o.value = v; rs.appendChild(o) })
+  const es = el('select'); es.setAttribute('aria-label', t('settings.expiry'))
+  ;[[t('settings.never'), ''], [t('settings.expDays', { n: 30 }), '30'], [t('settings.expDays', { n: 90 }), '90'], [t('settings.expDays', { n: 365 }), '365']].forEach(([label, v]) => { const o = el('option', null, label); o.value = v; es.appendChild(o) })
+  const cb = el('button', null, t('common.create'))
   cb.onclick = e => {
     e.stopPropagation() // sync renderSettings below detaches e.target: without this the document outside-click closer hides setPop
     if (cb.disabled) return
-    if (!kn.value.trim()) { setMsg = 'Enter a key name.'; renderSettings(); return }
+    if (!kn.value.trim()) { setMsg = t('settings.needKeyName'); renderSettings(); return }
     cb.disabled = true
     api('POST', '/api/keys', { name: kn.value.trim(), role: rs.value, expires_in_days: es.value ? +es.value : null })
       .then(d => { // no refetch: one POST per create, list updates locally (was POST+GET, 2 keys-bucket hits)
@@ -121,9 +121,9 @@ function renderSettings() {
   }
   const cr = el('div', 'row wrap'); cr.append(kn, rs, es, cb); keySecs.push(ksec(cr))
   if (apiKeys === null) {
-    keySecs.push(ksec(el('div', null, apiKeysLoading ? 'Loading…' : '')))
+    keySecs.push(ksec(el('div', null, apiKeysLoading ? t('settings.loading') : '')))
     if (!apiKeysLoading) loadKeys()
-  } else if (!apiKeys.length) keySecs.push(ksec(el('div', null, 'No keys yet.')))
+  } else if (!apiKeys.length) keySecs.push(ksec(el('div', null, t('settings.noKeys'))))
   else {
     const rows = apiKeys.map(k => {
       const r = el('div', 'row wrap')
@@ -134,7 +134,7 @@ function renderSettings() {
       nm.style.fontWeight = '650'; nm.style.fontSize = '13.5px'
       nm.style.overflow = 'hidden'; nm.style.textOverflow = 'ellipsis'; nm.style.whiteSpace = 'nowrap'
       nm.title = k.name
-      const rb = el('button', 'btnSecondary', 'Revoke')
+      const rb = el('button', 'btnSecondary', t('settings.revoke'))
       rb.style.flex = 'none'
       rb.onclick = () => {
         if (rb.disabled) return; rb.disabled = true
@@ -148,7 +148,7 @@ function renderSettings() {
       sub.style.fontSize = '12px'; sub.style.minWidth = '0'; sub.style.overflowWrap = 'anywhere'; sub.style.textAlign = 'left'
       const pc = el('code', null, k.prefix || '')
       pc.style.fontSize = '11.5px'; pc.style.overflowWrap = 'anywhere'; pc.style.minWidth = '0'
-      const eS = el('span', 'val', 'Expires ' + shortD(k.expires_at)); eS.title = k.expires_at || 'Never'
+      const eS = el('span', 'val', t('settings.expires', { date: shortD(k.expires_at) })); eS.title = k.expires_at || t('settings.never')
       eS.style.fontSize = '12px'
       sub.append(pc, el('span', null, k.role), eS)
       left.append(nm, sub)
@@ -157,21 +157,21 @@ function renderSettings() {
     })
     keySecs.push(ksec(...rows))
   }
-  colR.appendChild(grp('API keys', ...keySecs)) // secret + create + list in one group: never fragmented
+  colR.appendChild(grp(t('settings.keys'), ...keySecs)) // secret + create + list in one group: never fragmented
   const dr = el('div', 'row')
-  const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = 'Password'; dpw.setAttribute('aria-label', 'Password for account deletion')
-  const db = el('button', 'btnDanger', 'Delete')
+  const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = t('settings.pwGroup'); dpw.setAttribute('aria-label', t('settings.pwForDel'))
+  const db = el('button', 'btnDanger', t('common.delete'))
   db.onclick = async () => {
     if (db.disabled) return
-    if (!dpw.value) { setMsg = 'Enter your password to delete the account.'; renderSettings(); return }
-    if (!await ask('Delete account + all your documents?', { noInput: true, ok: 'Delete', danger: true })) return
-    if (!await ask('Really sure? Type DELETE to confirm.', { ph: 'DELETE' }).then(v => v === 'DELETE')) return
+    if (!dpw.value) { setMsg = t('settings.needPwDel'); renderSettings(); return }
+    if (!await ask(t('settings.delAccount'), { noInput: true, ok: t('common.delete'), danger: true })) return
+    if (!await ask(t('settings.delSure'), { ph: 'DELETE' }).then(v => v === 'DELETE')) return
     db.disabled = true
     api('POST', '/api/me/delete', { password: dpw.value })
       .then(() => { location.reload() })
       .catch(e => { setMsg = e.message; renderSettings() })
   }
-  dr.append(dpw, db); colL.appendChild(grp('Account', sec(dr)))
+  dr.append(dpw, db); colL.appendChild(grp(t('settings.account'), sec(dr)))
 }
 $('avPick').onchange = () => { // square, AV_SIZE, center
   const f = $('avPick').files[0]; $('avPick').value = ''

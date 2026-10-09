@@ -25,7 +25,7 @@ function renderPeers() { // bar only when editor active, dot for all online in d
   dots.replaceChildren()
   const mkDot = (n, c, me) => {
     const s = document.createElement('span'); s.className = 'dot'; s.setAttribute('role', 'listitem')
-    s.style.background = avBg(n, c); s.title = (me ? 'me - ' : '') + n; s.setAttribute('aria-label', (me ? 'me - ' : '') + n)
+    s.style.background = avBg(n, c); s.title = me ? t('comments.peerSelf', { name: n }) : n; s.setAttribute('aria-label', me ? t('comments.peerSelf', { name: n }) : n)
     s.style.display = 'inline-flex'; s.style.alignItems = 'center'; s.style.justifyContent = 'center'
     s.style.fontSize = '9px'; s.style.fontWeight = '700'; s.style.color = '#fff'
     s.textContent = (n || '?').slice(0, 2).toUpperCase()
@@ -55,10 +55,10 @@ addEventListener('focus', () => { pushPresence(); renderPeers() })
 document.addEventListener('visibilitychange', () => { pushPresence(); renderPeers() })
 function ago(iso) {
   const m = Math.max(0, (Date.now() - new Date(iso)) / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m | 0} min`
-  if (m < 1440) return `${m / 60 | 0} h`
-  const d = m / 1440 | 0; return d === 1 ? '1 day' : d + ' days'
+  if (m < 1) return t('comments.agoNow')
+  if (m < 60) return t('comments.agoMin', { n: m | 0 })
+  if (m < 1440) return t('comments.agoHour', { n: m / 60 | 0 })
+  const d = m / 1440 | 0; return d === 1 ? t('comments.agoDayOne') : t('comments.agoDays', { n: d })
 }
 const el = (tag, cls, text) => {
   const d = document.createElement(tag)
@@ -80,7 +80,7 @@ function modalInert(on) { // background not focusable while dialog open (no iner
   else { a.removeAttribute('inert'); a.removeAttribute('aria-hidden') }
 }
 function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no input: true/false)
-  const { value = '', ph = '', ok = 'OK', danger = false, noInput = false } = o
+  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false } = o
   return new Promise(res => {
     if (askRes) askRes(null)
     askRes = res
@@ -115,7 +115,7 @@ function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title
     $('mHead').textContent = head
     const top = document.createElement('div'); top.className = 'mTop' // title + Cancel on one row
     card.insertBefore(top, $('mHead')); top.appendChild($('mHead'))
-    const cx = document.createElement('button'); cx.textContent = 'Cancel'; cx.setAttribute('aria-label', 'Cancel')
+    const cx = document.createElement('button'); cx.textContent = t('common.cancel'); cx.setAttribute('aria-label', t('common.cancel'))
     top.appendChild(cx)
     $('mInp').style.display = 'none'
     const row = document.querySelector('#mCard .mRow')
@@ -174,8 +174,8 @@ function paintOutline() { // collect = lines, click jumps to line
     d.className = 'doc ol-l' + Math.min(m[1].length, 3)
     d.setAttribute('role', 'button')
     d.appendChild(el('span', 't', m[2].slice(0, 60)))
-    d.title = 'Line ' + line
-    d.setAttribute('aria-label', 'Go to line ' + line + ': ' + m[2].slice(0, 60))
+    d.title = t('docs.olLineTitle', { n: line })
+    d.setAttribute('aria-label', t('docs.olGoTo', { line, text: m[2].slice(0, 60) }))
     const goL = () => {
       const p = posOfLine(getT(), line)
       cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
@@ -185,20 +185,20 @@ function paintOutline() { // collect = lines, click jumps to line
     kb(d, goL)
     box.appendChild(d)
   })
-  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', 'No headings yet'))
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.olEmpty')))
 }
 function wc() { // word count for #save display
-  const t = getT().trim()
-  if (!t) return ''
-  const n = t.split(/\s+/).length
-  return ' · ' + n + (n === 1 ? ' word' : ' words')
+  const txt = getT().trim()
+  if (!txt) return ''
+  const n = txt.split(/\s+/).length
+  return n === 1 ? t('docs.wordsOne') : t('docs.wordsMany', { n })
 }
 function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR spam per keystroke)
   const p = $('pos')
   if (!p) return
   let ln = 1, col = 1
   try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
-  p.textContent = 'Ln ' + ln + ', Col ' + col + (wc() || '') + ' · Sync ' + (syncOn ? 'on' : 'off')
+  p.textContent = t('docs.posLine', { ln, col }) + (wc() || '') + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
 function openTutorial() { // help = tutorial doc (backend creates per account)
   const t = lastOwn.find(x => x.title === 'Tutorial')
@@ -206,7 +206,28 @@ function openTutorial() { // help = tutorial doc (backend creates per account)
   else window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
 }
 function paintEmpty() { // onboarding card instead of pick-left note
-  $('preview').innerHTML = '<div id="emptyCard"><h2>Get started</h2><p class="sub">Your document is empty — pick up where you left off.</p><div class="step"><span class="n">1</span><span>Open the Tutorial on the left or create a new document</span></div><div class="step"><span class="n">2</span><span>Edit on the left, watch the live preview on the right</span></div><div class="step"><span class="n">3</span><span>Share with a username or a link</span></div><div class="ctaRow"><button id="emptyNew" class="primary">+ New document</button><button id="emptyTut" class="ghost">Open tutorial</button></div><p class="hint"><kbd>?</kbd> shortcuts · <kbd>Ctrl F</kbd> find · <kbd>Ctrl S</kbd> save</p></div>'
+  const card = el('div'); card.id = 'emptyCard'
+  card.appendChild(el('h2', null, t('docs.emptyTitle')))
+  card.appendChild(el('p', 'sub', t('docs.emptySub')))
+  ;[t('docs.emptyS1'), t('docs.emptyS2'), t('docs.emptyS3')].forEach((s, i) => {
+    const st = el('div', 'step')
+    st.appendChild(el('span', 'n', String(i + 1)))
+    st.appendChild(el('span', null, s))
+    card.appendChild(st)
+  })
+  const cta = el('div', 'ctaRow')
+  const nb = el('button', 'primary', t('docs.emptyNew')); nb.id = 'emptyNew'
+  const tb = el('button', 'ghost', t('docs.emptyTut')); tb.id = 'emptyTut'
+  cta.append(nb, tb); card.appendChild(cta)
+  const hint = el('p', 'hint')
+  hint.appendChild(el('kbd', null, '?'))
+  hint.append(document.createTextNode(' ' + t('docs.emptyHintHelp') + ' · '))
+  hint.appendChild(el('kbd', null, t('docs.emptyKbdFind')))
+  hint.append(document.createTextNode(' ' + t('docs.emptyHintFind') + ' · '))
+  hint.appendChild(el('kbd', null, t('docs.emptyKbdSave')))
+  hint.append(document.createTextNode(' ' + t('docs.emptyHintSave')))
+  card.appendChild(hint)
+  $('preview').replaceChildren(card)
   $('emptyNew').onclick = () => $('new').click()
   const tutGone = !lastOwn.some(x => x.title === 'Tutorial')
   if (tutGone) $('emptyTut').style.display = 'none'
@@ -253,7 +274,7 @@ function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   if (btn) { btn.setAttribute('aria-expanded', String(open)); if (!btn.getAttribute('aria-controls')) btn.setAttribute('aria-controls', id) }
   if (open) {
     p.setAttribute('role', 'dialog')
-    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', {sharePop:'Share',tplPop:'Templates',histPop:'History',symPop:'Symbols',setPop:'Settings'}[id]||id)
+    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', { sharePop: t('share.title'), tplPop: t('templates.title'), histPop: t('history.title'), symPop: t('symbols.title'), setPop: t('settings.title') }[id] || id)
     anchorPop(p, btn) // under trigger, clamped to viewport (no fixed left:8px)
     const f = p.querySelector('input,select,textarea') || p.querySelector('button') // input first, never ✕
     if (f) setTimeout(() => { try { f.focus() } catch (e) {} }, 30)
@@ -280,8 +301,8 @@ function movePop() { // attach card to line (real coords, wrap-safe)
 function renderPop() {
   const pop = $('pop'); pop.replaceChildren()
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
-  bar.append(el('b', null, 'Line ' + popAnchor))
-  const x = icoBtn('ib', ICO_X); x.title = 'Close'; x.setAttribute('aria-label', x.title); x.onclick = closePop
+  bar.append(el('b', null, t('comments.lineHead', { n: popAnchor })))
+  const x = icoBtn('ib', ICO_X); x.title = t('common.close'); x.setAttribute('aria-label', x.title); x.onclick = closePop
   bar.appendChild(x); pop.appendChild(bar)
   const list = threads.filter(t => t.anchor === popAnchor)
   const roC = docRole === 'reviewer' || openedTrashed // cNew logic: reviewer/trash read, not write
@@ -293,9 +314,9 @@ function renderPop() {
 }
 function newBox() { // only for new threads, not under done ones
   const box = el('div', 'nw'), row = el('div', 'rr')
-  const inp = el('input'); inp.id = 'popNew'; inp.placeholder = 'Comment... (@ to mention)'; inp.setAttribute('aria-label', 'Comment')
+  const inp = el('input'); inp.id = 'popNew'; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
   wireMentions(inp)
-  const ok = icoBtn('ib', ICO_SEND); ok.title = 'Send'; ok.setAttribute('aria-label', ok.title)
+  const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
   const post = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
     api('POST', `/api/docs/${docId}/comments`,
     { anchor: popAnchor, text: inp.value, quote: popQuote }).then(() => { popFresh = false; popQuote = ''; refresh(''); closePop() }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
@@ -303,40 +324,40 @@ function newBox() { // only for new threads, not under done ones
   row.append(inp, ok); box.appendChild(row)
   return box
 }
-function threadCard(t) {
+function threadCard(th) {
   const d = el('div', 'th')
-  if (t.resolved) d.style.opacity = '.55' // done: faded, stays readable
+  if (th.resolved) d.style.opacity = '.55' // done: faded, stays readable
   const hd = el('div', 'hd')
-  const nm = el('b', 'nm', t.author || t.username); nm.style.color = colOf(t.username)
-  hd.append(nm, el('span', 'tm', ago(t.created_at)))
+  const nm = el('b', 'nm', th.author || th.username); nm.style.color = colOf(th.username)
+  hd.append(nm, el('span', 'tm', ago(th.created_at)))
   const roC = docRole === 'reviewer' || openedTrashed // cNew logic reused: reviewer gets no buttons
   if (!roC) { // trash/reviewer: no buttons, read only
-    const fin = icoBtn('ib', t.resolved ? ICO_UNDO : ICO_CHECK); fin.title = t.resolved ? 'Reopen' : 'Done'; fin.setAttribute('aria-label', fin.title)
-    fin.onclick = () => api('POST', `/api/docs/${docId}/comments/${t.id}/resolve`, { resolved: !t.resolved }).then(() => refresh(''))
+    const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
+    fin.onclick = () => api('POST', `/api/docs/${docId}/comments/${th.id}/resolve`, { resolved: !th.resolved }).then(() => refresh(''))
     hd.appendChild(fin)
   }
-  if (t.username === user && !openedTrashed) { // only author edits (owner deletes)
-    const ed = icoBtn('ib', ICO_EDIT); ed.title = 'Edit'; ed.setAttribute('aria-label', ed.title)
+  if (th.username === user && !openedTrashed) { // only author edits (owner deletes)
+    const ed = icoBtn('ib', ICO_EDIT); ed.title = t('comments.edit'); ed.setAttribute('aria-label', ed.title)
     ed.onclick = async () => {
-      const v = await ask('Edit comment', { value: t.text })
-      if (v !== null && v.trim()) api('POST', `/api/docs/${docId}/comments/${t.id}/edit`, { text: v }).then(() => refresh(''))
+      const v = await ask(t('comments.editHead'), { value: th.text })
+      if (v !== null && v.trim()) api('POST', `/api/docs/${docId}/comments/${th.id}/edit`, { text: v }).then(() => refresh(''))
     }
     hd.appendChild(ed)
   }
-  const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = 'Delete thread'; del.setAttribute('aria-label', del.title)
-  del.onclick = () => api('DELETE', `/api/docs/${docId}/comments/${t.id}`).then(() => refresh('').then(() => {
+  const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
+  del.onclick = () => api('DELETE', `/api/docs/${docId}/comments/${th.id}`).then(() => refresh('').then(() => {
     if (!threads.some(x => x.anchor === popAnchor)) closePop()
   }))
   if (!roC) hd.appendChild(del)
   d.appendChild(hd)
-  d.appendChild(richText(t.text))
-  if (t.quote) { // show context, click jumps there
-    const q = el('button', 'qt', '"' + (t.quote.length > 80 ? t.quote.slice(0, 80) + '…' : t.quote) + '"')
-    q.title = 'Jump to position'
-    q.onclick = () => jumpThread(t)
+  d.appendChild(richText(th.text))
+  if (th.quote) { // show context, click jumps there
+    const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
+    q.title = t('comments.jumpPos')
+    q.onclick = () => jumpThread(th)
     d.appendChild(q)
   }
-  t.replies.forEach(r => {
+  th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
     const rn = el('b', 'nm', r.author || r.username); rn.style.color = colOf(r.username)
     rh.append(rn, el('span', 'tm', ago(r.created_at)))
@@ -344,13 +365,13 @@ function threadCard(t) {
   })
   const row = el('div', 'rr')
   if (!roC) { // trash/reviewer: read, not write (cNew logic)
-    const inp = el('input'); inp.id = 'r_' + t.id; inp.placeholder = 'Reply...'; inp.setAttribute('aria-label', 'Reply')
+    const inp = el('input'); inp.id = 'r_' + th.id; inp.placeholder = t('comments.replyPh'); inp.setAttribute('aria-label', t('comments.replyAria'))
     wireMentions(inp)
-    const ok = icoBtn('ib', ICO_SEND); ok.title = 'Send'; ok.setAttribute('aria-label', ok.title)
+    const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
     const send = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
       const text = inp.value; inp.value = '' // clear first: else loadComments keeps it as draft and skips renderPop
       api('POST', `/api/docs/${docId}/comments`,
-      { anchor: t.anchor, text, parent_id: t.id }).then(() => refresh('r_' + t.id)).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
+      { anchor: th.anchor, text, parent_id: th.id }).then(() => refresh('r_' + th.id)).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
     ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
     row.append(inp, ok)
   }
@@ -372,7 +393,7 @@ function paintBadge() { // count open threads, click jumps to next
   const b = $('cBadge'), open = threads.filter(t => !t.resolved)
   if (!docId || !open.length) { b.style.display = 'none'; return }
   b.style.display = ''
-  b.textContent = open.length + ' open'
+  b.textContent = t('comments.openBadge', { n: open.length })
 }
 $('cBadge').onclick = () => {
   const open = threads.filter(t => !t.resolved)
@@ -421,8 +442,8 @@ async function refresh(focusId) {
 }
 function updCNewTip() {
   const m = cm.state.selection.main
-  const t = m && !m.empty ? 'Comment on selected text' : 'Select text first to comment'
-  $('cNew').title = t; $('cNew').setAttribute('aria-label', t)
+  const tip = m && !m.empty ? t('comments.tipYes') : t('comments.tipNo')
+  $('cNew').title = tip; $('cNew').setAttribute('aria-label', tip)
 }
 $('cNew').onclick = () => {
   if (!docId) return

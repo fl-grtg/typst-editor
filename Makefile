@@ -1,4 +1,4 @@
-.PHONY: help dev test lint typecheck web web-check vendor e2e check
+.PHONY: help dev test lint typecheck web web-check i18n-check vendor e2e check
 
 PY ?= python
 REGISTRATION ?= open
@@ -24,10 +24,13 @@ web: ## build index.html from web/
 web-check: ## fail if index.html is out of date
 	$(PY) web/build.py --check
 
+i18n-check: ## fail if i18n keys are missing or strings hardcoded
+	$(PY) web/check_i18n.py
+
 vendor: ## download pinned CDN assets into vendor/ (needs network)
 	$(PY) scripts/vendor.py
 
 e2e: ## browser smoke tests (needs: pip install -r requirements-e2e.txt && playwright install chromium)
 	$(PY) -m pytest e2e -q
 
-check: lint typecheck web-check test ## everything CI runs for Python + frontend build
+check: lint typecheck web-check i18n-check test ## everything CI runs for Python + frontend build

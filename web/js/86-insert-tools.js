@@ -3,7 +3,7 @@ const SYMS = ('→ ← ↑ ↓ ⇒ ⇐ ⇔ ∀ ∃ ∅ ∈ ∉ ⊂ ⊃ ⊆ ⊇ �
 const SYN = { pfeil: '→←↑↓⇒⇐⇔', euro: '€', dollar: '$', alpha: 'α', beta: 'β', pi: 'π', summe: '∑', wurzel: '√', unendlich: '∞', kreuz: '✕✓', herz: '♥', stern: '★☆', strich: '–—', anfuhr: '„“”‘’«»', para: '§¶', copyright: '©®™' } // German search keys
 function renderSym(q = '') {
   const p = $('symPop'); p.replaceChildren()
-  const inp = el('input'); inp.placeholder = 'Search...'; inp.value = q; inp.setAttribute('autocomplete', 'off'); inp.setAttribute('aria-label', 'Search symbols')
+  const inp = el('input'); inp.placeholder = t('symbols.searchPh'); inp.value = q; inp.setAttribute('autocomplete', 'off'); inp.setAttribute('aria-label', t('symbols.searchAria'))
   inp.oninput = () => {
     const v = inp.value
     renderSym(v)
@@ -13,7 +13,7 @@ function renderSym(q = '') {
   const g = el('div', 'grid')
   const ql = q.toLowerCase()
   SYMS.filter(s => !q || s.includes(q) || (SYN[ql] || '').includes(s)).slice(0, 120).forEach(s => {
-    const b = el('button', null, s); b.title = 'Insert: ' + s; b.setAttribute('aria-label', b.title)
+    const b = el('button', null, s); b.title = t('symbols.insertSym', { s }); b.setAttribute('aria-label', b.title)
     b.onclick = () => {
       const m = cm.state.selection.main
       cm.dispatch({ changes: { from: m.from, to: m.to, insert: s }, selection: { anchor: m.from + s.length } })

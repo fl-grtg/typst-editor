@@ -25,7 +25,7 @@ function ensureTypst() {
   }).catch(e => {
     typstPm = null // allow retry: watchdog retries instead of stalling
     if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
-    throw new Error('Compiler still loading')
+    throw new Error(t('downloads.compilerLoading'))
   })
   return typstPm
 }
@@ -34,8 +34,8 @@ setTimeout(() => {
   else $('cdnLine').style.display = 'none'
 }, 5000)
 function updExports() {
-  const r = typstReady(), t = r ? '' : 'Preview still loading'
-  for (const id of ['dlPdf', 'dlSvg']) { const b = $(id); if (!b) continue; b.disabled = !r; b.title = r ? b.getAttribute('aria-label') : t }
+  const r = typstReady(), tip = r ? '' : t('preview.stillLoading')
+  for (const id of ['dlPdf', 'dlSvg']) { const b = $(id); if (!b) continue; b.disabled = !r; b.title = r ? b.getAttribute('aria-label') : tip }
 }
 const updExportsT = setInterval(() => { updExports(); if (typstReady()) clearInterval(updExportsT) }, 2000)
 let typstQueued = false // one catch-up render: no compile queue while typing
@@ -49,7 +49,7 @@ function noteCompiler(preview) { // hint instead of endless rendering note (only
   if (!typstT0) typstT0 = Date.now()
   $('cdnLine').style.display = 'block'
   if (++cmpWait >= 8 && Date.now() - typstT0 > 25000 && !preview.querySelector('canvas')) {
-    preview.innerHTML = '<p class="empty">Preview not loading — needs internet. <button>Try again</button></p>'
+    preview.innerHTML = '<p class="empty">' + t('preview.needsInternet') + ' <button>' + t('preview.tryAgain') + '</button></p>'
     preview.querySelector('button').onclick = () => render()
   }
 }
@@ -125,7 +125,7 @@ async function render() {
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p), v = page.getViewport({ scale: 2 }), c = document.createElement('canvas')
       c.width = v.width; c.height = v.height // backing = viewport (scale 2), never touch
-      c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'Preview page ' + p)
+      c.setAttribute('role', 'img'); c.setAttribute('aria-label', t('preview.pageLabel', { n: p }))
       await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise
       sizeCanvas(c) // CSS width only, not canvas.width
       const tc = await page.getTextContent() // click anchors: each visible word knows its spot
@@ -152,12 +152,12 @@ async function render() {
     const lined = errLines.some(e => e.line)
     if (!$('preview').querySelector('canvas')) {
       const p = el('p', 'empty') // real message, not generic: package errors live in other files
-      p.append(document.createTextNode(firstMsg ? 'Could not render: ' + firstMsg : 'Could not render. '))
-      const btn = el('button', null, 'Try again'); btn.onclick = () => render(); p.appendChild(btn)
+      p.append(document.createTextNode(firstMsg ? t('preview.couldNotRender', { msg: firstMsg }) : t('preview.couldNotRenderBare')))
+      const btn = el('button', null, t('preview.tryAgain')); btn.onclick = () => render(); p.appendChild(btn)
       $('preview').replaceChildren(p)
-      if (firstMsg) toast('Typst error: ' + firstMsg.slice(0, 140))
-      else toast('Preview failed to load — needs internet', () => render())
-    } else if (errLines.length && !lined && errKey !== lastErrToast) { lastErrToast = errKey; toast('Typst error: ' + firstMsg.slice(0, 140)) } // line errors: red marks + badge suffice, no toast per keystroke
+      if (firstMsg) toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) }))
+      else toast(t('preview.loadFailed'), () => render())
+    } else if (errLines.length && !lined && errKey !== lastErrToast) { lastErrToast = errKey; toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) })) } // line errors: red marks + badge suffice, no toast per keystroke
     lastInfra = !errLines.length && !$('preview').querySelector('canvas') // infra (not content): watchdog retries
   } }
 }
@@ -169,7 +169,7 @@ async function errDiags() { // fallback only: pre-compile failure (render reuses
   try {
     const r = await (await $typst.getCompiler()).compile({ mainFilePath: '/main.typ', diagnostics: 'full' }) // vector default is fine here, diagnostics is what matters
     return (r.diagnostics || []).filter(d => d.severity === 'error')
-  } catch (err) { return [{ severity: 'error', message: String((err && err.message) || err || 'Compile failed') }] }
+  } catch (err) { return [{ severity: 'error', message: String((err && err.message) || err || t('preview.compileFailed')) }] }
 }
 // <diagRange>
 function diagRange(d, doc) { // F20: real column ranges from compiler diagnostics (0-based) -> doc offsets; null = no position in this doc
@@ -220,11 +220,11 @@ function diagRange(d, doc) { // F20: real column ranges from compiler diagnostic
 function paintErr() { // compile errors via lint (F1): every column range renders (F20), badge keeps one row per line
   const doc = cm.state.doc, diags = [], byLine = new Map(), general = []
   for (const d of cmpDiags) {
-    const msg = (d && d.message) || 'Typst error'
+    const msg = (d && d.message) || t('preview.typstErrorBare')
     const r = d && d.path === '/main.typ' ? diagRange(d, doc) : null
     if (r) {
       diags.push({ from: r.from, to: r.to, severity: 'error', message: msg, source: 'typst' })
-      if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + ' · line ' + r.line + (r.explicit ? ':' + r.col : '') })
+      if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + t('preview.lineSuffix', { line: r.line, col: r.explicit ? ':' + r.col : '' }) })
     } else { // foreign file (package) or no position: no mark possible, but never drop it
       let where = (d && d.package ? d.package + ' ' : '') + (d && d.path && d.path !== '/main.typ' ? d.path : '')
       const at = String((d && (d.range || d.span || d.location)) || '').match(/(\d+)/)
@@ -265,8 +265,8 @@ function updErrBadge() { // error counter in header: touch-friendly, hover not n
   if (!b) return
   if (!errLines.length) { b.style.display = 'none'; if ($('pop').classList.contains('errs')) closePop(true); return }
   b.style.display = ''
-  b.textContent = errLines.length + (errLines.length === 1 ? ' error' : ' errors')
-  b.title = 'Show errors: ' + errLines.map(e => e.line ? 'line ' + e.line + (e.col ? ':' + e.col : '') : e.msg.split('\n')[0].slice(0, 60)).join(', ')
+  b.textContent = errLines.length === 1 ? t('preview.badgeOne', { n: errLines.length }) : t('preview.badgeMany', { n: errLines.length })
+  b.title = t('preview.showErrors', { list: errLines.map(e => e.line ? t('preview.lineRef', { line: e.line, col: e.col ? ':' + e.col : '' }) : e.msg.split('\n')[0].slice(0, 60)).join(', ') })
   b.setAttribute('aria-label', b.title)
   const ep = $('pop'); if (ep.classList.contains('errs') && ep.style.display !== 'none') showErrList() // live: list follows the compiler
 }
@@ -276,13 +276,13 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   const eb = $('eBadge'); if (eb) { eb.setAttribute('aria-expanded', 'true'); if (!eb.getAttribute('aria-controls')) eb.setAttribute('aria-controls', 'pop') }
   const box = $('pop')
   box.replaceChildren()
-  const hd = el('div', 'eh'); hd.appendChild(el('b', null, errLines.length + (errLines.length === 1 ? ' error' : ' errors')))
-  const cx = icoBtn('ib', ICO_X); cx.title = 'Close'; cx.setAttribute('aria-label', 'Close'); cx.onclick = () => closePop(true); hd.appendChild(cx)
+  const hd = el('div', 'eh'); hd.appendChild(el('b', null, errLines.length === 1 ? t('preview.badgeOne', { n: errLines.length }) : t('preview.badgeMany', { n: errLines.length })))
+  const cx = icoBtn('ib', ICO_X); cx.title = t('common.close'); cx.setAttribute('aria-label', t('common.close')); cx.onclick = () => closePop(true); hd.appendChild(cx)
   box.appendChild(hd)
   errLines.forEach(e => { // no line (package error): text row, nowhere to jump
     const r = el(e.line ? 'button' : 'div', 'er')
-    if (e.line) r.appendChild(el('span', 'ln', 'Line ' + e.line + (e.col ? ':' + e.col : '')))
-    r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ · line \d+(:\d+)?$/, '')))
+    if (e.line) r.appendChild(el('span', 'ln', t('preview.errRow', { line: e.line, col: e.col ? ':' + e.col : '' })))
+    r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ · (line|Zeile) \d+(:\d+)?$/, '')))
     if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) }, scrollIntoView: true }); cm.focus() } // list stays open: only the x closes it
     box.appendChild(r)
   })
