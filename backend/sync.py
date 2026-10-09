@@ -308,31 +308,17 @@ def invalidate_quota_cache(owner: str = "") -> None:
         _quota_cache.clear()
 
 
-def _ws_quota_ok(doc_id: str) -> bool:
-    # Best-effort quota guard for WS autosave. Decoupled from backend.main:
-    # owner + usage come from backend.services.quota (no lazy main import).
-    # No lock: a stale True only delays the next periodic save; a stale
-    # False keeps the room dirty and retries later.
-    try:
-        owner = _quota.doc_owner(doc_id, "")
-    except Exception as e:
-        log.warning("_ws_quota_ok owner failed for %s: %s", doc_id, e)
-        return False
-    if not owner:
-        return False
-    try:
-        return not _quota.is_over_quota(owner)
-    except Exception as e:
-        log.warning("_ws_quota_ok check failed for %s: %s", doc_id, e)
-        return False
-
-
 async def _quota_ok_cached_async(doc_id: str) -> bool:
     """Short-lived quota cache in sync.py ONLY (1C).
 
-    TTL = QUOTA_CACHE_TTL. Stale False keeps the room dirty and retries on
-    the next flush; stale True only delays the next flush. Quota internals
-    stay in services/quota.py (1D owns them).
+    TTL = QUOTA_CACHE_TTL. Call invalidate_quota_cache(owner) after
+    quota-relevant writes (avatar, files, templates) so the flusher
+    re-reads instead of serving a stale verdict for up to QUOTA_CACHE_TTL.
+    Exact stale semantics: a stale False (cached over-quota) keeps the room
+    dirty and retries on the next flush; a stale True (cached not-over-quota)
+    PERSISTS over-quota content — the flush proceeds and writes it — until
+    the entry expires and the quota is rechecked. Quota internals stay in
+    services/quota.py (1D owns them).
     """
     try:
         owner = await asyncio.to_thread(_quota.doc_owner, doc_id, "")

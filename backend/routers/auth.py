@@ -402,16 +402,20 @@ def set_avatar(b: AvatarSet, req: Request, user: str = Depends(deps.me)) -> dict
                 con.close()
     except sqlite3.OperationalError as e:
         raise deps.busy_503("set_avatar", e) from e
+    from backend import sync as _sync_avatar
+    _sync_avatar.invalidate_quota_cache(user)
     return {"ok": True}
 
 
 @router.delete("/api/me/avatar")
 def del_avatar(req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "avatar")
+    from backend import sync as _sync_avatar_del
     con = db.connect()
     try:
         con.execute("UPDATE users SET avatar='' WHERE name=?", (user,))
         con.commit()
+        _sync_avatar_del.invalidate_quota_cache(user)
         return {"ok": True}
     finally:
         con.close()

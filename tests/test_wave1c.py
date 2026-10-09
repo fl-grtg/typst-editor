@@ -191,6 +191,48 @@ def test_rehash_on_login_upgrades_old_hash(c):
     assert int(new_hash.split("$", 3)[1]) >= 600_000
 
 
+def test_avatar_set_delete_invalidate_quota_cache(c, monkeypatch):
+    """Avatar set/delete drop the WS quota verdict (R1 blocker 2 contract).
+
+    Prime the short-lived quota cache, verify the cached verdict is served
+    without a recheck, then prove avatar set AND delete each force a recheck
+    (cache-miss counter on services.quota.is_over_quota).
+    """
+    import asyncio as _asyncio
+    import base64 as _b64
+
+    from backend.services import quota as _quota_svc
+
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "Q", content="x")
+    calls = {"n": 0}
+
+    def _counting(user):
+        calls["n"] += 1
+        return False
+
+    monkeypatch.setattr(_quota_svc, "is_over_quota", _counting)
+    assert _asyncio.run(sync._quota_ok_cached_async(did)) is True
+    assert calls["n"] == 1
+    # Fresh cache entry: served without a recheck.
+    assert _asyncio.run(sync._quota_ok_cached_async(did)) is True
+    assert calls["n"] == 1
+    # Avatar set invalidates -> next flush path rechecks.
+    img = "data:image/png;base64," + _b64.b64encode(b"fakepngdata").decode()
+    r = c.post("/api/me/avatar", json={"img": img})
+    assert r.status_code == 200, r.text
+    assert "alice" not in sync._quota_cache
+    assert _asyncio.run(sync._quota_ok_cached_async(did)) is True
+    assert calls["n"] == 2
+    # Avatar delete invalidates too.
+    r = c.delete("/api/me/avatar")
+    assert r.status_code == 200, r.text
+    assert "alice" not in sync._quota_cache
+    assert _asyncio.run(sync._quota_ok_cached_async(did)) is True
+    assert calls["n"] == 3
+
+
 def test_new_hash_uses_600k_rounds():
     h = auth.hash_password("pass1234")
     assert h.split("$", 3)[1] == str(auth.CURRENT_ROUNDS)
