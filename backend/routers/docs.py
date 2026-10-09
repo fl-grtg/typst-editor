@@ -12,6 +12,7 @@ from backend import config, db, deps, search, sync
 from backend.constants import FOLDER_MAX, MAX_TXT, TITLE_MAX
 from backend.schemas import DocCreate, DocSave, FolderRename, FolderSet, TitleSet
 from backend.services import quota as quota_svc
+from backend.services.docfiles import store, sync_doc_files
 from backend.services.locks import _drop_doc_locks, _named_lock
 from backend.services.sidebar import notify_sidebar
 from backend.services.snapshots import auto_snap
@@ -360,18 +361,18 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                 except Exception:
                     max_files = 200
                 try:
-                    files = [p for p in src.iterdir()
-                             if p.is_file() and ".tmp." not in p.name] if src.is_dir() else []
-                except OSError:
-                    files = []
-                if len(files) > max_files:
+                    # Recursive live count (subpaths included), same filter
+                    # as sync_doc_files: hidden/tmp entries never counted.
+                    # Symlink targets count here, like _tree_count for the
+                    # sibling writers (fail-closed vs the table, which never
+                    # holds links). store.list only guards OSError, hence
+                    # ValueError is caught here as well.
+                    entries = store.list(doc_id)
+                except (OSError, ValueError):
+                    entries = []
+                if len(entries) > max_files:
                     raise HTTPException(400, "Too many files")
-                fbytes = 0
-                for p in files:
-                    try:
-                        fbytes += p.stat().st_size
-                    except OSError:
-                        pass
+                fbytes = sum(e.size for e in entries)
                 deps.check_quota(user, len(text.encode("utf-8")) + fbytes)
                 con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
                             "VALUES (?,?,?,?,?,?,?)",
@@ -418,6 +419,52 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
             finally:
                 _rb.close()
             raise HTTPException(500, "Copy failed") from None
+    # Files-table rows for the copied tree (quota/search read the table,
+    # never the filesystem). Best-effort: the doc + tree are committed, so
+    # even a transient lock must not turn success into a 503 (a failed
+    # request would read as "retry" and mint a second copy; the next
+    # list_files heals via sync_doc_files anyway).
+    try:
+        sync_doc_files(nid)
+    except HTTPException as e:
+        log.warning("duplicate files sync %s failed: %s", nid, e)
+    # G4: the copy is committed (doc row + tree + files rows) before the
+    # quota verdict is final: a concurrent writer may have filled the quota
+    # in the gap since the pre-check. Re-check now and roll the copy back
+    # (row via FK-cascade incl. files rows, plus the tree) when over quota,
+    # so no orphan doc survives. quota_guard cannot do this: its pre-check
+    # raises without rollback once the copy is already counted, hence the
+    # explicit post-commit verdict with the same rollback pattern as the
+    # other writers (docfiles quota_guard callers). A transient lock anywhere
+    # leaves the copy in place (fail-open: the next write re-checks). The
+    # verdict reads the files table, so a best-effort sync_doc_files failure
+    # above can undercount the copy and miss over-quota the same way.
+    try:
+        _over = quota_svc.user_bytes(user) > quota_svc.quota_cap()
+    except sqlite3.Error as e:
+        log.warning("duplicate quota post-check %s inconclusive: %s", nid, e)
+        _over = False
+    if _over:
+        try:
+            # db.tx gates the rest: deleting the tree while the row survives
+            # (transient lock on the DELETE) would orphan exactly the doc
+            # this guards against, so a stuck row keeps the copy (fail-open).
+            with db.tx() as _con:
+                _con.execute("DELETE FROM docs WHERE id=?", (nid,))
+        except sqlite3.OperationalError as e:
+            log.warning("duplicate quota rollback %s failed: %s", nid, e)
+        else:
+            try:
+                _dst = deps.get_files_dir() / nid
+                if _dst.is_dir() and not _dst.is_symlink():
+                    shutil.rmtree(_dst, ignore_errors=True)
+                else:
+                    _dst.unlink(missing_ok=True)
+            except OSError:
+                pass
+            quota_svc.invalidate_quota_cache(user)
+            raise HTTPException(413, "Quota exceeded")
+    quota_svc.invalidate_quota_cache(user)
     notify_sidebar(user)
     return {"id": nid}
 

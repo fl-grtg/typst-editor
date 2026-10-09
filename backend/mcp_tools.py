@@ -540,12 +540,24 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
             old = None
 
         def _restore() -> None:
+            # Mirror save_text_file's rollback: disk AND files table revert
+            # together, otherwise quota/search (table readers) desync.
             try:
                 if old is None:
                     p.unlink(missing_ok=True)
+                    try:
+                        docfiles.drop_file(doc_id, filename)
+                    except HTTPException:
+                        pass
                 else:
                     p.write_bytes(old)
-            except OSError:
+                    try:
+                        _rst = p.stat()
+                    except OSError:
+                        pass
+                    else:
+                        docfiles.record_file(doc_id, filename, _rst.st_size, _rst.st_mtime)
+            except (OSError, HTTPException):
                 pass
 
         tmp = p.parent / f"{p.name}.tmp.{db.new_id('')}"
@@ -564,9 +576,18 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
                     except OSError:
                         pass
                     raise
+                # Write-through (same pattern as save_text_file): the files
+                # table mirrors the tree, quota/search read the table.
+                try:
+                    _st = p.stat()
+                except OSError as e:
+                    log.warning("mcp write stat failed: %s", e)
+                else:
+                    docfiles.record_file(doc_id, filename, _st.st_size, _st.st_mtime)
         except sqlite3.OperationalError as e:
             raise deps.busy_503("mcp_write", e) from e
         docfiles.touch_doc(doc_id)
+        quota_svc.invalidate_quota_cache(quota_svc.doc_owner(doc_id, user))
 
 
 def _current_text(user: str, res: dict) -> tuple[str, str]:

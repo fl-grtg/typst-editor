@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 import sqlite3
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -68,6 +69,57 @@ def backup_to(path: Path) -> None:
         con.execute("VACUUM INTO ?", (str(path),))
     finally:
         con.close()
+
+
+def _migrate_backup_target() -> Path:
+    db_path = get_db_path()
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    target = db_path.parent / f"{db_path.stem}-migrate-{stamp}.db"
+    i = 2
+    while target.exists():
+        target = db_path.parent / f"{db_path.stem}-migrate-{stamp}-{i}.db"
+        i += 1
+    return target
+
+
+def _needs_migrate_backup(con: sqlite3.Connection, done: set[int]) -> bool:
+    # Fresh DBs (nothing applied, no user data) need no backup; returning
+    # DBs always get one before any step runs.
+    if done:
+        return True
+    try:
+        for table in ("users", "docs"):
+            try:
+                if con.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+                    return True
+            except sqlite3.OperationalError:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def backup_before_migrate(con: sqlite3.Connection, done: set[int]) -> Path | None:
+    """VACUUM INTO a timestamped file next to the DB. None when skipped.
+
+    Fail-open: a backup failure only warns and returns None so startup
+    migration still runs (a half-migrated DB is worse than a missing
+    pre-migrate snapshot).
+    """
+    if not get_db_path().is_file():
+        return None
+    if not _needs_migrate_backup(con, done):
+        return None
+    target = _migrate_backup_target()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        con.commit()  # VACUUM cannot run inside a transaction
+        con.execute("VACUUM INTO ?", (str(target),))
+    except (OSError, sqlite3.Error) as e:
+        logging.getLogger(__name__).warning("pre-migrate backup failed, continuing: %s", e)
+        return None
+    logging.getLogger(__name__).info("pre-migrate backup: %s", target)
+    return target
 
 
 @contextmanager
@@ -209,23 +261,159 @@ def _migrate_v12(con: sqlite3.Connection) -> None:
                 "SELECT rowid, title, content FROM docs")
 
 
+def _migrate_v13(con: sqlite3.Connection) -> None:
+    # 1D Daten-Fundament: files table (doc_id, path, size, mtime, type),
+    # notifications table, read_tokens table, plus a start-scan that
+    # populates files from existing on-disk attachments.
+    con.execute("CREATE TABLE IF NOT EXISTS files ("
+                "doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
+                "path TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, "
+                "mtime REAL NOT NULL DEFAULT 0, type TEXT NOT NULL DEFAULT '', "
+                "PRIMARY KEY (doc_id, path))")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_files_doc ON files(doc_id)")
+    con.execute("CREATE TABLE IF NOT EXISTS notifications ("
+                "id TEXT PRIMARY KEY, recipient TEXT NOT NULL, type TEXT NOT NULL DEFAULT '', "
+                "doc_id TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', "
+                "is_read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_notifications_recipient "
+                "ON notifications(recipient, created_at)")
+    con.execute("CREATE TABLE IF NOT EXISTS read_tokens ("
+                "token_hash TEXT PRIMARY KEY, doc_id TEXT NOT NULL REFERENCES docs(id) ON DELETE CASCADE, "
+                "hint TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, expires_at TEXT NOT NULL DEFAULT '')")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_read_tokens_doc ON read_tokens(doc_id)")
+    try:
+        from backend import deps as _deps
+        base = _deps.get_files_dir()
+    except Exception as e:
+        logging.getLogger(__name__).warning("v13 start-scan skipped (files dir): %s", e)
+        return
+    try:
+        known = {r[0] for r in con.execute("SELECT id FROM docs").fetchall()}
+    except sqlite3.OperationalError:
+        return
+    try:
+        if not base.is_dir():
+            logging.getLogger(__name__).warning("v13 start-scan skipped (no files dir)")
+            return
+        top = list(base.iterdir())
+    except OSError as e:
+        logging.getLogger(__name__).warning("v13 start-scan skipped: %s", e)
+        return
+    scanned = 0
+    for d in top:
+        try:
+            if d.is_symlink() or not d.is_dir() or d.name.startswith(".") or ".tmp." in d.name:
+                continue
+        except OSError:
+            continue
+        if d.name not in known:
+            continue  # orphan dir (doc gone): no rows, FK would reject them anyway
+        try:
+            # Iterator, never list(rglob): a huge tree must not be
+            # materialized, and one bad entry must not kill the dir.
+            for p in d.rglob("*"):
+                try:
+                    if p.is_symlink():
+                        continue  # like the export walk: never follow/count links
+                    if not p.is_file():
+                        continue
+                    rel = p.relative_to(d).as_posix()
+                    if any(seg.startswith(".") for seg in rel.split("/")) or ".tmp." in p.name:
+                        continue
+                    st = p.stat()
+                    con.execute("INSERT OR REPLACE INTO files (doc_id, path, size, mtime, type) "
+                                "VALUES (?,?,?,?,?)",
+                                (d.name, rel, st.st_size, st.st_mtime, p.suffix.lower()))
+                except (OSError, ValueError, sqlite3.Error) as e:
+                    # Broken name (surrogates), unreadable file, bad row:
+                    # skip the file, never abort the migration.
+                    logging.getLogger(__name__).warning("v13 scan skipped %s: %s", d.name, e)
+                    continue
+                scanned += 1
+                if scanned % 200 == 0:
+                    con.commit()  # chunk-commits, no giant txn
+        except OSError as e:
+            logging.getLogger(__name__).warning("v13 scan skipped dir %s: %s", d.name, e)
+            continue
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12,
+    _migrate_v11, _migrate_v12, _migrate_v13,
 )
+
+
+_MIGRATE_RETRIES = 10
+
+
+def _rollback_quiet(con: sqlite3.Connection) -> None:
+    try:
+        con.execute("ROLLBACK")
+    except Exception:
+        pass
+
+
+def _begin_immediate(con: sqlite3.Connection) -> None:
+    # Serialize parallel starters (init_db runs at import, so two workers
+    # can migrate the same DB at once): take the write lock up-front,
+    # backing off on locked/busy instead of crashing.
+    for attempt in range(_MIGRATE_RETRIES):
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if ("locked" not in msg and "busy" not in msg) or attempt + 1 >= _MIGRATE_RETRIES:
+                raise
+            _rollback_quiet(con)
+            time.sleep(0.05 * (attempt + 1))
+    raise sqlite3.OperationalError("database is locked")
 
 
 def migrate(con: sqlite3.Connection) -> None:
     # Idempotent: every step checks before writing; applied versions recorded
-    # so re-runs and fresh DBs converge to the same schema.
-    con.execute("CREATE TABLE IF NOT EXISTS schema_version (v INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+    # so re-runs and fresh DBs converge to the same schema. Before any
+    # pending step runs on a returning DB, VACUUM INTO a timestamped file
+    # next to the DB (fresh DBs are skipped: nothing to lose).
+    # Parallel-safe: each step runs in its own BEGIN IMMEDIATE txn with
+    # busy-retry. A peer that commits the version first shows up as an
+    # IntegrityError on the schema_version INSERT, which is swallowed
+    # (the step itself is idempotent: IF NOT EXISTS / OR REPLACE), so the
+    # second starter wins nothing and loses nothing.
+    _begin_immediate(con)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS schema_version (v INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+        con.commit()
+    except Exception:
+        _rollback_quiet(con)
+        raise
     done = {r[0] for r in con.execute("SELECT v FROM schema_version").fetchall()}
-    for i, step in enumerate(_MIGRATIONS, start=1):
-        if i not in done:
-            step(con)
-            con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
-            con.commit()
+    pending = [(i, step) for i, step in enumerate(_MIGRATIONS, start=1) if i not in done]
+    if pending:
+        backup_before_migrate(con, done)
+    for i, step in pending:
+        for attempt in range(_MIGRATE_RETRIES):
+            _begin_immediate(con)
+            try:
+                step(con)
+            except sqlite3.OperationalError as e:
+                _rollback_quiet(con)
+                msg = str(e).lower()
+                if ("locked" not in msg and "busy" not in msg) or attempt + 1 >= _MIGRATE_RETRIES:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            except Exception:
+                _rollback_quiet(con)
+                raise
+            try:
+                con.execute("INSERT INTO schema_version (v, applied_at) VALUES (?,?)", (i, now_iso()))
+                con.commit()
+            except sqlite3.IntegrityError:
+                _rollback_quiet(con)
+                break  # peer applied this version first: their rows stand
+            break
 
 
 def init_db() -> None:

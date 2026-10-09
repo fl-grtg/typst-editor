@@ -2,9 +2,8 @@
 
 docs_fts(title, content) is keyed by docs.rowid (docs.id is TEXT, so FTS
 content-sync is not an option); triggers in schema.sql / db._migrate_v12
-keep it in sync. Filenames and .bib keys live on the filesystem, so no
-trigger can index them: they are matched per search via a LIKE-style
-substring scan over the doc's files dir (hybrid, capped at 20 hits).
+keep it in sync. Filenames live in the files table (db._migrate_v13);
+.bib keys still need the file contents, read per .bib file (no walk).
 
 Matching:
   FTS5 prefix over unicode61 tokens for persisted title/content, plus a
@@ -17,10 +16,13 @@ Snippet:
 """
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 MAX_HITS = 20
 MAX_Q = 50
@@ -60,35 +62,52 @@ def extract_bib_keys(text: str) -> list[str]:
     return _BIB_KEY_RE.findall(text)
 
 
+def _like_escape(q: str) -> str:
+    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
 def scan_files(doc_id: str, files_dir: Path, q_lower: str) -> tuple[list[str], list[str]]:
-    """Filenames + .bib keys containing q (case-insensitive substring)."""
-    d = files_dir / doc_id
+    """Filenames + .bib keys containing q (case-insensitive substring).
+
+    Names come from the files table (1D), never from a directory walk;
+    only .bib *contents* are still read from disk (capped at 1 MB).
+    files_dir stays in the signature for that content read.
+    """
+    from backend import db as _db
+
+    con = _db.connect()
     try:
-        if not d.is_dir():
-            return ([], [])
-        entries = list(d.iterdir())
-    except OSError:
+        rows = con.execute(
+            "SELECT path FROM files WHERE doc_id=? AND LOWER(path) LIKE ? ESCAPE '\\'",
+            (doc_id, _like_escape(q_lower))).fetchall()
+        bibs = con.execute(
+            "SELECT path FROM files WHERE doc_id=? AND type='.bib'", (doc_id,)).fetchall()
+    except sqlite3.OperationalError:
+        return ([], [])  # half-migrated DB (no files table yet): degrade, never 500
+    except Exception as e:
+        log.warning("scan_files failed for %s: %s", doc_id, e)
         return ([], [])
-    names: list[str] = []
-    keys: list[str] = []
-    for p in entries:
+    finally:
         try:
-            if not p.is_file() or ".tmp." in p.name:
+            con.close()
+        except Exception:
+            pass
+    names = [r["path"] for r in rows]
+    keys: list[str] = []
+    for r in bibs:
+        rel = r["path"]
+        if rel.startswith("/") or ".." in rel.split("/"):
+            continue  # never trust a table row into a filesystem join
+        p = files_dir / doc_id / rel
+        try:
+            if not p.is_file() or p.stat().st_size > BIB_MAX_BYTES:
                 continue
+            txt = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if q_lower in p.name.lower():
-            names.append(p.name)
-        if p.suffix.lower() == ".bib":
-            try:
-                if p.stat().st_size > BIB_MAX_BYTES:
-                    continue
-                txt = p.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for k in extract_bib_keys(txt):
-                if q_lower in k.lower():
-                    keys.append(k)
+        for k in extract_bib_keys(txt):
+            if q_lower in k.lower():
+                keys.append(k)
     return (names, keys)
 
 

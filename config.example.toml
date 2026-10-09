@@ -14,6 +14,7 @@ RATE_LOGIN_PER_MIN = 10 # Login attempts per minute.
 RATE_REGISTER_PER_HOUR = 20 # Registrations per hour.
 RATE_AUTH_PER_MIN = 60 # Auth checks per minute (logout/me).
 RATE_JOIN_PER_MIN = 30 # Invite redemptions per minute.
+RATE_READ_PER_MIN = 30 # Account-less read-link views per minute (per IP + per token buckets).
 RATE_SEARCH_PER_MIN = 60 # Searches per minute.
 RATE_FILES_PER_MIN = 20 # File up- and downloads per minute.
 RATE_FILES_LIST_PER_MIN = 120 # File list refreshes per minute.
