@@ -57,6 +57,10 @@ def base_url(tmp_path_factory):
     port = _free_port()
     env = {**os.environ, "DATA_DIR": str(data), "REGISTRATION": "open", "PYTHONUNBUFFERED": "1"}
     _SERVER_LOG_PATH = data / "server.log"
+    # NOTE: never stdout=PIPE here without a reader: once the pipe buffer
+    # (64KB on GH runners) fills, uvicorn blocks on its next access-log
+    # write and the server hangs (late-test page.goto timeouts). A file
+    # never blocks and keeps the log for the failure tail below.
     logf = open(_SERVER_LOG_PATH, "wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", str(port)],
@@ -91,8 +95,12 @@ def base_url(tmp_path_factory):
         logf.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def browser():
+    # NOTE: function-scoped (fresh browser per test, not per session): a
+    # session-shared browser accumulates WASM/compiler/canvas memory across
+    # contexts and late-suite navigations stall past the 15s goto timeout
+    # even with a healthy server (CI test_6, local 8th-navigation retries).
     with sync_playwright() as p:
         try:
             b = p.chromium.launch()
