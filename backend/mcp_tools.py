@@ -27,7 +27,9 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading as _compile_threading
 import zipfile
+from contextlib import contextmanager as _compile_cm
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -139,14 +141,48 @@ _TYPST_TAG: str | None = None
 
 
 def _typst_tag() -> str:
-    """Cache-busting salt: fonts/packages/env changes alter the render."""
+    """Cache-busting salt: fonts/packages/env changes alter the render.
+
+    B7: runs inside the same compile sandbox as every other typst call
+    (slot + whitelisted env + rlimit preexec). A full slot queue (503) or
+    any sandbox failure falls back to "unknown" instead of raising, so view
+    caching never hard-fails on contention.
+    """
     global _TYPST_TAG
     if _TYPST_TAG is None:
         try:
             exe = shutil.which("typst") or "typst"
-            p = subprocess.run([exe, "--version"], capture_output=True, timeout=10)
+            try:
+                root = _files_dir()
+            except Exception:
+                root = Path(tempfile.gettempdir())
+            try:
+                with _compile_slot():
+                    try:
+                        env = _typst_env(root)
+                    except HTTPException as e:
+                        log.warning("typst tag env failed, use unknown: %s", e.detail)
+                        _TYPST_TAG = "unknown"
+                        return _TYPST_TAG
+                    except Exception as e:
+                        log.warning("typst tag env failed, use unknown: %s", e)
+                        _TYPST_TAG = "unknown"
+                        return _TYPST_TAG
+                    try:
+                        cwd = str(root) if Path(root).is_dir() else None
+                    except Exception:
+                        cwd = None
+                    p = subprocess.run([exe, "--version"], capture_output=True, timeout=10,
+                                       env=env, preexec_fn=_subprocess_preexec(), cwd=cwd)
+            except HTTPException as e:
+                if getattr(e, "status_code", 0) == 503:
+                    log.warning("typst tag busy, use unknown")
+                    _TYPST_TAG = "unknown"
+                    return _TYPST_TAG
+                raise
             _TYPST_TAG = (p.stdout or b"").decode("utf-8", "replace").strip()[:80] if p.returncode == 0 else "unknown"
-        except Exception:
+        except Exception as e:
+            log.warning("typst tag failed, use unknown: %s", e)
             _TYPST_TAG = "unknown"
     return _TYPST_TAG
 
@@ -760,6 +796,30 @@ def op_comment(user: str, cap: str, path: str, anchor: int,
 
 # --- view (M3, PR4 paging): render doc pages as PNG via typst CLI ---
 
+# 1C compile sandbox: at most COMPILE_MAX_CONCURRENT typst processes, with
+# COMPILE_QUEUE_MAX waiters; beyond that -> HTTP 503 + Retry-After (callers
+# must back off). QUEUE_MAX/TIMEOUT/RETRY_AFTER are read live so tests can
+# monkeypatch them; MAX_CONCURRENT sizes _COMPILE_SLOTS once at import (patch
+# + reimport to change it).
+COMPILE_MAX_CONCURRENT = 2
+COMPILE_QUEUE_MAX = 4
+COMPILE_QUEUE_TIMEOUT_S = 30.0
+COMPILE_RETRY_AFTER_S = 5
+# Memory/CPU caps for the typst child (preexec_fn, POSIX only).
+COMPILE_MEM_BYTES = 1_000_000_000
+COMPILE_CPU_S = 30
+COMPILE_FSIZE_BYTES = 100 * 1024 * 1024
+# Env whitelist for the typst child (1C: never leak os.environ, in particular
+# never REGISTRATION_INVITE_TOKEN or other server secrets into compile env).
+COMPILE_ENV_ALLOW = frozenset({
+    "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP", "TZ",
+    "SYSTEMROOT", "WINDIR", "FONTCONFIG_PATH",
+})
+
+_COMPILE_SLOTS = _compile_threading.Semaphore(COMPILE_MAX_CONCURRENT)
+_COMPILE_LOCK = _compile_threading.Lock()
+_COMPILE_WAITING = 0
+
 _VIEW_CACHE: dict[str, dict] = {}
 _VIEW_TOTALS: dict[str, int] = {}
 
@@ -803,6 +863,88 @@ def _png_bytes(im) -> bytes:
     return buf.getvalue()
 
 
+def _compile_503() -> HTTPException:
+    return HTTPException(status_code=503, detail="Compile busy, try again",
+                         headers={"Retry-After": str(COMPILE_RETRY_AFTER_S)})
+
+
+@_compile_cm
+def _compile_slot():
+    """Hold one compile slot (1C sandbox). 503 + Retry-After when full."""
+    global _COMPILE_WAITING
+    # Fast path: free slot, no queue accounting.
+    try:
+        got = _COMPILE_SLOTS.acquire(blocking=False)
+    except Exception as e:
+        log.warning("compile slot acquire failed: %s", e)
+        raise _compile_503() from e
+    if got:
+        try:
+            yield
+        finally:
+            try:
+                _COMPILE_SLOTS.release()
+            except Exception as e:
+                log.warning("compile slot release failed: %s", e)
+        return
+    # All slots busy: bounded queue, else 503 immediately.
+    with _COMPILE_LOCK:
+        if _COMPILE_WAITING >= COMPILE_QUEUE_MAX:
+            raise _compile_503()
+        _COMPILE_WAITING += 1
+    try:
+        try:
+            ok = _COMPILE_SLOTS.acquire(timeout=COMPILE_QUEUE_TIMEOUT_S)
+        except Exception as e:
+            log.warning("compile slot queued acquire failed: %s", e)
+            raise _compile_503() from e
+        if not ok:
+            raise _compile_503()
+        try:
+            yield
+        finally:
+            try:
+                _COMPILE_SLOTS.release()
+            except Exception as e:
+                log.warning("compile slot release failed: %s", e)
+    finally:
+        with _COMPILE_LOCK:
+            _COMPILE_WAITING -= 1
+
+
+def _compile_preexec() -> None:
+    """Child-side rlimits for typst (1C): 1 GB AS, 30s CPU, 100 MB files."""
+    try:
+        import resource as _res
+    except ImportError as e:
+        log.debug("compile preexec: resource unavailable: %s", e)
+        return
+    try:
+        _res.setrlimit(_res.RLIMIT_AS, (COMPILE_MEM_BYTES, COMPILE_MEM_BYTES))
+    except (ValueError, OSError) as e:
+        log.warning("compile preexec RLIMIT_AS failed: %s", e)
+    try:
+        _res.setrlimit(_res.RLIMIT_CPU, (COMPILE_CPU_S, COMPILE_CPU_S))
+    except (ValueError, OSError) as e:
+        log.warning("compile preexec RLIMIT_CPU failed: %s", e)
+    try:
+        _res.setrlimit(_res.RLIMIT_FSIZE, (COMPILE_FSIZE_BYTES, COMPILE_FSIZE_BYTES))
+    except (ValueError, OSError) as e:
+        log.warning("compile preexec RLIMIT_FSIZE failed: %s", e)
+
+
+def _subprocess_preexec():
+    # preexec_fn only works on POSIX; on Windows pass None.
+    try:
+        import sys as _sys
+        if _sys.platform == "win32":
+            return None
+    except Exception as e:
+        log.warning("compile preexec platform check failed: %s", e)
+        return None
+    return _compile_preexec
+
+
 def _typst_env(root: Path) -> dict:
     # Container runs read-only (USER 999, read_only:true): typst's package
     # cache defaults to a non-writable location, so any @preview import
@@ -811,6 +953,8 @@ def _typst_env(root: Path) -> dict:
     # views) with a tmp fallback. TYPST_PACKAGE_CACHE_PATH is the
     # documented override (typst 0.15.1, also as --package-cache-path);
     # XDG_CACHE_HOME covers the dirs-crate fallback on Linux.
+    # 1C: whitelist env (never dict(os.environ): that leaks
+    # REGISTRATION_INVITE_TOKEN and other secrets into the child).
     try:
         persistent = _files_dir().parent / "typst-cache"
         persistent.mkdir(parents=True, exist_ok=True)
@@ -821,7 +965,18 @@ def _typst_env(root: Path) -> dict:
             Path(cache_home).mkdir(exist_ok=True)
         except OSError as e:
             raise _bad(f"compile failed: {e}", 500) from e
-    env = dict(os.environ)
+    env: dict[str, str] = {}
+    for k in COMPILE_ENV_ALLOW:
+        try:
+            v = os.environ.get(k)
+        except Exception as e:
+            log.warning("compile env read %s failed: %s", k, e)
+            continue
+        if v:
+            env[k] = v
+    # Minimal PATH fallback so `typst` resolves even with a bare env.
+    if not env.get("PATH"):
+        env["PATH"] = "/usr/local/bin:/usr/bin:/bin"
     env["TYPST_PACKAGE_CACHE_PATH"] = cache_home
     env["XDG_CACHE_HOME"] = cache_home
     return env
@@ -832,93 +987,101 @@ def _pdf_page_count(pdf_bytes: bytes) -> int | None:
     try:
         n = len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
         return n if n > 0 else None
-    except Exception:
+    except Exception as e:
+        log.warning("pdf page count failed: %s", e)
         return None
 
 
 def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
                   pages: str, ppi: int = VIEW_BASE_PPI) -> list[bytes]:
     """Temp-dir typst compile, 10s timeout. Returns PNG bytes (<=20, longest side <=1280)."""
-    typst = shutil.which("typst")
-    if not typst:
-        raise _bad("typst CLI missing (Dockerfile installs it)", 500)
-    try:
-        from PIL import Image as _Image
-    except ImportError as e:
-        raise _bad(f"render failed: {e}", 500) from e
+    with _compile_slot():
+        typst = shutil.which("typst")
+        if not typst:
+            raise _bad("typst CLI missing (Dockerfile installs it)", 500)
+        try:
+            from PIL import Image as _Image
+        except ImportError as e:
+            raise _bad(f"render failed: {e}", 500) from e
 
-    with tempfile.TemporaryDirectory(prefix="mcp-view-") as tmp:
-        root = Path(tmp)
-        try:
-            (root / "main.typ").write_text(main_text, encoding="utf-8")
-            for name, data in files:
-                if ".tmp." in name:
-                    continue
-                (root / name).write_bytes(data)
-        except OSError as e:
-            raise _bad(f"compile failed: {e}", 500) from e
-        cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
-               "--pages", pages, "main.typ", "page-{p}.png"]
-        env = _typst_env(root)
-        try:
-            proc = subprocess.run(cmd, cwd=tmp, capture_output=True, timeout=VIEW_TIMEOUT, env=env)
-        except subprocess.TimeoutExpired as e:
-            raise _bad("compile timed out (10s)", 500) from e
-        except OSError as e:
-            raise _bad(f"compile failed: {e}", 500) from e
-        if proc.returncode != 0:
-            raw = (proc.stderr or b"").decode("utf-8", "replace").strip()
-            diags = _parse_typst_diagnostics(raw)
-            short = raw.strip()[-500:] or "unknown"
-            raise HTTPException(422, {"message": f"compile error: {short}",
-                                      "diagnostics": diags})
-        shots = sorted(root.glob("page-*.png"))[:VIEW_MAX_PAGES]
-        if not shots:
-            raise _bad("no pages rendered", 500)
-        out = []
-        for shot in shots:
+        with tempfile.TemporaryDirectory(prefix="mcp-view-") as tmp:
+            root = Path(tmp)
             try:
-                with _Image.open(shot) as im:
-                    im.load()
-                    side = max(im.width, im.height)
-                    if side > VIEW_MAX_SIDE:
-                        s = VIEW_MAX_SIDE / side
-                        out.append(_png_bytes(im.resize(
-                            (round(im.width * s), round(im.height * s)))))
-                    else:
-                        out.append(_png_bytes(im))
+                (root / "main.typ").write_text(main_text, encoding="utf-8")
+                for name, data in files:
+                    if ".tmp." in name:
+                        continue
+                    (root / name).write_bytes(data)
             except OSError as e:
-                raise _bad(f"render failed: {e}", 500) from e
-        return out
+                raise _bad(f"compile failed: {e}", 500) from e
+            cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
+                   "--pages", pages, "main.typ", "page-{p}.png"]
+            env = _typst_env(root)
+            try:
+                proc = subprocess.run(cmd, cwd=tmp, capture_output=True, timeout=VIEW_TIMEOUT, env=env,
+                                      preexec_fn=_subprocess_preexec())
+            except subprocess.TimeoutExpired as e:
+                raise _bad("compile timed out (10s)", 500) from e
+            except OSError as e:
+                raise _bad(f"compile failed: {e}", 500) from e
+            if proc.returncode != 0:
+                raw = (proc.stderr or b"").decode("utf-8", "replace").strip()
+                diags = _parse_typst_diagnostics(raw)
+                short = raw.strip()[-500:] or "unknown"
+                raise HTTPException(422, {"message": f"compile error: {short}",
+                                          "diagnostics": diags})
+            shots = sorted(root.glob("page-*.png"))[:VIEW_MAX_PAGES]
+            if not shots:
+                raise _bad("no pages rendered", 500)
+            out = []
+            for shot in shots:
+                try:
+                    with _Image.open(shot) as im:
+                        im.load()
+                        side = max(im.width, im.height)
+                        if side > VIEW_MAX_SIDE:
+                            s = VIEW_MAX_SIDE / side
+                            out.append(_png_bytes(im.resize(
+                                (round(im.width * s), round(im.height * s)))))
+                        else:
+                            out.append(_png_bytes(im))
+                except OSError as e:
+                    raise _bad(f"render failed: {e}", 500) from e
+            return out
 
 
 def _compile_pdf_pages(main_text: str, files: list[tuple[str, bytes]]) -> int | None:
     """Compile to PDF and count pages. None when the count is unknown."""
-    typst = shutil.which("typst")
-    if not typst:
-        raise _bad("typst CLI missing (Dockerfile installs it)", 500)
-    with tempfile.TemporaryDirectory(prefix="mcp-view-total-") as tmp:
-        root = Path(tmp)
-        try:
-            (root / "main.typ").write_text(main_text, encoding="utf-8")
-            for name, data in files:
-                if ".tmp." in name:
-                    continue
-                (root / name).write_bytes(data)
-        except OSError:
-            return None
-        cmd = [typst, "compile", "--format", "pdf", "main.typ", "out.pdf"]
-        try:
-            proc = subprocess.run(cmd, cwd=tmp, capture_output=True,
-                                  timeout=VIEW_TIMEOUT, env=_typst_env(root))
-        except (subprocess.TimeoutExpired, OSError):
-            return None
-        if proc.returncode != 0:
-            return None
-        try:
-            return _pdf_page_count((root / "out.pdf").read_bytes())
-        except OSError:
-            return None
+    with _compile_slot():
+        typst = shutil.which("typst")
+        if not typst:
+            raise _bad("typst CLI missing (Dockerfile installs it)", 500)
+        with tempfile.TemporaryDirectory(prefix="mcp-view-total-") as tmp:
+            root = Path(tmp)
+            try:
+                (root / "main.typ").write_text(main_text, encoding="utf-8")
+                for name, data in files:
+                    if ".tmp." in name:
+                        continue
+                    (root / name).write_bytes(data)
+            except OSError as e:
+                log.warning("pdf-pages write failed: %s", e)
+                return None
+            cmd = [typst, "compile", "--format", "pdf", "main.typ", "out.pdf"]
+            try:
+                proc = subprocess.run(cmd, cwd=tmp, capture_output=True,
+                                      timeout=VIEW_TIMEOUT, env=_typst_env(root),
+                                      preexec_fn=_subprocess_preexec())
+            except (subprocess.TimeoutExpired, OSError) as e:
+                log.warning("pdf-pages compile failed: %s", e)
+                return None
+            if proc.returncode != 0:
+                return None
+            try:
+                return _pdf_page_count((root / "out.pdf").read_bytes())
+            except OSError as e:
+                log.warning("pdf-pages read failed: %s", e)
+                return None
 
 
 def _total_pages_cached(doc_id: str, main_text: str,
@@ -1080,22 +1243,24 @@ def _collect_export_source(doc_id: str) -> tuple[str, list[tuple[str, bytes]], l
 
 def _typst_compile(args: list[str], tmp: str) -> None:
     """Run `typst <args>` in tmp. Compile errors -> 422 with diagnostics."""
-    typst = shutil.which("typst")
-    if not typst:
-        raise _bad("typst CLI missing (Dockerfile installs it)", 500)
-    try:
-        proc = subprocess.run([typst, *args], cwd=tmp, capture_output=True,
-                              timeout=EXPORT_TIMEOUT, env=_typst_env(Path(tmp)))
-    except subprocess.TimeoutExpired as e:
-        raise _bad("compile timed out (30s)", 500) from e
-    except OSError as e:
-        raise _bad(f"compile failed: {e}", 500) from e
-    if proc.returncode != 0:
-        raw = (proc.stderr or b"").decode("utf-8", "replace").strip()
-        diags = _parse_typst_diagnostics(raw)
-        short = raw.strip()[-500:] or "unknown"
-        raise HTTPException(422, {"message": f"compile error: {short}",
-                                  "diagnostics": diags})
+    with _compile_slot():
+        typst = shutil.which("typst")
+        if not typst:
+            raise _bad("typst CLI missing (Dockerfile installs it)", 500)
+        try:
+            proc = subprocess.run([typst, *args], cwd=tmp, capture_output=True,
+                                  timeout=EXPORT_TIMEOUT, env=_typst_env(Path(tmp)),
+                                  preexec_fn=_subprocess_preexec())
+        except subprocess.TimeoutExpired as e:
+            raise _bad("compile timed out (30s)", 500) from e
+        except OSError as e:
+            raise _bad(f"compile failed: {e}", 500) from e
+        if proc.returncode != 0:
+            raw = (proc.stderr or b"").decode("utf-8", "replace").strip()
+            diags = _parse_typst_diagnostics(raw)
+            short = raw.strip()[-500:] or "unknown"
+            raise HTTPException(422, {"message": f"compile error: {short}",
+                                      "diagnostics": diags})
 
 
 def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str,
