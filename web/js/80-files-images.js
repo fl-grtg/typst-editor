@@ -8,12 +8,12 @@ function renderMediaChips(files) {
   if (docRole === 'reviewer' || openedTrashed) { bar.style.display = 'none'; return } // reviewer/trash: no manager
   bar.style.display = mediaOpen ? '' : 'none'
   if (!mediaOpen) return
-  const add = el('button', null, '+ Upload')
+  const add = el('button', null, t('files.upload'))
   add.onclick = () => $('imgPick').click()
   bar.appendChild(add)
   files.forEach(f => {
     const c = el('span', 'chip')
-    const n = el('button', 'name', f.name); n.title = 'Insert at cursor'; n.setAttribute('aria-label', 'Insert ' + f.name + ' at cursor')
+    const n = el('button', 'name', f.name); n.title = t('files.insertAt'); n.setAttribute('aria-label', t('files.insertName', { name: f.name }))
     n.onclick = () => {
       const m = cm.state.selection.main
       const ins = /\.typ$/i.test(f.name) ? `#include "${f.name}"` : /\.bib$/i.test(f.name) ? `#bibliography("${f.name}")` : `#image("${f.name}", width: 80%)`
@@ -21,15 +21,15 @@ function renderMediaChips(files) {
       cm.focus()
     }
     c.appendChild(n)
-    c.appendChild(el('span', 'sz', Math.round(f.size / 1024) + ' KB'))
-    const x = icoBtn(null, ICO_X); x.title = 'Delete'; x.setAttribute('aria-label', 'Delete ' + f.name)
+    c.appendChild(el('span', 'sz', t('files.sizeKb', { kb: Math.round(f.size / 1024) })))
+    const x = icoBtn(null, ICO_X); x.title = t('files.del'); x.setAttribute('aria-label', t('files.delName', { name: f.name }))
     x.onclick = () => {
       const cached = fileCache.get(f.name)
       api('DELETE', `/api/docs/${docId}/files/${encodeURIComponent(f.name)}`)
         .then(() => {
           if (f.name === activeFile) switchTab('', true)
           queueRender()
-          toast('File deleted', async () => {
+          toast(t('files.deleted'), async () => {
             try {
               if (cached && cached.bytes) {
                 const fd = new FormData(); fd.append('f', new Blob([cached.bytes]), f.name)
@@ -39,7 +39,7 @@ function renderMediaChips(files) {
               }
               queueRender()
             } catch (e) { toast(e.message) }
-          }, 'Undo')
+          }, t('files.undo'))
         }).catch(e => toast(e.message))
     }
     c.appendChild(x)
@@ -58,7 +58,7 @@ function paintTabs() { // main.typ + text files as tabs, preview stays main
   const mk = name => {
     const b = el('button', null, name || 'main.typ')
     if ((name || '') === activeFile) b.classList.add('on')
-    b.title = name ? 'Edit ' + name + ' (preview stays main.typ)' : 'Edit main.typ'
+    b.title = name ? t('files.editTab', { name }) : t('files.editMain')
     b.onclick = () => switchTab(name)
     bar.appendChild(b)
   }
@@ -89,9 +89,9 @@ function queueFileSave() { // file tab: only file + preview, no Yjs
     try {
       await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() })
       fileCache.delete(activeFile) // bytes stale: next render refetches
-      $('save').textContent = 'saved' + wc()
+      $('save').textContent = t('docs.saved') + wc()
       queueRender()
-    } catch (e) { $('save').textContent = navigator.onLine === false ? 'Offline – will retry' : 'Error: ' + e.message; toast('File save failed: ' + e.message, () => queueFileSave(), 'Retry') }
+    } catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); toast(t('files.saveFail', { msg: e.message }), () => queueFileSave(), t('common.retry')) }
   }, SAVE_MS)
 }
 let imgIns = false // only via image button, not via manager upload
@@ -104,13 +104,13 @@ async function upFile(f) { // upload, returns name ('' on error)
   const fd = new FormData(); fd.append('f', f)
   const r = await fetch(`/api/docs/${docId}/files`, { method: 'POST', body: fd })
   filesDirty = true
-  if (!r.ok) { const d = ((await r.json().catch(() => ({}))).detail || r.statusText); toast('Upload failed: ' + d, () => upFile(f), 'Retry'); return '' }
+  if (!r.ok) { const d = ((await r.json().catch(() => ({}))).detail || r.statusText); toast(t('files.uploadFail', { msg: d }), () => upFile(f), t('common.retry')); return '' }
   return (await r.json()).name
 }
 const TEXT_UP = /\.(typ|bib|csv)$/i // text file: save + open as tab (no #image)
 async function upText(f) { // .typ/.bib/.csv as file text (backend creates, max 200 KB)
   const txt = await f.text()
-  if (txt.length > 200 * 1024) { toast('Max 200 KB as text'); return '' }
+  if (txt.length > 200 * 1024) { toast(t('files.maxText')); return '' }
   const name = f.name.replace(/[^A-Za-z0-9._-]+/g, '_')
   await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(name)}/text`, { content: txt })
   return name
@@ -144,7 +144,7 @@ cm.contentDOM.addEventListener('paste', async e => { // paste screenshot/image: 
   const imgs = [...((e.clipboardData && e.clipboardData.files) || [])].filter(f => /^image\//.test(f.type))
   if (!imgs.length || !docId || tplName || openedTrashed || docRole === 'reviewer') return
   e.preventDefault()
-  toast(imgs.length > 1 ? 'Uploading ' + imgs.length + ' images…' : 'Uploading image…')
+  toast(imgs.length > 1 ? t('files.uploadingMany', { n: imgs.length }) : t('files.uploadingOne'))
   for (const f of imgs) {
     const ext = ((f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/\+.*$/, '')).toLowerCase()
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)

@@ -1,1 +1,1 @@
-{"saveFail":"File save failed: {msg}"}
+{"del":"Delete","delName":"Delete {name}","deleted":"File deleted","editMain":"Edit main.typ","editTab":"Edit {name} (preview stays main.typ)","insertAt":"Insert at cursor","insertName":"Insert {name} at cursor","maxText":"Max 200 KB as text","saveFail":"File save failed: {msg}","sizeKb":"{kb} KB","undo":"Undo","upload":"+ Upload","uploadFail":"Upload failed: {msg}","uploadingMany":"Uploading {n} images…","uploadingOne":"Uploading image…"}
