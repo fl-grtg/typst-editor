@@ -1,6 +1,7 @@
 /* UI layer: menubar, export menu, rail. Pure proxies to existing controls – no app logic lives here. */
 (function () {
   'use strict'
+  function t(k, p) { return window.t ? window.t(k, p) : String(k).split('.').pop() } // module (05-i18n.js) owns t(); this classic script only delegates (labels render on click, after the module ran)
   var $ = function (id) { return document.getElementById(id) }
   var menu = $('menu'), body = document.body
   var mac = /Mac|iPhone|iPad/.test(navigator.platform || '')
@@ -21,76 +22,76 @@
 
   function exportItems() {
     return [
-      it('Download as .typ', function () { click('dlTyp') }, { on: shown('dlTyp') }),
-      it('Download as PDF', function () { click('dlPdf') }, { on: shown('dlPdf') }),
-      it('Page PNG', function () { click('dlPng') }, { on: shown('dlPng') }),
-      it('Download as SVG', function () { click('dlSvg') }, { on: shown('dlSvg') })
+      it(t('menu.dlTyp'), function () { click('dlTyp') }, { on: shown('dlTyp') }),
+      it(t('menu.dlPdf'), function () { click('dlPdf') }, { on: shown('dlPdf') }),
+      it(t('menu.dlPng'), function () { click('dlPng') }, { on: shown('dlPng') }),
+      it(t('menu.dlSvg'), function () { click('dlSvg') }, { on: shown('dlSvg') })
     ]
   }
   var DEF = {
     file: function () {
       return [
-        it('New document', function () { click('new') }),
-        it('Upload .typ\u2026', function () { click('upDoc') }),
+        it(t('menu.newDoc'), function () { click('new') }),
+        it(t('menu.uploadTyp'), function () { click('upDoc') }),
         SEP,
-        it('Rename\u2026', function () { click('renBtn') }, { on: shown('renBtn') }),
-        it('Share\u2026', function () { click('shareBtn') }, { on: shown('shareBtn') }),
-        it('Version history\u2026', function () { click('histBtn') }, { on: shown('histBtn') }),
-        it('Save now', function () { key('s') }, { kbd: M + 'S' }),
+        it(t('menu.rename'), function () { click('renBtn') }, { on: shown('renBtn') }),
+        it(t('menu.share'), function () { click('shareBtn') }, { on: shown('shareBtn') }),
+        it(t('menu.history'), function () { click('histBtn') }, { on: shown('histBtn') }),
+        it(t('menu.saveNow'), function () { key('s') }, { kbd: M + 'S' }),
         SEP
       ].concat(exportItems(), [
         SEP,
-        it('Move to trash', function () { click('del') }, { on: shown('del') }),
-        it('Sign out', function () { click('out') })
+        it(t('menu.moveTrash'), function () { click('del') }, { on: shown('del') }),
+        it(t('menu.signOut'), function () { click('out') })
       ])
     },
     edit: function () {
       return [
-        it('Find and replace', function () { key('f') }, { kbd: M + 'F' }),
+        it(t('menu.find'), function () { key('f') }, { kbd: M + 'F' }),
         SEP,
-        it('Bold', function () { fmt('bold') }, { kbd: M + 'B', on: fmtOn('bold') }),
-        it('Italic', function () { fmt('italic') }, { kbd: M + 'I', on: fmtOn('italic') }),
-        it('Underline', function () { fmt('underline') }, { kbd: M + 'U', on: fmtOn('underline') }),
+        it(t('menu.bold'), function () { fmt('bold') }, { kbd: M + 'B', on: fmtOn('bold') }),
+        it(t('menu.italic'), function () { fmt('italic') }, { kbd: M + 'I', on: fmtOn('italic') }),
+        it(t('menu.underline'), function () { fmt('underline') }, { kbd: M + 'U', on: fmtOn('underline') }),
         SEP,
-        it('Comment on selection', function () { click('cNew') }, { on: shown('cNew') }),
-        it('Insert picture or file\u2026', function () { click('imgBtn') }, { on: shown('imgBtn') }),
-        it('Insert template\u2026', function () { click('tplBtn') }, { on: shown('tplBtn') }),
-        it('Insert symbol\u2026', function () { click('symBtn') }, { on: shown('symBtn') }),
-        it('Media manager', function () { click('mediaBtn') }, { on: shown('mediaBtn') })
+        it(t('menu.comment'), function () { click('cNew') }, { on: shown('cNew') }),
+        it(t('menu.addPic'), function () { click('imgBtn') }, { on: shown('imgBtn') }),
+        it(t('menu.addTpl'), function () { click('tplBtn') }, { on: shown('tplBtn') }),
+        it(t('menu.addSym'), function () { click('symBtn') }, { on: shown('symBtn') }),
+        it(t('menu.media'), function () { click('mediaBtn') }, { on: shown('mediaBtn') })
       ]
     },
     view: function () {
       var edit = pressed('vEdit'), read = pressed('vRead')
       return [
-        it('Editor only', function () { click('vEdit') }, { checked: edit }),
-        it('Editor and preview', function () { click('vSplit') }, { checked: !edit && !read }),
-        it('Preview only', function () { click('vRead') }, { checked: read }),
+        it(t('menu.edOnly'), function () { click('vEdit') }, { checked: edit }),
+        it(t('menu.edSplit'), function () { click('vSplit') }, { checked: !edit && !read }),
+        it(t('menu.pvOnly'), function () { click('vRead') }, { checked: read }),
         SEP,
-        it('Sidebar', function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
-        it('Follow between editor and preview', function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
+        it(t('menu.sidebar'), function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
+        it(t('menu.follow'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
         SEP,
-        it('Zoom in', function () { click('zPlus') }, { kbd: M + '+', on: !edit }),
-        it('Zoom out', function () { click('zMinus') }, { kbd: M + '\u2212', on: !edit }),
-        it('Fit page to width', function () { click('fitBtn') }, { on: !edit }),
-        it('Reset zoom', function () { key('0') }, { kbd: M + '0', on: !edit }),
+        it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: M + '+', on: !edit }),
+        it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: M + '\u2212', on: !edit }),
+        it(t('menu.fitPage'), function () { click('fitBtn') }, { on: !edit }),
+        it(t('menu.resetZoom'), function () { key('0') }, { kbd: M + '0', on: !edit }),
         SEP,
-        it('Larger editor text', function () { click('fPlus') }, { on: !read }),
-        it('Smaller editor text', function () { click('fMinus') }, { on: !read }),
-        head('Appearance'),
-        it('Match system', function () { setTheme('system') }, { checked: themeMode() === 'system' }),
-        it('Light', function () { setTheme('light') }, { checked: themeMode() === 'light' }),
-        it('Dark', function () { setTheme('dark') }, { checked: themeMode() === 'dark' })
+        it(t('menu.fontUp'), function () { click('fPlus') }, { on: !read }),
+        it(t('menu.fontDown'), function () { click('fMinus') }, { on: !read }),
+        head(t('menu.appearance')),
+        it(t('menu.sysTheme'), function () { setTheme('system') }, { checked: themeMode() === 'system' }),
+        it(t('menu.light'), function () { setTheme('light') }, { checked: themeMode() === 'light' }),
+        it(t('menu.dark'), function () { setTheme('dark') }, { checked: themeMode() === 'dark' })
       ]
     },
     help: function () {
       return [
-        it('Connect AI agent', function () { if ($('setPop').style.display === 'none') click('who') }),
-        it('Source code on GitHub', function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
+        it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('who') }),
+        it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
       ]
     },
-    export: function () { return [head('Download current document')].concat(exportItems()) },
+    export: function () { return [head(t('menu.dlHead'))].concat(exportItems()) },
     all: function () {
-      return [head('File')].concat(DEF.file(), [head('Edit')], DEF.edit(), [head('View')], DEF.view(), [head('Help')], DEF.help())
+      return [head(t('menu.fileH'))].concat(DEF.file(), [head(t('menu.editH'))], DEF.edit(), [head(t('menu.viewH'))], DEF.view(), [head(t('menu.helpH'))], DEF.help())
     }
   }
 
@@ -185,7 +186,7 @@
   function themeMode() { var t = root.getAttribute('data-theme'); return t === 'light' || t === 'dark' ? t : 'system' }
   function effective() { var m = themeMode(); return m !== 'system' ? m : (mq && mq.matches ? 'dark' : 'light') }
   function paintTheme() {
-    var dark = effective() === 'dark', lbl = dark ? 'Switch to light mode' : 'Switch to dark mode'
+    var dark = effective() === 'dark', lbl = dark ? t('menu.toLight') : t('menu.toDark')
     document.querySelectorAll('[data-rail="theme"]').forEach(function (b) { b.innerHTML = dark ? SUN : MOON; b.title = lbl; b.setAttribute('aria-label', lbl) })
     var bg = getComputedStyle(root).getPropertyValue('--bg').trim()
     if (bg) document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.setAttribute('content', bg) })
@@ -196,7 +197,8 @@
     paintTheme()
   }
   if (mq && mq.addEventListener) mq.addEventListener('change', paintTheme)
-  paintTheme()
+  if (window.t) paintTheme() // module already ran (deferred): translate at once
+  else document.addEventListener('DOMContentLoaded', paintTheme) // module runs before DCL: labels wait for t()
 
   /* Sidebar (one component: thin strip collapsed, full panel open) */
   function collapsed() { return body.classList.contains('noside') }
