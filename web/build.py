@@ -52,6 +52,19 @@ def _i18n_tag() -> str:
     return f'<script id="i18n-data" type="application/json">{payload}</script>\n'
 
 
+def _vendor_url(key: str) -> str:
+    # Wave 2B: resolve a vendor asset (see scripts/vendor.py) to its
+    # self-hosted /vendor/ URL, so feature JS never hardcodes hashed names.
+    try:
+        manifest = json.loads(_read(WEB.parent / "vendor" / "manifest.json"))
+        name = manifest["entry"][key]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise SystemExit(f"vendor asset missing for key '{key}': {e} (run: python scripts/vendor.py)") from e
+    if not isinstance(name, str) or "/" in name or ".." in name:
+        raise SystemExit(f"vendor asset unsafe for key '{key}': {name!r}")
+    return "/vendor/" + name
+
+
 def build() -> str:
     def sub(m: re.Match[str]) -> str:
         p = (WEB / m.group(1)).resolve()
@@ -72,6 +85,8 @@ def build() -> str:
 
     out = MARK.sub(sub, _read(SHELL))
     out = GLOB_MARK.sub(sub_glob, out)
+    out = out.replace("@@typstyle-wasm@@", _vendor_url("typstyle-wasm"))
+    out = out.replace("@@typstyle-glue@@", _vendor_url("typstyle-glue"))
     return I18N_MARK.sub(lambda _: _i18n_tag(), out)
 
 
