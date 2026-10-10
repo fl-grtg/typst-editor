@@ -42,4 +42,7 @@
 #find button { min-height: 28px; padding: 2px 10px; }
 #find button.on { background: var(--ink); color: var(--on-ink); border-color: transparent; }
 #find .x { margin-left: auto; border: 0; background: none; box-shadow: none; color: var(--sub); }
+/* Wave 2B: format-on-save toggle (pressed) + per-doc spellcheck select */
+#tools #fmtSave.on { background: var(--sel); font-weight: 700; }
+#tools .grp select#spellSel { min-height: 30px; max-width: 132px; padding: 2px 6px; font-size: 12.5px; }
 
