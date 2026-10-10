@@ -22,7 +22,7 @@
 #sharePop #shares button:hover { background: var(--hover); color: var(--text); }
 #sharePop .hintline { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 4px 0 8px; }
 #sharePop input[readonly] { background: transparent; border-style: dashed; color: var(--sub); }
-#setPop { width: min(700px, calc(100vw - 24px)); max-height: none; overflow: visible; padding: 14px 18px 18px; }
+#setPop { width: min(700px, calc(100vw - 24px)); max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); overflow: auto; padding: 14px 18px 18px; }
 #setPop .setGrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
 #setPop .setCol { display: flex; flex-direction: column; min-width: 0; }
 #setPop h4 { margin: 0; padding: 14px 0 4px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
@@ -37,6 +37,12 @@
 #setPop .sec { background: var(--hover); border-radius: var(--r-md); padding: 4px 12px 12px; margin: 0 0 4px; }
 #setPop .serr { background: var(--danger-soft); color: var(--danger); border-radius: var(--r-sm); padding: 8px 10px; font-size: 12.5px; margin-bottom: 6px; }
 #setPop .avatarRow { display: flex; align-items: center; gap: 10px; }
+#setPop .hint { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 6px 0 4px; }
+#setPop .sessRow { flex-wrap: nowrap; align-items: center; }
+#setPop .sessLeft { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#setPop .sessName { font-weight: 650; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#setPop .sessLeft .val { text-align: left; min-width: 0; }
+#setPop select:focus-visible, #setPop button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 @media (max-width: 600px) { #setPop .setGrid { grid-template-columns: 1fr; } } /* popover < ~560px: single column */
 #setPop img.av, #setPop .avFallback { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--press); flex: none; }
 #setPop .avFallback { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--sub); }

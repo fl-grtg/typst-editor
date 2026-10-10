@@ -10,14 +10,16 @@ header {
 header .hl, header .hr { display: flex; align-items: center; gap: 4px; min-width: 0; }
 header .hr { justify-content: flex-end; gap: 6px; }
 header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; font-weight: 500; }
+header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 #navToggle { padding: 0; width: 30px; }
 #menubar { display: flex; align-items: center; gap: 0; margin-left: 4px; }
 #menubar button { color: var(--text); padding: 0 10px; font-size: 13px; }
 #menubar button[aria-expanded="true"] { background: var(--sel); }
 #menuMore { display: none; }
-#docHead { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: min(44vw, 560px); line-height: 1.2; }
+#docHead { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: min(44vw, 560px); line-height: 1.2; overflow: hidden; }
 #docHead .l1, #docHead .l2 { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
-#docHead .l2 { margin-top: 2px; min-height: 16px; }
+#docHead .l2 { margin-top: 2px; min-height: 16px; max-width: 100%; overflow: hidden; white-space: nowrap; }
+#docHead .l2 #save, #docHead .l2 #wsTxt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #title { margin: 0; min-width: 0; font-size: 13.5px; font-weight: 600; letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #title.is-empty { color: var(--sub); font-weight: 500; }
 #renBtn { width: 22px; min-width: 22px; height: 22px; padding: 0; opacity: 0; }
@@ -40,4 +42,5 @@ header button { min-width: 30px; height: 30px; padding: 0 8px; font-size: 13px; 
 #viewSeg { display: flex; gap: 1px; background: var(--hover); border-radius: var(--r-sm); padding: 2px; }
 #viewSeg button { min-width: 28px; width: 28px; height: 24px; padding: 0; border-radius: 6px; }
 #viewSeg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
+#viewSeg button:focus-visible, #exportBtn:focus-visible, #shareBtn:focus-visible, #cBadge:focus-visible, #eBadge:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 

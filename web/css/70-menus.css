@@ -6,8 +6,8 @@
   background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop);
 }
 #menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; padding: 4px 10px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); }
-#menu button:hover:not(:disabled), #menu button:focus-visible { background: var(--ink); color: var(--on-ink); outline: none; }
-#menu button:disabled { opacity: .38; }
+#menu button:hover:not(:disabled), #menu button:focus-visible { background: var(--ink); color: var(--on-ink); outline: 2px solid var(--acc); outline-offset: -2px; }
+#menu button:disabled { opacity: .4; }
 #menu .chk { width: 14px; flex: none; font-size: 12px; text-align: center; }
 #menu .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #menu .kbd { flex: none; font: 11.5px var(--ui); opacity: .55; letter-spacing: .02em; }
