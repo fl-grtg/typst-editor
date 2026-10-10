@@ -72,7 +72,7 @@ $('renBtn').onclick = async () => { // pencil behind title (owner only, template
     .then(() => { $('title').textContent = nt.trim(); sidebar() })
     .catch(e => toast(e.message))
 }
-function askNewDoc() { // one dialog: title + folder radio + template radio (not 3 cascades)
+function askNewDoc() { // one dialog: title + folder radio + gallery grid (not 3 cascades)
   return new Promise(res => {
     if (askRes) askRes(null)
     const prev = document.activeElement
@@ -90,14 +90,10 @@ function askNewDoc() { // one dialog: title + folder radio + template radio (not
     addF('', t('docs.noFolder'))
     folders.forEach(f => addF(f.folder, f.n === 1 ? t('docs.folderDocsOne', { f: f.folder, n: f.n }) : t('docs.folderDocsMany', { f: f.folder, n: f.n })))
     addF('__new', t('docs.newFolderOpt'))
-    box.append(fl, fgrp, nn, el('label', null, t('docs.tplLabel')))
+    box.append(fl, fgrp, nn, el('label', null, t('gallery.galLabel')))
     let selT = 0
-    const grp = el('div'); grp.setAttribute('role', 'radiogroup'); grp.setAttribute('aria-label', t('docs.tplLabel'))
-    ;[[t('docs.stBlank'), t('docs.stBlankSub')], [t('docs.stReport'), t('docs.stReportSub')], [t('docs.stSlides'), t('docs.stSlidesSub')]].forEach((st, i) => {
-      const b = el('button', 'pk' + (!i ? ' on' : ''), st[0] + ' – ' + st[1]); b.setAttribute('aria-pressed', !i)
-      b.onclick = () => { selT = i; grp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true') }
-      grp.appendChild(b)
-    })
+    const grp = el('div'); grp.id = 'galGrid'; grp.setAttribute('role', 'radiogroup'); grp.setAttribute('aria-label', t('gallery.galLabel'))
+    GALLERY.forEach((g, i) => grp.appendChild(galleryCard(g, !i, () => { selT = i; grp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); grp.children[i].classList.add('on'); grp.children[i].setAttribute('aria-pressed', 'true') })))
     box.appendChild(grp)
     $('mCard').insertBefore(box, row)
     const done = v => { ov.style.display = 'none'; modalInert(false); box.remove(); askRes = null; prev?.focus?.(); res(v) }
@@ -144,7 +140,7 @@ $('new').onclick = async () => {
   const r = await askNewDoc()
   if (!r) return
   const b = $('new'), old = b.textContent; b.disabled = true; b.textContent = t('docs.creating')
-  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('docs.newDocTitle'), content: STARTERS[r.tpl] || '', folder: r.folder })).id) }
+  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('docs.newDocTitle'), content: galleryContent(r.tpl), folder: r.folder })).id) }
   catch (e) { toast(e.message) } finally { b.disabled = false; b.textContent = old }
 }
 let upBusy = false // double-click: no second doc

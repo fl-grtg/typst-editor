@@ -44,7 +44,7 @@ URL_LINE = re.compile(r"vendor/|https?://|\.wasm|workerSrc")
 # Whole-line technical skips (locale-independent code/data, not UI prose).
 SKIP_LINE_RES = [
     re.compile(r"T_BLOCKED"),  # CodeMirror node names incl. 'Error'
-    re.compile(r"^\s*const (SYMS|SYN|T_KW|T_SNIP|STARTERS)\b"),  # symbol tables, snippets, template content
+    re.compile(r"^\s*const (SYMS|SYN|T_KW|T_SNIP)\b"),  # symbol tables, snippets
     re.compile(r"\.style\."),  # CSS values ('1px solid var(--line)', ...)
     re.compile(r"className|classList\."),  # CSS classes ('typ-hover full', 'save primary', ...)
 ]
@@ -82,7 +82,7 @@ ALLOW_EXACT = {
 # Starter templates (inserted document content, not UI chrome).
 ALLOW_EXACT |= {
     '#set page(paper: "a4", margin: 2cm)\n#set text(size: 11pt)\n#set heading(numbering: "1.")\n\n= Introduction\n\nText here …\n',
-    '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n= Slide 2\n\nText here …\n',
+    '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n#pagebreak()\n\n= Slide 2\n\nText here …\n',
 }
 # Agent prompt: English instructions + URL for an AI agent, must stay English.
 ALLOW_EXACT |= {

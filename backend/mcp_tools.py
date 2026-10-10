@@ -1201,6 +1201,50 @@ EXPORT_TIMEOUT = 30.0
 EXPORT_PPI = VIEW_BASE_PPI
 EXPORT_MIMES = {"pdf": "application/pdf", "svg": "image/svg+xml",
                 "png": "image/png", "zip": "application/zip"}
+# 2C: PDF standards via server CLI (typst 0.15.1 --pdf-standard). The WASM
+# bundle has no pdfStandard option, so standards always compile server-side
+# in the 1C sandbox. Curated subset (commonly needed); unknown -> 400.
+PDF_STANDARDS = frozenset({"1.7", "2.0", "a-1b", "a-2b", "a-3b", "a-2u",
+                           "a-3u", "ua-1"})
+EXPORT_PPI_MIN = 72
+EXPORT_PPI_MAX = 300
+EXPORT_PAGES_MAXLEN = 40
+
+
+def _check_pdf_standard(s: str) -> str:
+    v = (s or "").strip().lower()
+    if v in ("", "none"):
+        return ""
+    if v not in PDF_STANDARDS:
+        raise _bad("pdf_standard must be one of: none, " + ", ".join(sorted(PDF_STANDARDS)))
+    return v
+
+
+def _check_export_pages(s: str) -> str:
+    v = (s or "").strip().replace(" ", "")
+    if not v:
+        return ""
+    if len(v) > EXPORT_PAGES_MAXLEN or not re.fullmatch(r"[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*", v):
+        raise _bad("pages must look like 1-3,5 (max 40 chars)")
+    return v
+
+
+def _check_export_ppi(p: int) -> int:
+    if isinstance(p, bool) or not isinstance(p, int):
+        raise _bad(f"ppi must be {EXPORT_PPI_MIN}-{EXPORT_PPI_MAX}")
+    if not EXPORT_PPI_MIN <= p <= EXPORT_PPI_MAX:
+        raise _bad(f"ppi must be {EXPORT_PPI_MIN}-{EXPORT_PPI_MAX}")
+    return p
+
+
+def _parse_export_ppi(s: str) -> int:
+    """Query param -> int (0 = default). Non-numeric -> 400, not 422."""
+    v = (s or "").strip()
+    if not v:
+        return 0
+    if not re.fullmatch(r"[0-9]+", v):
+        raise _bad(f"ppi must be {EXPORT_PPI_MIN}-{EXPORT_PPI_MAX}")
+    return _check_export_ppi(int(v))
 
 
 def _check_export_format(fmt: str) -> str:
@@ -1285,15 +1329,27 @@ def _typst_compile(args: list[str], tmp: str) -> None:
 
 
 def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str,
-                        skipped: list[str] | None = None) -> tuple[bytes, str, bool]:
+                        skipped: list[str] | None = None, pdf_standard: str = "",
+                        pages: str = "", ppi: int = 0) -> tuple[bytes, str, bool]:
     """Compile one doc to (payload, mime, pages_zip).
 
     pdf = full multi-page PDF. svg/png = the single page directly, or a ZIP
     of all pages when the doc has more than one (typst needs a {p} template
     for multi-page image output). zip = source bundle (main.typ + files/).
+    pdf_standard/pages/ppi are CLI-only (the WASM bundle cannot do them):
+    --pdf-standard (pdf only), --pages (pdf/svg/png), --ppi (png only).
     Outputs over EXPORT_MAX -> 413. Temp dirs auto-clean (no migration).
     """
     f = _check_export_format(fmt)
+    std = _check_pdf_standard(pdf_standard)
+    pg = _check_export_pages(pages)
+    res = _check_export_ppi(ppi) if ppi else 0
+    if std and f != "pdf":
+        raise _bad("pdf_standard only applies to pdf")
+    if pg and f == "zip":
+        raise _bad("pages only applies to pdf, svg and png")
+    if res and f != "png":
+        raise _bad("ppi only applies to png")
     if f == "zip":
         buf = io.BytesIO()
         total = len(main_text.encode("utf-8"))
@@ -1322,19 +1378,21 @@ def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str
                 (root / name).write_bytes(data)
         except OSError as e:
             raise _bad(f"compile failed: {e}", 500) from e
+        pg_args = ["--pages", pg] if pg else []
         if f == "pdf":
-            _typst_compile(["compile", "--format", "pdf", "main.typ", "out.pdf"], tmp)
+            std_args = ["--pdf-standard", std] if std else []
+            _typst_compile(["compile", "--format", "pdf", *std_args, *pg_args, "main.typ", "out.pdf"], tmp)
             try:
                 payload = (root / "out.pdf").read_bytes()
             except OSError as e:
                 raise _bad(f"compile failed: {e}", 500) from e
             return _sized(payload, EXPORT_MIMES["pdf"], False)
         if f == "svg":
-            _typst_compile(["compile", "--format", "svg", "main.typ", "page-{p}.svg"], tmp)
+            _typst_compile(["compile", "--format", "svg", *pg_args, "main.typ", "page-{p}.svg"], tmp)
             shots = sorted(root.glob("page-*.svg"))
             return _pages_or_zip(shots, EXPORT_MIMES["svg"])
-        _typst_compile(["compile", "--format", "png", "--ppi", str(EXPORT_PPI),
-                        "main.typ", "page-{p}.png"], tmp)
+        _typst_compile(["compile", "--format", "png", "--ppi", str(res or EXPORT_PPI),
+                        *pg_args, "main.typ", "page-{p}.png"], tmp)
         shots = sorted(root.glob("page-*.png"))
         return _pages_or_zip(shots, EXPORT_MIMES["png"])
 
@@ -1370,25 +1428,28 @@ def _pages_or_zip(shots: list[Path], mime: str) -> tuple[bytes, str, bool]:
 
 
 def build_export_payload(title: str, main_text: str, files: list[tuple[str, bytes]],
-                         fmt: str, skipped: list[str] | None = None) -> tuple[bytes, str, str]:
+                         fmt: str, skipped: list[str] | None = None, pdf_standard: str = "",
+                         pages: str = "", ppi: int = 0) -> tuple[bytes, str, str]:
     """(payload, mime, filename) for REST responses. Multi-page svg/png
     arrive as `<stem>-<fmt>.zip`, everything else as `<stem>.<fmt>`."""
     f = _check_export_format(fmt)
-    payload, mime, multi = _compile_export_doc(main_text, files, f, skipped)
+    payload, mime, multi = _compile_export_doc(main_text, files, f, skipped, pdf_standard, pages, ppi)
     stem = _export_stem(title)
     suffix = "zip" if (multi or f == "zip") else f
     name = f"{stem}-{f}.zip" if multi else f"{stem}.{suffix}"
     return payload, mime, name
 
 
-def _export_doc_sync(doc_id: str, title: str, fmt: str) -> tuple[bytes, str, str]:
+def _export_doc_sync(doc_id: str, title: str, fmt: str, pdf_standard: str = "",
+                     pages: str = "", ppi: int = 0) -> tuple[bytes, str, str]:
     """Blocking collect + compile. Callers must offload (B13): the REST
     endpoint is sync (worker thread), op_export uses asyncio.to_thread."""
     main_text, files, skipped = _collect_export_source(doc_id)
-    return build_export_payload(title, main_text, files, fmt, skipped)
+    return build_export_payload(title, main_text, files, fmt, skipped, pdf_standard, pages, ppi)
 
 
-async def op_export(user: str, cap: str, path: str, format: str = "pdf") -> dict:
+async def op_export(user: str, cap: str, path: str, format: str = "pdf",
+                  pdf_standard: str = "none", pages: str = "", ppi: int = 0) -> dict:
     """Export a document via typst CLI (read-only: any role with access).
 
     format pdf = full PDF; svg/png = single page directly, multi-page docs
@@ -1396,14 +1457,19 @@ async def op_export(user: str, cap: str, path: str, format: str = "pdf") -> dict
     base64 payload + mime + filename (REST parity, no worker block: compile
     runs in asyncio.to_thread). Like view: MCP rate scope (`mcp`) applies,
     no per-user export lock (REST serializes via _export_lock).
+    2C options (CLI-only): pdf_standard (pdf only), pages (pdf/svg/png),
+    ppi 72-300 (png only). Bad values -> error before any compile.
     """
     _ = cap  # read access is enough (resolve already gates per doc)
     res = resolve_path(user, cap, path)
     if res["kind"] != "doc":
         raise _bad("export needs a document path, use /docs/{Title}")
     fmt = _check_export_format(format)
+    std = _check_pdf_standard(pdf_standard)
+    pg = _check_export_pages(pages)
+    pp = _check_export_ppi(ppi) if ppi else 0  # 0 = unset, wie REST ohne ppi-Param
     payload, mime, filename = await asyncio.to_thread(
-        _export_doc_sync, res["doc_id"], res["title"], fmt)
+        _export_doc_sync, res["doc_id"], res["title"], fmt, std, pg, pp)
     return {"format": fmt, "mime": mime, "filename": filename,
             "content_base64": base64.b64encode(payload).decode("ascii"),
             "size_bytes": len(payload)}
