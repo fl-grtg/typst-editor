@@ -1,6 +1,5 @@
 // --- Spellcheck language per document: browser dictionary via lang + spellcheck attrs ---
-// (the select lives in Settings, not the toolbar: underlines come from the
-// browser dictionary, see settings.spellHint)
+// (the select lives in Settings, not the toolbar: underlines come from the browser dictionary)
 const SPELL_OPTS = [['auto', 'editor.spellAuto'], ['de', 'editor.spellGerman'], ['en', 'editor.spellEnglish'], ['off', 'editor.spellOff']]
 const spellStored = () => { try { return localStorage.getItem('typst_spell_' + docId) || 'auto' } catch (e) { return 'auto' } }
 function applySpell() { // dictionary follows the open document (attribute on the editable node, not global)
