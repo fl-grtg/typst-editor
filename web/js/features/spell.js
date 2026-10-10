@@ -28,7 +28,7 @@ function spellSettingsSec() { // settings group section: per-doc language + brow
   sel.onchange = () => { if (docId) { try { localStorage.setItem('typst_spell_' + docId, sel.value) } catch (e) {} } applySpell(); cm.focus() }
   row.append(lab, sel)
   const hint = document.createElement('div'); hint.textContent = t('settings.spellHint')
-  hint.style.cssText = 'font-size:12px;color:var(--sub);line-height:1.45;margin-top:6px'
+  hint.style.cssText = 'font-size:12px;color:var(--sub);line-height:1.45;margin-top:2px;margin-left:8px;border-left:2px solid var(--line);padding-left:8px' // visibly belongs to the spell row above
   sec.append(row, hint)
   return sec
 }
