@@ -40,7 +40,7 @@ function formatSettingsSec() { // settings group section: format on save (toolba
   cb.onchange = () => { try { localStorage.setItem('typst_fmt_save', cb.checked ? '1' : '0') } catch (e) {} }
   const lab = document.createElement('label'); lab.textContent = t('editor.formatSave'); lab.setAttribute('for', 'fmtSave')
   lab.title = t('editor.formatSaveT')
-  lab.prepend(cb); cb.style.marginRight = '6px' // box inside label: snug + clicking text toggles
+  lab.append(cb); cb.style.marginLeft = '6px' // box right of text, close - clicking text toggles
   row.append(lab)
   sec.appendChild(row)
   return sec
