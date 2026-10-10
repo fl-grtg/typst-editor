@@ -113,7 +113,12 @@ function openExportDlg(fmt) { // options dialog: server compile, client fallback
     try {
       await expServer(fmt, { std, pages, ppi })
       done()
-    } catch (e) { toast(t('downloads.expServerFail', { msg: e.message }), () => yes.onclick()); yes.disabled = false }
+    } catch (e) {
+      const raw = e.message || ''
+      const noCli = /typst CLI missing/i.test(raw) // dev without Docker: options need the server CLI
+      toast(noCli ? t('downloads.expServerNoCli') : t('downloads.expServerFail', { msg: raw }), () => yes.onclick())
+      yes.disabled = false
+    }
   }
   setTimeout(() => yes.focus(), 30)
 }
