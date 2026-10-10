@@ -155,9 +155,9 @@ async function render() {
       p.append(document.createTextNode(firstMsg ? t('preview.couldNotRender', { msg: firstMsg }) : t('preview.couldNotRenderBare')))
       const btn = el('button', null, t('preview.tryAgain')); btn.onclick = () => render(); p.appendChild(btn)
       $('preview').replaceChildren(p)
-      if (firstMsg) toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) }))
-      else toast(t('preview.loadFailed'), () => render())
-    } else if (errLines.length && !lined && errKey !== lastErrToast) { lastErrToast = errKey; toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) })) } // line errors: red marks + badge suffice, no toast per keystroke
+      if (firstMsg) { if (navigator.onLine !== false) toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) })) } // offline: inline message suffices, no toast spam
+      else if (navigator.onLine !== false) toast(t('preview.loadFailed'), () => render())
+    } else if (errLines.length && !lined && errKey !== lastErrToast && navigator.onLine !== false) { lastErrToast = errKey; toast(t('preview.typstError', { msg: firstMsg.slice(0, 140) })) } // line errors: red marks + badge suffice, no toast per keystroke
     lastInfra = !errLines.length && !$('preview').querySelector('canvas') // infra (not content): watchdog retries
   } }
 }

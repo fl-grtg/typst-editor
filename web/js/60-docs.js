@@ -76,8 +76,9 @@ async function sidebar() {
   catch (e) {
     if (id !== sideN) return
     if (/401|logged|Login/i.test(e.message)) { location.reload(); return }
-    if (e.status === 429 || navigator.onLine === false) toast(t('docs.sidebarRefreshFail', { msg: e.message }), () => sidebar(), t('common.retry'))
-    return // offline etc: keep old list
+    if (navigator.onLine === false) return // quiet: offline bar shows it, 'online' event refreshes
+    if (e.status === 429) toast(t('docs.sidebarRefreshFail', { msg: e.message }), () => sidebar(), t('common.retry'))
+    return // keep old list
   }
   lastOwn = d.own; lastShared = d.shared
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
@@ -407,7 +408,7 @@ function queueTplSave() {
   $('save').textContent = t('docs.saving')
   tplT = setTimeout(async () => {
     try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = t('docs.saved') + wc(); loadTpl() }
-    catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); toast(t('templates.saveFail', { msg: e.message }), () => queueTplSave(), t('common.retry')) }
+    catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); if (navigator.onLine !== false) toast(t('templates.saveFail', { msg: e.message }), () => queueTplSave(), t('common.retry')) } // auto: quiet offline, status line says it
   }, SAVE_MS)
 }
 let openN = 0, synced = false // sync state ready? Else no empty save to DB (Fix #2)
@@ -539,9 +540,13 @@ async function openDoc(id) {
   paintOutline()
   sidebar(); loadComments().catch(e => console.warn('comments failed', e)); loadMembers()
 }
-function queueSave() { // autosave: REST only when WS is down (live: Yjs already syncs; template/file tabs always REST)
+function queueSave() { // main.typ: Yjs carries every keystroke (offline too: syncs on reconnect); REST would 409 or fork the text, so never autosave main
   clearTimeout(saveT)
-  if (!tplName && !activeFile && wsLive() && navigator.onLine !== false) return // no request, no flicker: status stays Live
+  if (!tplName && !activeFile) {
+    if (wsLive() && navigator.onLine !== false) return // live: nothing to do, status stays Live
+    $('save').textContent = t('docs.offlineRetry') // calm: #wsTxt already says Offline/Getrennt, Yjs retries on reconnect
+    return // no timer: no REST off the sync path (offline queue applied on top of Yjs sync doubled the text)
+  }
   $('save').textContent = t('docs.saving')
   saveT = setTimeout(() => saveNow(false, true), SAVE_MS)
 }
@@ -564,7 +569,8 @@ async function saveNow(force, auto) { // explicit (Ctrl+S/menu) saves at once; a
     return
   }
   if (!docId || docRole === 'reviewer' || !ytext) return
-  if (auto && wsLive() && navigator.onLine !== false) { paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E)
+  if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns main.typ: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
+  if (auto) { $('save').textContent = t('docs.saved') + wc(); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E)
   try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') + wc() }
   catch (e) {
     if (e.status === 409 && !force && prov && prov.wsconnected && synced) return saveNow(true, auto) // live: Y state already merges everyone's edits, safe to overwrite

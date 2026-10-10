@@ -91,7 +91,7 @@ function queueFileSave() { // file tab: only file + preview, no Yjs
       fileCache.delete(activeFile) // bytes stale: next render refetches
       $('save').textContent = t('docs.saved') + wc()
       queueRender()
-    } catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); toast(t('files.saveFail', { msg: e.message }), () => queueFileSave(), t('common.retry')) }
+    } catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); if (navigator.onLine !== false) toast(t('files.saveFail', { msg: e.message }), () => queueFileSave(), t('common.retry')) } // auto: quiet offline, status line says it
   }, SAVE_MS)
 }
 let imgIns = false // only via image button, not via manager upload

@@ -5,7 +5,13 @@ test_9 (idle): typing while the socket is live must not send any
     nothing either — the network log is the proof.
 test_10 (offline cycle): browser-offline flips the status away from Live
     without toast spam; typing offline is kept, and reconnect flips back to
-    Live with the text intact.
+    Live with the text intact (exactly once — no duplication).
+test_11 (offline queue): typing (and even explicit Ctrl+S) while offline must
+    not send any POST /api/docs/<id>/save for main.typ — Yjs carries the
+    edits on reconnect, a REST copy on top would fork the text and duplicate
+    it. No toast while offline, only the calm status line.
+test_12 (template offline): template autosave failures stay quiet offline
+    (status line only, no toast); the typed text survives.
 """
 from helpers import create_doc, register, type_source
 from playwright.sync_api import expect
@@ -45,3 +51,65 @@ def test_10_offline_and_back_keeps_text(page, ctx):
         ctx.set_offline(False)
     expect(page.locator("#wsTxt")).to_have_text("Live", timeout=20_000)
     expect(page.locator("#cm .cm-content")).to_contain_text("plus offline")
+    txt = page.locator("#cm .cm-content").inner_text()
+    assert txt.count("plus offline") == 1, f"offline edit duplicated on reconnect: {txt[-120:]!r}"
+    assert txt.count("baseline") == 1, f"baseline duplicated on reconnect: {txt[-120:]!r}"
+
+
+def test_11_offline_sends_no_save_and_stays_quiet(page, ctx):
+    register(page, "e2e_2e_nosave")
+    create_doc(page, "2E offline doc")
+    type_source(page, "baseline")
+    expect(page.locator("#wsTxt")).to_have_text("Live", timeout=20_000)
+    expect(page.locator("#toast")).to_be_hidden(timeout=10_000)  # drain online phase: clean slate
+    saves = _save_posts(page)  # isolate the offline window below
+    ctx.set_offline(True)
+    try:
+        expect(page.locator("#wsTxt")).not_to_have_text("Live", timeout=10_000)
+        page.click("#cm .cm-content")
+        page.keyboard.press("ControlOrMeta+End")
+        page.keyboard.type(" plus offline")
+        page.keyboard.press("ControlOrMeta+s")  # explicit save stays local too while offline
+        seen = []
+        for _ in range(8):  # >SAVE_MS: any offline saver would have fired/toasted mid-window
+            page.wait_for_timeout(500)
+            if page.locator("#toast").is_visible():
+                seen.append(page.locator("#toast").inner_text())
+        assert saves == [], f"offline sent {len(saves)} save requests: {saves[:3]}"
+        expect(page.locator("#save")).to_contain_text("Offline", timeout=10_000)
+        assert seen == [], f"offline showed {len(seen)} toast(s): {seen[0][:100]!r}"
+    finally:
+        ctx.set_offline(False)
+    expect(page.locator("#wsTxt")).to_have_text("Live", timeout=20_000)
+    page.wait_for_timeout(2_000)  # reconnect sync lands
+    txt = page.locator("#cm .cm-content").inner_text()
+    assert txt.count("plus offline") == 1, f"offline edit duplicated on reconnect: {txt[-120:]!r}"
+
+
+def test_12_template_offline_stays_quiet(page, ctx):
+    register(page, "e2e_2e_tploff")
+    create_doc(page, "2E tpl doc")
+    type_source(page, "template body")
+    expect(page.locator("#wsTxt")).to_have_text("Live", timeout=20_000)
+    page.click("#tplBtn")
+    page.locator("#tplPop button", has_text="New template").click()
+    page.fill("#mInp", "off.typ")
+    page.click("#mYes")
+    expect(page.locator("#title")).to_have_text("off.typ", timeout=15_000)
+    expect(page.locator("#toast")).to_be_hidden(timeout=10_000)  # drain online phase: clean slate
+    seen = []
+    ctx.set_offline(True)
+    try:
+        page.click("#cm .cm-content")
+        page.keyboard.press("ControlOrMeta+End")
+        page.keyboard.type(" plus offline tpl")
+        for _ in range(8):  # >SAVE_MS: autosave failure would toast mid-window (end-state asserts miss transient toasts)
+            page.wait_for_timeout(500)
+            if page.locator("#toast").is_visible():
+                seen.append(page.locator("#toast").inner_text())
+        expect(page.locator("#save")).to_contain_text("Offline", timeout=10_000)
+        assert seen == [], f"offline showed {len(seen)} toast(s): {seen[0][:100]!r}"
+    finally:
+        ctx.set_offline(False)
+    txt = page.locator("#cm .cm-content").inner_text()
+    assert txt.count("plus offline tpl") == 1, f"template offline edit lost/duplicated: {txt[-120:]!r}"
