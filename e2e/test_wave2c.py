@@ -75,3 +75,13 @@ def test_mobile_drawer_360(browser, base_url):
         _drawer_assertions(mp)
     finally:
         mctx.close()
+
+
+def test_mobile_drawer_412(browser, base_url):
+    mctx = _mobile_ctx(browser, base_url, 412, 700)
+    try:
+        mp = mctx.new_page()
+        register(mp, "e2e_mob412")
+        _drawer_assertions(mp)
+    finally:
+        mctx.close()
