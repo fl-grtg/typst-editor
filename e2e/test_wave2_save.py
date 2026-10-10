@@ -24,6 +24,17 @@ def _save_posts(page):
     return seen
 
 
+def _type_offline(page, text):
+    # Slow-runner-proof offline typing: fast keyboard.type can drop a single
+    # keypress under CI load (seen: "plusoffline" missing one space), and the
+    # old save-only assert could not tell dropped typing from a reconnect
+    # wipe. Small per-key delay + full-text assert while still offline.
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+End")
+    page.keyboard.type(text, delay=30)
+    expect(page.locator("#cm .cm-content")).to_contain_text(text.strip(), timeout=10_000)
+
+
 def test_9_idle_sends_no_save_requests(page):
     register(page, "e2e_2e_idle")
     create_doc(page, "2E idle doc")
@@ -43,9 +54,7 @@ def test_10_offline_and_back_keeps_text(page, ctx):
     ctx.set_offline(True)
     try:
         expect(page.locator("#wsTxt")).not_to_have_text("Live", timeout=10_000)
-        page.click("#cm .cm-content")
-        page.keyboard.press("ControlOrMeta+End")
-        page.keyboard.type(" plus offline")
+        _type_offline(page, " plus offline")
         expect(page.locator("#save")).to_contain_text("Offline", timeout=10_000)
     finally:
         ctx.set_offline(False)
@@ -66,9 +75,7 @@ def test_11_offline_sends_no_save_and_stays_quiet(page, ctx):
     ctx.set_offline(True)
     try:
         expect(page.locator("#wsTxt")).not_to_have_text("Live", timeout=10_000)
-        page.click("#cm .cm-content")
-        page.keyboard.press("ControlOrMeta+End")
-        page.keyboard.type(" plus offline")
+        _type_offline(page, " plus offline")
         page.keyboard.press("ControlOrMeta+s")  # explicit save stays local too while offline
         seen = []
         for _ in range(8):  # >SAVE_MS: any offline saver would have fired/toasted mid-window
@@ -100,9 +107,7 @@ def test_12_template_offline_stays_quiet(page, ctx):
     seen = []
     ctx.set_offline(True)
     try:
-        page.click("#cm .cm-content")
-        page.keyboard.press("ControlOrMeta+End")
-        page.keyboard.type(" plus offline tpl")
+        _type_offline(page, " plus offline tpl")
         for _ in range(8):  # >SAVE_MS: autosave failure would toast mid-window (end-state asserts miss transient toasts)
             page.wait_for_timeout(500)
             if page.locator("#toast").is_visible():
