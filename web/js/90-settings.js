@@ -158,6 +158,12 @@ function renderSettings() {
     keySecs.push(ksec(...rows))
   }
   colR.appendChild(grp(t('settings.keys'), ...keySecs)) // secret + create + list in one group: never fragmented
+  const scRow = el('div', 'row')
+  const scBtn = el('button', null, t('settings.scShow'))
+  scBtn.id = 'scOpen'; scBtn.style.flex = '1'
+  scBtn.onclick = () => openShortcuts() // Help keeps opening the overview too (moves here only later)
+  scRow.appendChild(scBtn)
+  colR.appendChild(grp(t('settings.scGroup'), sec(scRow), spellSettingsSec()))
   const dr = el('div', 'row')
   const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = t('settings.pwGroup'); dpw.setAttribute('aria-label', t('settings.pwForDel'))
   const db = el('button', 'btnDanger', t('common.delete'))

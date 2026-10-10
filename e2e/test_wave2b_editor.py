@@ -2,7 +2,8 @@
 
 Format shortcut formats the doc, a second run is stable (idempotent), the
 preview still renders a canvas, the Help button opens the shortcut overview,
-and the spellcheck language sticks to the document.
+and the toolbar stays one line (shortcuts + spellcheck live in Settings now,
+spellcheck wiring is per document).
 """
 from helpers import create_doc, register, type_source
 from playwright.sync_api import expect
@@ -34,6 +35,26 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     expect(page.locator("#scCard")).to_contain_text("Format")
     page.keyboard.press("Escape")
     expect(page.locator("#scOverlay")).not_to_be_visible()
-    page.locator("#spellSel").select_option("de")  # spellcheck language per document
-    expect(page.locator("#spellSel")).to_have_value("de")
+    expect(page.locator("#tools #spellSel")).to_have_count(0)  # toolbar stays one line: no spell select in it
+    page.set_viewport_size({"width": 1920, "height": 900})
+    assert page.locator("#tools").evaluate("n => n.getBoundingClientRect().height") < 60
+    page.locator("#who").click()  # Settings holds shortcuts + spellcheck now
+    pop = page.locator("#setPop")
+    if not pop.is_visible():
+        page.locator("#who").click()
+    expect(pop).to_be_visible()
+    pop.locator("#scOpen").click()  # shortcut overview from Settings
+    expect(page.locator("#scOverlay")).to_be_visible()
+    expect(page.locator("#scCard")).to_contain_text("Format")
+    page.keyboard.press("Escape")
+    page.locator("#who").click()  # overview closed the dialog: reopen for spellcheck
+    pop = page.locator("#setPop")
+    if not pop.is_visible():
+        page.locator("#who").click()
+    pop.locator("#spellSel").select_option("de")  # spellcheck language per document
+    expect(pop.locator("#spellSel")).to_have_value("de")
     assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('lang')") == "de"
+    assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('spellcheck')") == "true"
+    pop.locator("#spellSel").select_option("off")
+    assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('spellcheck')") == "false"
+    assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('lang')") is None
