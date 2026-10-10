@@ -37,7 +37,7 @@ def test_vendor_page_urls_served_immutable(c):
     js = c.get("/vendor/" + next(n for n in names if n.startswith("yjs-13")))
     assert "text/javascript" in js.headers.get("content-type", "")
     wasm_names = [n for n in names if n.endswith(".wasm")]
-    assert len(wasm_names) == 2
+    assert len(wasm_names) >= 2  # compiler + renderer, plus typstyle (Wave 2B)
     for name in wasm_names:
         assert "wasm" in c.get(f"/vendor/{name}").headers.get("content-type", ""), name
 
