@@ -44,7 +44,7 @@ URL_LINE = re.compile(r"vendor/|https?://|\.wasm|workerSrc")
 # Whole-line technical skips (locale-independent code/data, not UI prose).
 SKIP_LINE_RES = [
     re.compile(r"T_BLOCKED"),  # CodeMirror node names incl. 'Error'
-    re.compile(r"^\s*const (SYMS|SYN|T_KW|T_SNIP|STARTERS)\b"),  # symbol tables, snippets, template content
+    re.compile(r"^\s*const (SYMS|SYN|T_KW|T_SNIP)\b"),  # symbol tables, snippets
     re.compile(r"\.style\."),  # CSS values ('1px solid var(--line)', ...)
     re.compile(r"className|classList\."),  # CSS classes ('typ-hover full', 'save primary', ...)
 ]

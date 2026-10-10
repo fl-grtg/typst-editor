@@ -143,10 +143,10 @@ async def view(path: str, pages: str = "1-5", scale: float = 1.0) -> ToolResult:
 @mcp.tool(
     annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
 )
-async def export(path: str, format: str = "pdf") -> dict:
-    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + files/). Returns base64 payload + mime + filename (decode and save)."""
+async def export(path: str, format: str = "pdf", pdf_standard: str = "none", pages: str = "", ppi: int = 0) -> dict:
+    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + files/). Options: pdf_standard (pdf only), pages like 1-3,5 (pdf/svg/png), ppi 72-300 (png only). Returns base64 payload + mime + filename (decode and save)."""
     user, cap, _ = _auth()
-    return await _awrap(t.op_export(user, cap, path, format))
+    return await _awrap(t.op_export(user, cap, path, format, pdf_standard, pages, ppi))
 
 
 # Single instance: main mounts exactly this object and runs its lifespan

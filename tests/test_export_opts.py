@@ -134,3 +134,23 @@ def test_pdf_standard_case_insensitive(c, monkeypatch):
     r = c.post(f"/api/docs/{did}/export", params={"format": "pdf", "pdf_standard": "A-2B"})
     assert r.status_code == 200, r.text
     assert "a-2b" in SEEN[-1]
+
+
+def test_mcp_export_opts_parity(c, monkeypatch):
+    """MCP op_export kennt dieselben Optionen + 400-Regeln wie REST."""
+    import asyncio
+
+    import pytest
+
+    register_user(c, "alice")
+    make_doc(c, "Rpt", content="= Hi")
+    _patch(monkeypatch)
+    out = asyncio.run(t.op_export("alice", "owner", "/docs/Rpt", "pdf", pdf_standard="a-2b"))
+    assert out["mime"] == "application/pdf"
+    assert "a-2b" in SEEN[-1]
+    bad = [dict(pdf_standard="a-9z"), dict(format="svg", pdf_standard="a-2b"),
+           dict(pages="abc"), dict(ppi=999), dict(format="pdf", ppi=300)]
+    for kw in bad:
+        with pytest.raises(Exception) as e:
+            asyncio.run(t.op_export("alice", "owner", "/docs/Rpt", **kw))
+        assert getattr(e.value, "status_code", 0) == 400, kw

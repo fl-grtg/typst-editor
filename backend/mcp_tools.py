@@ -1448,7 +1448,8 @@ def _export_doc_sync(doc_id: str, title: str, fmt: str, pdf_standard: str = "",
     return build_export_payload(title, main_text, files, fmt, skipped, pdf_standard, pages, ppi)
 
 
-async def op_export(user: str, cap: str, path: str, format: str = "pdf") -> dict:
+async def op_export(user: str, cap: str, path: str, format: str = "pdf",
+                  pdf_standard: str = "none", pages: str = "", ppi: int = 0) -> dict:
     """Export a document via typst CLI (read-only: any role with access).
 
     format pdf = full PDF; svg/png = single page directly, multi-page docs
@@ -1456,14 +1457,19 @@ async def op_export(user: str, cap: str, path: str, format: str = "pdf") -> dict
     base64 payload + mime + filename (REST parity, no worker block: compile
     runs in asyncio.to_thread). Like view: MCP rate scope (`mcp`) applies,
     no per-user export lock (REST serializes via _export_lock).
+    2C options (CLI-only): pdf_standard (pdf only), pages (pdf/svg/png),
+    ppi 72-300 (png only). Bad values -> error before any compile.
     """
     _ = cap  # read access is enough (resolve already gates per doc)
     res = resolve_path(user, cap, path)
     if res["kind"] != "doc":
         raise _bad("export needs a document path, use /docs/{Title}")
     fmt = _check_export_format(format)
+    std = _check_pdf_standard(pdf_standard)
+    pg = _check_export_pages(pages)
+    pp = _check_export_ppi(ppi) if ppi else 0  # 0 = unset, wie REST ohne ppi-Param
     payload, mime, filename = await asyncio.to_thread(
-        _export_doc_sync, res["doc_id"], res["title"], fmt)
+        _export_doc_sync, res["doc_id"], res["title"], fmt, std, pg, pp)
     return {"format": fmt, "mime": mime, "filename": filename,
             "content_base64": base64.b64encode(payload).decode("ascii"),
             "size_bytes": len(payload)}
