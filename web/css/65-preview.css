@@ -24,4 +24,9 @@ body.read #preview { padding-top: 24px; }
 #pvTools #zoomV { min-width: 46px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
 #pvTools #syncBtn { margin-right: 3px; }
 #pvTools #syncBtn + .grp { padding-left: 4px; border-left: 1px solid var(--line); }
+#pvTools #fitPageBtn.on { background: var(--sel); color: var(--text); }
+
+/* Virtual pages: one slot per page, only visible ones rasterized */
+.pvPage { margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); overflow: hidden; }
+.pvPage canvas { margin: 0; box-shadow: none; border-radius: 0; }
 
