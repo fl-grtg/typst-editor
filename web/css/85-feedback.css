@@ -10,6 +10,14 @@
 #emptyCard button { flex: 1; min-height: 34px; padding: 7px 14px; font-size: 13px; border-radius: var(--r-sm); margin: 0; }
 #emptyCard .hint { margin: 16px 0 0; font-size: 12px; color: var(--faint); }
 #emptyCard kbd { background: var(--hover); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; font: 11px var(--mono); color: var(--sub); }
+/* 2C: quick gallery row inside the empty state */
+#emptyCard .galQuick { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+#emptyCard .galQuick .sub { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--sub); }
+#emptyCard .galGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+#emptyCard .gq { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px; font-size: 11.5px; color: var(--text); background: var(--hover); border: 1px solid transparent; border-radius: var(--r-md); }
+#emptyCard .gq:hover { border-color: var(--line-2); }
+#emptyCard .gq img { width: 100%; height: 56px; object-fit: contain; }
+#emptyCard .galQuick .ghost { width: 100%; margin-top: 10px; min-height: 40px; }
 #toast {
   position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   z-index: var(--z-toast); display: none; max-width: min(480px, calc(100vw - 32px));

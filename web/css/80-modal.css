@@ -21,4 +21,18 @@
 .pk .pkTx { flex: 1; min-width: 0; }
 .pk b { display: block; font-size: 13.5px; font-weight: 600; }
 .pk span { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 400; color: var(--sub); }
+/* 2C gallery: thumb cards in a grid (askNewDoc) */
+#galGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; margin-top: 6px; }
+.pk.gal { flex-direction: column; align-items: stretch; gap: 8px; }
+.pk.gal img { width: 100%; height: 84px; object-fit: contain; background: var(--hover); border-radius: var(--r-sm); }
+.pk.gal.on img { background: var(--sel); }
+/* 2C export dialog fields */
+#mExtra select, #mExtra input[type=text] { width: 100%; margin-top: 6px; min-height: 38px; padding: 8px 12px; font-size: 14px; color: var(--text); background: var(--field); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+#mExtra .sub { margin: 12px 0 0; font-size: 12px; color: var(--faint); }
+/* 2C tour: bottom card + anchor highlight */
+.tourCard { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: var(--z-pop); width: min(420px, calc(100vw - 32px)); padding: 16px 18px; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-modal); } /* below modal/menu/drawer: dialogs stay clickable */
+.tourCard p { margin: 0 0 12px; font-size: 13.5px; }
+.tourCard .ctaRow { display: flex; gap: 8px; justify-content: flex-end; }
+.tourCard .ctaRow button { min-height: 40px; padding: 7px 16px; font-size: 13px; border-radius: var(--r-sm); }
+.tourHi { outline: 2px solid var(--acc) !important; outline-offset: 2px; border-radius: var(--r-sm); }
 

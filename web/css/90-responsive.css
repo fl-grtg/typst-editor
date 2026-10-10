@@ -1,12 +1,13 @@
 /* ==========================================================================
-   Small screens
+   Small screens (2C: drawer rebuilt with transform, bottom-sheet menus)
    ========================================================================== */
 @media (max-width: 720px) {
   .sbRail { display: none !important; }
   #menubar { display: none; }
   #menuMore { display: inline-flex; }
-  header { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; padding-left: calc(6px + env(safe-area-inset-left)); padding-right: calc(6px + env(safe-area-inset-right)); }
-  header .hr #peers, header .hr #viewSeg { display: none; }
+  header { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; padding-left: calc(6px + env(safe-area-inset-left)); padding-right: calc(6px + env(safe-area-inset-right)); z-index: auto; } /* app bar under drawer+scrim (desktop 220 would cover the drawer top) */
+  header .hr #peers { display: none; }
+  #viewSeg { display: inline-flex; } /* editor/preview switch stays usable */
   #docHead { align-items: flex-start; max-width: none; }
   #docHead .l2 #wsTxt { display: none; }
   #mid { flex-direction: column; }
@@ -16,26 +17,46 @@
   #vsplit { display: block; flex: none; height: 16px; cursor: row-resize; position: relative; touch-action: none; }
   #vsplit::before { content: ''; position: absolute; left: 0; right: 0; top: -14px; height: 44px; }
   #vsplit::after { top: 7px; bottom: auto; left: 16px; right: 16px; width: auto; height: 2px; border-radius: 2px; }
-  header button, #tools button, #pvTools button, #userBox button { min-height: 40px; min-width: 40px; }
-  #tools .colBtn { width: 40px; height: 40px; }
-  aside .mini { min-width: 40px; min-height: 40px; }
-  aside .doc, aside .fhd { height: auto; min-height: 40px; }
-  body:not(.noside) aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: var(--z-drawer); width: min(300px, 86vw) !important; min-width: 0; background: var(--panel); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); padding-top: calc(var(--bar) + 12px + env(safe-area-inset-top)); }
-  body.noside aside { width: 0 !important; padding: 0; border-right: 0; pointer-events: none; }
-  body.noside .sbPanel { display: flex; }
-  .sbHead .mark, .sbHead .name { display: none; }
-  .sbHead { justify-content: flex-end; margin: 0 0 8px; }
+  /* Drawer: fixed panel, transform only (no width animation = no layout thrash).
+     Visibility is body.drawer-open (synced from body.noside in features/gallery.js),
+     so the desktop collapse logic stays untouched. */
+  aside { position: fixed; left: 0; top: 0; bottom: 0; z-index: var(--z-drawer); width: min(320px, 86vw) !important; min-width: 0; height: 100dvh; padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); border-right: 1px solid var(--line); border-radius: 0 var(--r-lg) var(--r-lg) 0; box-shadow: 0 12px 48px rgba(0, 0, 0, .35); transform: translateX(-105%); transition: transform .22s ease; }
+  body.drawer-open aside { transform: none; }
+  body.drawer-open #scrim { display: block !important; }
+  .sbPanel { display: flex; opacity: 1; } /* full panel incl. logo + settings, always */
+  .sbHead { margin: 0 0 8px; }
+  #nav { flex: 1; min-height: 0; overflow-y: auto; }
+  #userBox { margin-top: auto; flex: none; } /* settings pinned to the drawer bottom */
+  /* Touch targets >= 44px */
+  header button, #tools button, #pvTools button, #userBox button { min-height: 44px; min-width: 44px; }
+  #tools .colBtn { width: 44px; height: 44px; }
+  aside .mini { min-width: 44px; min-height: 44px; }
+  aside .doc, aside .fhd { height: auto; min-height: 44px; }
+  aside #new, aside #upDoc { min-height: 44px; }
+  aside #upDoc { width: 44px; }
+  #menu button { min-height: 44px; }
+  #find button { min-height: 44px; }
+  #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 44px; }
+  #mCard .mRow button, .tourCard .ctaRow button { min-height: 44px; }
   #cBadge, #eBadge { min-height: 24px; min-width: 0; height: 24px; }
-  body.noside #scrim { display: none; }
   #find { flex-wrap: nowrap; overflow-x: auto; }
-  #find button { min-height: 40px; }
+  /* Bottom sheets: menu + popovers dock to the screen bottom */
+  #menu { left: 8px !important; right: 8px !important; top: auto !important; bottom: calc(8px + env(safe-area-inset-bottom)) !important; max-width: none; max-height: 70dvh; border-radius: var(--r-lg); }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
-  #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
-  #setPop { width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: none; overflow: visible; }
+  #setPop, #sharePop, #histPop, #symPop, #tplPop { position: fixed !important; left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important; max-height: 72dvh; overflow-y: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; z-index: var(--z-menu); }
+  #setPop { max-height: 80dvh; }
   #setPop .setGrid { grid-template-columns: 1fr; }
-  #menu button { min-height: 40px; }
   #exportBtn span, #shareBtn span { display: none; }
   #exportBtn, #shareBtn { padding: 0; }
+}
+/* Short screens: keep logo, list and settings reachable without scrolling traps */
+@media (max-width: 720px) and (max-height: 700px) {
+  aside { padding-top: calc(6px + env(safe-area-inset-top)); }
+  .sbHead { margin: 0 0 4px; }
+  aside .sideActions { margin: 6px 0; }
+  aside h3 { margin: 8px 0 2px; }
+  #userBox #userMain { height: 44px; }
+  #emptyCard { margin-top: 4vh; padding: 20px; }
 }
 @media (prefers-reduced-transparency: reduce) { #pvTools, #modal { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
