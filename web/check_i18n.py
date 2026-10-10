@@ -82,7 +82,7 @@ ALLOW_EXACT = {
 # Starter templates (inserted document content, not UI chrome).
 ALLOW_EXACT |= {
     '#set page(paper: "a4", margin: 2cm)\n#set text(size: 11pt)\n#set heading(numbering: "1.")\n\n= Introduction\n\nText here …\n',
-    '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n= Slide 2\n\nText here …\n',
+    '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n#pagebreak()\n\n= Slide 2\n\nText here …\n',
 }
 # Agent prompt: English instructions + URL for an AI agent, must stay English.
 ALLOW_EXACT |= {

@@ -23,7 +23,9 @@
   z-index: var(--z-toast); display: none; max-width: min(480px, calc(100vw - 32px));
   padding: 10px 16px; font-size: 13px; white-space: pre-line;
   background: #202226; color: #f2f2f4; border-radius: var(--r-md); box-shadow: var(--sh-pop); transition: opacity .4s ease;
+  align-items: center;
 }
-#toast button { margin-left: 10px; background: rgba(255, 255, 255, .14); color: inherit; border: 0; box-shadow: none; min-height: 28px; padding: 3px 12px; }
+#toast span { min-width: 0; }
+#toast button { margin-left: 10px; flex: none; white-space: nowrap; background: rgba(255, 255, 255, .14); color: inherit; border: 0; box-shadow: none; min-height: 28px; padding: 3px 12px; }
 #toast button:hover { background: rgba(255, 255, 255, .24); }
 

@@ -11,7 +11,7 @@ const THUMBS = {
 const GALLERY = [
   { id: 'blank', tk: 'gallery.gBlank', sk: 'gallery.gBlankSub', src: '' },
   { id: 'report', tk: 'gallery.gReport', sk: 'gallery.gReportSub', src: '#set page(paper: "a4", margin: 2cm)\n#set text(size: 11pt)\n#set heading(numbering: "1.")\n\n= Introduction\n\nText here …\n' },
-  { id: 'slides', tk: 'gallery.gSlides', sk: 'gallery.gSlidesSub', src: '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n= Slide 2\n\nText here …\n' },
+  { id: 'slides', tk: 'gallery.gSlides', sk: 'gallery.gSlidesSub', src: '#set page(paper: "presentation-16-9", margin: 1.5cm)\n#set text(size: 20pt)\n\n= Slide 1\n\n- First point\n- Second point\n\n#pagebreak()\n\n= Slide 2\n\nText here …\n' },
   { id: 'paper', tk: 'gallery.gPaper', sk: 'gallery.gPaperSub', src: '#set page(paper: "a4", margin: 2cm)\n#set text(size: 11pt)\n#set heading(numbering: "1.")\n\n= A Short Paper\n\nThis paper shows a heading, inline math $E = m c^2$ and a list:\n\n- First point\n- Second point\n' },
   { id: 'cv', tk: 'gallery.gCv', sk: 'gallery.gCvSub', src: '#set page(paper: "a4", margin: 2cm)\n#align(center)[#text(20pt, weight: "bold")[Jane Doe]]\n#align(center)[jane.doe@example.org]\n\n= Experience\n\n- 2022–now: Engineer at Sample GmbH\n- 2019–2022: Junior Developer\n\n= Education\n\n- 2019: B.Sc. Computer Science\n' },
   { id: 'letter', tk: 'gallery.gLetter', sk: 'gallery.gLetterSub', src: '#set page(paper: "a4", margin: 2.5cm)\n#align(right)[Jane Doe]\n\n#v(1cm)\nDear Ms. Miller,\n\nThank you for your letter. I confirm our meeting next week.\n\n#v(1cm)\nKind regards,\nJane Doe\n' },
