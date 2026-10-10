@@ -94,7 +94,7 @@ function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no
     if (o.maxLen) inp.setAttribute('maxlength', o.maxLen); else inp.removeAttribute('maxlength')
     const yes = $('mYes'); yes.textContent = ok
     yes.style.background = danger ? 'var(--danger)' : ''; yes.style.color = danger ? '#fff' : ''
-    const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; if (prev && prev.classList && prev.classList.contains('mini')) prev.blur(); else prev?.focus?.(); res(v) }
+    const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v) }
     $('mNo').onclick = () => done(noInput ? false : null)
     yes.onclick = () => done(noInput ? true : inp.value)
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
@@ -124,7 +124,7 @@ function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title
     const box = document.createElement('div')
     const done = v => {
       ov.style.display = 'none'; modalInert(false); card.insertBefore($('mHead'), top); top.remove()
-      row.style.display = ''; $('mYes').style.display = ''; box.remove(); askRes = null; if (prev && prev.classList && prev.classList.contains('mini')) prev.blur(); else prev?.focus?.(); res(v)
+      row.style.display = ''; $('mYes').style.display = ''; box.remove(); askRes = null; if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v)
     }
     askRes = () => done(-1)
     opts.forEach((o, i) => {
@@ -145,7 +145,7 @@ function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title
 $('modal').onclick = e => { if (e.target === $('modal')) $('mNo').click() } // click outside = cancel
 $('modal').addEventListener('keydown', e => { // minimal focus trap: Tab cycles in card
   if (e.key !== 'Tab') return
-  const f = [...$('mCard').querySelectorAll('button,input,select')].filter(x => !x.disabled && x.getClientRects().length) // visible only: hidden mYes/mInp excluded
+  const f = [...$('mCard').querySelectorAll('button,input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.getClientRects().length) // visible only: hidden mYes/mInp excluded
   if (!f.length) return
   const i = f.indexOf(document.activeElement)
   if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus() }

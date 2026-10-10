@@ -12,8 +12,9 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; transition: background-color .12s ease, color .12s ease, box-shadow .12s ease, opacity .12s ease; }
 button:disabled { cursor: default; opacity: .4; }
+button:disabled:hover { background-color: inherit; filter: none; }
 :focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
-input:focus-visible, select:focus-visible { outline: none; }
+input:focus-visible, select:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 input[type=checkbox] { accent-color: var(--ink); width: 15px; height: 15px; margin: 0; }
 svg { display: block; flex: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -44,17 +45,17 @@ select option { background: var(--card); color: var(--text); }
   font-weight: 500; font-size: 12.5px; padding: 5px 12px; min-height: 30px;
   box-shadow: var(--sh-1);
 }
-.btn:hover, #preview .empty button:hover, .row button:hover, #mNo:hover, .mTop button:hover, .save:hover, #emptyCard button.ghost:hover,
-#setPop .step:hover, #setPop .btnSecondary:hover, #media > button:hover, #find button:hover,
-#histPop .srow button:hover, aside .empty button:hover, aside #upDoc:hover, #userBox button:hover { background: var(--hover); }
+.btn:not(:disabled):hover, #preview .empty button:not(:disabled):hover, .row button:not(:disabled):hover, #mNo:not(:disabled):hover, .mTop button:not(:disabled):hover, .save:not(:disabled):hover, #emptyCard button.ghost:not(:disabled):hover,
+#setPop .step:not(:disabled):hover, #setPop .btnSecondary:not(:disabled):hover, #media > button:not(:disabled):hover, #find button:not(:disabled):hover,
+#histPop .srow button:not(:disabled):hover, aside .empty button:not(:disabled):hover, aside #upDoc:not(:disabled):hover, #userBox button:not(:disabled):hover { background: var(--hover); }
 .row button:not(.ghost), #mYes, .save.primary, #emptyCard button:not(.ghost), #login #go, aside #new, #pop .rr .ib {
   background: var(--ink); color: var(--on-ink); border-color: transparent; box-shadow: none; font-weight: 600;
 }
-.row button:not(.ghost):hover, #mYes:hover, .save.primary:hover, #emptyCard button:not(.ghost):hover, #login #go:hover, aside #new:hover, #pop .rr .ib:hover {
+.row button:not(.ghost):not(:disabled):hover, #mYes:not(:disabled):hover, .save.primary:not(:disabled):hover, #emptyCard button:not(.ghost):not(:disabled):hover, #login #go:not(:disabled):hover, aside #new:not(:disabled):hover, #pop .rr .ib:not(:disabled):hover {
   background: var(--ink); filter: opacity(.86);
 }
 #setPop .btnDanger { color: var(--danger); background: var(--danger-soft); border-color: transparent; box-shadow: none; }
-#setPop .btnDanger:hover { background: var(--danger-soft); filter: brightness(.96); }
+#setPop .btnDanger:not(:disabled):hover { background: var(--danger-soft); filter: brightness(.96); }
 
 /* Icon buttons */
 .ibtn, header button, #tools button, #pvTools button, .sTop button, #pop .ib, aside .mini, .sbRail button, .sbHead button {
@@ -62,6 +63,8 @@ select option { background: var(--card); color: var(--text); }
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border-radius: var(--r-sm);
 }
-.ibtn:hover, header button:hover, #tools button:hover, #pvTools button:hover, .sTop button:hover, aside .mini:hover, .sbRail button:hover, .sbHead button:hover, #userBox .ibtn:hover { background: var(--hover); color: var(--text); }
+.ibtn:not(:disabled):hover, header button:not(:disabled):hover, #tools button:not(:disabled):hover, #pvTools button:not(:disabled):hover, .sTop button:not(:disabled):hover, aside .mini:not(:disabled):hover, .sbRail button:not(:disabled):hover, .sbHead button:not(:disabled):hover, #userBox .ibtn:not(:disabled):hover { background: var(--hover); color: var(--text); }
 header button:active, #tools button:active, #pvTools button:active, .sbRail button:active, .sbHead button:active { background: var(--press); }
+/* Keyboard rows: same focus frame as buttons (kb() makes div/h3 focusable) */
+aside .doc:focus-visible, aside h3:focus-visible, #userMain:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 

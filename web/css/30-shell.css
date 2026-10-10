@@ -84,9 +84,10 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 #ol .ol-l2 { padding-left: 20px; font-size: 12.5px; }
 #ol .ol-l3 { padding-left: 32px; font-size: 12.5px; color: var(--sub); }
 #userBox { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-size: 13px; }
-#userMain { flex: 1; min-width: 0; height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 12px; cursor: pointer; transition: background-color .12s ease; }
+#userMain { flex: 1; min-width: 0; height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 12px; cursor: pointer; transition: background-color .12s ease; border: 1px solid transparent; }
 #userMain:hover { background: var(--hover); }
 #userMain:active { background: var(--press); }
+#userMain:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 #userBox #who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; line-height: 1.25; }
 #userBox #who:focus-visible { outline-offset: 4px; }
 #userBox #who small { display: block; margin-top: 1px; font-weight: 400; color: var(--faint); font-size: 12px; }
@@ -107,7 +108,7 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 #split::after, #vsplit::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: var(--line); transition: background-color .12s ease, width .12s ease, left .12s ease; }
 #split:hover::after, #split.drag::after, #split:focus-visible::after { background: var(--acc); left: 3px; width: 3px; border-radius: 2px; }
 #sideSplit:hover, #sideSplit.drag, #sideSplit:focus-visible { background: linear-gradient(to right, transparent 3px, var(--acc) 3px, var(--acc) 6px, transparent 6px); }
-#split:focus-visible, #sideSplit:focus-visible { outline: none; }
+#split:focus-visible, #sideSplit:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 #vsplit { display: none; }
 #scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: var(--z-scrim); }
 

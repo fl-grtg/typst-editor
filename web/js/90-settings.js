@@ -1,12 +1,101 @@
 // --- Settings: click on name (font/zoom, profile, password, account) ---
 $('who').onclick = e => {
   e.stopPropagation()
-  if (showPop('setPop')) { setMsg = ''; apiKeys = null; renderSettings() }
+  if (showPop('setPop')) { setMsg = ''; apiKeys = null; sessList = null; renderSettings() }
 }
 kb($('who'), () => $('who').click())
 let setMsg = '' // settings error inline not browser alert
 let apiKeys = null, apiKeysLoading = false, lastKeySecret = '', lastKeyName = '', lastKeyId = ''
 const AGENT_PROMPT = 'Install the Typst Editor skill from https://raw.githubusercontent.com/fl-grtg/typst-editor/main/skills/typst-editor/SKILL.md and follow its section 0 to connect to my Typst server. Ask me for server URL and API key if missing.'
+// 2D: language without reload (same module as 05-i18n: shadow t, keep ?lang helper)
+const LANG_KEY = 'typst_lang'
+function curLangInit() {
+  try { const q = new URLSearchParams(location.search).get('lang'); if (q === 'de' || q === 'en') return q } catch (e) {}
+  try { const s = localStorage.getItem(LANG_KEY); if (s === 'de' || s === 'en') return s } catch (e) {}
+  try { if ((navigator.language || '').toLowerCase().startsWith('de')) return 'de' } catch (e) {}
+  return 'en'
+}
+let langCur = curLangInit()
+function tLang(key, params) {
+  const parts = String(key).split('.')
+  const get = lang => {
+    let node = null
+    try { node = I18N_DATA[lang] } catch (e) { return undefined }
+    if (!node) return undefined
+    for (const p of parts) {
+      if (node && typeof node === 'object' && Object.prototype.hasOwnProperty.call(node, p)) node = node[p]
+      else return undefined
+    }
+    return typeof node === 'string' ? node : undefined
+  }
+  let s = get(langCur)
+  if (s === undefined) s = get('en')
+  if (s === undefined) return String(key)
+  if (params) for (const [k, v] of Object.entries(params)) s = s.split('{' + k + '}').join(String(v))
+  return s
+}
+try { t = tLang; window.t = tLang; window.I18N_LANG = langCur } catch (e) {}
+function paintThemeBtn() {
+  let dark = false
+  try {
+    const m = document.documentElement.getAttribute('data-theme')
+    const mode = m === 'light' || m === 'dark' ? m : 'system'
+    dark = mode !== 'system' ? mode === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+  } catch (e) {}
+  const lbl = dark ? t('menu.toLight') : t('menu.toDark')
+  const sun = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.6v1.4M8 13v1.4M1.6 8H3M13 8h1.4M3.5 3.5l1 1M11.5 11.5l1 1M3.5 12.5l1-1M11.5 4.5l1-1"/></svg>'
+  const moon = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 9.6A5.6 5.6 0 0 1 6.4 2.6a5.6 5.6 0 1 0 7 7z"/></svg>'
+  document.querySelectorAll('[data-rail="theme"]').forEach(b => { b.innerHTML = dark ? sun : moon; b.title = lbl; b.setAttribute('aria-label', lbl) })
+  try { const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(); if (bg) document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', bg)) } catch (e) {}
+}
+function refreshLang() {
+  try { document.documentElement.lang = langCur } catch (e) {}
+  try {
+    document.querySelectorAll('[data-i18n]').forEach(n => { n.textContent = t(n.getAttribute('data-i18n')) })
+    document.querySelectorAll('[data-i18n-html]').forEach(n => { n.innerHTML = t(n.getAttribute('data-i18n-html')) })
+    document.querySelectorAll('[data-i18n-ph]').forEach(n => n.setAttribute('placeholder', t(n.getAttribute('data-i18n-ph'))))
+    document.querySelectorAll('[data-i18n-title]').forEach(n => n.setAttribute('title', t(n.getAttribute('data-i18n-title'))))
+    document.querySelectorAll('[data-i18n-aria]').forEach(n => n.setAttribute('aria-label', t(n.getAttribute('data-i18n-aria'))))
+  } catch (e) {}
+  try { paintThemeBtn() } catch (e) {}
+  try { if (typeof paintSecs === 'function') paintSecs() } catch (e) {}
+  try { if (typeof paintMe === 'function' && user) paintMe() } catch (e) {}
+  try { if (typeof updPos === 'function') updPos() } catch (e) {}
+  try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
+  try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
+  try { if (user && typeof sidebar === 'function') sidebar().catch(() => {}) } catch (e) {}
+}
+function setLang(lang) {
+  if (lang !== 'de' && lang !== 'en') return
+  langCur = lang
+  try { window.I18N_LANG = langCur } catch (e) {}
+  lsSet(LANG_KEY, langCur)
+  refreshLang()
+  try { renderSettings() } catch (e) {}
+  try { const s = $('langSel'); if (s) s.focus() } catch (e) {}
+}
+// theme from settings (same storage as ui-layer classic script)
+function themeMode() { const m = document.documentElement.getAttribute('data-theme'); return m === 'light' || m === 'dark' ? m : 'system' }
+function setThemeMode(m) {
+  try {
+    if (m === 'light' || m === 'dark') { document.documentElement.setAttribute('data-theme', m); lsSet('typst_theme', m) }
+    else { document.documentElement.removeAttribute('data-theme'); try { localStorage.removeItem('typst_theme') } catch (e) {} }
+  } catch (e) {}
+  try { paintThemeBtn() } catch (e) {}
+}
+let sessList = null, sessLoading = false
+function loadSess() {
+  if (sessLoading) return; sessLoading = true
+  api('GET', '/api/sessions').then(d => { sessList = d.sessions || [] })
+    .catch(e => { setMsg = e.message; sessList = [] }).finally(() => { sessLoading = false; renderSettings() })
+}
+window.setLang = setLang
+window.curLang = () => langCur
+window.setThemeMode = setThemeMode
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { try { paintThemeBtn() } catch (e) {}
+  try { if (langCur !== I18N_LANG) refreshLang() } catch (e) {} })
+else { try { paintThemeBtn() } catch (e) {}
+  try { if (langCur !== I18N_LANG) refreshLang() } catch (e) {} }
 function loadKeys() {
   if (apiKeysLoading) return; apiKeysLoading = true
   api('GET', '/api/keys').then(d => { apiKeys = d.keys || [] })
@@ -48,7 +137,17 @@ function renderSettings() {
   const zp = el('button', 'step', '+'); zp.title = t('settings.zoomPlus'); zp.setAttribute('aria-label', zp.title)
   zp.onclick = e => { e.stopPropagation(); stepPv(PV_STEP); renderSettings() }
   zr.appendChild(zp)
-  colL.appendChild(grp(t('settings.appearance'), sec(fr, zr)))
+  const lr = el('div', 'row'); lr.append(el('label', null, t('settings.language')))
+  const ls = el('select'); ls.id = 'langSel'; ls.setAttribute('aria-label', t('settings.language'))
+  ;[['de', t('settings.langDe')], ['en', t('settings.langEn')]].forEach(([v, lab]) => { const o = el('option', null, lab); o.value = v; if (v === langCur) o.selected = true; ls.appendChild(o) })
+  ls.onchange = () => setLang(ls.value)
+  lr.append(ls)
+  const hr = el('div', 'row'); hr.append(el('label', null, t('settings.theme')))
+  const hs = el('select'); hs.id = 'themeSel'; hs.setAttribute('aria-label', t('settings.theme'))
+  ;[['system', t('settings.themeSystem')], ['light', t('settings.themeLight')], ['dark', t('settings.themeDark')]].forEach(([v, lab]) => { const o = el('option', null, lab); o.value = v; if (v === themeMode()) o.selected = true; hs.appendChild(o) })
+  hs.onchange = () => { setThemeMode(hs.value); renderSettings(); try { const s = $('themeSel'); if (s) s.focus() } catch (e) {} }
+  hr.append(hs)
+  colL.appendChild(grp(t('settings.appearance'), sec(fr, zr, lr, hr)))
   const tr = el('div', 'row'); tr.append(el('label', null, t('settings.tabs')))
   const ts = el('select'); ts.setAttribute('aria-label', t('settings.tabWidth'))
   ;[2, 4, 8].forEach(n => { const o = el('option', null, String(n)); o.value = String(n); if (n === tabW) o.selected = true; ts.appendChild(o) })
@@ -158,6 +257,35 @@ function renderSettings() {
     keySecs.push(ksec(...rows))
   }
   colR.appendChild(grp(t('settings.keys'), ...keySecs)) // secret + create + list in one group: never fragmented
+  const sSecs = []
+  sSecs.push(sec(el('div', 'hint', t('settings.sessionsHint'))))
+  if (sessList === null) {
+    sSecs.push(sec(el('div', null, sessLoading ? t('settings.loading') : '')))
+    if (!sessLoading) loadSess()
+  } else if (!sessList.length) sSecs.push(sec(el('div', null, t('settings.noSessions'))))
+  else {
+    const srows = sessList.map(s => {
+      const r = el('div', 'row wrap sessRow')
+      const left = el('div', 'sessLeft')
+      const nm = el('span', 'sessName', s.current ? t('settings.thisDevice') : String(s.id || '').slice(0, 8))
+      if (!s.current) nm.title = s.id
+      const ex = el('span', 'val', t('settings.expires', { date: shortD(s.expires) }))
+      ex.title = s.expires || t('settings.never')
+      left.append(nm, ex)
+      const rb = el('button', 'btnSecondary', t('settings.revoke'))
+      rb.setAttribute('aria-label', t('settings.revoke') + ': ' + (s.current ? t('settings.thisDevice') : String(s.id || '').slice(0, 8)))
+      rb.onclick = () => {
+        if (rb.disabled) return; rb.disabled = true
+        api('DELETE', '/api/sessions/' + encodeURIComponent(s.id))
+          .then(() => { if (s.current) location.reload(); sessList = (sessList || []).filter(x => x.id !== s.id) })
+          .catch(e => { setMsg = e.message }).finally(() => renderSettings())
+      }
+      r.append(left, rb)
+      return r
+    })
+    sSecs.push(sec(...srows))
+  }
+  colR.appendChild(grp(t('settings.sessions'), ...sSecs))
   const dr = el('div', 'row')
   const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = t('settings.pwGroup'); dpw.setAttribute('aria-label', t('settings.pwForDel'))
   const db = el('button', 'btnDanger', t('common.delete'))
