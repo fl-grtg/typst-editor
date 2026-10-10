@@ -1,6 +1,8 @@
 // --- PWA: offline bar (no service worker since 2026-10-03; plain HTTP caching) ---
 const offBar = $('offline'); const updOff = () => { offBar.style.display = navigator.onLine === false ? 'block' : 'none' }
 addEventListener('online', updOff); addEventListener('offline', updOff); updOff()
+addEventListener('online', () => { try { updConn() } catch (e) {} }) // repaint calmly, no toast (2E)
+addEventListener('offline', () => { try { updConn() } catch (e) {} }) // WS drops too: status flips to Offline at once
 // --- Share as popup next to comment button (not sidebar) ---
 let shares = [], shareN = 0, invN = 0
 async function loadShares() {
