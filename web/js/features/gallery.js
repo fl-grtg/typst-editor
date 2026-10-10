@@ -1,4 +1,4 @@
-// 2C: gallery (askNewDoc source), onboarding tour, empty-state quick row, mobile drawer sync.
+// 2C: gallery (askNewDoc source), onboarding tour, empty-state quick row.
 const THUMBS = {
   blank: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150" viewBox="0 0 120 150"><rect width="120" height="150" fill="#e8e9ec"/><rect x="24" y="23" width="72" height="104" rx="3" fill="#ffffff"/></svg>',
   report: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150" viewBox="0 0 120 150"><rect width="120" height="150" fill="#e8e9ec"/><rect x="24" y="23" width="72" height="104" rx="3" fill="#ffffff"/><rect x="34" y="35" width="52" height="8" rx="2" fill="#4f46e5"/><rect x="34" y="51" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="60" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="69" width="44" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="78" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="87" width="38" height="4" rx="2" fill="#c3c6cd"/></svg>',
@@ -95,11 +95,6 @@ setTimeout(() => { // fresh account with Tutorial open: tour anyway (empty card 
 }, 2500)
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && tourStep >= 0) tourEnd()
-  if (e.key === 'Escape' && document.body.classList.contains('drawer-open') && matchMedia('(max-width:720px)').matches) {
-    document.body.classList.add('noside'); updScrim()
-    const nt = document.getElementById('navToggle')
-    if (nt) { nt.setAttribute('aria-pressed', 'false'); nt.setAttribute('aria-expanded', 'false'); try { nt.focus() } catch (err) {} }
-  }
 })
 // --- Empty state: quick gallery row + tour entry (paintEmpty itself stays in 2D) ---
 async function quickCreate(i) {
@@ -135,33 +130,3 @@ function enhanceEmpty() {
   tourMaybe()
 }
 new MutationObserver(enhanceEmpty).observe(document.getElementById('preview'), { childList: true })
-// --- Mobile drawer: visibility follows body.noside (owned by 90-settings.js) ---
-const MOBQ = matchMedia('(max-width:720px)')
-function syncDrawer() {
-  if (!MOBQ.matches) { document.body.classList.remove('drawer-open'); return }
-  document.body.classList.toggle('drawer-open', !document.body.classList.contains('noside'))
-}
-new MutationObserver(syncDrawer).observe(document.body, { attributes: true, attributeFilter: ['class'] })
-MOBQ.addEventListener('change', syncDrawer)
-syncDrawer()
-// --- Bottom sheets dismiss on outside tap (mobile): the sheet covers its own trigger ---
-const SHEET_BTN = { sharePop: 'shareBtn', tplPop: 'tplBtn', histPop: 'histBtn', symPop: 'symBtn', setPop: 'who' }
-let sheetEat = false
-document.addEventListener('pointerdown', e => {
-  if (!MOBQ.matches || sheetEat || e.target.closest('#menu')) return
-  for (const id of Object.keys(SHEET_BTN)) {
-    const p = document.getElementById(id)
-    if (!p || p.style.display === 'none' || p.contains(e.target)) continue
-    const btn = document.getElementById(SHEET_BTN[id])
-    if (btn && (btn === e.target || btn.contains(e.target))) continue // trigger toggles itself
-    p.style.display = 'none'
-    if (btn) btn.setAttribute('aria-expanded', 'false')
-    sheetEat = true
-    e.stopPropagation()
-    e.preventDefault()
-    break
-  }
-}, true)
-document.addEventListener('click', e => {
-  if (sheetEat) { sheetEat = false; e.stopPropagation(); e.preventDefault() }
-}, true)
