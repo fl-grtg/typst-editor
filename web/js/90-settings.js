@@ -54,7 +54,9 @@ function renderSettings() {
   ;[2, 4, 8].forEach(n => { const o = el('option', null, String(n)); o.value = String(n); if (n === tabW) o.selected = true; ts.appendChild(o) })
   ts.onchange = () => { tabW = +ts.value || 2; lsSet('typst_tab', tabW); cm.dispatch({ effects: tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]) }); renderSettings() }
   tr.append(ts, el('span', 'val', t('settings.tabUnit', { n: tabW })))
-  colL.appendChild(grp(t('settings.editorGroup'), sec(tr), formatSettingsSec())) // wrap always on, sync lives on the preview button, no compile-delay option
+  const edSec = sec(tr) // one grey block: tab + format + spell, no separation
+  for (const s of [formatSettingsSec(), spellSettingsSec()]) while (s.firstChild) edSec.appendChild(s.firstChild)
+  colL.appendChild(grp(t('settings.editorGroup'), edSec)) // wrap always on, sync lives on the preview button, no compile-delay option
   const ar = el('div', 'row avatarRow')
   const im = el('img', 'av'); im.alt = t('settings.avatarAlt')
   if (avatarV) im.src = `/api/avatar/${encodeURIComponent(user)}?v=${avatarV}`; else { im.style.display = 'none'; const fb = el('span', 'avFallback'); fb.textContent = (user || '?').slice(0, 2).toUpperCase(); ar.appendChild(fb) }
@@ -158,7 +160,6 @@ function renderSettings() {
     keySecs.push(ksec(...rows))
   }
   colR.appendChild(grp(t('settings.keys'), ...keySecs)) // secret + create + list in one group: never fragmented
-  colR.appendChild(grp(t('settings.scGroup'), spellSettingsSec()))
   const dr = el('div', 'row')
   const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = t('settings.pwGroup'); dpw.setAttribute('aria-label', t('settings.pwForDel'))
   const db = el('button', 'btnDanger', t('common.delete'))
