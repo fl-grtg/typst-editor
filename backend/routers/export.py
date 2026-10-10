@@ -188,7 +188,8 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
 
 
 @router.post("/api/docs/{doc_id}/export")
-def export_doc(doc_id: str, req: Request, format: str = "pdf", user: str = Depends(deps.me)) -> Response:
+def export_doc(doc_id: str, req: Request, format: str = "pdf", pdf_standard: str = "none",
+               pages: str = "", ppi: str = "", user: str = Depends(deps.me)) -> Response:
     """Per-doc export via typst CLI (W2-A, MCP `export` parity).
 
     ?format=pdf|svg|png|zip. pdf = full multi-page PDF; svg/png = the single
@@ -200,6 +201,11 @@ def export_doc(doc_id: str, req: Request, format: str = "pdf", user: str = Depen
     touches the event loop (B13). Compile errors -> 422 with diagnostics,
     missing typst -> 500, oversize -> 413. No migration. (MCP `export`
     shares the pipeline via op_export under the `mcp` scope, like `view`.)
+
+    2C options (CLI-only, the WASM bundle cannot do them): pdf_standard =
+    none|1.7|2.0|a-1b|a-2b|a-3b|a-2u|a-3u|ua-1 (pdf only, typst 0.15.1
+    --pdf-standard), pages like 1-3,5 (pdf/svg/png, --pages), ppi 72-300
+    (png only, --ppi). Bad values -> 400 before any compile.
     """
     from backend import mcp_tools as _mt
 
@@ -207,6 +213,9 @@ def export_doc(doc_id: str, req: Request, format: str = "pdf", user: str = Depen
     deps.check_doc_id(doc_id)
     deps.need_access(user, doc_id)
     fmt = _mt._check_export_format(format)  # single source (same 400 as MCP)
+    std = _mt._check_pdf_standard(pdf_standard)
+    pg = _mt._check_export_pages(pages)
+    res = _mt._parse_export_ppi(ppi)  # str param: non-numeric -> 400, not 422
     con = db.connect()
     try:
         row = con.execute("SELECT title FROM docs WHERE id=?", (doc_id,)).fetchone()
@@ -218,7 +227,7 @@ def export_doc(doc_id: str, req: Request, format: str = "pdf", user: str = Depen
     if not lock.acquire(blocking=False):
         raise HTTPException(429, "Export already running")
     try:
-        payload, mime, filename = _mt._export_doc_sync(doc_id, row["title"], fmt)
+        payload, mime, filename = _mt._export_doc_sync(doc_id, row["title"], fmt, std, pg, res)
     finally:
         lock.release()
     return Response(content=payload, media_type=mime,
