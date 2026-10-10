@@ -85,6 +85,7 @@
     },
     help: function () {
       return [
+        it(t('editor.scTitle'), function () { click('helpBtn') }),
         it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('who') }),
         it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
       ]

@@ -42,6 +42,5 @@
 #find button { min-height: 28px; padding: 2px 10px; }
 #find button.on { background: var(--ink); color: var(--on-ink); border-color: transparent; }
 #find .x { margin-left: auto; border: 0; background: none; box-shadow: none; color: var(--sub); }
-/* Wave 2B: format-on-save toggle (pressed); spellcheck select lives in Settings (toolbar stays one line) */
-#tools #fmtSave.on { background: var(--sel); font-weight: 700; }
+/* Wave 2B: format button only; format-on-save + spellcheck live in Settings (toolbar stays one line) */
 

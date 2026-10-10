@@ -31,6 +31,19 @@ async function formatDoc(quiet) { // whole doc, one undo step; never throws (sav
   return true
 }
 const fmtSaveOn = () => { try { return localStorage.getItem('typst_fmt_save') === '1' } catch (e) { return false } }
+function formatSettingsSec() { // settings group section: format on save (toolbar keeps the once-button only)
+  const sec = document.createElement('div'); sec.className = 'sec'
+  const row = document.createElement('div'); row.className = 'row'
+  const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'fmtSave'
+  cb.checked = fmtSaveOn()
+  cb.setAttribute('aria-label', t('editor.formatSave')); cb.title = t('editor.formatSaveT')
+  cb.onchange = () => { try { localStorage.setItem('typst_fmt_save', cb.checked ? '1' : '0') } catch (e) {} }
+  const lab = document.createElement('label'); lab.textContent = t('editor.formatSave'); lab.setAttribute('for', 'fmtSave')
+  lab.title = t('editor.formatSaveT')
+  row.append(cb, lab)
+  sec.appendChild(row)
+  return sec
+}
 {
   const tools = $('tools'), tsp = tools.querySelector('.tsp')
   const grp = document.createElement('span')
@@ -40,16 +53,9 @@ const fmtSaveOn = () => { try { return localStorage.getItem('typst_fmt_save') ==
   fb.setAttribute('aria-label', t('editor.formatDoc')); fb.title = t('editor.formatDocT')
   fb.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M5.5 8h8M2.5 12h11"/></svg>'
   fb.onclick = () => formatDoc(false)
-  const sb = document.createElement('button')
-  sb.id = 'fmtSave'
-  sb.textContent = 'S'
-  const paintSave = () => { const on = fmtSaveOn(); sb.classList.toggle('on', on); sb.setAttribute('aria-pressed', String(on)) }
-  sb.setAttribute('aria-label', t('editor.formatSave')); sb.title = t('editor.formatSaveT')
-  sb.onclick = () => { try { localStorage.setItem('typst_fmt_save', fmtSaveOn() ? '0' : '1') } catch (e) {} paintSave() }
-  paintSave()
-  grp.append(fb, sb)
+  grp.append(fb)
   tools.insertBefore(grp, tsp)
-  const sync = () => { const on = cm.contentDOM.getAttribute('contenteditable') === 'true'; fb.disabled = !on; sb.disabled = !on }
+  const sync = () => { const on = cm.contentDOM.getAttribute('contenteditable') === 'true'; fb.disabled = !on }
   new MutationObserver(sync).observe(cm.contentDOM, { attributes: true, attributeFilter: ['contenteditable'] })
   sync()
 }
