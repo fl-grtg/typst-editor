@@ -63,10 +63,10 @@ addEventListener('keydown', e => { // Alt+Shift+F like VS Code: format once (sav
 })
 {
   const inner = saveNow // format on save: format first, then the regular save (failure still saves unformatted)
-  saveNow = async force => {
+  saveNow = async (force, auto) => {
     if (fmtSaveOn() && docId && !tplName && !activeFile && docRole !== 'reviewer' && !openedTrashed) {
       try { await formatDoc(true) } catch (e) {}
     }
-    return inner(force)
+    return inner(force, auto) // forward 2E quiet flag: autosave errors stay toast-free
   }
 }
