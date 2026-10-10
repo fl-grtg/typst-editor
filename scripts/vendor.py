@@ -62,6 +62,12 @@ ENTRIES: tuple[tuple[str, str, str, str, str], ...] = (
      "file", "pdf-3.11.174", ".min.js"),
     ("pdf-worker", "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
      "file", "pdf-worker-3.11.174", ".min.js"),
+    ("typstyle-wasm",
+     "https://cdn.jsdelivr.net/npm/@typstyle/typstyle-wasm-bundler@0.15.1/typstyle_wasm_bg.wasm",
+     "file", "typstyle-wasm-0.15.1", ".wasm"),
+    ("typstyle-glue",
+     "https://cdn.jsdelivr.net/npm/@typstyle/typstyle-wasm-bundler@0.15.1/typstyle_wasm_bg.js",
+     "file", "typstyle-wasm-glue-0.15.1", ".js"),
 ) + tuple(
     (f"font-{n.rsplit('.', 1)[0].lower()}", _FONT_BASE + n, "file",
      f"font-{n.rsplit('.', 1)[0]}", "." + n.rsplit(".", 1)[1])

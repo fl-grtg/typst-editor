@@ -5,10 +5,10 @@
   display: flex; align-items: center; gap: 2px; padding: 5px 10px; flex: none;
   background: var(--editor); border-bottom: 1px solid var(--line);
 }
-#tools { position: relative; z-index: 20; flex-wrap: wrap; row-gap: 2px; }
-#tools button { min-width: 30px; height: 30px; padding: 0 6px; font-size: 13px; }
+#tools { position: relative; z-index: 20; flex-wrap: wrap; row-gap: 2px; padding: 5px 8px; }
+#tools button { min-width: 28px; height: 30px; padding: 0 5px; font-size: 13px; }
 #tools button:disabled { opacity: .35; }
-#tools .fmt { display: inline-flex; gap: 1px; padding-right: 6px; margin-right: 6px; border-right: 1px solid var(--line); }
+#tools .fmt { display: inline-flex; gap: 1px; padding-right: 4px; margin-right: 4px; border-right: 1px solid var(--line); }
 #tools .fmt.last { border-right: 0; }
 #tools .fmt button { color: var(--text); }
 #tools .fmt .glyph { font: 700 13px/1 var(--ui); }
@@ -42,4 +42,5 @@
 #find button { min-height: 28px; padding: 2px 10px; }
 #find button.on { background: var(--ink); color: var(--on-ink); border-color: transparent; }
 #find .x { margin-left: auto; border: 0; background: none; box-shadow: none; color: var(--sub); }
+/* Wave 2B: format button only; format-on-save + spellcheck live in Settings (toolbar stays one line) */
 
