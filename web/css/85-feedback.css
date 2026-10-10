@@ -28,4 +28,7 @@
 #toast span { min-width: 0; }
 #toast button { margin-left: 10px; flex: none; white-space: nowrap; background: rgba(255, 255, 255, .14); color: inherit; border: 0; box-shadow: none; min-height: 28px; padding: 3px 12px; }
 #toast button:hover { background: rgba(255, 255, 255, .24); }
+/* 2E: connection status only (wsDot/wsTxt; rest of this file belongs to 2C) */
+#wsDot { transition: background-color .3s ease; }
+#wsTxt.is-off { color: var(--faint); }
 

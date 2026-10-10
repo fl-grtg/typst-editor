@@ -195,9 +195,9 @@ addEventListener('pagehide', () => { // stash latest edits, 2s save may still be
   else if (docId && activeFile)
     fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST', headers: head,
       body: JSON.stringify({ content: getT() }), keepalive: true })
-  else if (docId && ytext && synced && docRole !== 'reviewer')
+  else if (docId && ytext && synced && docRole !== 'reviewer' && live)
     fetch(`/api/docs/${docId}/save`, { method: 'POST', headers: head,
-      body: JSON.stringify({ content: ytext.toString(), force: live }), keepalive: true }) // offline copy may be stale: no force over others' work
+      body: JSON.stringify({ content: ytext.toString(), force: live }), keepalive: true }) // live only: offline text lives in Yjs + stash, REST would fork it (double on reconnect)
 })
 
 checkInvite() // ?invite=CODE: registration view + prefilled code (join handled separately by checkJoin)

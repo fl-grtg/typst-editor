@@ -76,8 +76,9 @@ async function sidebar() {
   catch (e) {
     if (id !== sideN) return
     if (/401|logged|Login/i.test(e.message)) { location.reload(); return }
-    if (e.status === 429 || navigator.onLine === false) toast(t('docs.sidebarRefreshFail', { msg: e.message }), () => sidebar(), t('common.retry'))
-    return // offline etc: keep old list
+    if (navigator.onLine === false) return // quiet: offline bar shows it, 'online' event refreshes
+    if (e.status === 429) toast(t('docs.sidebarRefreshFail', { msg: e.message }), () => sidebar(), t('common.retry'))
+    return // keep old list
   }
   lastOwn = d.own; lastShared = d.shared
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
@@ -356,6 +357,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   wantPos = -1 // old search jump must not fire in next doc
   openedTrashed = false
   clearTimeout(saveT); clearTimeout(tplT); clearTimeout(anchorT); anchorDirty.clear() // no zombie save into next doc
+  clearTimeout(connT); connT = 0 // stale disconnect paint must not fire in the next doc
   if (activeFile && docId) { // pending file save: take along silently (keepalive)
     clearTimeout(fileT)
     fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST',
@@ -403,13 +405,31 @@ async function openTpl(name) {
 }
 function queueTplSave() {
   clearTimeout(tplT)
-  $('save').textContent = '…'
+  $('save').textContent = t('docs.saving')
   tplT = setTimeout(async () => {
     try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = t('docs.saved') + wc(); loadTpl() }
-    catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); toast(t('templates.saveFail', { msg: e.message }), () => queueTplSave(), t('common.retry')) }
+    catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); if (navigator.onLine !== false) toast(t('templates.saveFail', { msg: e.message }), () => queueTplSave(), t('common.retry')) } // auto: quiet offline, status line says it
   }, SAVE_MS)
 }
 let openN = 0, synced = false // sync state ready? Else no empty save to DB (Fix #2)
+function wsLive() { return !!(prov && prov.wsconnected) } // Yjs carries main.typ; REST autosave would only 409
+let connT = 0 // debounced disconnect paint: brief flaps stay invisible, no flicker
+function paintConn() { // one status: Live / Offline (browser) / Getrennt (WS down); #save stays with queueSave/saveNow
+  connT = 0
+  const dot = $('wsDot'), wt = $('wsTxt'), sv = $('save')
+  if (!dot || !wt || !docId || tplName || openedTrashed) return
+  const off = navigator.onLine === false, live = wsLive()
+  const key = off ? 'docs.offline' : live ? 'docs.live' : 'docs.disconnected'
+  dot.style.background = live ? '#30d158' : '#8e8e93'; dot.title = t(key)
+  wt.textContent = t(key) // #wsTxt has role=status: announced once, not per keystroke
+  dot.classList.toggle('is-off', !live); wt.classList.toggle('is-off', !live)
+  if (sv && live && (!sv.textContent || sv.textContent === t('docs.offlineRetry'))) sv.textContent = t('docs.saved') + wc() // back from offline: Yjs already converged, drop the stale retry note quietly
+}
+function updConn() { // calm: live/offline paint at once, getrennt after 1200ms grace (reconnect inside cancels it)
+  clearTimeout(connT); connT = 0
+  if (wsLive() || navigator.onLine === false) { paintConn(); return }
+  connT = setTimeout(paintConn, 1200)
+}
 let openedTrashed = false // trash view: read yes, write no
 async function restoreOpen() { // click Trash: restore to life, then connect live
   const id = docId
@@ -480,13 +500,9 @@ async function openDoc(id) {
     ydoc = yy; ytext = yt; prov = pp
     ytext.observe((e, tx) => { if (tx.origin !== 'local') pullRemote(e) }) // only real remote updates touch editor (delta = exact changes)
     prov.awareness.on('change', renderPeers)
-    const updWs = () => {
-      const on = pp.wsconnected
-      const dot = $('wsDot'); if (dot) { dot.style.background = on ? '#30d158' : '#8e8e93'; dot.title = on ? t('docs.live') : t('docs.offline') }; const wt = $('wsTxt'); if (wt) wt.textContent = on ? t('docs.live') : t('docs.offline') // dot aria-hidden: text in #wsTxt (role=status) announces
-    }
-    pp.on('status', updWs); pp.on('connection-close', updWs); pp.on('connection-error', updWs)
-    pp.on('synced', () => { synced = true }) // initial handshake done: save may persist (also when doc stays empty)
-    updWs()
+    pp.on('status', () => { if (prov === pp) updConn() }); pp.on('connection-close', () => { if (prov === pp) updConn() }); pp.on('connection-error', () => { if (prov === pp) updConn() })
+    pp.on('synced', () => { synced = true; if (prov === pp) updConn() }) // handshake done: save may persist, status flips to Live at once
+    updConn()
     pushPresence()
   } else {
     setT(d.content || ''); shadow = d.content || ''; synced = true // no Yjs in trash: state from DB
@@ -524,14 +540,19 @@ async function openDoc(id) {
   paintOutline()
   sidebar(); loadComments().catch(e => console.warn('comments failed', e)); loadMembers()
 }
-function queueSave() {
+function queueSave() { // main.typ: Yjs carries every keystroke (offline too: syncs on reconnect); REST would 409 or fork the text, so never autosave main
   clearTimeout(saveT)
-  $('save').textContent = '…'
-  saveT = setTimeout(saveNow, SAVE_MS)
+  if (!tplName && !activeFile) {
+    if (wsLive() && navigator.onLine !== false) return // live: nothing to do, status stays Live
+    $('save').textContent = t('docs.offlineRetry') // calm: #wsTxt already says Offline/Getrennt, Yjs retries on reconnect
+    return // no timer: no REST off the sync path (offline queue applied on top of Yjs sync doubled the text)
+  }
+  $('save').textContent = t('docs.saving')
+  saveT = setTimeout(() => saveNow(false, true), SAVE_MS)
 }
-async function saveNow(force) { // Ctrl+S: at once, no autosave wait; force = overwrite on 409 conflict
+async function saveNow(force, auto) { // explicit (Ctrl+S/menu) saves at once; autosave passes auto=true and stays quiet on failure
   clearTimeout(saveT); clearTimeout(tplT)
-  if (docId && !tplName && !activeFile && !synced) { saveT = setTimeout(saveNow, SAVE_MS); return } // sync running: retry later instead of '' (Fix #2)
+  if (docId && !tplName && !activeFile && !synced) { saveT = setTimeout(() => saveNow(false, true), SAVE_MS); return } // sync running: retry later instead of '' (Fix #2)
   const saveErr = e => navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
   if (tplName) {
     try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = t('docs.saved') + wc() }
@@ -548,10 +569,13 @@ async function saveNow(force) { // Ctrl+S: at once, no autosave wait; force = ov
     return
   }
   if (!docId || docRole === 'reviewer' || !ytext) return
+  if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns main.typ: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
+  if (auto) { $('save').textContent = t('docs.saved') + wc(); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E)
   try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') + wc() }
   catch (e) {
-    if (e.status === 409 && !force && prov && prov.wsconnected && synced) return saveNow(true) // live: Y state already merges everyone's edits, safe to overwrite
+    if (e.status === 409 && !force && prov && prov.wsconnected && synced) return saveNow(true, auto) // live: Y state already merges everyone's edits, safe to overwrite
     $('save').textContent = saveErr(e)
+    if (auto && (navigator.onLine === false || !wsLive())) return // quiet: status line already says it, no toast spam (2E)
     if (e.status === 409 && !force) toast(t('docs.saveConflict'), () => saveNow(true), t('docs.forceSave'))
     else toast(t('docs.saveFail', { msg: e.message }), () => saveNow(force), t('common.retry'))
   }
