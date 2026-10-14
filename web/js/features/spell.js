@@ -6,7 +6,7 @@ function applySpell() { // dictionary follows the open document (attribute on th
   const v = docId ? spellStored() : 'auto', dom = cm.contentDOM
   if (v === 'off') { dom.setAttribute('spellcheck', 'false'); dom.removeAttribute('lang') }
   else {
-    dom.setAttribute('spellcheck', 'true')
+    dom.setAttribute('spellcheck', /\.typ$/i.test(tplName || tabName(activeFile)) ? 'true' : 'false')
     if (v === 'auto') dom.removeAttribute('lang'); else dom.setAttribute('lang', v)
   }
   const sel = $('spellSel')

@@ -122,4 +122,3 @@ def test_search_live_room_preferred(c):
     hits = c.get("/api/search", params={"q": "liveeinmalwort"}).json()["hits"]
     assert [h["id"] for h in hits] == [did]
     assert "liveeinmalwort" in hits[0]["snippet"].lower()
-

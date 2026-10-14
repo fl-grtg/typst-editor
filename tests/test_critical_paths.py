@@ -59,7 +59,7 @@ def test_templates_crud(c):
     assert tpls[0]["content"] == "Neu"
     assert c.delete("/api/templates/brief.typ").status_code == 200
     assert c.get("/api/templates").json()["templates"] == []
-    assert c.post("/api/templates", json={"name": "nix.txt", "content": "x"}).status_code == 400
+    assert c.post("/api/templates", json={"name": "nix.exe", "content": "x"}).status_code == 400
 
 
 def test_avatar_invalid_rejected(c):

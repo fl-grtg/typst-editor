@@ -15,6 +15,7 @@ function renderSym(q = '') {
   SYMS.filter(s => !q || s.includes(q) || (SYN[ql] || '').includes(s)).slice(0, 120).forEach(s => {
     const b = el('button', null, s); b.title = t('symbols.insertSym', { s }); b.setAttribute('aria-label', b.title)
     b.onclick = () => {
+      if (!cm.state.facet(EditorView.editable)) return
       const m = cm.state.selection.main
       cm.dispatch({ changes: { from: m.from, to: m.to, insert: s }, selection: { anchor: m.from + s.length } })
       cm.focus()
@@ -29,6 +30,7 @@ $('symBtn').onclick = e => {
 }
 // --- Color: wrap selection with #text(fill: rgb("..")) ---
 $('colPick').onchange = () => {
+  if (!cm.state.facet(EditorView.editable)) return
   const v = $('colPick').value, m = cm.state.selection.main
   const ins = `#text(fill: rgb("${v}"))[${getT().slice(m.from, m.to) || 'Text'}]`
   cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
@@ -37,7 +39,11 @@ $('colPick').onchange = () => {
 // --- @-mentions: suggest while typing, colored name in card ---
 let members = []
 async function loadMembers() {
-  try { members = (await api('GET', `/api/docs/${docId}/members`)).members } catch (e) { members = [] }
+  const doc = docId, epoch = openN
+  let next = []
+  try { next = (await api('GET', `/api/docs/${doc}/members`)).members } catch (e) { console.warn(e) }
+  if (doc !== docId || epoch !== openN) return
+  members = next
   if (popAnchor != null && !$('pop').contains(document.activeElement)
       && ![...$('pop').querySelectorAll('input')].some(i => i.value.trim())) renderPop() // refresh @-colors, keep drafts untouched
 }

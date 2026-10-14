@@ -138,7 +138,7 @@ class LocalFileStore(FileStore):
             return out
         for p in walking:
             try:
-                if not p.is_file():
+                if p.is_symlink() or not p.is_file():
                     continue
                 rel = p.relative_to(d).as_posix()
                 if any(seg.startswith(".") for seg in rel.split("/")) or ".tmp." in p.name:
@@ -172,20 +172,20 @@ def safe_name(name: str) -> str:
     raw = (name or "").strip().replace("\\", "/")
     segs = raw.split("/")
     if any(s == ".." for s in segs):
-        raise HTTPException(400, "Only png/jpg/jpeg/svg/gif/webp/pdf/typ/bib/csv")
+        raise HTTPException(400, "Unsupported file type or path")
     parts = []
     for s in segs:
         if s in ("", "."):
             continue
         n = re.sub(r"[^A-Za-z0-9._-]", "_", s.strip().lstrip("."))[:100]
         if not n:
-            raise HTTPException(400, "Only png/jpg/jpeg/svg/gif/webp/pdf/typ/bib/csv")
+            raise HTTPException(400, "Unsupported file type or path")
         parts.append(n)
     if not parts:
-        raise HTTPException(400, "Only png/jpg/jpeg/svg/gif/webp/pdf/typ/bib/csv")
+        raise HTTPException(400, "Unsupported file type or path")
     n = "/".join(parts)
     if Path(n).suffix.lower() not in deps.ALLOWED_IMG:
-        raise HTTPException(400, "Only png/jpg/jpeg/svg/gif/webp/pdf/typ/bib/csv")
+        raise HTTPException(400, "Unsupported file type or path")
     if ".tmp." in n:
         raise HTTPException(400, "Reserved name")
     return n
@@ -363,14 +363,14 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
 def need_text(name: str) -> str:
     n = safe_name(name)
     if Path(n).suffix.lower() not in deps.TEXT_SUFFIX:
-        raise HTTPException(400, "Only typ/bib/csv as text")
+        raise HTTPException(400, "Unsupported text file extension")
     return n
 
 
 def save_text_file(doc_id: str, name: str, content: str, owner: str) -> None:
     """Same write path as the text-tab route: tmp+replace, quota, table sync."""
     name = need_text(name)  # validate here too: callers must not skip the suffix whitelist
-    if len(content) > MAX_TXT:
+    if len(content.encode("utf-8")) > MAX_TXT:
         raise HTTPException(400, "Max 200 KB")
     try:
         old = store.get(doc_id, name)
@@ -399,7 +399,7 @@ def save_text_file(doc_id: str, name: str, content: str, owner: str) -> None:
                                    rollback=_restore_text):
             try:
                 tmp.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_text(content, encoding="utf-8")
+                tmp.write_bytes(content.encode("utf-8"))
                 store.publish(tmp, doc_id, name)
             except OSError:
                 try:

@@ -79,11 +79,12 @@ jobs:
         working-directory: cm-build
       - run: npm run build
         working-directory: cm-build
+      - run: node --test tests/js/*.cjs
       - run: git diff --exit-code vendor-cm.js
       - run: |
           sz=$(stat -c%s vendor-cm.js)
-          echo "vendor-cm.js $sz bytes (budget 614400)"
-          test "$sz" -le 614400
+          echo "vendor-cm.js $sz bytes (budget 716800)"
+          test "$sz" -le 716800
   e2e:
     # Browser smoke tests. Informational until the first green runs are confirmed.
     runs-on: ubuntu-latest

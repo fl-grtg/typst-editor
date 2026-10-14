@@ -80,12 +80,10 @@ async def test_notify_on_more_mutations(c):
         await _one(lambda: c.post("/api/tplfolders", json={"folder": "U"}))
         await _one(lambda: c.delete("/api/tplfolders/U"))
         await _one(lambda: c.delete("/api/templates/m.typ"))
-        # content-only template update: no list change, no event
+        # Content updates refresh resources in other tabs too.
         c.post("/api/templates", json={"name": "n.typ", "content": "x"})
         await asyncio.wait_for(entry[1].get(), timeout=5)  # creation event
-        c.post("/api/templates", json={"name": "n.typ", "content": "y"})
-        await asyncio.sleep(0.3)
-        assert entry[1].empty(), "content-only update woke the sidebar"
+        await _one(lambda: c.post("/api/templates", json={"name": "n.typ", "content": "y"}))
         # hard delete: trash first, then delete again
         c.delete(f"/api/docs/{did}")
         await asyncio.wait_for(entry[1].get(), timeout=5)  # trash event
@@ -121,10 +119,9 @@ async def test_notify_template_folder_change(c):
     c.post("/api/templates", json={"name": "f.typ", "content": "x"})
     entry = _watch("uT")
     try:
-        # same folder update: no list change, no event
-        c.post("/api/templates", json={"name": "f.typ", "content": "y"})
-        await asyncio.sleep(0.3)
-        assert entry[1].empty(), "content-only update woke the sidebar"
+        # Same folder, new content: the resource still needs a refresh.
+        assert c.post("/api/templates", json={"name": "f.typ", "content": "y"}).status_code == 200
+        assert await asyncio.wait_for(entry[1].get(), timeout=5) == "sidebar"
         # folder change: list changes, event
         r = c.post("/api/templates", json={"name": "f.typ", "content": "y", "folder": "TF"})
         assert r.status_code == 200, r.text

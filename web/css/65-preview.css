@@ -30,3 +30,42 @@ body.read #preview { padding-top: 24px; }
 .pvPage { margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); overflow: hidden; }
 .pvPage canvas { margin: 0; box-shadow: none; border-radius: 0; }
 
+/* Presentation mode (see js/features/presentation.js): one rendered page at a
+   time, fit to both axes. Distinct from read: prior view mode is restored. */
+body.present aside, body.present #sideSplit, body.present header,
+body.present #leftCol, body.present #split, body.present #vsplit,
+body.present #pvTools, body.present #cdnLine { display: none !important; }
+body.present #rightCol { display: flex !important; position: fixed; inset: 0; z-index: var(--z-modal); background: #fff; }
+body.present #preview { padding: 0; background: #fff; }
+body.present #preview .pvPage { flex: none; max-width: none; margin: 0; }
+body.present #preview canvas { width: 100% !important; height: 100% !important; margin: 0; object-fit: contain; }
+body.present #preview .pvPage[hidden], body.present #preview canvas[hidden] { display: none !important; }
+#presentBar {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: var(--z-modal);
+  display: flex; align-items: center; gap: 2px; padding: 3px 8px 3px 3px;
+  background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--sh-pop);
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
+}
+#presentBar button { min-width: 40px; min-height: 40px; padding: 0 6px; font-size: 15px; line-height: 1; }
+#presentCount { min-width: 76px; text-align: center; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+
+
+body.read #pvTools #syncBtn + .grp { border-left: 0; padding-left: 0; }
+body.present #preview { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#presentBar button { display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--text); border: 0; border-radius: var(--r-sm); }
+#presentBar button:hover { background: var(--hover); }
+
+body.present #preview canvas { max-width: none !important; }
+
+#preview .pvPage canvas { margin: 0; box-shadow: none; border-radius: 0; }
+
+body.present #preview { padding: 0; }
+#presentBar { opacity: 0; pointer-events: none; transition: opacity .15s; }
+#presentBar.near, #presentBar:has(button:focus-visible) { opacity: 1; pointer-events: auto; }
+@media (hover: none) { #presentBar { opacity: 1; pointer-events: auto; } }
+
+body.present #preview:focus-visible { outline: none; }
+
+body.present-switch aside, body.present-switch .sbPanel, body.present-switch .sbRail,
+body.present-switch #leftCol, body.present-switch #rightCol, body.present-switch #preview,
+body.present-switch .pvPage { transition: none !important; }

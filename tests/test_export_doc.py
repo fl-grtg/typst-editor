@@ -110,7 +110,7 @@ def test_export_doc_zip_source_bundle(c):
     assert "Rpt.zip" in r.headers.get("content-disposition", "")
     z = zipfile.ZipFile(io.BytesIO(r.content))
     assert z.read("main.typ").decode() == "= Hi"
-    assert z.read("files/notes.csv").decode() == "a,b"
+    assert z.read("notes.csv").decode() == "a,b"
 
 
 def test_export_doc_bad_format_400(c):

@@ -69,6 +69,17 @@ def test_7_heal_interval_falls_back_without_reference_error(page):
     assert res["shadow"] == HEAL_WANT, "fallback must re-sync shadow"
 
 
+def test_login_does_not_reload_when_module_fails(page):
+    page.route("**/vendor-cm.js*", lambda route: route.abort())
+    page.goto("/")
+    page.fill("#u", "test")
+    page.fill("#p", "12345678")
+    page.evaluate("window.__loginGuardMarker = 1")
+    page.click("#go")
+    expect(page.locator("#err")).to_contain_text("App still loading")
+    assert page.evaluate("window.__loginGuardMarker") == 1
+
+
 def test_8_settings_steppers_keep_dialog_open(page):
     register(page, "e2e_gina")
     expect(page.locator("#cm .cm-content")).to_be_visible()  # tutorial open: openDoc's hidePops() calls are done

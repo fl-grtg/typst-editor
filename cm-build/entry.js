@@ -1,5 +1,5 @@
 // Rebuild: cd cm-build && npm ci && npm run build (writes ../vendor-cm.js).
-// CI job "vendor-bundle" rebuilds and fails on diff or > 600KB.
+// CI job "vendor-bundle" rebuilds and fails on diff or > 700KB.
 // One bundle, one instance per package: no CDN, no duplication problem.
 export { EditorView, minimalSetup } from "codemirror";
 export { indentMore, indentLess } from "@codemirror/commands";
@@ -14,3 +14,11 @@ export { linter, lintGutter, setDiagnostics, forEachDiagnostic } from "@codemirr
 export { syntaxHighlighting, HighlightStyle, foldGutter, foldKeymap, bracketMatching, indentUnit } from "@codemirror/language";
 export { tags } from "@lezer/highlight";
 export { typstTags } from "codemirror-lang-typst/lezer";
+
+export { json } from "@codemirror/lang-json";
+export { xml } from "@codemirror/lang-xml";
+export { yaml } from "@codemirror/lang-yaml";
+export { StreamLanguage } from "@codemirror/language";
+export { toml } from "@codemirror/legacy-modes/mode/toml";
+export { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+export { parse as parseToml } from "smol-toml";

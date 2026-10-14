@@ -51,7 +51,7 @@ function stepFind(d) {
   paintFind(true)
 }
 function doRep(all) {
-  if (docRole === 'reviewer' || openedTrashed) return // read yes, replace no
+  if (!cm.state.facet(EditorView.editable)) return
   const q = $('fQ').value, r = $('fR').value
   if (!q || !findHits.length) return
   if (findI < 0 || findI >= findHits.length) { const hd = cm.state.selection.main.head; findI = findHits.findIndex(h => hd >= h.a && hd <= h.b); if (findI < 0) findI = findHits.findIndex(h => h.a >= hd); if (findI < 0) findI = 0 } // deselected by click: hit under cursor first, else nearest ahead
@@ -91,5 +91,4 @@ addEventListener('keydown', e => { // Ctrl/Cmd+F = bar, Ctrl/Cmd+S = save now, ?
   if (e.key === '?' && !e.ctrlKey && !e.metaKey && $('app').classList.contains('on')
     && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') && !cm.hasFocus) openTutorial()
 })
-$('helpBtn').onclick = e => { if (e.shiftKey) open('https://github.com/fl-grtg/typst-editor', '_blank'); else openTutorial() }
 document.querySelector('a[href="#cm"]')?.addEventListener('click', () => setTimeout(() => { try { cm.focus() } catch (e) {} }, 60)) // skip link: keyboard focus into editor, not just scroll

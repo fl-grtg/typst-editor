@@ -69,7 +69,7 @@ const el = (tag, cls, text) => {
 function kb(row, fn) { // rows via keyboard: Tab in, Enter/Space opens (minis via :focus-within)
   if (!row.hasAttribute('role')) row.setAttribute('role', 'button') // folders/rows: role even if caller forgot
   row.tabIndex = 0
-  row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() } }
+  row.onkeydown = e => { if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fn() } }
   return row
 }
 let askRes = null // open modal: new ask resolves old with null (no hanging promise)
@@ -93,6 +93,7 @@ function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no
     inp.value = noInput ? '' : value; inp.placeholder = ph; inp.setAttribute('aria-label', ph || head)
     if (o.maxLen) inp.setAttribute('maxlength', o.maxLen); else inp.removeAttribute('maxlength')
     const yes = $('mYes'); yes.textContent = ok
+    yes.disabled = false
     yes.style.background = danger ? 'var(--danger)' : ''; yes.style.color = danger ? '#fff' : ''
     const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v) }
     $('mNo').onclick = () => done(noInput ? false : null)
@@ -195,10 +196,8 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
   p.textContent = t('docs.posLine', { ln, col }) + (wc() || '') + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
-function openTutorial() { // help = tutorial doc (backend creates per account)
-  const t = lastOwn.find(x => x.title === 'Tutorial')
-  if (t) openDoc(t.id)
-  else window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
+function openTutorial() {
+  window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
 }
 function paintEmpty() { // onboarding card instead of pick-left note
   const card = el('div'); card.id = 'emptyCard'
@@ -210,10 +209,6 @@ function paintEmpty() { // onboarding card instead of pick-left note
     st.appendChild(el('span', null, s))
     card.appendChild(st)
   })
-  const cta = el('div', 'ctaRow')
-  const nb = el('button', 'primary', t('docs.emptyNew')); nb.id = 'emptyNew'
-  const tb = el('button', 'ghost', t('docs.emptyTut')); tb.id = 'emptyTut'
-  cta.append(nb, tb); card.appendChild(cta)
   const hint = el('p', 'hint')
   hint.appendChild(el('kbd', null, '?'))
   hint.append(document.createTextNode(' ' + t('docs.emptyHintHelp') + ' · '))
@@ -223,10 +218,7 @@ function paintEmpty() { // onboarding card instead of pick-left note
   hint.append(document.createTextNode(' ' + t('docs.emptyHintSave')))
   card.appendChild(hint)
   $('preview').replaceChildren(card)
-  $('emptyNew').onclick = () => $('new').click()
-  const tutGone = !lastOwn.some(x => x.title === 'Tutorial')
-  if (tutGone) $('emptyTut').style.display = 'none'
-  $('emptyTut').onclick = openTutorial
+
 }
 const lineOf = pos => getT().slice(0, pos).split('\n').length
 function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), only new marks need refresh
@@ -308,18 +300,21 @@ function renderPop() {
   list.forEach(t => pop.appendChild(threadCard(t)))
 }
 function newBox() { // only for new threads, not under done ones
+  const doc = docId, epoch = openN
   const box = el('div', 'nw'), row = el('div', 'rr')
   const inp = el('input'); inp.id = 'popNew'; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
   wireMentions(inp)
   const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
-  const post = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
-    api('POST', `/api/docs/${docId}/comments`,
-    { anchor: popAnchor, text: inp.value, quote: popQuote }).then(() => { popFresh = false; popQuote = ''; refresh(''); closePop() }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
+  const post = () => { if (doc !== docId || epoch !== openN || !inp.value.trim() || ok.disabled) return; ok.disabled = true
+    api('POST', `/api/docs/${doc}/comments`,
+    { anchor: popAnchor, text: inp.value, quote: popQuote }).then(() => { if (doc === docId && epoch === openN) { popFresh = false; popQuote = ''; refresh(''); closePop() } }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
   ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post() }
   row.append(inp, ok); box.appendChild(row)
   return box
 }
 function threadCard(th) {
+  const doc = docId, epoch = openN
+  const fresh = () => { if (doc === docId && epoch === openN) return refresh(''); return Promise.resolve() }
   const d = el('div', 'th')
   if (th.resolved) d.style.opacity = '.55' // done: faded, stays readable
   const hd = el('div', 'hd')
@@ -328,21 +323,21 @@ function threadCard(th) {
   const roC = docRole === 'reviewer' || openedTrashed // cNew logic reused: reviewer gets no buttons
   if (!roC) { // trash/reviewer: no buttons, read only
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
-    fin.onclick = () => api('POST', `/api/docs/${docId}/comments/${th.id}/resolve`, { resolved: !th.resolved }).then(() => refresh(''))
+    fin.onclick = () => api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved }).then(fresh).catch(e => toast(e.message))
     hd.appendChild(fin)
   }
   if (th.username === user && !openedTrashed) { // only author edits (owner deletes)
     const ed = icoBtn('ib', ICO_EDIT); ed.title = t('comments.edit'); ed.setAttribute('aria-label', ed.title)
     ed.onclick = async () => {
       const v = await ask(t('comments.editHead'), { value: th.text })
-      if (v !== null && v.trim()) api('POST', `/api/docs/${docId}/comments/${th.id}/edit`, { text: v }).then(() => refresh(''))
+      if (doc === docId && epoch === openN && v !== null && v.trim()) api('POST', `/api/docs/${doc}/comments/${th.id}/edit`, { text: v }).then(fresh).catch(e => toast(e.message))
     }
     hd.appendChild(ed)
   }
   const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
-  del.onclick = () => api('DELETE', `/api/docs/${docId}/comments/${th.id}`).then(() => refresh('').then(() => {
-    if (!threads.some(x => x.anchor === popAnchor)) closePop()
-  }))
+  del.onclick = () => api('DELETE', `/api/docs/${doc}/comments/${th.id}`).then(() => fresh().then(() => {
+    if (doc === docId && epoch === openN && !threads.some(x => x.anchor === popAnchor)) closePop()
+  })).catch(e => toast(e.message))
   if (!roC) hd.appendChild(del)
   d.appendChild(hd)
   d.appendChild(richText(th.text))
@@ -363,10 +358,10 @@ function threadCard(th) {
     const inp = el('input'); inp.id = 'r_' + th.id; inp.placeholder = t('comments.replyPh'); inp.setAttribute('aria-label', t('comments.replyAria'))
     wireMentions(inp)
     const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
-    const send = () => { if (!inp.value.trim() || ok.disabled) return; ok.disabled = true
+    const send = () => { if (doc !== docId || epoch !== openN || !inp.value.trim() || ok.disabled) return; ok.disabled = true
       const text = inp.value; inp.value = '' // clear first: else loadComments keeps it as draft and skips renderPop
-      api('POST', `/api/docs/${docId}/comments`,
-      { anchor: th.anchor, text, parent_id: th.id }).then(() => refresh('r_' + th.id)).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
+      api('POST', `/api/docs/${doc}/comments`,
+      { anchor: th.anchor, text, parent_id: th.id }).then(() => { if (doc === docId && epoch === openN) return refresh('r_' + th.id) }).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
     ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
     row.append(inp, ok)
   }
@@ -374,7 +369,10 @@ function threadCard(th) {
   return d
 }
 async function loadComments(force) {
-  const d = await api('GET', `/api/docs/${docId}/comments`)
+  const doc = docId, epoch = openN
+  if (!doc) return
+  const d = await api('GET', `/api/docs/${doc}/comments`)
+  if (doc !== docId || epoch !== openN) return
   const s = JSON.stringify(d.comments)
   if (s === lastC) return // poll: nothing new, keep inputs untouched
   lastC = s; threads = d.comments
@@ -418,7 +416,9 @@ function reanchor() { // find quote: moves along; not found = keep old line, no 
   }
 }
 async function jumpThread(t) {
+  const id = docId, epoch = openN
   if (activeFile) await switchTab('') // jump lives in main, not in file tab
+  if (id !== docId || epoch !== openN || activeFile) return
   const doc = getT()
   let a = t.a ?? -1, b = t.b ?? -1
   if (a < 0 || b <= a || a > doc.length) { // fallback: find quote
@@ -432,7 +432,9 @@ async function jumpThread(t) {
   cm.focus()
 }
 async function refresh(focusId) {
+  const doc = docId, epoch = openN
   await loadComments(true)
+  if (doc !== docId || epoch !== openN) return
   if (popAnchor != null && focusId) document.getElementById(focusId)?.focus()
 }
 function updCNewTip() {
@@ -441,7 +443,7 @@ function updCNewTip() {
   $('cNew').title = tip; $('cNew').setAttribute('aria-label', tip)
 }
 $('cNew').onclick = () => {
-  if (!docId) return
+  if (!docId || activeFile || openedTrashed || docRole === 'reviewer') return
   const m = cm.state.selection.main // save selected spot along
   openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, QUOTE_MAX))
 }

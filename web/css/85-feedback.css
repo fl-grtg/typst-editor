@@ -32,3 +32,6 @@
 #wsDot { transition: background-color .3s ease; }
 #wsTxt.is-off { color: var(--faint); }
 
+
+#preview:has(#emptyCard) { overflow: hidden; }
+#emptyCard { position: absolute; left: 50%; top: 50%; width: calc(100% - 32px); max-width: 460px; margin: 0; transform: translate(-50%, -50%) scale(var(--empty-scale, 1)); transform-origin: center; }

@@ -8,7 +8,7 @@ Path model:
     /docs/{Titel}              own doc (main text)
     /docs/{Titel}/{Datei}      file inside own doc
     /shared/{Owner}/{Titel}[/{Datei}]  doc shared with the caller
-    /templates/{Name}.typ      own template (name must end in .typ)
+    /templates/{Name}          own .typ template, .bib library or .csv table
 
 Titles containing / are rejected with 400 (after percent-decoding).
 Effective rights = min(key sort, doc_role()): a reviewer key (or share)
@@ -31,6 +31,7 @@ import threading as _compile_threading
 import zipfile
 from contextlib import contextmanager as _compile_cm
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote
 
 from fastapi import HTTPException
@@ -46,7 +47,7 @@ from backend.services import quota as quota_svc
 
 log = logging.getLogger("typst.mcp")
 
-TEXT_SUFFIX = {".typ", ".bib", ".csv"}
+TEXT_SUFFIX = {".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl"}
 VIEW_MAX_PAGES = 20
 VIEW_MAX_NUM = 20
 VIEW_MAX_SIDE = 1280
@@ -218,7 +219,7 @@ def _file_name(seg: str) -> str:
 
 def _tpl_name(seg: str) -> str:
     n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(seg or "").name.strip().lstrip("."))[:100]
-    if not n.endswith(".typ"):
+    if not n.lower().endswith((".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl")):
         raise _bad("Template gone", 404)  # same status as UI tpl_name
     return n
 
@@ -328,21 +329,9 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
             tpls = con.execute("SELECT name FROM templates WHERE owner=? ORDER BY name", (user,)).fetchall()
             return {"templates": [dict(r) for r in tpls]}
         if kind == "doc":
-            d = _files_dir() / res["doc_id"]
-            out = []
-            if d.is_dir():
-                try:
-                    entries = sorted(d.iterdir())
-                except OSError as e:
-                    log.warning("mcp ls failed: %s", e)
-                    raise _bad("File list failed", 500) from e
-                for p in entries:
-                    if p.is_file() and ".tmp." not in p.name:
-                        try:
-                            st = p.stat()
-                        except OSError:
-                            continue
-                        out.append({"name": p.name, "size": st.st_size, "mtime": st.st_mtime})
+            from backend.services.docfiles import store
+
+            out = [{"name": f.path, "size": f.size, "mtime": f.mtime} for f in store.list(res["doc_id"])]
             return {"title": res["title"], "files": out}
         raise _bad("ls works on / , /docs, /shared, /templates or a document path, use read for files")
     finally:
@@ -472,15 +461,34 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
         _write_text_file(row["id"], filename, content, user, cap, must_create=True)
         return {"title": title, "name": filename, "path": f"/docs/{title}/{filename}"}
     if segs[0] == "templates" and len(segs) == 2:
+        from backend.services.resources import insert_line
         name = _tpl_name(segs[1])
+        if name.lower() == "main.typ":
+            raise _bad("Reserved name")
+        _box: dict = {"inserted": False}
+
+        def _restore_create() -> None:
+            if not _box.get("inserted"):
+                return
+            try:
+                _rc = db.connect()
+                try:
+                    _rc.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, name))
+                    _rc.commit()
+                finally:
+                    _rc.close()
+            except Exception:
+                pass
+
         try:
-            with quota_svc.quota_guard(user, len(content.encode("utf-8"))):
+            with quota_svc.quota_guard(user, len(content.encode("utf-8")), rollback=_restore_create):
                 with db.tx() as con:
                     if con.execute("SELECT 1 FROM templates WHERE owner=? AND name=?", (user, name)).fetchone():
                         raise _bad("Template already exists")
                     con.execute("INSERT INTO templates (owner, name, content, line, folder, updated_at) "
                                 "VALUES (?,?,?,?,?,?)",
-                                (user, name, content, f'#include "{name}"', "", db.now_iso()))
+                                (user, name, content, insert_line(name), "", db.now_iso()))
+                    _box["inserted"] = True
         except sqlite3.IntegrityError as e:
             raise _bad("Template already exists") from e
         except sqlite3.OperationalError as e:
@@ -718,9 +726,25 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
     elif kind == "file":
         _write_text_file(res["doc_id"], res["filename"], new_text, user, cap, must_create=False)
     else:
+        if (res["tpl"] or "").lower() == "main.typ":
+            raise _bad("Reserved name")
+
+        def _restore_tpl_edit() -> None:
+            try:
+                _rb = db.connect()
+                try:
+                    _rb.execute("UPDATE templates SET content=? WHERE owner=? AND name=?",
+                                (current, user, res["tpl"]))
+                    _rb.commit()
+                finally:
+                    _rb.close()
+            except Exception:
+                pass
+
         con = db.connect()
         try:
-            with quota_svc.quota_guard(user, max(0, len(new_text.encode("utf-8")) - len(current.encode("utf-8")))):
+            with quota_svc.quota_guard(user, max(0, len(new_text.encode("utf-8")) - len(current.encode("utf-8"))),
+                                       rollback=_restore_tpl_edit):
                 try:
                     cur = con.execute("UPDATE templates SET content=?, updated_at=? WHERE owner=? AND name=?",
                                       (new_text, db.now_iso(), user, res["tpl"]))
@@ -733,6 +757,8 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
             raise deps.busy_503("mcp_edit", e) from e
         finally:
             con.close()
+        from backend.services.sidebar import notify_sidebar
+        notify_sidebar(user)
     new_marker = _current_text(user, resolve_path(user, cap, path))[1]
     return {"ok": True, "replaced": replaced, "last_seen": new_marker, "stale": stale}
 
@@ -935,6 +961,7 @@ def _compile_slot():
 
 def _compile_preexec() -> None:
     """Child-side rlimits for typst (1C): 1 GB AS, 30s CPU, 100 MB files."""
+    _res: Any
     try:
         import resource as _res
     except ImportError as e:
@@ -1032,7 +1059,9 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
                 for name, data in files:
                     if ".tmp." in name:
                         continue
-                    (root / name).write_bytes(data)
+                    dest = root / name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(data)
             except OSError as e:
                 raise _bad(f"compile failed: {e}", 500) from e
             cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
@@ -1084,7 +1113,9 @@ def _compile_pdf_pages(main_text: str, files: list[tuple[str, bytes]]) -> int | 
                 for name, data in files:
                     if ".tmp." in name:
                         continue
-                    (root / name).write_bytes(data)
+                    dest = root / name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(data)
             except OSError as e:
                 log.warning("pdf-pages write failed: %s", e)
                 return None
@@ -1154,33 +1185,24 @@ async def op_view(user: str, cap: str, path: str,
     wanted = _expand_pages(pages or "")
     ppi = _check_scale(scale)
     pages_arg = ",".join(str(p) for p in wanted)
-    live = sync.room_text(res["doc_id"])
+    # Unified source collection (nested + owner resource closure, like
+    # export): view compiles the same set REST/MCP export do. Own total
+    # cap (VIEW_SRC_MAX, no UPLOAD_MAX skipping: large images still render).
+    try:
+        main_text, files, _skipped = _collect_export_source(
+            res["doc_id"], max_bytes=VIEW_SRC_MAX, skip_oversize=False,
+            include_resources=True)
+    except HTTPException as e:
+        if getattr(e, "status_code", 0) == 413:
+            raise _bad("too many files for view", 413) from None
+        raise
     con = db.connect()
     try:
-        row = con.execute("SELECT content, updated_at FROM docs WHERE id=?", (res["doc_id"],)).fetchone()
+        row = con.execute("SELECT updated_at FROM docs WHERE id=?", (res["doc_id"],)).fetchone()
     finally:
         con.close()
     if not row:
         raise _bad("Doc gone", 404)
-    main_text = live if live is not None else (row["content"] or "")
-    d = _files_dir() / res["doc_id"]
-    files: list[tuple[str, bytes]] = []
-    src_bytes = 0
-    if d.is_dir():
-        try:
-            entries = sorted(d.iterdir())
-        except OSError:
-            entries = []
-        for p in entries:
-            if p.is_file() and ".tmp." not in p.name:
-                try:
-                    data = p.read_bytes()
-                except OSError:
-                    continue
-                src_bytes += len(data)
-                if src_bytes > VIEW_SRC_MAX:
-                    raise _bad("too many files for view", 413)
-                files.append((p.name, data))
     key = _view_key(res["doc_id"], main_text, files, pages_arg, ppi)
     hit = _view_cache_get(key)
     if hit is not None:
@@ -1259,50 +1281,89 @@ def _export_stem(title: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", (title or "").strip())[:80].strip("._") or "document"
 
 
-def _collect_export_source(doc_id: str) -> tuple[str, list[tuple[str, bytes]], list[str]]:
+def _collect_export_source(doc_id: str, max_bytes: int | None = None,
+                             skip_oversize: bool = True,
+                             include_resources: bool = True) -> tuple[str, list[tuple[str, bytes]], list[str]]:
     """(main_text, files, skipped) for one doc: live room text wins, then DB content.
 
-    Attachments over UPLOAD_MAX land in skipped (the zip bundle reports them
-    via SKIPPED.txt, like the full backup); symlinks are never followed.
-    The total source size is capped at EXPORT_MAX (413 beyond).
+    Attachments are collected recursively (nested paths preserved as zip/compile
+    relative paths). Files over UPLOAD_MAX land in skipped when `skip_oversize`
+    (the zip bundle reports them via SKIPPED.txt, like the full backup);
+    symlinks are never followed. The total source size is capped at `max_bytes`
+    (default EXPORT_MAX, 413 beyond).
+
+    With `include_resources` (default) the owner's reachable resource closure
+    (transitive, doc-local wins) is merged into `files`, so ALL export/view
+    paths share one resolution: REST, MCP export and MCP view compile the
+    same set. Callers must not re-merge (the old REST wrapper did).
     """
+    cap = max_bytes if max_bytes is not None else EXPORT_MAX
     live = sync.room_text(doc_id)
-    if live is not None:
-        main_text = live
-    else:
-        con = db.connect()
-        try:
-            row = con.execute("SELECT content FROM docs WHERE id=?", (doc_id,)).fetchone()
-        finally:
-            con.close()
-        if not row:
-            raise _bad("Doc gone", 404)
-        main_text = row["content"] or ""
+    con = db.connect()
+    try:
+        row = con.execute("SELECT content, owner FROM docs WHERE id=?", (doc_id,)).fetchone()
+    finally:
+        con.close()
+    if not row:
+        raise _bad("Doc gone", 404)
+    main_text = live if live is not None else (row["content"] or "")
+    owner = row["owner"] or ""
     files: list[tuple[str, bytes]] = []
     skipped: list[str] = []
     src_bytes = len(main_text.encode("utf-8"))
     d = _files_dir() / doc_id
     if d.is_dir():
         try:
-            entries = sorted(d.iterdir())
+            entries = sorted(d.rglob("*"))
         except OSError:
             entries = []
         for p in entries:
-            if not p.is_file() or p.is_symlink() or ".tmp." in p.name:
+            try:
+                name = p.relative_to(d).as_posix()
+            except ValueError:
+                continue
+            if not p.is_file() or p.is_symlink() or any(s.startswith(".") for s in p.relative_to(d).parts) or ".tmp." in p.name:
                 continue
             try:
-                if p.stat().st_size > UPLOAD_MAX:
-                    skipped.append(p.name)
+                if skip_oversize and p.stat().st_size > UPLOAD_MAX:
+                    skipped.append(name)
                     continue
                 data = p.read_bytes()
             except OSError:
                 continue
             src_bytes += len(data)
-            if src_bytes > EXPORT_MAX:
+            if src_bytes > cap:
                 raise _bad("Export too large (max 100 MB)", 413)
-            files.append((p.name, data))
-    if src_bytes > EXPORT_MAX:
+            files.append((name, data))
+    if src_bytes > cap:
         raise _bad("Export too large (max 100 MB)", 413)
+    if include_resources and owner:
+        try:
+            from backend.services import resources as _res
+        except ImportError:
+            return main_text, files, skipped
+        local_texts: dict[str, str] = {}
+        for n, data in files:
+            if _res.kind_of(n):
+                try:
+                    local_texts[n] = data.decode("utf-8", errors="replace")
+                except Exception:
+                    continue
+        try:
+            eff = _res.doc_effective(owner, main_text, local_texts)
+        except Exception as e:
+            log.warning("export resource closure failed: %s", e)
+            return main_text, files, skipped
+        have = {n for n, _ in files}
+        for n, c in (eff.get("resources") or {}).items():
+            if n in have or ".tmp." in n:
+                continue
+            b = c.encode("utf-8")
+            src_bytes += len(b)
+            if src_bytes > cap:
+                raise _bad("Export too large (max 100 MB)", 413)
+            files.append((n, b))
+            have.add(n)
     return main_text, files, skipped
 
 
@@ -1335,7 +1396,8 @@ def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str
 
     pdf = full multi-page PDF. svg/png = the single page directly, or a ZIP
     of all pages when the doc has more than one (typst needs a {p} template
-    for multi-page image output). zip = source bundle (main.typ + files/).
+    for multi-page image output). zip = source bundle (main.typ + sources at
+    root paths, directly renderable unpacked).
     pdf_standard/pages/ppi are CLI-only (the WASM bundle cannot do them):
     --pdf-standard (pdf only), --pages (pdf/svg/png), --ppi (png only).
     Outputs over EXPORT_MAX -> 413. Temp dirs auto-clean (no migration).
@@ -1353,15 +1415,25 @@ def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str
     if f == "zip":
         buf = io.BytesIO()
         total = len(main_text.encode("utf-8"))
+        seen: set[str] = {"main.typ"}
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("main.typ", main_text)
             for name, data in files:
                 if ".tmp." in name:
                     continue
+                # Directly renderable bundle: every source at its original
+                # root-relative path (nested preserved), so an unchanged
+                # #include "part.typ" / "sub/part.typ" compiles unpacked.
+                clean = (name or "").replace("\\", "/").strip().lstrip("/")
+                if not clean or clean == "main.typ" or ".." in clean.split("/"):
+                    continue
+                if clean.lower() in seen:
+                    continue
+                seen.add(clean.lower())
                 total += len(data)
                 if total > EXPORT_MAX:
                     raise _bad("Export too large (max 100 MB)", 413)
-                z.writestr(f"files/{name}", data)
+                z.writestr(clean, data)
             if skipped:
                 z.writestr("SKIPPED.txt", "Oversized files left out:\n" + "\n".join(skipped) + "\n")
         payload = buf.getvalue()
@@ -1375,7 +1447,9 @@ def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str
             for name, data in files:
                 if ".tmp." in name:
                     continue
-                (root / name).write_bytes(data)
+                dest = root / name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
         except OSError as e:
             raise _bad(f"compile failed: {e}", 500) from e
         pg_args = ["--pages", pg] if pg else []
@@ -1453,7 +1527,8 @@ async def op_export(user: str, cap: str, path: str, format: str = "pdf",
     """Export a document via typst CLI (read-only: any role with access).
 
     format pdf = full PDF; svg/png = single page directly, multi-page docs
-    as ZIP of pages; zip = source bundle (main.typ + files/). Returns
+    as ZIP of pages; zip = source bundle (main.typ + sources at root paths,
+    directly renderable). Returns
     base64 payload + mime + filename (REST parity, no worker block: compile
     runs in asyncio.to_thread). Like view: MCP rate scope (`mcp`) applies,
     no per-user export lock (REST serializes via _export_lock).

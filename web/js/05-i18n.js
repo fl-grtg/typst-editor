@@ -1,6 +1,6 @@
 // --- i18n: t(key, params) over the embedded i18n-data JSON (see web/build.py) ---
 // Embedded shape: {"<lang>":{"<area>":{...}}}. Language = browser default
-// (navigator.language de -> de, else en); no settings switcher (Wave 2D).
+// (navigator.language de -> de, else en); Settings can override it below.
 // ?lang=de|en only whitelists the same two branches (debug/testing helper).
 // Missing web/i18n/ builds without the tag: t() then falls back to en, then key.
 // NOTE: params are substituted raw — only pass them into innerHTML with

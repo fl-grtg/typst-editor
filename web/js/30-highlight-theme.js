@@ -18,9 +18,23 @@ const typstTheme = HighlightStyle.define([
   { tag: tags.link, color: 'var(--tok-link)', textDecoration: 'underline' },
   { tag: tags.invalid, color: 'var(--tok-invalid)' },
 ])
-const cm = new EditorView({
-  parent: $('cm'),
-  extensions: [keymap.of([ // first: highest priority before minimalSetup defaults
+const spellCode = StateField.define({
+  create: state => spellCodeMarks(state),
+  update: (marks, tr) => tr.docChanged ? spellCodeMarks(tr.state) : marks,
+  provide: field => EditorView.decorations.from(field)
+})
+function spellCodeMarks(state) {
+  const marks = []
+  typstParser.parse(state.doc.toString()).iterate({ enter(node) {
+    if (/^(FuncCall|SetRule|ShowRule|LetBinding|ModuleImport|ModuleInclude|Equation|Import|Include|Math|Raw|LineComment|BlockComment|Ident|Hash|Numeric|String|Str)$/.test(node.name)) {
+      if (node.to > node.from) marks.push(Decoration.mark({ attributes: { spellcheck: 'false' } }).range(node.from, node.to))
+      return false
+    }
+  } })
+  return Decoration.set(marks, true)
+}
+const languageComp = new Compartment()
+const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup defaults
       { key: 'ArrowDown', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(true)(v); return false } }, // creator call: (forward)(view), else cursor moves along
       { key: 'ArrowUp', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(false)(v); return false } },
       { key: 'Escape', run: v => { if (currentCompletions(v.state).length) { closeCompletion(v); return true } return false } },
@@ -42,14 +56,15 @@ const cm = new EditorView({
       },
       shift: v => prevSnippetField(v) || indentLess(v), // F10: Shift-Tab walks snippet fields back, else dedent
     }, { key: 'Ctrl-Space', run: startCompletion }, ...foldKeymap]), // F10: fold shortcuts alongside completion keys
-    minimalSetup, typstSupport, Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping, tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
+    minimalSetup, languageComp.of(typstSupport), Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping, tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
     autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
-    markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
+    spellCode, markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
       if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
+      if (u.docChanged && window.__booted) { paintCsv(); window.paintFileExtras?.() }
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
       if (u.docChanged && findOpen) markFind(false) // recount only: typing beside an open find must not yank the cursor back to a hit
       paintErr() // compile errors via lint: key stops loops, positions map across edits (no live lint)
@@ -59,7 +74,7 @@ const cm = new EditorView({
       if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
       if (u.selectionSet || u.docChanged) try { updPos() } catch (e) {} // F24 status: Ln/Col/words follow cursor
     })]
-})
+const cm = new EditorView({ parent: $('cm'), extensions: cmExtensions })
 const Transaction = cm.state.update({}).constructor // vendor bundle exports no Transaction: take the class from a throwaway transaction
 const NO_HIST = [Transaction.addToHistory.of(false), Transaction.remote.of(true)] // remote/programmatic text: never in own undo stack
 cm.scrollDOM.addEventListener('scroll', () => {
@@ -114,7 +129,7 @@ function showLinkTip(url, x, y) {
     linkTip.style.whiteSpace = 'nowrap'; linkTip.style.overflow = 'hidden'; linkTip.style.textOverflow = 'ellipsis'
     document.body.appendChild(linkTip)
   }
-  linkTip.textContent = url.length > 60 ? url.slice(0, 60) + '…' : url
+  linkTip.textContent = url.length > 60 ? url.slice(0, 60) + 'â€¦' : url
   const w = linkTip.offsetWidth || 240
   linkTip.style.left = Math.max(8, Math.min(x - w / 2, innerWidth - w - 8)) + 'px'
   linkTip.style.top = Math.max(8, y - (linkTip.offsetHeight || 32) - 10) + 'px'
@@ -142,13 +157,23 @@ addEventListener('keydown', e => { // ctrl pressed: hide preview, finger without
 addEventListener('keyup', e => { if (e.key === 'Control' || e.key === 'Meta') cm.contentDOM.style.cursor = '' })
 addEventListener('blur', () => { hideLinkTip(); cm.contentDOM.style.cursor = '' })
 const getT = () => cm.state.doc.toString()
-const setT = v => { applying = true; try { cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: v }, annotations: NO_HIST }) } finally { applying = false } } // doc/tab switch: Ctrl+Z must not bring back the previous doc
+const editMode = on => [EditorView.editable.of(on), EditorState.readOnly.of(!on)]
+const setT = v => { // a new text buffer also needs a fresh undo stack
+  const mode = cm.state.facet(EditorView.editable)
+  applying = true
+  try {
+    cm.setState(EditorState.create({ doc: v, extensions: cmExtensions }))
+    cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))])] })
+    if (window.__booted && findOpen) markFind(false)
+  } finally { applying = false }
+  if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.() }
+}
 function onEdit(mapPos, changes, oldLen) {
   gutter()
   if (tplName) { queueTplSave(); return } // template: save directly, no sync/render
   if (docRole === 'reviewer' || !ytext) return
   paintOutline()
-  if (activeFile) { queueFileSave(); return } // file tab: only file + preview, no Yjs
+  if (activeFile) { queueFileSave(); tabLive(); return } // file/template tab: only that text + preview, no Yjs
   pushLocal(); queueRender(); queueSave()
   if (mapPos) mapThreads(mapPos)
   reanchor()
@@ -191,4 +216,3 @@ function initRanges() { // ranges from quote (once; then mapping keeps them aliv
     else { th.a = posOfLine(t, th.anchor); th.b = th.a + t.slice(th.a).split('\n')[0].length }
   }
 }
-

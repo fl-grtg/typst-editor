@@ -35,7 +35,7 @@ def test_vendor_page_urls_served_immutable(c):
         assert r.status_code == 200, name
         assert r.headers.get("cache-control") == "public, max-age=31536000, immutable", name
     js = c.get("/vendor/" + next(n for n in names if n.startswith("yjs-13")))
-    assert "text/javascript" in js.headers.get("content-type", "")
+    assert js.headers.get("content-type", "").split(";")[0] in {"text/javascript", "application/javascript"}
     wasm_names = [n for n in names if n.endswith(".wasm")]
     assert len(wasm_names) >= 2  # compiler + renderer, plus typstyle (Wave 2B)
     for name in wasm_names:

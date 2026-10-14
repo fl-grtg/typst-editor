@@ -1,4 +1,4 @@
-// --- Keyboard shortcut overview: small window over Help (tutorial stays one click away) ---
+// --- Keyboard shortcut overview: small window over Help (GitHub documentation stays one click away) ---
 const SC_ROWS = [ // [combos, descKey]: combos render with Ctrl or Command per platform
   [[['mod', 'S']], 'editor.scSave'],
   [[['mod', 'F']], 'editor.scFind'],
@@ -7,6 +7,7 @@ const SC_ROWS = [ // [combos, descKey]: combos render with Ctrl or Command per p
   [[['Ctrl', 'Space']], 'editor.scComplete'],
   [[['Tab']], 'editor.scAccept'],
   [[['Shift', 'Tab']], 'editor.scDedent'],
+  [[['mod', 'Alt', 'PgDn'], ['mod', 'Alt', 'PgUp']], 'editor.scTabs'],
   [[['mod', '+'], ['mod', '−'], ['mod', '0']], 'editor.scZoom'],
   [[['Enter'], ['Shift', 'Enter']], 'editor.scFindNext'],
   [[['Esc']], 'editor.scClose'],

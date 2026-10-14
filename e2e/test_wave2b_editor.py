@@ -15,7 +15,7 @@ UNFORMATTED = "#let   x=1\n#let y   =   2\n\n=   Title\n\nText."
 
 
 def test_9_format_shortcut_preview_shortcuts_spell(page):
-    register(page, "e2e_ivan")
+    register(page, "e2e_format")
     create_doc(page, "Format doc")
     type_source(page, UNFORMATTED)
     page.keyboard.press("Alt+Shift+F")

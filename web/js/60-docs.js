@@ -6,11 +6,12 @@ const saveShut = () => lsSet('typst_shut', JSON.stringify([...shut]))
 let secShut = new Set() // collapsed sidebar sections (header IDs)
 try { secShut = new Set(JSON.parse(localStorage.getItem('typst_sec') || '[]')) } catch (e) {}
 const saveSec = () => lsSet('typst_sec', JSON.stringify([...secShut]))
-const SECS = [['ownH', 'own', 'docs.secDocs', 'doc'], ['tplH', 'tpls', 'docs.secTemplates', 'tpl'], ['sharedH', 'shared', 'docs.secShared'], ['olH', 'ol', 'docs.secOutline']]
+const SECS = [['ownH', 'own', 'docs.secDocs', 'doc'], ['tplH', 'tpls', 'docs.secFiles', 'resource'], ['libH', 'libs', 'docs.secLibraries', 'library'], ['tblH', 'tbls', 'docs.secTables', 'table'], ['sharedH', 'shared', 'docs.secShared'], ['olH', 'ol', 'docs.secOutline']]
 function paintSecs() { // all sections collapsible, + creates folder directly
   for (const [h, box, labelKey, plus] of SECS) {
     const H = $(h), B = $(box)
     if (!H || !B) continue
+    if (['libH', 'tblH'].includes(h)) { H.hidden = true; B.hidden = true; continue }
     H.replaceChildren()
     const togSec = () => { secShut.has(h) ? secShut.delete(h) : secShut.add(h); saveSec(); paintSecs() }
     const l = el('span', 'lbl', t(labelKey))
@@ -19,9 +20,14 @@ function paintSecs() { // all sections collapsible, + creates folder directly
     kb(H, togSec) // h3 is the button (Enter/Space), aria-expanded see below
     H.appendChild(l)
     if (plus) {
-      const p = icoBtn('mini', ICO_PLUS); p.title = plus === 'doc' ? t('docs.newFolderBtn') : t('docs.newTplFolderBtn'); p.setAttribute('aria-label', p.title)
-      p.onclick = e => { e.stopPropagation(); plus === 'doc' ? newFolder() : newTplFolder() }
+      const p = icoBtn('mini', ICO_PLUS); p.title = plus === 'doc' ? t('shell.newDoc') : t('templates.newResource', { kind: resLabel(plus) }); p.setAttribute('aria-label', p.title)
+      p.onclick = e => { e.stopPropagation(); plus === 'doc' ? $('new').click() : newResource(plus) }
       H.appendChild(p)
+      {
+        const f = icoBtn('mini', svgI('<path d="M2 5h12v8H2zM2 5V3h4l2 2"/>'))
+        f.title = t(plus === 'doc' ? 'docs.newFolderBtn' : 'docs.newTplFolderBtn'); f.setAttribute('aria-label', f.title)
+        f.onclick = e => { e.stopPropagation(); plus === 'doc' ? newFolder() : newTplFolder() }; H.insertBefore(f, p)
+      }
     }
     B.style.display = secShut.has(h) ? 'none' : ''
     H.setAttribute('aria-expanded', String(!secShut.has(h)))
@@ -52,7 +58,10 @@ function watchSidebar() { // live sidebar: external list changes (MCP, other tab
     sideESErr = 0
     const es = sideES = new EventSource('/api/events')
     es.onopen = () => { sideESErr = 0; sideESRearms = 0 } // (re)connect resets counters
-    es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } sidebar().catch(() => {}) })
+    es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } resSync().finally(() => sidebar().catch(() => {})) })
+    es.addEventListener('comment', e => { if (e.data === docId) loadComments().catch(() => {}) })
+    es.addEventListener('member', e => { if (e.data === docId) { loadMembers(); sidebar() } })
+    es.addEventListener('file', e => { if (e.data === docId) { filesDirty = true; queueRender() } })
     es.onerror = () => {
       if (es !== sideES) return // superseded stream: ignore
       if (++sideESErr > 3) {
@@ -81,6 +90,7 @@ async function sidebar() {
     return // keep old list
   }
   lastOwn = d.own; lastShared = d.shared
+  if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
   paintTpls()
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
@@ -142,7 +152,7 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
   }
   if (qc) qc.textContent = ''
   const byF = new Map()
-  lastOwn.forEach(x => {
+  ;[...lastOwn].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }) || a.id.localeCompare(b.id)).forEach(x => {
     if (!x.folder) box.appendChild(docRow(x))
     else { if (!byF.has(x.folder)) byF.set(x.folder, []); byF.get(x.folder).push(x) }
   })
@@ -153,7 +163,7 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
   const box = $('shared'); box.replaceChildren()
   const byO = new Map()
-  list.forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
+  ;[...list].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
   ;[...byO.keys()].sort((a, b) => a.localeCompare(b)).forEach(o => {
     const docs = byO.get(o)
     if (docs.length === 1) { box.appendChild(docRow(docs[0], true)); return }
@@ -217,8 +227,9 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   h.appendChild(l)
   $('trash').style.display = secShut.has('trashH') ? 'none' : ''
   if (!trash.length) { $('trash').replaceChildren(); $('trash').appendChild(el('div', 'empty', t('docs.trashEmpty'))); return }
-  const empty = el('button', 'mini', t('docs.emptyTrashBtn')); empty.title = t('docs.emptyTrashTitle'); empty.setAttribute('aria-label', empty.title)
-  empty.onclick = async () => {
+  const empty = el('button', 'mini trashClear', t('docs.emptyTrashBtn')); empty.title = t('docs.emptyTrashTitle'); empty.setAttribute('aria-label', empty.title)
+  empty.onclick = async e => {
+    e.stopPropagation()
     if (!await ask(trash.length === 1 ? t('docs.emptyTrashConfirmOne') : t('docs.emptyTrashConfirmMany', { n: trash.length }), { noInput: true, ok: t('common.delete'), danger: true })) return
     const errs = []
     for (const x of trash) { try { await api('DELETE', `/api/docs/${x.id}`) } catch (e) { errs.push(x.title + ': ' + e.message) } } // no break: try all
@@ -258,12 +269,17 @@ $('ownH').ondrop = e => { // drop on Documents = move out of folder
   api('POST', `/api/docs/${id}/folder`, { folder: '' }).then(sidebar).catch(e => toast(e.message))
 }
 $('tplH').ondragover = e => e.preventDefault()
-$('tplH').ondrop = e => { // drop on Templates = move out of folder
-  e.preventDefault()
-  const id = e.dataTransfer.getData('text/plain')
-  if (!id || !id.startsWith('tpl:')) return
-  api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: '' })
-    .then(() => { loadTpl() }).catch(e => toast(e.message))
+for (const hid of ['tplH', 'libH', 'tblH']) { // drop on Templates/Libraries/Tables = move out of folder (shared folder namespace)
+  const H = $(hid)
+  if (!H) continue
+  H.ondragover = e => e.preventDefault()
+  H.ondrop = e => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (!id || !id.startsWith('tpl:')) return
+    api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: '' })
+      .then(() => { loadTpl() }).catch(e => toast(e.message))
+  }
 }
 let searchN = 0
 async function runSearch() {
@@ -275,7 +291,7 @@ async function runSearch() {
   if (n !== searchN) return // stale: newer search already running
   paintOwn()
 }
-function tplRow(tpl) { // click opens in editor, drag sorts into folder
+function resRow(tpl) { // click opens in editor, drag sorts into folder (all three resource kinds share this row)
   const div = document.createElement('div')
   div.className = 'doc' + (tpl.name === tplName ? ' cur' : '')
   div.setAttribute('role', 'button')
@@ -287,31 +303,32 @@ function tplRow(tpl) { // click opens in editor, drag sorts into folder
   const dup = icoBtn('mini', ICO_DUP); dup.title = t('docs.duplicate'); dup.setAttribute('aria-label', dup.title)
   dup.onclick = async e => {
     e.stopPropagation()
+    const ext = tpl.name.slice(tpl.name.lastIndexOf('.')).toLowerCase()
     const n = await ask(t('templates.dupTpl'), { value: tpl.name })
     if (n === null || !n.trim()) return
-    let nn = n.trim().replace(/\.typ$/i, '.typ')
-    if (!nn.endsWith('.typ')) nn += '.typ'
-    nn = nn.split(/[/\\]/).pop().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 100) // like backend: check matches exactly
+    let nn = n.trim().split(/[/\\]/).pop().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 100) // like backend: check matches exactly
+    if (!nn.toLowerCase().endsWith(ext)) nn = nn.replace(/\.[^.]*$/, '') + ext // duplicates keep the file type
+    if (!nn.replace(/\.[^.]*$/, '')) return
     await loadTpl() // fresh: else upsert would silently overwrite
     const src = myTpl.find(x => x.name === tpl.name) || tpl // no stale closure: state after reload
     if (myTpl.some(x => x.name === nn)) { toast(t('common.nameExists')); return }
-    try { await api('POST', '/api/templates', { name: nn, content: src.content, folder: src.folder || '' }); await loadTpl(); sidebar() }
+    try { await api('POST', '/api/templates/' + encodeURIComponent(tpl.name) + '/duplicate', { name: nn }); await loadTpl(); sidebar() }
     catch (err) { toast(err.message) }
   }
   div.appendChild(dup)
-  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delTpl'); del.setAttribute('aria-label', del.title)
+  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title)
   del.onclick = async e => {
     e.stopPropagation()
-    if (!await ask(t('templates.delTplConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return
+    if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)) } catch (err) { toast(err.message); return }
-    if (tpl.name === tplName) { clearTimeout(tplT); closeView(); $('viewSeg').style.display = '' } // open template gone: no zombie save, back to empty
+    if (tpl.name === tplName) { clearTimeout(tplT); tplDirty = false; closeView(); $('viewSeg').style.display = '' } // open resource gone: no zombie save, back to empty
     await loadTpl(); sidebar()
   }
   div.appendChild(del)
   return div
 }
-function paintTplFolder(box, f, docs) { // like paintFolder, for templates only
-  const h = el('div', 'fhd'), k = 'tpl:' + f
+function paintResFolder(box, f, docs, key) { // like paintFolder, for resources only (shared folder namespace, per-kind collapse keys)
+  const h = el('div', 'fhd'), k = key + f
   const hd = el('b', null, f)
   hd.title = t('docs.expandCollapse')
   hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', String(!shut.has(k))); hd.setAttribute('aria-label', f + (shut.has(k) ? t('docs.isCollapsed') : t('docs.isExpanded')))
@@ -341,32 +358,91 @@ function paintTplFolder(box, f, docs) { // like paintFolder, for templates only
       .then(loadTpl).catch(e => toast(e.message))
   }
   box.appendChild(h)
-  if (!shut.has(k)) docs.forEach(t => { const r = tplRow(t); r.classList.add('sub'); box.appendChild(r) })
+  if (!shut.has(k)) docs.forEach(t => { const r = resRow(t); r.classList.add('sub'); box.appendChild(r) })
 }
-function paintTpls() { // templates section: click opens in editor
-  const box = $('tpls'); if (!box) return
+function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.bib/.csv) from the shared myTpl shelf
+  const box = $(boxId); if (!box) return
   box.replaceChildren()
-  const { top, byF } = groupBy(myTpl)
-  top.forEach(t => box.appendChild(tplRow(t)))
+  const { top, byF } = groupBy(resOf(kind))
+  top.forEach(t => box.appendChild(resRow(t)))
   tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
-  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintTplFolder(box, f, byF.get(f)))
-  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('templates.noTpls'))) // create via + New above (type + folder step)
+  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintResFolder(box, f, byF.get(f), key))
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t(emptyKey))) // create via + New above (type + folder step)
 }
-let tplName = '' // template in editor (no doc): preview n/a, no read mode
+function paintTpls() { // templates + libraries + tables sections: click opens in editor
+  paintKind('tpls', 'resource', 'templates.noTpls', 'tpl:')
+  paintKind('libs', 'library', 'templates.noLibs', 'lib:')
+  paintKind('tbls', 'table', 'templates.noTbls', 'tbl:')
+}
+let tplName = '' // resource in editor (no doc): preview n/a, no read mode
+let tplDirty = false, tplVer = '', tplOpenN = 0, tplSaving = null // dirty text, base version and save in flight
+const tplCached = name => myTpl.find(x => x.name === name)
+const resourceStashKey = name => 'typst-resource-draft-' + user + '-' + encodeURIComponent(name)
+async function flushTpl() { // persist a dirty resource before a view switch; false = stay put, edits preserved
+  if (tplSaving) { const ok = await tplSaving; if (!ok) return false }
+  if (!tplName || !tplDirty) { clearTimeout(tplT); return true }
+  clearTimeout(tplT)
+  if (navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return false }
+  const key = tplName, text = getT(), epoch = tplOpenN
+  tplSaving = (async () => {
+  try {
+    const r = await api('POST', '/api/templates', { name: key, content: text, ...(tplVer ? { version: tplVer } : {}) })
+    if (key !== tplName || epoch !== tplOpenN) return false
+    if (r && r.version) { tplVer = r.version; const cc = tplCached(key); if (cc) { cc.content = text; cc.updated_at = r.version } }
+    if (getT() !== text) { queueTplSave(); return false }
+    tplDirty = false
+    try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
+    $('save').textContent = t('docs.saved') + wc()
+    loadTpl()
+    return true
+  } catch (e) {
+    if (key !== tplName) return false
+    if (e.status === 409) toast(t('templates.saveConflict'), () => loadTheirs(key), t('templates.loadTheirs'))
+    else toast(t('templates.saveFail', { msg: e.message }), () => flushTpl(), t('common.retry'))
+    $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
+    return false
+  }
+  })()
+  try { return await tplSaving } finally { tplSaving = null }
+}
+async function loadTheirs(key) { // conflict escape: take the server text into the editor
+  try {
+    const r = await api('GET', '/api/templates/' + encodeURIComponent(key))
+    if (key !== tplName) return
+    tplVer = r.version || ''
+    const cc = tplCached(key); if (cc) { cc.content = r.content || ''; cc.updated_at = tplVer }
+    try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
+    tplDirty = false; setT(r.content || ''); $('save').textContent = t('docs.saved') + wc(); paintTpls()
+  } catch (e) { toast(e.message) }
+}
+async function resSync() { // SSE follow-up: fresh list first, open resource follows only when clean (dirty editors never wiped)
+  try { await loadTpl() } catch (e) {}
+  if (!tplName) return
+  const cc = tplCached(tplName)
+  if (!cc) return
+  if (!tplDirty) {
+    tplVer = cc.updated_at || tplVer
+    if ((cc.content || '') !== getT()) { setT(cc.content || ''); $('save').textContent = t('docs.saved') + wc() }
+  }
+}
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
+  ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT)
+  pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null
+  if (window.Present?.isOn()) window.Present.exit()
+  window.docTpl = []; docResAt = 0
   wantPos = -1 // old search jump must not fire in next doc
   openedTrashed = false
   clearTimeout(saveT); clearTimeout(tplT); clearTimeout(anchorT); anchorDirty.clear() // no zombie save into next doc
   clearTimeout(connT); connT = 0 // stale disconnect paint must not fire in the next doc
-  if (activeFile && docId) { // pending file save: take along silently (keepalive)
+  if (activeFile && docId && tabDirty) { // pending file/template save: take along silently (keepalive)
     clearTimeout(fileT)
-    fetch(`/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: getT() }),
-      keepalive: true }).catch(() => {})
+    const rq = tabReq(activeFile, getT())
+    fetch(rq.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rq.body), keepalive: true }).catch(() => {})
   }
+  cmpWarns = []; cmpDiags = []; errKey = ''; errLines = []; tabDirty = false; tabPins = new Set(); tabState.clear(); tabVersions.clear(); tabSig = ''; clearTimeout(tabT)
   prov?.destroy(); ydoc?.destroy(); prov = ydoc = ytext = null
   const wd = $('wsDot'); if (wd) { wd.style.background = '#8e8e93'; wd.title = t('docs.offline') }; const wt0 = $('wsTxt'); if (wt0) wt0.textContent = t('docs.offline')
-  threads = []; marks = new Set(); syncPage = 0 // do not carry click page into next doc
+  threads = []; members = []; lastC = ''; marks = new Set(); syncPage = 0 // do not carry click page into next doc
   activeFile = ''; clearTimeout(fileT); bibKeys = [] // tabs closed (see paintTabs)
   $('tabs').style.display = 'none'
   fileCache.clear(); mediaNames = []; lastMedia = ''; lastFiles = []; mediaOpen = false
@@ -378,24 +454,37 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   const eb = $('eBadge'); if (eb) eb.style.display = 'none'
 }
 async function openTpl(name) {
-  const tpl = myTpl.find(x => x.name === name)
+  const n = ++openN
+  if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
+  if (n !== openN || !await flushTab() || n !== openN) return
+  const tpl = tplCached(name)
   if (!tpl) return
+  ++tplOpenN
   autoCloseDrawer()
   leaveDoc()
   docId = ''; tplName = name; docRole = ''
+  tplVer = tpl.updated_at || ''; tplDirty = false
   hidePops()
   setView('split') // segment hidden: reset view, else editonly sticks
   $('title').textContent = name; $('title').classList.remove('is-empty')
-  $('tools').style.display = ''; $('pvTools').style.display = ''
-  $('role').textContent = t('templates.roleLabel'); $('role').onclick = null; $('role').style.cursor = ''; $('role').title = ''; $('roBanner').style.display = 'none'; $('renBtn').style.display = ''
+  $('tools').style.display = ''; $('pvTools').style.display = 'none'
+  const low = tpl.name.toLowerCase()
+  $('role').textContent = low.endsWith('.bib') ? t('templates.roleLibrary') : /\.(csv|tsv)$/.test(low) ? t('templates.roleTable') : low.endsWith('.typ') ? t('templates.roleLabel') : t('docs.secFiles')
+  $('role').onclick = null; $('role').style.cursor = ''; $('role').title = ''; $('roBanner').style.display = 'none'; $('renBtn').style.display = ''
   $('viewSeg').style.display = 'none'; $('cNew').style.display = 'none'
   $('shareBtn').style.display = 'none'; $('imgBtn').style.display = 'none'; $('mediaBtn').style.display = 'none'
-  $('del').style.display = ''; $('dlPdf').style.display = 'none'; $('dlPng').style.display = 'none'; $('dlSvg').style.display = 'none' // template: delete yes, export no
+  $('del').style.display = ''; $('dlPdf').style.display = 'none'; $('dlPng').style.display = 'none'; $('dlSvg').style.display = 'none'; $('dlZip').style.display = 'none' // template: delete yes, export no
   $('dlTyp').style.display = ''; $('tplBtn').style.display = ''
   $('histBtn').style.display = 'none'; $('symBtn').style.display = ''; $('colWrap').hidden = false
-  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(true)) })
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(true)) })
   gutter()
   setT(tpl.content)
+  try {
+    const draft = JSON.parse(localStorage.getItem(resourceStashKey(name)) || 'null')
+    if (draft && typeof draft.c === 'string' && draft.c !== getT() && Date.now() - draft.t < 86400000) {
+      toast(t('docs.stashFound'), () => { if (tplName === name) { setT(draft.c); queueTplSave() } }, t('docs.restore'), 15000)
+    }
+  } catch (e) {}
   paintOutline() // clear old outline from previous doc (templates have none)
   $('preview').innerHTML = '<p class="empty">' + t('templates.previewNa') + '</p>'
   $('save').style.display = '' // template: save feedback back (dots stay hidden, no sync)
@@ -405,12 +494,14 @@ async function openTpl(name) {
 }
 function queueTplSave() {
   clearTimeout(tplT)
-  $('save').textContent = t('docs.saving')
-  tplT = setTimeout(async () => {
-    try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = t('docs.saved') + wc(); loadTpl() }
-    catch (e) { $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message }); if (navigator.onLine !== false) toast(t('templates.saveFail', { msg: e.message }), () => queueTplSave(), t('common.retry')) } // auto: quiet offline, status line says it
-  }, SAVE_MS)
+  if (!tplName) return
+  tplDirty = true
+  $('save').textContent = t(navigator.onLine === false ? 'docs.offlineRetry' : 'docs.saving')
+  try { localStorage.setItem(resourceStashKey(tplName), JSON.stringify({ c: getT(), t: Date.now() })) } catch (e) {}
+  const key = tplName
+  tplT = setTimeout(() => { if (key === tplName) flushTpl() }, SAVE_MS)
 }
+addEventListener('online', () => { if (tplName && tplDirty) flushTpl() })
 let openN = 0, synced = false // sync state ready? Else no empty save to DB (Fix #2)
 function wsLive() { return !!(prov && prov.wsconnected) } // Yjs carries main.typ; REST autosave would only 409
 let connT = 0 // debounced disconnect paint: brief flaps stay invisible, no flicker
@@ -437,11 +528,20 @@ async function restoreOpen() { // click Trash: restore to life, then connect liv
   openDoc(id)
 }
 function closeView() { // no doc open: buttons off, empty view in
+  ++openN; ++tplOpenN
+  if (tplName && tplDirty) { // view gone by definition: keepalive carries the bytes, failure surfaces as a toast
+    clearTimeout(tplT); tplDirty = false
+    try {
+      fetch('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tplName, content: getT(), ...(tplVer ? { version: tplVer } : {}) }),
+        keepalive: true }).catch(() => toast(t('docs.offlineRetry')))
+    } catch (e) { toast(t('docs.offlineRetry')) }
+  }
   leaveDoc()
   docId = ''; tplName = ''; lastC = ''
-  for (const b of ['shareBtn', 'histBtn', 'symBtn', 'imgBtn', 'mediaBtn', 'tplBtn', 'del', 'renBtn', 'dlTyp', 'dlPdf', 'dlPng', 'dlSvg', 'cNew']) $(b).style.display = 'none'; $('colWrap').hidden = true
+  for (const b of ['shareBtn', 'histBtn', 'symBtn', 'imgBtn', 'mediaBtn', 'tplBtn', 'del', 'renBtn', 'dlTyp', 'dlPdf', 'dlPng', 'dlSvg', 'dlZip', 'cNew']) $(b).style.display = 'none'; $('colWrap').hidden = true
   for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = 'none' // no doc: no status blobs
-  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(false)) }) // no doc: read-only
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }) // no doc: read-only
   hidePops()
   $('title').textContent = t('docs.welcome'); $('title').classList.add('is-empty'); $('role').textContent = ''; $('role').onclick = null; $('role').title = ''
   $('roBanner').style.display = 'none'
@@ -451,15 +551,18 @@ function closeView() { // no doc open: buttons off, empty view in
 }
 async function openDoc(id) {
   const n = ++openN, wp = wantPos // keep search jump across leaveDoc (see docRow search)
-  autoCloseDrawer()
-  leaveDoc()
-  wantPos = wp
-  if (tplName) setView('split') // only back from template: view was gone, else keep mode
-  hidePops()
+  if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
+  if (n !== openN || !await flushTab() || n !== openN) return
   let d
   try { d = await api('GET', `/api/docs/${id}`) }
   catch (e) { toast(e.message); sidebar(); return }
   if (n !== openN) return // stale: newer openDoc already running
+  if (tplDirty || tabDirty) return // input while loading: keep the unsaved buffer
+  autoCloseDrawer()
+  leaveDoc()
+  wantPos = wp
+  if (tplName) setView('split')
+  hidePops()
   docId = id; docRole = d.role; tplName = ''
   openedTrashed = !!d.trashed
   const ro = d.role === 'reviewer' || openedTrashed // trash: read yes, write no
@@ -478,7 +581,7 @@ async function openDoc(id) {
   $('del').title = openedTrashed ? t('docs.delPermBtn') : t('docs.moveTrash')
   $('del').setAttribute('aria-label', $('del').title)
   lastC = ''; synced = false
-  cm.dispatch({ effects: editableComp.reconfigure(EditorView.editable.of(!ro)) })
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(!ro)) })
   $('shareBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
   for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = '' // doc open: status back
   $('histBtn').style.display = ro ? 'none' : '' // history writes: reviewer/trash excluded
@@ -487,7 +590,7 @@ async function openDoc(id) {
   $('tplBtn').style.display = ro ? 'none' : ''
   $('symBtn').style.display = ro ? 'none' : ''
   $('colWrap').hidden = ro
-  $('dlTyp').style.display = ''; $('dlPdf').style.display = ''; $('dlPng').style.display = ''; $('dlSvg').style.display = ''
+  $('dlTyp').style.display = ''; $('dlPdf').style.display = ''; $('dlPng').style.display = ''; $('dlSvg').style.display = ''; $('dlZip').style.display = ''
   hidePops()
   $('leftCol').style.width = clampSplit(parseFloat($('leftCol').style.width) || 50) + '%'
   shares = d.shares
@@ -537,8 +640,20 @@ async function openDoc(id) {
   gutter()
   $('preview').innerHTML = '<p class="empty" role="status" aria-busy="true"><span class="spin"></span>' + t('docs.preparing') + '</p>' // no stale empty text during first render
   queueRender()
-  paintOutline()
+  paintOutline(); paintTabs()
+  const fileDoc = docId
+  api('GET', `/api/docs/${id}/files`).then(r => { if (fileDoc === docId && n === openN) { lastFiles = r.files; paintTabs() } }).catch(console.warn)
   sidebar(); loadComments().catch(e => console.warn('comments failed', e)); loadMembers()
+  if (d.role !== 'owner') noteSharedRes(id)
+}
+let sharedNoted = new Set() // disclosure once per doc per session: shared compiles use the owner's copies
+function noteSharedRes(id) {
+  if (sharedNoted.has(id)) return
+  api('GET', `/api/docs/${id}/resources`).then(r => {
+    if (!r || !r.resources || !Object.keys(r.resources).length || id !== docId) return
+    sharedNoted.add(id)
+    toast(t('templates.sharedResNote'), null, '', 8000) // paths unchanged: owner's copies compile in
+  }).catch(() => {})
 }
 function queueSave() { // main.typ: Yjs carries every keystroke (offline too: syncs on reconnect); REST would 409 or fork the text, so never autosave main
   clearTimeout(saveT)
@@ -554,18 +669,9 @@ async function saveNow(force, auto) { // explicit (Ctrl+S/menu) saves at once; a
   clearTimeout(saveT); clearTimeout(tplT)
   if (docId && !tplName && !activeFile && !synced) { saveT = setTimeout(() => saveNow(false, true), SAVE_MS); return } // sync running: retry later instead of '' (Fix #2)
   const saveErr = e => navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
-  if (tplName) {
-    try { await api('POST', '/api/templates', { name: tplName, content: getT() }); $('save').textContent = t('docs.saved') + wc() }
-    catch (e) { $('save').textContent = saveErr(e); toast(t('templates.saveFail', { msg: e.message }), () => saveNow(), t('common.retry')) }
-    return
-  }
-  if (activeFile && docId) { // file tab: save file, not main
-    try {
-      await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}/text`, { content: getT() })
-      fileCache.delete(activeFile)
-      $('save').textContent = t('docs.saved') + wc()
-      queueRender()
-    } catch (e) { $('save').textContent = saveErr(e); toast(t('files.saveFail', { msg: e.message }), () => saveNow(), t('common.retry')) }
+  if (tplName) { await flushTpl(); return } // explicit save: flushTpl carries status + conflict toasts
+  if (activeFile && docId) { // file/template tab: save that text, not main
+    if (await flushTab()) { $('save').textContent = t('docs.saved') + wc(); queueRender() }
     return
   }
   if (!docId || docRole === 'reviewer' || !ytext) return

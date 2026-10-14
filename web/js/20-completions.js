@@ -1,12 +1,38 @@
-// Templates: global per account (API), copied into doc + import/include at cursor
+// Resources: global per account (API), all three kinds in one list (.typ/.bib/.csv)
+// myTpl = OWN shelf (editable). docTpl (GET /api/docs/{id}/resources) is the
+// effective compile set of the open doc (owner's reachable names, read-only).
 let myTpl = [], tplFolders = []
-async function loadTpl() {
+let tplLoadN = 0, docResAt = 0, docResN = 0, docResRefs = ''
+window.docTpl = []
+async function loadTpl() { // list only: never touches editor text (SSE-safe, dirty editors survive)
+  const n = ++tplLoadN, who = user
   try {
-    myTpl = (await api('GET', '/api/templates')).templates
-    tplFolders = (await api('GET', '/api/tplfolders')).folders
-  } catch (e) { myTpl = []; tplFolders = [] }
+    const [r, f] = await Promise.all([api('GET', '/api/templates'), api('GET', '/api/tplfolders')])
+    if (n !== tplLoadN || who !== user) return
+    myTpl = r.templates; tplFolders = f.folders
+    if (docId && isTplKey(activeFile) && tabDirty) { const row = myTpl.find(x => x.name === tabName(activeFile)); if (row) row.content = getT() }
+  } catch (e) { return } // offline/error: keep the known shelf
   paintTpls()
+  if (docId) queueRender()
 }
+async function loadDocResources(force) {
+  if (!docId || docRole === 'owner') return true
+  const id = docId, epoch = openN
+  const refs = [...(activeFile ? shadow : getT()).matchAll(/"([^"\n]+\.(?:typ|bib|csv))"/gi)].map(m => m[1]).sort().join('|')
+  if (!force && Date.now() - docResAt < FILES_TTL && refs === docResRefs) return true
+  const n = ++docResN
+  const r = await api('GET', `/api/docs/${id}/resources`)
+  if (id !== docId || epoch !== openN || n !== docResN) return false
+  window.docTpl = Object.entries(r.resources || {}).map(([name, content]) => ({ name, content, updated_at: r.versions?.[name] || '' }))
+  docResAt = Date.now(); docResRefs = refs
+  queueTabs()
+  return true
+}
+const projectResources = () => docId && docRole !== 'owner' ? window.docTpl : myTpl
+const RES_EXT = { template: '.typ', library: '.bib', table: '.csv', resource: '.typ', data: '.json' }
+const resLabel = kind => ['resource', 'data'].includes(kind) ? t('docs.secFiles') : ({ template: t('templates.kindtemplate'), library: t('templates.kindlibrary'), table: t('templates.kindtable') })[kind]
+const resKind = t => (t && t.kind) || (((t || {}).name || '').toLowerCase().endsWith('.bib') ? 'library' : ((t || {}).name || '').toLowerCase().endsWith('.csv') ? 'table' : 'template')
+const resOf = kind => (kind === 'resource' ? myTpl : myTpl.filter(t => resKind(t) === kind)).slice().sort((a, b) => a.name.localeCompare(b.name))
 const groupBy = list => { // top-level first + folder map (caller adds empty folders)
   const top = [], byF = new Map()
   list.forEach(t => {
@@ -46,13 +72,14 @@ for (const arr of [typstGlobalCompletions, typstMathCompletions])
 const T_BLOCKED = new Set(['Shebang', 'LineComment', 'BlockComment', 'Raw', 'Str', 'Link', 'Label', 'Ref', 'Error']) // mirror of vendor blockedNodes + Error
 let pcDoc = null, pcTree = null // memoized parse for the #word branches (doc objects are persistent: same ref = same tree)
 function typstComplete(ctx) {
+  if (window.__booted && !/\.typ$/i.test(tplName || tabName(activeFile))) return null
   const pos = ctx.pos
   const before = ctx.state.doc.sliceString(Math.max(0, pos - 256), pos)
   const fuzzy = (q, s) => s.toLowerCase().includes(q) // substring, not prefix-only
-  const imp = before.match(/(import|include|image|bibliography|read|csv|json)\s*[( ]"([^"]*)$/)
+  const imp = before.match(/(import|include|image|bibliography|read|csv|json|yaml|toml|xml)\s*[( ]"([^"]*)$/)
   if (imp) { // after import/include/#image(": global templates + manager files
     const q = imp[2].toLowerCase()
-    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(q, n))
+    const files = [...new Set([...projectResources().map(t => t.name), ...mediaNames])].filter(n => fuzzy(q, n))
     return files.length ? { from: pos - imp[2].length, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[^"\n]*$/ } : null
   }
   const rf = before.match(/#ref\s*\((<?)([^)>]*)$/)
@@ -160,7 +187,7 @@ function typstComplete(ctx) {
     if (imp || rf || ct || sr) return null // context recognized but empty (no labels/keys/params): no file noise
     const w = ctx.matchBefore(/[\p{ID_Continue}.\-/]*$/u)
     const pre = (w ? w.text : '').toLowerCase()
-    const files = [...new Set([...myTpl.map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
+    const files = [...new Set([...projectResources().map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
     return files.length ? { from: w ? w.from : pos, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\p{ID_Continue}.\-/]*$/u } : null
   }
   return null
@@ -218,6 +245,7 @@ let errTipEl = null // full-line error tooltip: manual div (no aim needed, works
 let errTipHover = null // message under the mouse, or null
 function errTipHide() { if (errTipEl) { errTipEl.remove(); errTipEl = null } }
 function errTipPlace(msg, x, yBottom) {
+  if ($('cmWrap').hidden || !cm.hasFocus || ($('pop').classList.contains('errs') && $('pop').style.display !== 'none')) { errTipHide(); return }
   if (!errTipEl) {
     errTipEl = document.createElement('div')
     errTipEl.className = 'typ-hover err'
@@ -226,13 +254,15 @@ function errTipPlace(msg, x, yBottom) {
   }
   if (errTipEl.textContent !== msg) errTipEl.textContent = msg
   errTipEl.style.left = Math.max(8, Math.min(x, innerWidth - 330)) + 'px'
-  errTipEl.style.top = (yBottom + 6) + 'px'
+  const top = document.querySelector('header').getBoundingClientRect().bottom + 8
+  errTipEl.style.top = Math.max(top, Math.min(yBottom + 6, innerHeight - errTipEl.offsetHeight - 8)) + 'px'
 }
 function errTipAnchor(lineEl) { // precise error spot on a red line: lint mark/widget first (carrier opens first in DOM order), carrier as fallback
   if (!lineEl) return null
   return lineEl.querySelector('.cm-lintRange-error, .cm-lintPoint-error') || lineEl.querySelector('.cm-errMark') || null
 }
-function errTipCursor() { // cursor sits on an error line: keep the message visible without hovering
+function errTipCursor() {
+  if ($('cmWrap').hidden || !cm.hasFocus || ($('pop').classList.contains('errs') && $('pop').style.display !== 'none')) { errTipHide(); return false } // cursor sits on an error line: keep the message visible without hovering
   let ln = null
   try { ln = cm.state.doc.lineAt(cm.state.selection.main.head).number } catch (_) {}
   if (ln == null) return false

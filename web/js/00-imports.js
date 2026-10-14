@@ -1,6 +1,6 @@
 import * as Y from '/vendor/yjs-13.6.27-232b4982bc3f.js'
 import { WebsocketProvider } from '/vendor/y-websocket-1.5.0-8a98fc0aad78.js'
-import * as CMV from './vendor-cm.js?v=6' // bundled locally: single instance, no CDN risk
+import * as CMV from './vendor-cm.js?v=7' // bundled locally: single instance, no CDN risk
 const { EditorView, minimalSetup, Compartment, EditorState, StateField, StateEffect, RangeSet, Prec, hoverTooltip, keymap, Decoration, WidgetType, lineNumbers, gutterLineClass, GutterMarker, autocompletion, startCompletion, acceptCompletion, currentCompletions, closeCompletion, moveCompletionSelection, closeBrackets, snippetCompletion, nextSnippetField, prevSnippetField, indentMore, indentLess, foldGutter, foldKeymap, bracketMatching, indentUnit, typst_lezer, typstBuiltinSignatures, typstGlobalCompletions, typstMathCompletions, typstParser, typstTags, syntaxHighlighting, HighlightStyle, tags, linter, lintGutter, setDiagnostics, forEachDiagnostic } = CMV // must match vendor build (cache-busted via ?v=6)
 // self-hosted vendor bundle (see vendor/manifest.json): versions pinned, no SRI overhead
 // TODO(modules/): split this inline script into modules/ (api.js, sidebar.js, comments.js, preview.js, dialogs.js)
@@ -24,7 +24,7 @@ async function api(m, url, body, tries = 3) { // Error carries .status/.detail; 
     if (r.status === 503 && a < n - 1) { lastErr = new Error(t('common.busyRetry')); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
     const txt = await r.text()
     let j = null; try { j = txt ? JSON.parse(txt) : null } catch (e) { j = null } // HTML error page: no crash
-    if (!r.ok) { const e = new Error((j && j.detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = (j && j.detail) || ''; throw e }
+    if (!r.ok) { const detail = j && j.detail; const e = new Error((detail && typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail) || r.statusText || ('HTTP ' + r.status)); e.status = r.status; e.detail = detail || ''; throw e }
     return j
   }
   throw lastErr || new Error(t('common.requestFailed'))
@@ -61,4 +61,3 @@ try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MA
 try { const z = +localStorage.getItem('typst_pv'); if (z >= PV_MIN && z <= PV_MAX) pvZoom = z } catch (err) {}
 try { const t = +localStorage.getItem('typst_tab'); if ([2, 4, 8].includes(t)) tabW = t } catch (err) {}
 const saveSet = () => { lsSet('typst_ed', edSize); lsSet('typst_pv', pvZoom) }
-

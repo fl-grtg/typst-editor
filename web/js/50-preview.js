@@ -1,10 +1,11 @@
 // --- Typst preview: main file + uploads as shadow files in compiler ---
 let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // text anchors per page: click hits exact (tables too)
+let cmpWarns = [] // compiler warnings of the last good render (shown as yellow marks, never block)
 let cmpWait = 0, lastInfra = false // compiler missing / last render infra error (watchdog heals)
 const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived (exports only; preview compiles in the worker below)
 const PV_WORKER_URL = '/vendor/typst-all-in-one-0.8.0-rc3-89646b6f5523.js' // pinned, self-hosted (see vendor/); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
 const PV_WORKER_WASM = '/vendor/typst-compiler-0.8.0-rc3-85a071522388.wasm' // worker compiles only: no renderer WASM needed (pdf.js draws)
-// measured 10.10.: no `new Worker` anywhere in web/ — compile + full raster ran on the main thread, typing stalled on big docs
+// measured 10.10.: no `new Worker` anywhere in web/ â€” compile + full raster ran on the main thread, typing stalled on big docs
 const PV_WORKER_SRC = `
 self.window = self // typst bundle touches bare window at import time (renderer heritage): alias it, compile never needs DOM
 var T = null
@@ -48,11 +49,11 @@ onmessage = function (e) {
     try {
       if (j.full) { // files/templates changed: full remap once, else only main.typ below (reset would wipe the shadow)
         await T.resetShadow()
-        var fs = j.files || []
-        for (var k = 0; k < fs.length; k++) await T.mapShadow('/' + fs[k].name, new Uint8Array(fs[k].bytes))
         var tp = j.tpl || []
         for (var k2 = 0; k2 < tp.length; k2++) await T.mapShadow('/' + tp[k2].name, enc.encode(tp[k2].content))
-      }
+        var fs = j.files || []
+        for (var k = 0; k < fs.length; k++) await T.mapShadow('/' + fs[k].name, new Uint8Array(fs[k].bytes))
+      } // tpl first, files win: doc-local beats global on collision (see .update-review/resource-contract.md)
       await T.addSource('/main.typ', j.main)
       var c = await T.getCompiler()
       await c.reset()
@@ -61,7 +62,7 @@ onmessage = function (e) {
       try { diags = fix(r.diagnostics || [], 0) } catch (e2) {}
       if (pdf && pdf.length) {
         postMessage({ kind: 'done', id: j.id, pdf: pdf, diags: diags }, [pdf.buffer])
-      } else { // content error: resolved without bytes — diags carry the positions, message tops the empty state
+      } else { // content error: resolved without bytes â€” diags carry the positions, message tops the empty state
         var firstMsg = ''
         try { firstMsg = String((diags[0] && diags[0].message) || '') } catch (e4) {}
         postMessage({ kind: 'done', id: j.id, fail: firstMsg || 'content', diags: diags })
@@ -76,6 +77,25 @@ onmessage = function (e) {
 `
 let pvWorker = null, pvWorkerOk = false, pvWorkerFail = false, pvJobN = 0 // compile worker: null until first render, Fail sticks (fallback takes over)
 let pvMapped = false, pvSentSig = '', pvBibSig = '' // worker shadow state: remap only on change (same rule as main-thread shadowSig)
+let pvTextDone = [] // per-page text index state: raster fills it early, pvTextAll fills the rest
+const PV_HASH_MAX = 262144 // hash files up to 256KB: live same-length edits change the sig, big binaries use mtime+length only
+function pvHash(b) { // FNV-1a over bytes: cheap change detector for text files (no crypto needed)
+  let h = 2166136261
+  for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 16777619) }
+  return (h >>> 0).toString(36)
+}
+const pvFileSig = (n, c) => n + ':' + c.mtime + ':' + c.bytes.length + (c.bytes.length <= PV_HASH_MAX ? ':' + pvHash(c.bytes) : '')
+function pvResTpl() { // resolved templates this doc reaches (see .update-review/resource-contract.md)
+  try {
+    if (typeof usedTpls === 'function') {
+      const names = usedTpls() || []
+      const set = new Set(names)
+      if (typeof activeFile !== 'undefined' && activeFile && activeFile.indexOf('tpl/') === 0) set.add(tabName(activeFile))
+      return projectResources().filter(x => set.has(x.name))
+    }
+  } catch (e) {}
+  return projectResources()
+}
 const pvJobs = new Map() // worker round-trips by job id
 let pvScale = 2, pvPageSize = null, pvSlots = [], pvObs = null // virtual list: one slot per page, only visible ones rasterized
 let pvZoomMode = 'pct' // pct | width | page (persisted below)
@@ -181,25 +201,32 @@ setInterval(() => { // watchdog: dead render (init race, dropped retry) heals it
 const fileCache = new Map() // name -> {mtime, bytes}: reload binaries only on change
 function queueRender() { clearTimeout(renderT); renderT = setTimeout(render, RENDER_MS) } // fixed 300ms compile debounce
 async function pvFiles() { // file list + bytes + chips + bib keys (no compiler mapping: worker preview and main-thread export share it)
+  const myDoc = docId, epoch = openN
+  if (!myDoc) return null
+  if (!await loadDocResources() || myDoc !== docId || epoch !== openN) return null
   if (filesDirty || Date.now() - filesAt > FILES_TTL) try { // list only when changed/stale, not per keystroke
-    const forDoc = docId
-    const files = (await api('GET', `/api/docs/${docId}/files`)).files
-    if (forDoc !== docId) return null // doc switched meanwhile
+    const files = (await api('GET', `/api/docs/${myDoc}/files`)).files
+    if (myDoc !== docId) return null // doc switched meanwhile
     lastFiles = files // only on success: failed list keeps old cache intact
     filesDirty = false; filesAt = Date.now()
     mediaNames = files.map(f => f.name)
     const sig = files.map(f => f.name + f.size + ':' + f.mtime).join('|')
     if (sig !== lastMedia) { lastMedia = sig; renderMediaChips(files) } // manager chips only on change
   } catch (e) { console.warn('file list stale, using cache', e) } // 429/offline: reuse lastFiles below, no wipe
+  if (myDoc !== docId) return null
   const files = lastFiles
   const seen = new Set()
   await Promise.all(files.map(async f => { // parallel: no serial fetch for many files
     seen.add(f.name)
     const c = fileCache.get(f.name)
-    if (!c || c.mtime !== f.mtime) {
-      const rr = await fetch(`/api/docs/${docId}/files/` + encodeURIComponent(f.name))
+    if (!c || c.mtime !== f.mtime || c.bytes.length !== f.size) {
+      const rr = await fetch(`/api/docs/${myDoc}/files/` + encodeURIComponent(f.name))
+      if (myDoc !== docId) return // next doc: drop, never fill its cache
       if (!rr.ok) return // gone or 403: keep old shadow, no error blob
-      fileCache.set(f.name, { mtime: f.mtime, bytes: new Uint8Array(await rr.arrayBuffer()) })
+      const bytes = new Uint8Array(await rr.arrayBuffer())
+      if (myDoc !== docId || epoch !== openN) return
+      if (f.name === activeFile && tabDirty) return // server bytes must not replace the live draft
+      fileCache.set(f.name, { mtime: f.mtime, bytes })
       while (fileCache.size > 50 || [...fileCache.values()].reduce((a, c) => a + (c.bytes ? c.bytes.length : 0), 0) > 100 * 1024 * 1024) {
         const k = fileCache.keys().next().value
         if (k === f.name) break // single huge file: keep it, cap the rest
@@ -207,36 +234,68 @@ async function pvFiles() { // file list + bytes + chips + bib keys (no compiler 
       } // FIFO cap: 50 files or 100MB, oldest-inserted out (no recency on hit)
     }
   }))
+  if (myDoc !== docId) return null // switched mid-fetch: no prune, no sig for the next doc
   for (const k of [...fileCache.keys()]) if (!seen.has(k)) fileCache.delete(k)
-  const sig = docId + '\u0002' + [...fileCache].map(([n, c]) => n + ':' + c.mtime + ':' + c.bytes.length).join('|') + '\u0002' + myTpl.map(t => t.name + '\u0000' + t.content).join('\u0001')
+  const resTpl = pvResTpl()
+  const sig = myDoc + '\u0002' + [...fileCache].map(([n, c]) => pvFileSig(n, c)).join('|') + '\u0002' + resTpl.map(t => t.name + '\u0000' + t.content).join('\u0001')
   if (sig !== pvBibSig) { // files/templates changed: recollect #cite sources once
     pvBibSig = sig
     bibKeys = []
-    for (const [n, c] of fileCache) {
-      if (!/\.bib$/i.test(n)) continue
+    const bibSeen = new Set()
+    const collect = txt => {
       try {
-        for (const m of new TextDecoder().decode(c.bytes).matchAll(/@\w+\s*\{\s*([^,\s}]+)/g))
-          if (!bibKeys.includes(m[1])) bibKeys.push(m[1])
+        for (const m of String(txt).matchAll(/@\w+\s*\{\s*([^,\s}]+)/g))
+          if (!bibSeen.has(m[1])) { bibSeen.add(m[1]); bibKeys.push(m[1]) }
       } catch (e) {}
     }
+    const dec = new TextDecoder()
+    for (const [n, c] of fileCache) {
+      if (!/\.bib$/i.test(n)) continue
+      try { collect(dec.decode(c.bytes)) } catch (e) {}
+    }
+    for (const tp of resTpl) if (/\.bib$/i.test(tp.name)) collect(tp.content)
   }
-  return { sig }
+  return { sig, tpl: resTpl, doc: myDoc }
 }
 async function shadowAll(main) { // files + templates as shadow: main-thread fallback and PDF/SVG export share it
+  const id = docId, epoch = openN
   const pf = await pvFiles()
-  if (!pf) return // doc switched: export aborts, preview retries on next render
+  const current = () => id === docId && epoch === openN
+  if (!pf || !current()) return false
   if (pf.sig !== shadowSig) { // files/templates changed: full remap once, else only main.typ below
     shadowSig = '' // half-mapped on throw: force remap next time
     await $typst.resetShadow()
-    for (const t of myTpl) await $typst.mapShadow('/' + t.name, new TextEncoder().encode(t.content)) // templates global, not in manager
-    for (const [n, c] of fileCache) await $typst.mapShadow('/' + n, c.bytes)
+    if (!current()) return false
+    for (const t of (pf.tpl || pvResTpl())) { await $typst.mapShadow('/' + t.name, new TextEncoder().encode(t.content)); if (!current()) return false }
+    for (const [n, c] of fileCache) { await $typst.mapShadow('/' + n, c.bytes); if (!current()) return false }
     shadowSig = pf.sig
   }
   await $typst.addSource('/main.typ', main)
+  return current()
+}
+const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName // render epoch/doc guard
+function pvSrcList() { // live source texts for honest cross-file anchors: [{key, text}]
+  const out = []
+  try {
+    out.push({ key: '', text: activeFile ? shadow : getT() })
+    const dec = new TextDecoder()
+    for (const [n, c] of fileCache) {
+      if (!/\.(typ|bib|csv)$/i.test(n) || n === activeFile) continue
+      if (!c || !c.bytes || c.bytes.length > 262144) continue
+      try { out.push({ key: n, text: dec.decode(c.bytes) }) } catch (e) {}
+    }
+    if (activeFile && !isTplKey(activeFile) && !out.some(s => s.key === activeFile)) out.push({ key: activeFile, text: getT() })
+    for (const t of pvResTpl()) {
+      const k = TPLK + t.name
+      if (out.some(s => s.key === k)) continue
+      out.push({ key: k, text: isTplKey(activeFile) && tabName(activeFile) === t.name ? getT() : (t.content || '') })
+    }
+  } catch (e) {}
+  return out
 }
 async function render() {
-  const id = ++renderN, preview = $('preview')
-  if (!docId) return
+  const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName
+  if (!myDoc || myTplName) return
   pvBar() // zoom pill extras once (needs consts from later files)
   if (pvWorkerFail || !pvEnsureWorker()) { await renderDirect(id, preview); return } // no worker: main-thread compile
   if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
@@ -246,19 +305,20 @@ async function render() {
   try {
     const main = activeFile ? shadow : getT() // file tab: preview still compiles main.typ
     const pf = await pvFiles()
-    if (!pf || id !== renderN) return // stale: skip wasted compile
+    if (!pf || pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
     const job = { cmd: 'work', id: ++pvJobN, main }
     if (pf.sig !== pvSentSig || !pvMapped) { // worker shadow: full set once, then only main.typ
       job.full = true
       job.files = [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes }))
-      job.tpl = myTpl.map(x => ({ name: x.name, content: x.content }))
+      job.tpl = (pf.tpl || []).map(x => ({ name: x.name, content: x.content }))
     }
     const m = await pvCall(job, id) // compile off the main thread: typing stays fluid
-    if (!m || m.skip || id !== renderN) return
+    if (!m || m.skip || pvStale(id, myDoc, myTplName)) return
     wDiags = m.diags
+    if (pvStale(id, myDoc, myTplName)) return
     pvSentSig = pf.sig; pvMapped = true
     const doc = await pdfjsLib.getDocument({ data: m.pdf }).promise
-    if (id !== renderN) { doc.destroy(); return }
+    if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
     oldPdf?.destroy(); oldPdf = doc
     const n = doc.numPages
     pvScale = n > 60 ? 1 : n > 25 ? 1.4 : 2 // render scale by page count: 100 pages stay usable
@@ -266,30 +326,39 @@ async function render() {
     for (let p = 1; p <= n; p++) { // sizes only (no raster): slots keep total height, no scroll jump
       const pg = await doc.getPage(p)
       sizes.push(pg.getViewport({ scale: 1 }))
-      if (id !== renderN) { doc.destroy(); return }
+      if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
     }
-    if (id !== renderN) { doc.destroy(); return }
+    if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
     pvPageSize = sizes[0]
     pvModeApply() // width/page zoom follows current layout
     pvTexts = Array.from({ length: n }, () => []) // dense: sync math indexes by page (holes would crash it)
-    const cw = pvCssW(pvPageSize.width)
+    pvTextDone = Array.from({ length: n }, () => false)
     pvSlots = sizes.map((v, k) => {
       const s = document.createElement('div')
-      s.className = 'pvPage'; s.dataset.page = k + 1; s.dataset.r = v.height / v.width
-      s.style.width = cw + 'px'; s.style.height = (cw * v.height / v.width) + 'px'
+      s.className = 'pvPage'; s.dataset.page = k + 1; s.dataset.r = v.height / v.width; s.dataset.w = v.width
+      s.style.width = pvCssW(v.width) + 'px'; s.style.height = pvCssW(v.height) + 'px'
       const c = document.createElement('canvas')
       c.width = 16; c.height = 16 // blank until rasterized: slot keeps layout, backing stays tiny
       pvBlank(c)
       s.appendChild(c)
       return s
     })
+    const a0 = pvAnchorRead(preview) // rough anchor: which pages will be in view after the swap
+    const first = a0.page >= 0 ? a0.page : 0, hv = Math.max(1, Math.ceil(preview.clientHeight / Math.max(1, (pvSlots[0] ? parseFloat(pvSlots[0].style.height) : 600))) + 1)
+    for (let k = first; k < Math.min(pvSlots.length, first + hv + 1); k++) { // no blank flash: visible pages are ready before the old ones go
+      try { await pvDraw(pvSlots[k], doc, id, true) } catch (e) {}
+      if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
+    }
+    if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return } // template/closed view: never swap a stale render in
     const anchor = pvAnchorRead(preview) // at swap time: the awaits above take seconds, an early anchor goes stale
     preview.replaceChildren(...pvSlots)
     pvAnchorBack(preview, anchor)
-    pvWatch(doc, id) // visible pages (+ buffer) rasterize, far ones evict
+    pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
+    pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
     clearErr() // running again: clear marks
+    cmpWarns = (wDiags || []).filter(d => d && d.severity === 'warning'); if (cmpWarns.length) paintErr()
     lastInfra = false
-  } catch (e) { if (id === renderN) { // error: keep last render, red lines, never wrong empty text
+  } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
     cmpDiags = ((e && e.diags) || wDiags || []).filter(d => d && d.severity === 'error'); paintErr() // worker diags only: main-thread shadows are stale here (errDiags stays in renderDirect)
     const firstMsg = (errLines[0] && errLines[0].msg || '').split('\n')[0].slice(0, 200)
     const lined = errLines.some(e => e.line)
@@ -311,16 +380,16 @@ function pvBlank(c) { c.style.width = '100%'; c.style.height = '100%' } // unras
 function pvFitCanvas(c) { // CSS size from zoom, scale-aware (sizeCanvas in 90-settings assumes scale 2)
   const s = +c.dataset.s || pvScale
   c.style.width = (c.width / s * pvZoom / 100) + 'px'
-  c.style.maxWidth = document.body.classList.contains('read') ? (8.2 * pvZoom) + 'px' : 'none' // none: zoom may exceed container, preview scrolls
+  c.style.maxWidth = 'none' // none: zoom may exceed container, preview scrolls
   c.style.height = 'auto'
 }
-async function pvDraw(slot, doc, id) { // rasterize one slot (backing freed again when far outside)
-  if (!slot.isConnected || slot.dataset.done || slot.dataset.busy) return
+async function pvDraw(slot, doc, id, detached) { // rasterize one slot (backing freed again when far outside); detached: slot not in the DOM yet (pre-draw before the swap)
+  if ((!detached && !slot.isConnected) || slot.dataset.done || slot.dataset.busy) return
   slot.dataset.busy = '1'
   try {
     const p = +slot.dataset.page
     const page = await doc.getPage(p)
-    if (id !== renderN || !slot.isConnected) return
+    if (id !== renderN || (!detached && !slot.isConnected)) return
     const v = page.getViewport({ scale: pvScale })
     const c = slot.firstChild
     c.width = Math.ceil(v.width); c.height = Math.ceil(v.height) // backing = viewport, never touch after
@@ -335,8 +404,9 @@ async function pvDraw(slot, doc, id) { // rasterize one slot (backing freed agai
     pvTexts[p - 1] = tc.items.map(it => {
       const w = (it.width || 0) * ax, h = (it.height || 0) * ay
       const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2 }
+      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
     })
+    try { pvTextDone[p - 1] = true } catch (e) {}
     slot.dataset.done = '1'
   } finally { delete slot.dataset.busy }
 }
@@ -346,7 +416,8 @@ function pvEvict(slot) { // free backing of far pages (slot keeps layout, text a
   const c = slot.firstChild
   if (c) { c.width = 16; c.height = 16; pvBlank(c) }
 }
-function pvSweep() { // evict rasterized slots far outside the viewport
+function pvSweep() {
+  if (window.Present?.isOn()) return // evict rasterized slots far outside the viewport
   if (!pvSlots.length) return
   const pv = $('preview'), pr = pv.getBoundingClientRect(), pad = 2 * pr.height
   for (const s of pvSlots) {
@@ -355,13 +426,41 @@ function pvSweep() { // evict rasterized slots far outside the viewport
     if (r.bottom < pr.top - pad || r.top > pr.bottom + pad) pvEvict(s)
   }
 }
-function pvWatch(doc, id) { // draw on scroll into view (+2 viewports buffer), sweep the rest
+function pvWatch(doc, id, myDoc, myTplName) { // draw on scroll into view (+2 viewports buffer), sweep the rest
   if (pvObs) pvObs.disconnect()
   pvObs = new IntersectionObserver(es => {
+    if (id !== renderN || (myDoc !== undefined && (myDoc !== docId || myTplName !== tplName))) return
     for (const en of es) if (en.isIntersecting) pvDraw(en.target, doc, id)
     pvSweep()
   }, { root: $('preview'), rootMargin: '200% 0' + 'px' }) // string split: one literal with space+letters trips check_i18n
   for (const s of pvSlots) pvObs.observe(s)
+}
+function pvIdxPage(doc, p, scale) { // one page textContent -> anchor list in backing px (raster-independent)
+  return doc.getPage(p).then(async page => {
+    const v = page.getViewport({ scale })
+    const tc = await page.getTextContent()
+    const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
+    const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
+    return tc.items.map(it => {
+      const w = (it.width || 0) * ax, h = (it.height || 0) * ay
+      const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
+      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
+    })
+  })
+}
+async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors: editor->preview reaches past the visible window
+  try {
+    for (let p = 1; p <= pvTexts.length; p++) {
+      if (pvStale(id, myDoc, myTplName)) return
+      if (pvTextDone[p - 1]) continue
+      let items
+      try { items = await pvIdxPage(doc, p, pvScale) } catch (e) { continue }
+      if (pvStale(id, myDoc, myTplName)) return
+      pvTexts[p - 1] = items
+      try { pvTextDone[p - 1] = true } catch (e) {}
+      if (p % 8 === 0) await new Promise(r => setTimeout(r, 0)) // yield: typing stays fluid on long docs
+    }
+  } catch (e) {}
 }
 function pvAnchorRead(pv) { // first visible slot + offset (scrollTop alone drifts when heights change)
   const pr = pv.getBoundingClientRect(), top = pv.scrollTop
@@ -379,8 +478,10 @@ function pvAnchorBack(pv, a) {
     pv.scrollTop += (r.top - pr.top) - a.off
   } else if (a) pv.scrollTop = Math.min(a.top, Math.max(0, pv.scrollHeight - pv.clientHeight))
 }
-async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) — same output, main thread
+async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
+  const myDoc = docId, myTplName = tplName
+  if (!myDoc || myTplName) return
   if (pvObs) pvObs.disconnect()
   pvSlots = []; pvPageSize = null // bare canvases below: drop slot state (zoom clicks size them directly)
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; ensureTypst().then(() => { if (docId) render() }).catch(() => {}); return } // loads in background, renders after
@@ -388,13 +489,13 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
   cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
   try {
     await shadowAll(activeFile ? shadow : getT()) // file tab: preview still compiles main.typ
-    if (id !== renderN) return // stale: skip wasted full compile
+    if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted full compile
     const compiler = await $typst.getCompiler()
     await compiler.reset() // same reset $typst.pdf() did before compiling
     cmp = await compiler.compile({ mainFilePath: '/main.typ', format: 1, diagnostics: 'full' }) // 1 = pdf: bytes + diagnostics in one compile
-    if (id !== renderN) return // stale: skip wasted pdfjs work
+    if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted pdfjs work
     const doc = await pdfjsLib.getDocument({ data: cmp.result }).promise
-    if (id !== renderN) { doc.destroy(); return }
+    if (pvStale(id, myDoc, myTplName)) { doc.destroy(); return }
     oldPdf?.destroy(); oldPdf = doc
     const pages = [], texts = [] // double buffer: old pages stay visible until all new ones are ready (no flicker/scroll jump)
     for (let p = 1; p <= doc.numPages; p++) {
@@ -405,27 +506,31 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
       await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise
       sizeCanvas(c) // CSS width only, not canvas.width
       const tc = await page.getTextContent() // click anchors: each visible word knows its spot
-      if (id !== renderN) return
+      if (pvStale(id, myDoc, myTplName)) return
       const [a, b, cc, d, ee, ff] = v.transform // text space -> canvas px
       const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
       texts.push(tc.items.map(it => {
         const w = (it.width || 0) * ax, h = (it.height || 0) * ay
         const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-        return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2 }
+        return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
       }))
       pages.push(c)
     }
-    if (id !== renderN) return
+    if (pvStale(id, myDoc, myTplName)) return
     pvModeApply() // width/page zoom follows the fallback layout too
     for (const c of pages) sizeCanvas(c) // pvZoom just changed above: resize the new pages, not the old ones in the DOM
+    if (pvStale(id, myDoc, myTplName)) return // template/closed view: never swap a stale render in
     const st = preview.scrollTop // read at swap time: follow-scroll during render is kept
     preview.replaceChildren(...pages)
     pvTexts = texts
+    try { pvTextDone = texts.map(() => true) } catch (e) {}
     preview.scrollTop = st
     clearErr() // running again: clear marks
     lastInfra = false
-  } catch (e) { if (id === renderN) { // error: keep last render, red lines, never wrong empty text
-    cmpDiags = cmp ? (cmp.diagnostics || []).filter(d => d.severity === 'error') : await errDiags(); paintErr()
+  } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
+    const diags = cmp ? (cmp.diagnostics || []).filter(d => d.severity === 'error') : await errDiags()
+    if (pvStale(id, myDoc, myTplName)) return
+    cmpDiags = diags; paintErr()
     const firstMsg = (errLines[0] && errLines[0].msg || '').split('\n')[0].slice(0, 200)
     const lined = errLines.some(e => e.line)
     if (!$('preview').querySelector('canvas')) {
@@ -441,6 +546,13 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
 }
 let lastErrToast = '' // same non-line error: toast once, not per render
 let errKey = '', errLines = [], cmpDiags = [] // compiler errors: lint renders ranges (F1+F20), badge keeps one row per line
+function keyForPath(path) { // compiler path -> tab key (null: package or unknown file, nowhere to jump)
+  const n = String(path || '').replace(/^\//, '')
+  if (!n || n === 'main.typ') return n ? '' : null
+  if (lastFiles.some(x => x.name === n)) return n
+  if (projectResources().some(x => x.name === n)) return TPLK + n
+  return null
+}
 function clearErr() { errKey = ''; errLines = []; cmpDiags = []; errTipHide(); cm.dispatch({ effects: setErrLine.of(RangeSet.of([])) }); cm.dispatch(setDiagnostics(cm.state, [])); updErrBadge() }
 async function errDiags() { // fallback only: pre-compile failure (render reuses its own compile)
   if (!typstReady()) return []
@@ -455,7 +567,7 @@ function diagRange(d, doc) { // F20: real column ranges from compiler diagnostic
   let sl = -1, sc = 0, el = -1, ec = 0, explicit = true
   const raw = d.range != null ? d.range : (d.span != null ? d.span : d.location)
   if (typeof raw === 'string') {
-    let m = raw.match(/(\d+)\s*:\s*(\d+)\s*[-–;]\s*(\d+)\s*:\s*(\d+)/) // "sl:sc-el:ec"
+    let m = raw.match(/(\d+)\s*:\s*(\d+)\s*[-â€“;]\s*(\d+)\s*:\s*(\d+)/) // "sl:sc-el:ec"
     if (m) { sl = +m[1]; sc = +m[2]; el = +m[3]; ec = +m[4] }
     else if ((m = raw.match(/(\d+)\s*:\s*(\d+)/))) { sl = +m[1]; sc = +m[2]; el = sl; ec = sc } // point: "sl:sc"
     else if ((m = raw.match(/(\d+)/))) { sl = +m[1]; sc = 0; el = sl; ec = -1; explicit = false } // line only: whole line (legacy)
@@ -499,16 +611,16 @@ function paintErr() { // compile errors via lint (F1): every column range render
   const doc = cm.state.doc, diags = [], byLine = new Map(), general = []
   for (const d of cmpDiags) {
     const msg = (d && d.message) || t('preview.typstErrorBare')
-    const r = d && d.path === '/main.typ' ? diagRange(d, doc) : null
+    const r = d && d.path === tabPath(activeFile) ? diagRange(d, doc) : null // marks for the text in the editor (main.typ or the open tab)
     if (r) {
-      diags.push({ from: r.from, to: r.to, severity: 'error', message: msg, source: 'typst' })
+      diags.push({ from: r.from, to: r.to, severity: 'error', message: msg + (d.hints && d.hints.length ? '\n' + d.hints.map(h => 'â†’ ' + h).join('\n') : ''), source: 'typst' })
       if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + t('preview.lineSuffix', { line: r.line, col: r.explicit ? ':' + r.col : '' }) })
     } else { // foreign file (package) or no position: no mark possible, but never drop it
       let where = (d && d.package ? d.package + ' ' : '') + (d && d.path && d.path !== '/main.typ' ? d.path : '')
       const at = String((d && (d.range || d.span || d.location)) || '').match(/(\d+)/)
       if (where && at) where += ':' + (+at[1] + 1)
-      const full = (where ? where + ' · ' : '') + msg
-      if (!general.some(g => g.msg === full)) general.push({ line: 0, col: 0, from: -1, raw: msg, msg: full })
+      const full = (where ? where + ' Â· ' : '') + msg
+      if (!general.some(g => g.msg === full)) general.push({ line: 0, col: 0, from: -1, raw: msg, msg: full, tab: keyForPath(d && d.path), jl: at ? +at[1] + 1 : 0 })
     }
   }
   const keyOf = d => { // stable across compiles: object ranges need JSON (String() collapses them to "[object Object]")
@@ -517,9 +629,13 @@ function paintErr() { // compile errors via lint (F1): every column range render
     const p = d ? [d.line, d.column, d.col, d.endLine, d.endColumn, d.endCol].map(v => v != null ? v : '').join(',') : ''
     return ((d && d.path) || '') + '|' + r + '|' + String(p) + '|' + ((d && d.message) || '')
   }
-  const key = cmpDiags.map(keyOf).join('\n')
+  const key = activeFile + '\u0003' + cmpDiags.map(keyOf).join('\n') + '\u0004' + cmpWarns.map(keyOf).join('\n')
   if (key === errKey) return // nothing new: no dispatch, no loop (lint maps positions across edits)
   errKey = key
+  for (const d of cmpWarns) { // warnings: only for the text in the editor, yellow squiggle + message on hover
+    const r = d && d.path === tabPath(activeFile) ? diagRange(d, doc) : null
+    if (r) diags.push({ from: r.from, to: r.to, severity: 'warning', message: (d.message || '') + (d.hints && d.hints.length ? '\n' + d.hints.map(h => 'â†’ ' + h).join('\n') : ''), source: 'typst' })
+  }
   errLines = [...byLine].map(([, e]) => e).sort((a, b) => a.line - b.line).concat(general)
   const lineDeco = []
   for (const [, e] of byLine) { try {
@@ -539,6 +655,7 @@ function errLivePos(e) { // lint maps ranges across edits: jump to the live spot
   return best
 }
 function updErrBadge() { // error counter in header: touch-friendly, hover not needed
+  queueTabs() // per-tab error counts follow the compiler
   const b = $('eBadge')
   if (!b) return
   if (!errLines.length) { b.style.display = 'none'; if ($('pop').classList.contains('errs')) closePop(true); return }
@@ -550,7 +667,7 @@ function updErrBadge() { // error counter in header: touch-friendly, hover not n
 }
 function showErrList() { // click badge: list errors, click row jumps to the exact spot
   if (!errLines.length) return
-  hidePops() // only one popover at a time
+  hidePops(); errTipHide() // only one error surface at a time
   const eb = $('eBadge'); if (eb) { eb.setAttribute('aria-expanded', 'true'); if (!eb.getAttribute('aria-controls')) eb.setAttribute('aria-controls', 'pop') }
   const box = $('pop')
   box.replaceChildren()
@@ -558,15 +675,16 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   const cx = icoBtn('ib', ICO_X); cx.title = t('common.close'); cx.setAttribute('aria-label', t('common.close')); cx.onclick = () => closePop(true); hd.appendChild(cx)
   box.appendChild(hd)
   errLines.forEach(e => { // no line (package error): text row, nowhere to jump
-    const r = el(e.line ? 'button' : 'div', 'er')
+    const r = el(e.line || e.tab != null ? 'button' : 'div', 'er')
     if (e.line) r.appendChild(el('span', 'ln', t('preview.errRow', { line: e.line, col: e.col ? ':' + e.col : '' })))
-    r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ · (line|Zeile) \d+(:\d+)?$/, '')))
+    r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ Â· (line|Zeile) \d+(:\d+)?$/, '')))
+    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { cm.dispatch({ selection: { anchor: cm.state.doc.line(e.jl).from }, scrollIntoView: true }); cm.focus() } }
     if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) }, scrollIntoView: true }); cm.focus() } // list stays open: only the x closes it
     box.appendChild(r)
   })
   box.classList.add('errs')
   const hb = document.querySelector('header').getBoundingClientRect().bottom // always below the top bar, never over the title
-  if (eb) { const rc = eb.getBoundingClientRect(); box.style.setProperty('--eTop', Math.round(hb + 8) + 'px'); box.style.setProperty('--eLeft', Math.round(Math.max(8, Math.min(rc.left + rc.width / 2 - 190, innerWidth - 388))) + 'px') }
+  if (eb) { const rc = eb.getBoundingClientRect(); box.style.setProperty('--eTop', Math.round(hb + 8) + 'px'); box.style.setProperty('--eLeft', Math.round(Math.max(16, Math.min(rc.right - Math.min(440, innerWidth - 32), innerWidth - Math.min(440, innerWidth - 32) - 16))) + 'px') }
   box.style.display = 'block'
 }
 document.addEventListener('pointerdown', e => { const p = $('pop'); if (p.classList.contains('errs') && p.style.display !== 'none' && !p.contains(e.target) && !e.target.closest('#eBadge')) closePop(true) }) // error list: x or outside click
@@ -585,15 +703,16 @@ function pvModeApply() { // width/page zoom follows layout (render + resize); % 
     const avail = pv.clientWidth - 32
     if (avail > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / pvPageSize.width * 100)))
   } else {
-    const avail = pv.clientHeight - 128 // padding 16+96 plus one slot gap: page fits without scrolling
-    if (avail > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / pvPageSize.height * 100)))
+    const avail = pv.clientHeight - 128, width = pv.clientWidth - 32
+    if (avail > 0 && width > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.floor(Math.min(avail / pvPageSize.height, width / pvPageSize.width) * 100)))
   }
   applyPv(); saveSet(); pvModePaint()
 }
-function pvRelayout() { // any zoom change (pill, settings, Ctrl+0): slots follow, done canvases rescale
+function pvRelayout() {
+  if (window.Present?.isOn()) return // any zoom change (pill, settings, Ctrl+0): slots follow, done canvases rescale
   if (!pvSlots.length || !pvPageSize) return
-  const w = pvCssW(pvPageSize.width)
   for (const s of pvSlots) {
+    const w = pvCssW(+s.dataset.w || pvPageSize.width)
     s.style.width = w + 'px'; s.style.height = (w * +s.dataset.r) + 'px'
     const c = s.firstChild
     if (c && s.dataset.done) pvFitCanvas(c) // sizeCanvas above assumed scale 2: corrected here
@@ -622,4 +741,5 @@ const pvStepPv = stepPv // hoisting: single module script, so function stepPv (9
 stepPv = d => { if (pvZoomMode !== 'pct') pvModeSet('pct'); pvStepPv(d); pvRelayout() } // explicit % leaves fit modes, slots follow at once (not via the zoomV observer only)
 addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === '0') pvModeSet('pct') }) // window: real keys bubble here and the menu reset dispatches here (a document-capture listener would miss it)
 new MutationObserver(() => pvRelayout()).observe($('zoomV'), { childList: true, characterData: true, subtree: true }) // any zoom change relayouts slots
-addEventListener('resize', () => { if (pvZoomMode !== 'pct' && pvPageSize) { pvModeApply(); pvRelayout() } })
+addEventListener('resize', () => { if (!window.Present?.isOn() && pvZoomMode !== 'pct' && pvPageSize) { pvModeApply(); pvRelayout() } })
+new ResizeObserver(() => { if (pvZoomMode !== 'pct' && pvPageSize && !window.Present?.isOn()) { pvModeApply(); pvRelayout() } }).observe($('preview'))

@@ -300,6 +300,7 @@ def _migrate_v13(con: sqlite3.Connection) -> None:
         logging.getLogger(__name__).warning("v13 start-scan skipped: %s", e)
         return
     scanned = 0
+    logging.getLogger(__name__).info("v13 attachment scan started: %s", base)
     for d in top:
         try:
             if d.is_symlink() or not d.is_dir() or d.name.startswith(".") or ".tmp." in d.name:
@@ -335,6 +336,9 @@ def _migrate_v13(con: sqlite3.Connection) -> None:
         except OSError as e:
             logging.getLogger(__name__).warning("v13 scan skipped dir %s: %s", d.name, e)
             continue
+
+
+    logging.getLogger(__name__).info("v13 attachment scan complete: %d files", scanned)
 
 
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (

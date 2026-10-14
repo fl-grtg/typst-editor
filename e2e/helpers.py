@@ -10,6 +10,7 @@ def _goto_home(page: Page) -> None:
         page.goto("/")
     except PwTimeout:
         page.goto("/")
+    page.wait_for_function("window.__booted === true")
 
 
 def register(page: Page, name: str, pw: str = "pass1234pass") -> None:

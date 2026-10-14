@@ -25,6 +25,7 @@ function fmtLines(prefixRe, makePrefix) { // per-line prefix: heading / lists
   })
 }
 function fmtApply(kind) {
+  if (!/\.typ$/i.test(tplName || tabName(activeFile))) return
   if (!cm.state.facet(EditorView.editable)) return
   if (kind === 'bold') fmtWrap('*')
   else if (kind === 'italic') fmtWrap('_')

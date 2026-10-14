@@ -55,9 +55,9 @@ def get_files_dir() -> Path:
     return live
 
 
-ALLOWED_IMG = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".pdf", ".typ", ".bib", ".csv"}
+ALLOWED_IMG = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".pdf", ".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl"}
 
-TEXT_SUFFIX = {".typ", ".bib", ".csv"}
+TEXT_SUFFIX = {".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl"}
 
 
 # B15: long-cached shell assets. Immutable only where the URL carries a

@@ -190,7 +190,7 @@ def test_migrate_v13_skips_broken_files_and_symlinks(tmp_path, monkeypatch):
         raw = os.path.join(os.fsencode(str(fdir)), b"bad\xffname.png")
         with open(raw, "wb") as fh:
             fh.write(b"zzz")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         pass  # platform cannot do surrogate names: rest of the test still applies
     real_stat = pathlib.Path.stat
 

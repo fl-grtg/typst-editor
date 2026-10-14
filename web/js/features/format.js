@@ -13,13 +13,17 @@ async function fmtLoad() { // glue as ESM (no imports of its own), wasm instanti
   })().catch(e => { fmtLoading = null; throw e })
   return fmtLoading
 }
-const fmtEditable = () => docId && !activeFile && cm.state.facet(EditorView.editable)
+const fmtEditable = () => (docId || tplName) && /\.(typ|json)$/i.test(tplName || tabName(activeFile)) && cm.state.facet(EditorView.editable)
 async function formatDoc(quiet) { // whole doc, one undo step; never throws (save path must survive a dead formatter)
   if (!fmtEditable()) return false
-  const cur = getT()
+  const cur = getT(), doc = docId, tpl = tplName, key = activeFile, epoch = openN
   if (!cur.trim()) return false // blank stays blank (typstyle would add a newline)
+  if (/\.json$/i.test(tplName || tabName(activeFile))) {
+    try { const out = JSON.stringify(JSON.parse(cur), null, 2) + '\n'; if (out !== cur) cm.dispatch({ changes: { from: 0, to: cur.length, insert: out }, userEvent: 'input' }); return true } catch (e) { toast(t('editor.formatFail', { msg: e.message })); return false }
+  }
   let bg
   try { bg = await fmtLoad() } catch (e) { if (!quiet) toast(t('editor.formatFail', { msg: e.message })); return false }
+  if (doc !== docId || tpl !== tplName || key !== activeFile || epoch !== openN || cur !== getT() || !fmtEditable()) return false
   let out
   try { out = bg.format(cur, {}) } catch (e) { if (!quiet) toast(t('editor.formatFail', { msg: e.message })); return false }
   if (out === cur) { if (!quiet) toast(t('editor.formatClean')); return true }
@@ -46,18 +50,18 @@ function formatSettingsSec() { // settings group section: format on save (toolba
   return sec
 }
 {
-  const tools = $('tools'), tsp = tools.querySelector('.tsp')
-  const grp = document.createElement('span')
-  grp.className = 'fmt'; grp.setAttribute('role', 'group'); grp.setAttribute('aria-label', t('editor.formatDoc'))
+  const tools = $('tools')
   const fb = document.createElement('button')
   fb.id = 'fmtDoc'
   fb.setAttribute('aria-label', t('editor.formatDoc')); fb.title = t('editor.formatDocT')
   fb.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M5.5 8h8M2.5 12h11"/></svg>'
   fb.onclick = () => formatDoc(false)
-  grp.append(fb)
-  tools.insertBefore(grp, tsp)
-  const sync = () => { const on = cm.contentDOM.getAttribute('contenteditable') === 'true'; fb.disabled = !on }
+  tools.querySelector('.fmt.last').append(fb)
+  window.paintFileExtras?.()
+  const sync = () => { fb.disabled = !fmtEditable() }
   new MutationObserver(sync).observe(cm.contentDOM, { attributes: true, attributeFilter: ['contenteditable'] })
+  new MutationObserver(sync).observe($('title'), { childList: true })
+  new MutationObserver(sync).observe($('tabs'), { childList: true })
   sync()
 }
 addEventListener('keydown', e => { // Alt+Shift+F like VS Code: format once (save toggle above covers every save)
@@ -71,9 +75,11 @@ addEventListener('keydown', e => { // Alt+Shift+F like VS Code: format once (sav
 {
   const inner = saveNow // format on save: format first, then the regular save (failure still saves unformatted)
   saveNow = async (force, auto) => {
+    const doc = docId, tpl = tplName, key = activeFile, epoch = openN
     if (fmtSaveOn() && docId && !tplName && !activeFile && docRole !== 'reviewer' && !openedTrashed) {
       try { await formatDoc(true) } catch (e) {}
     }
+    if (doc !== docId || tpl !== tplName || key !== activeFile || epoch !== openN) return false
     return inner(force, auto) // forward 2E quiet flag: autosave errors stay toast-free
   }
 }

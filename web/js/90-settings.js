@@ -63,6 +63,7 @@ function refreshLang() {
   try { if (typeof updPos === 'function') updPos() } catch (e) {}
   try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
   try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
+  window.Present?.relabel()
   try { if (user && typeof sidebar === 'function') sidebar().catch(() => {}) } catch (e) {}
 }
 function setLang(lang) {
@@ -121,8 +122,8 @@ function renderSettings() {
   close.onclick = e => { e.stopPropagation(); lastKeySecret = ''; lastKeyName = ''; lastKeyId = ''; p.style.display = 'none' }
   top.append(el('b', null, t('settings.title')), close); p.appendChild(top)
   if (setMsg) { p.appendChild(el('div', 'serr', setMsg)); setMsg = '' }
-  const grid = el('div', 'setGrid'), colL = el('div', 'setCol'), colR = el('div', 'setCol')
-  grid.append(colL, colR); p.appendChild(grid) // deterministic 2-col grid: left = profile, right = backup + keys
+  const grid = el('div', 'setGrid'), colL = el('div', 'setCol'), colR = el('div', 'setCol'), colM = el('div', 'setCol')
+  grid.append(colL, colM, colR); p.appendChild(grid); positionSettings() // appearance, account, integrations
   const fr = el('div', 'row'); fr.append(el('label', null, t('settings.font')))
   const fm = el('button', 'step', 'A−'); fm.title = t('settings.fontMinus'); fm.setAttribute('aria-label', fm.title)
   fm.onclick = e => { e.stopPropagation(); stepEd(-ED_STEP); renderSettings() }
@@ -187,7 +188,7 @@ function renderSettings() {
   const bb = el('button', 'btnSecondary', t('settings.backupBtn'))
   bb.title = t('settings.backupTitle')
   bb.onclick = () => { const a = document.createElement('a'); a.href = '/api/export.zip'; a.click() }
-  bk.appendChild(bb); colR.appendChild(grp(t('settings.backup'), sec(bk)))
+  bk.appendChild(bb); colM.appendChild(grp(t('settings.backup'), sec(bk)))
   const agCp = icoBtn(null, ICO_DUP); agCp.title = t('settings.agentCopy'); agCp.setAttribute('aria-label', t('settings.agentCopy'))
   agCp.onclick = () => copyTxt(AGENT_PROMPT)
   const agRow = el('div', 'row'); agRow.append(el('span', null, t('settings.agentHint')), agCp)
@@ -287,7 +288,7 @@ function renderSettings() {
     })
     sSecs.push(sec(...srows))
   }
-  colR.appendChild(grp(t('settings.sessions'), ...sSecs))
+  colM.appendChild(grp(t('settings.sessions'), ...sSecs))
   const dr = el('div', 'row')
   const dpw = el('input'); dpw.type = 'password'; dpw.placeholder = t('settings.pwGroup'); dpw.setAttribute('aria-label', t('settings.pwForDel'))
   const db = el('button', 'btnDanger', t('common.delete'))
@@ -454,10 +455,59 @@ let syncOn = true, syncT = 0, syncPage = 0, pvT = 0 // click sync editor<->previ
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
 function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
 function queueSyncPv() { clearTimeout(syncT); syncT = setTimeout(syncToPv, SYNC_MS) }
+function pvPageHint(pi, idx, len, total, n) { // page-proportional line: layout order tracks source order
+  const frac = len > 0 ? (idx + 1) / len : 0.5
+  return Math.max(1, Math.min(total, Math.round((pi + frac) / Math.max(1, n) * total) + 1))
+}
+function pvCanvasList() { // virtual slots first, fallback bare canvases
+  const pv = $('preview')
+  const sl = pv.querySelectorAll('.pvPage canvas')
+  if (sl.length) return [...sl]
+  return [...pv.querySelectorAll('canvas')]
+}
+function pvVerify(t, at, s) { // context must contain the click word: longest token guards short cells
+  const um = (t || '').slice(Math.max(0, at - 80), at + 80)
+  const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
+  return w.length < 4 || um.includes(w) || um.includes(s.trim())
+}
+async function pvJumpBest(s, hint, pi) { // honest cross-file jump: current tab, else the unique owner, else stay
+  const needle = (s || '').trim()
+  if (needle.length < 2) return false
+  const cur = activeFile || ''
+  const total = cm.state.doc.lines || 1
+  const atCur = locateNear(getT(), needle, hint)
+  if (atCur >= 0 && pvVerify(getT(), atCur, needle)) { syncPage = pi; jumpPos(atCur); return true }
+  let srcs = []
+  try { srcs = pvSrcList() } catch (e) { srcs = [] }
+  let found = null, dup = false
+  for (const src of srcs) {
+    if (!src || src.key === cur) continue
+    const txt = src.text || ''
+    const lines = txt ? txt.split('\n').length : 1
+    const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
+    const at = locateNear(txt, needle, h2)
+    if (at >= 0 && pvVerify(txt, at, needle)) {
+      if (found) { dup = true; break }
+      found = { key: src.key }
+    }
+  }
+  if (found && !dup) {
+    syncPage = pi
+    const doc = docId, epoch = openN
+    try { if (!await switchTab(found.key)) return false } catch (e) { return false }
+    if (doc !== docId || epoch !== openN || activeFile !== found.key) return false
+    const t = getT(), lines = cm.state.doc.lines || 1
+    const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
+    const at = locateNear(t, needle, h2)
+    if (at >= 0) { jumpPos(at); return true }
+  }
+  return false
+}
 function syncToPv() { // editor -> preview: page with most line words, hit centered
-  if (!syncOn || !docId || tplName || activeFile || Date.now() - pvT < 1000) return // preview click: paper stays put
+  if (!syncOn || !docId || tplName || Date.now() - pvT < 1000) return // preview click: paper stays put
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
+  const key = activeFile || ''
   const total = cm.state.doc.lines || 1
   const line = cm.state.doc.lineAt(cm.state.selection.main.head).number
   // normalize line: trim, strip markup roughly, count long words only
@@ -465,24 +515,26 @@ function syncToPv() { // editor -> preview: page with most line words, hit cente
   const words = [...new Set(ank.split(' ').filter(w => w.length >= 4))].slice(0, 6)
   const n = pvTexts.length
   if (words.length && n) {
-    let bi = -1, bs = 0 // best page: most hits, tie stays on syncPage
+    const exp = (line - 1) / total * n // tie-break: page nearest the cursor ratio, not the sticky click page
+    let bi = -1, bs = 0, bd = Infinity
     for (let pi = 0; pi < n; pi++) {
       const items = pvTexts[pi] || []
       let s = 0
       for (const w of words) for (const it of items) {
         if (it.s && it.s.toLowerCase().includes(w)) { s++; break }
       }
-      if (s > bs || (s === bs && pi === syncPage)) { bs = s; bi = pi }
+      if (s > bs || (s === bs && s > 0 && Math.abs(pi - exp) < bd)) { bs = s; bi = pi; bd = Math.abs(pi - exp) }
     }
     if (bi >= 0 && bs > 0) { // min one word: else fallback (no random jump)
       const items = pvTexts[bi] || []
       const long = words.slice().sort((a, b) => b.length - a.length)[0]
       for (const it of items) {
         if (it.s && it.s.toLowerCase().includes(long)) {
-          const cv = pv.querySelectorAll('canvas')[bi]
+          const list = pvCanvasList(), cv = list[bi]
           if (!cv) break
           const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
-          const want = pv.scrollTop + (cr.top - pr.top) + it.y * (cr.width / cv.width) - pv.clientHeight / 2
+          const ky = cr.height / (it.vh || cv.height || 1) // indexed page size survives raster eviction
+          const want = pv.scrollTop + (cr.top - pr.top) + it.y * ky - pv.clientHeight / 2
           syncPage = bi
           if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want // quiet: no flicker
           return
@@ -490,7 +542,8 @@ function syncToPv() { // editor -> preview: page with most line words, hit cente
       }
     }
   }
-  const want = (line - 1) / total * (pv.scrollHeight - pv.clientHeight) // fallback: old ratio logic
+  if (key) return // file tab with no hit: stay put, ratio maps main lines onto file text
+  const want = (line - 1) / total * (pv.scrollHeight - pv.clientHeight) // fallback: main tab only
   if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
 }
 function locateNear(t, s, hint) { // shortest hit near hint line (short cell texts too)
@@ -509,38 +562,36 @@ function jumpPos(pos) { // editor jump to screen center (preview does not follow
   cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
   cm.focus()
 }
-$('preview').addEventListener('click', e => { // preview -> editor: text anchors first (tables!), else ratio
-  if (!syncOn || !docId || tplName || activeFile) return
+$('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), else ratio
+  if (!syncOn || !docId || tplName) return
   const pv = $('preview')
   const cv = e.target.closest ? e.target.closest('canvas') : null
   if (cv && pvTexts.length) {
-    const pi = [...pv.querySelectorAll('canvas')].indexOf(cv) // count canvas only, ignore .empty divs
-    const items = pvTexts[pi] || []
-    const r = cv.getBoundingClientRect(), sx = cv.width / r.width, sy = cv.height / r.height // canvas px: backing matches pvTexts
-    const x = (e.clientX - r.left) * sx, y = (e.clientY - r.top) * sy
-    let best = null, bd = CLICK_PX * CLICK_PX
+    const list = pvCanvasList()
+    const pi = list.indexOf(cv) // count canvas only, ignore .empty divs
+    const items = pi >= 0 ? (pvTexts[pi] || []) : []
+    const r = cv.getBoundingClientRect()
+    const x = e.clientX - r.left, y = e.clientY - r.top
+    const rr = CLICK_PX / 2 // CSS pixels, independent of zoom and render scale
+    let best = null, bd = rr * rr
     for (const it of items) {
       if (!it.s.trim()) continue
-      const dx = it.x - x, dy = it.y - y, dd = dx * dx + dy * dy
+      const dx = it.x / (it.vw || cv.width) * r.width - x, dy = it.y / (it.vh || cv.height) * r.height - y, dd = dx * dx + dy * dy
       if (dd < bd) { bd = dd; best = it }
     }
     if (best) {
       const total = cm.state.doc.lines || 1
-      let all = 0 // hint from text volume (not click height): hit ratio * lines
-      for (const arr of pvTexts) all += arr.length
-      let before = 0
-      for (let k = 0; k < pi; k++) before += (pvTexts[k] || []).length
-      const hint = Math.max(1, Math.min(total, Math.round((before + items.indexOf(best)) / Math.max(1, all) * total) + 1))
-      const at = locateNear(getT(), best.s, hint)
-      if (at >= 0) {
-        const um = getT().slice(Math.max(0, at - 80), at + 80) // verify hit: context must contain click word
-        const w = (best.s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
-        if (w.length < 4 || um.includes(w) || um.includes(best.s.trim())) { syncPage = pi; jumpPos(at); return }
-      }
+      const hint = pvPageHint(pi, items.indexOf(best), items.length, total, pvTexts.length)
+      if (await pvJumpBest(best.s, hint, pi)) return
+      syncPage = pi >= 0 ? pi : syncPage
+      return // ambiguous text is not a source location
+    } else {
+      syncPage = pi >= 0 ? pi : syncPage // even without hit: next sync starts on click page
+      if (activeFile) return // image/margin click in a file tab: ratio maps main layout onto file text
     }
-    syncPage = pi // even without hit: next sync starts on click page
-  }
-  const r = pv.getBoundingClientRect() // fallback: ratio (images, margins, formulas without text)
+  } else if (activeFile) return // no canvas hit in a file tab: nowhere honest to go
+  if (pvSrcList().length > 1) return // included files destroy a main-line/layout ratio
+  const r = pv.getBoundingClientRect() // fallback for a single source only
   const ratio = Math.max(0, Math.min(1, (e.clientY - r.top + pv.scrollTop) / pv.scrollHeight))
   const lines = getT().split('\n'), total = lines.length || 1
   let line = Math.max(1, Math.min(total, Math.round(ratio * total) + 1))
@@ -559,7 +610,8 @@ function fitPv() { // fit paper exactly to preview width, centered via margin
   }
 }
 function sizeCanvas(c) { // CSS width from zoom only, never touch backing (canvas.width)
-  c.style.width = (c.width / 2 * pvZoom / 100) + 'px'
+  if (c.closest('.pvPage')) { if (c.closest('.pvPage').dataset.done) pvFitCanvas(c); return }
+  c.style.width = (c.width / (+c.dataset.s || 2) * pvZoom / 100) + 'px'
   c.style.maxWidth = document.body.classList.contains('read') ? (8.2 * pvZoom) + 'px' : 'none' // none: zoom may exceed container, preview scrolls
   c.style.height = 'auto'
 }
@@ -574,3 +626,14 @@ updExports()
 closeView() // boot with no doc: onboarding card, no blobs, no comment button, read-only
 try { if (matchMedia('(max-width:720px)').matches) document.body.classList.add('noside') } catch (e) {} // mobile: sidebar closed
 updScrim()
+
+function positionSettings() {
+  const pop = $('setPop')
+  if (pop.style.display === 'none') return
+  const edge = matchMedia('(max-width: 720px)').matches ? 0 : document.querySelector('aside').getBoundingClientRect().right
+  const left = Math.max(8, Math.min(edge + 8, innerWidth - 280))
+  pop.style.setProperty('--settings-left', left + 'px')
+  pop.style.setProperty('--settings-width', Math.min(1040, innerWidth - left - 8) + 'px')
+}
+addEventListener('resize', positionSettings)
+new ResizeObserver(positionSettings).observe(document.querySelector('aside'))

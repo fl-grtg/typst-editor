@@ -68,3 +68,5 @@ header button:active, #tools button:active, #pvTools button:active, .sbRail butt
 /* Keyboard rows: same focus frame as buttons (kb() makes div/h3 focusable) */
 aside .doc:focus-visible, aside h3:focus-visible, #userMain:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
+
+.row button:not(.ghost):not(:disabled):hover, #pop .rr .ib:not(:disabled):hover { color: var(--on-ink); }

@@ -25,7 +25,8 @@
       it(t('menu.dlTyp'), function () { click('dlTyp') }, { on: shown('dlTyp') }),
       it(t('menu.dlPdf'), function () { click('dlPdf') }, { on: shown('dlPdf') }),
       it(t('menu.dlPng'), function () { click('dlPng') }, { on: shown('dlPng') }),
-      it(t('menu.dlSvg'), function () { click('dlSvg') }, { on: shown('dlSvg') })
+      it(t('menu.dlSvg'), function () { click('dlSvg') }, { on: shown('dlSvg') }),
+      it(t('menu.dlZip'), function () { click('dlZip') }, { on: shown('dlZip') })
     ]
   }
   var DEF = {
@@ -66,13 +67,14 @@
         it(t('menu.edOnly'), function () { click('vEdit') }, { checked: edit }),
         it(t('menu.edSplit'), function () { click('vSplit') }, { checked: !edit && !read }),
         it(t('menu.pvOnly'), function () { click('vRead') }, { checked: read }),
+        it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), checked: !!(window.Present && window.Present.isOn()) }),
         SEP,
         it(t('menu.sidebar'), function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
         it(t('menu.follow'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
         SEP,
         it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: M + '+', on: !edit }),
         it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: M + '\u2212', on: !edit }),
-        it(t('menu.fitPage'), function () { click('fitBtn') }, { on: !edit }),
+        it(t('menu.fitPage'), function () { click('fitPageBtn') }, { on: !edit }),
         it(t('menu.resetZoom'), function () { key('0') }, { kbd: M + '0', on: !edit }),
         SEP,
         it(t('menu.fontUp'), function () { click('fPlus') }, { on: !read }),

@@ -112,6 +112,7 @@ Needs `TRUST_PROXY=true`. Never expose directly; TLS is yours. Caddy:
 
 ```
 typst.example.com {
+    encode zstd gzip
     reverse_proxy 127.0.0.1:8978
 }
 ```
@@ -126,6 +127,10 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/typst.example.com/privkey.pem;
 
     client_max_body_size 12M;
+
+    gzip on;
+    gzip_comp_level 5;
+    gzip_types application/javascript application/wasm application/json text/css image/svg+xml;
 
     location / {
         proxy_pass http://127.0.0.1:8978;
@@ -142,7 +147,7 @@ server {
 }
 ```
 
-Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: point proxy at that port.
+Compression matters: the compiler (JS + WASM) is about 72 MB raw and about 26 MB compressed, so keep `encode`/`gzip` on. Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: point proxy at that port.
 
 Uvicorn trusts `X-Forwarded-For`/`Proto` only from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose the proxy uses a `172.x` IP, so extend the default: `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12`. Else all clients share one rate-limit bucket. Never `*` with `TRUST_PROXY=true`.
 
@@ -176,7 +181,7 @@ ruff check backend/ scripts/ tests/
 mypy backend/ scripts/ tests/
 ```
 
-Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build`. CI fails on diff or >600 KB.
+Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build`. CI fails on diff or >700 KB.
 
 ### 📦 Changelog
 
@@ -200,3 +205,9 @@ Most collab editors need heavy infra or lock you into a cloud. This is one conta
 ## 📜 License
 
 Apache-2.0, see `LICENSE`. Third-party versions in `NOTICE` (pins match CDN imports and CSP).
+
+## Modules and source bundles
+
+Global modules and document-local text files support `.typ`, `.bib`, `.csv`, `.tsv`, `.json`, `.yaml`/`.yml`, `.toml`, `.xml`, `.csl`, and `.txt`. CSV/TSV use a cell editor; BibLaTeX offers a source list and form alongside the raw editor. Structured data editors highlight syntax and validate their content. Shared documents resolve the owner's modules; local files take precedence.
+
+Use **Export ? Source ZIP with modules and files** for a self-contained bundle. Upload that ZIP to create a new document: choose its title and folder, and every bundled module becomes a document-local file. Bundles must contain `main.typ`; nested paths are preserved. Import accepts at most 10 MB compressed and 100 MB unpacked, with the usual per-file limits (200 KB text, 10 MB binary) and configured file-count/quota limits.

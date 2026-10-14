@@ -61,7 +61,7 @@ def base_url(tmp_path_factory):
            # All smoke tests share one egress IP, hence one per-IP rate-limit bucket
            # (production clients have distinct IPs). Raise the chatty list/poll
            # budget so the suite can't 429 itself; app limits stay untouched.
-           "RATE_FILES_LIST_PER_MIN": "1000"}
+           "RATE_FILES_LIST_PER_MIN": "1000", "RATE_REGISTER_PER_HOUR": "1000"}
     _SERVER_LOG_PATH = data / "server.log"
     # NOTE: never stdout=PIPE here without a reader: once the pipe buffer
     # (64KB on GH runners) fills, uvicorn blocks on its next access-log
@@ -118,7 +118,7 @@ def browser():
 
 @pytest.fixture()
 def ctx(browser, base_url):
-    c = browser.new_context(base_url=base_url, accept_downloads=True)
+    c = browser.new_context(base_url=base_url, accept_downloads=True, locale="en-US")
     c.set_default_timeout(15_000)
     yield c
     c.close()

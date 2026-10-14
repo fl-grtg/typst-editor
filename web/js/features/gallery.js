@@ -1,4 +1,4 @@
-// 2C: gallery (askNewDoc source), onboarding tour, empty-state quick row.
+// Document gallery and static welcome screen.
 const THUMBS = {
   blank: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150" viewBox="0 0 120 150"><rect width="120" height="150" fill="#e8e9ec"/><rect x="24" y="23" width="72" height="104" rx="3" fill="#ffffff"/></svg>',
   report: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150" viewBox="0 0 120 150"><rect width="120" height="150" fill="#e8e9ec"/><rect x="24" y="23" width="72" height="104" rx="3" fill="#ffffff"/><rect x="34" y="35" width="52" height="8" rx="2" fill="#4f46e5"/><rect x="34" y="51" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="60" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="69" width="44" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="78" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="87" width="38" height="4" rx="2" fill="#c3c6cd"/></svg>',
@@ -35,74 +35,6 @@ function galleryCard(g, sel, onPick) { // thumb + title + desc, keyboard-operabl
   b.onclick = onPick
   return b
 }
-// --- Onboarding tour: 3 steps, bottom card, abort via Skip/Esc/click-away ---
-const TOUR_KEYS = ['gallery.tour1', 'gallery.tour2', 'gallery.tour3']
-const TOUR_SEL = ['#side', '#leftCol', '#exportBtn']
-let tourStep = -1, tourPrev = null
-function tourHi(on) {
-  for (const s of TOUR_SEL) {
-    const n = document.querySelector(s)
-    if (n) n.classList.toggle('tourHi', !!on && TOUR_SEL[tourStep] === s)
-  }
-}
-function tourShow(i) {
-  tourClear()
-  tourStep = i
-  if (!tourPrev) tourPrev = document.activeElement
-  tourHi(true)
-  const card = el('div', 'tourCard')
-  card.id = 'tourCard'
-  card.setAttribute('role', 'dialog')
-  card.setAttribute('aria-label', t('gallery.tourStart'))
-  card.appendChild(el('p', null, t(TOUR_KEYS[i])))
-  const row = el('div', 'ctaRow')
-  const sk = el('button', 'ghost', t(i >= TOUR_KEYS.length - 1 ? 'gallery.tourDone' : 'gallery.tourSkip'))
-  sk.onclick = tourEnd
-  row.appendChild(sk)
-  if (i < TOUR_KEYS.length - 1) {
-    const nx = el('button', 'primary', t('gallery.tourNext'))
-    nx.onclick = () => tourShow(i + 1)
-    row.appendChild(nx)
-  }
-  card.appendChild(row)
-  document.body.appendChild(card)
-  try { (row.querySelector('.primary') || sk).focus() } catch (e) {}
-}
-function tourClear() {
-  tourStep = -1
-  tourHi(false)
-  document.getElementById('tourCard')?.remove()
-}
-function tourEnd() {
-  tourClear()
-  try { localStorage.setItem('typst_tour_done', '1') } catch (e) {}
-  try { tourPrev?.focus?.() } catch (e) {}
-  tourPrev = null
-}
-function tourDone() { // fresh account, never toured
-  try { if (localStorage.getItem('typst_tour_done')) return true } catch (e) { return true }
-  return false
-}
-function tourMaybe() { // empty view, fresh account: start once
-  if (tourDone() || !document.getElementById('emptyCard')) return
-  if (lastOwn.length > 1 || lastShared.length) return
-  tourShow(0)
-}
-setTimeout(() => { // fresh account with Tutorial open: tour anyway (empty card rarely shows)
-  if (tourDone() || tourStep >= 0 || !user) return
-  if (lastOwn.length > 1 || lastShared.length) return
-  tourShow(0)
-}, 2500)
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && tourStep >= 0) tourEnd()
-})
-// --- Empty state: quick gallery row + tour entry (paintEmpty itself stays in 2D) ---
-async function quickCreate(i) {
-  const g = GALLERY[i] || GALLERY[0]
-  try {
-    openDoc((await api('POST', '/api/docs/create', { title: t(g.tk), content: g.src })).id)
-  } catch (e) { toast(e.message) }
-}
 function enhanceEmpty() {
   const card = document.getElementById('emptyCard')
   if (!card || document.getElementById('galQuick')) return
@@ -111,7 +43,7 @@ function enhanceEmpty() {
   wrap.appendChild(el('p', 'sub', t('gallery.quickTitle')))
   const grid = el('div', 'galGrid')
   GALLERY.forEach((g, i) => {
-    const b = document.createElement('button')
+    const b = document.createElement('div')
     b.className = 'gq'
     const img = document.createElement('img')
     img.src = galleryThumb(g.id)
@@ -119,14 +51,18 @@ function enhanceEmpty() {
     img.loading = 'lazy'
     b.append(img, document.createTextNode(t(g.tk)))
     b.setAttribute('aria-label', t(g.tk) + ' – ' + t(g.sk))
-    b.onclick = () => quickCreate(i)
     grid.appendChild(b)
   })
   wrap.appendChild(grid)
-  const tb = el('button', 'ghost', t('gallery.tourStart'))
-  tb.onclick = () => tourShow(0)
-  wrap.appendChild(tb)
   card.appendChild(wrap)
-  tourMaybe()
 }
 new MutationObserver(enhanceEmpty).observe(document.getElementById('preview'), { childList: true })
+
+function fitEmptyCard() {
+  const card = document.getElementById('emptyCard'), preview = document.getElementById('preview')
+  if (!card) return
+  const scale = Math.min(1, (preview.clientHeight - 32) / card.offsetHeight, (preview.clientWidth - 32) / card.offsetWidth)
+  card.style.setProperty('--empty-scale', Math.max(.1, scale))
+}
+new ResizeObserver(fitEmptyCard).observe(document.getElementById('preview'))
+new MutationObserver(fitEmptyCard).observe(document.getElementById('preview'), { childList: true, subtree: true })

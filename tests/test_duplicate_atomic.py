@@ -8,6 +8,7 @@ sequential duplicates de-conflict titles.
 import shutil
 
 from conftest import login, make_doc, register_user
+from fastapi import HTTPException
 
 import backend.main as main
 
@@ -41,6 +42,24 @@ def test_duplicate_copies_content_and_files(c):
     # No staging leftovers anywhere under files/.
     leftovers = [p.name for p in _files_dir().iterdir() if ".tmp.dup-" in p.name]
     assert leftovers == []
+
+
+def test_duplicate_counts_files_when_reconciliation_fails(c, monkeypatch):
+    from backend.routers import docs
+    from backend.services import quota
+
+    register_user(c, "alice")
+    did = make_doc(c, "Quota copy", content="hi")
+    assert c.post(f"/api/docs/{did}/files", files={"f": ("nested/file.png", b"x" * 200)}).status_code == 200
+    before = quota.user_bytes("alice")
+
+    def busy(doc_id):
+        raise HTTPException(503, "Database busy")
+
+    monkeypatch.setattr(docs, "sync_doc_files", busy)
+    r = c.post(f"/api/docs/{did}/duplicate")
+    assert r.status_code == 200, r.text
+    assert quota.user_bytes("alice") == before + 202
 
 
 def test_duplicate_titles_deconflict(c):

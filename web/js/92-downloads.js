@@ -10,13 +10,15 @@ const expName = (cd, fb) => {
   return m ? m[1] : fb
 }
 async function expServer(fmt, o) { // CLI sandbox: standards/pages/ppi (WASM cannot do them)
+  const doc = docId, epoch = openN, name = dlName('.' + fmt)
+  if (!await flushTab() || doc !== docId || epoch !== openN) throw new Error(t('downloads.saveBeforeExport'))
   const q = new URLSearchParams({ format: fmt })
   if (o.std && o.std !== 'none') q.set('pdf_standard', o.std)
   if (o.pages) q.set('pages', o.pages)
   if (o.ppi) q.set('ppi', String(o.ppi))
-  const r = await fetch('/api/docs/' + docId + '/export?' + q, { method: 'POST' })
+  const r = await fetch('/api/docs/' + doc + '/export?' + q, { method: 'POST' })
   if (!r.ok) throw new Error(expMsg(await r.text()))
-  dlBlob(new Blob([await r.blob()], { type: r.headers.get('content-type') || 'application/octet-stream' }), expName(r.headers.get('content-disposition'), dlName('.' + fmt)))
+  dlBlob(new Blob([await r.blob()], { type: r.headers.get('content-type') || 'application/octet-stream' }), expName(r.headers.get('content-disposition'), name))
 }
 function expMsg(raw) { // {"detail": "..."} or {"detail": {"message": ...}} -> readable line
   try {
@@ -24,37 +26,46 @@ function expMsg(raw) { // {"detail": "..."} or {"detail": {"message": ...}} -> r
     return String((d && d.message) || d || raw).slice(0, 160)
   } catch (e) { return raw.slice(0, 160) }
 }
-function dlPngClient() { // page currently in view, straight from canvas (no compiler API needed)
+async function dlPngClient() { // page currently in view, straight from canvas
   if (!docId) return
+  const doc = docId, epoch = openN, renderId = renderN, filename = dlName('.png')
   const cs = [...document.querySelectorAll('#preview canvas')]
   if (!cs.length) { toast(t('downloads.noRender'), () => $('dlPng').click()); return }
   const pr = $('preview').getBoundingClientRect()
   let c = cs[0], best = -Infinity
   for (const x of cs) { const r = x.getBoundingClientRect(), vis = Math.min(r.bottom, pr.bottom) - Math.max(r.top, pr.top); if (vis > best) { best = vis; c = x } }
   const n = cs.indexOf(c) + 1
+  const slot = c.closest('.pvPage')
+  if (slot && !slot.dataset.done) { try { await pvDraw(slot, oldPdf, renderId) } catch (e) { toast(t('downloads.pngError')); return } }
+  if (doc !== docId || epoch !== openN || renderId !== renderN || !c.isConnected || (slot && !slot.dataset.done)) return
   c.toBlob(b => {
     if (!b) { toast(t('downloads.pngError'), () => $('dlPng').click()); return }
-    dlBlob(b, dlName(cs.length > 1 ? '-p' + n + '.png' : '.png'))
+    dlBlob(b, cs.length > 1 ? filename.replace(/\.png$/, '-p' + n + '.png') : filename)
     if (cs.length > 1) toast(t('downloads.pngPage', { n, total: cs.length }))
   })
 }
 async function dlSvgClient() {
   if (!docId) return
   if (!typstReady()) { ensureTypst().catch(() => {}); toast(t('downloads.compilerLoading'), () => $('dlSvg').click()); return }
+  const doc = docId, epoch = openN, name = dlName('.svg')
   try {
     if (!$typst.svg) throw new Error(t('downloads.svgUnknown'))
-    await shadowAll(activeFile ? shadow : getT())
+    if (!await shadowAll(activeFile ? shadow : getT()) || doc !== docId || epoch !== openN) return
     const svg = (await $typst.svg({ mainFilePath: '/main.typ' }))
       .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;') // raw & (text/CSV/URL) breaks XML
-    dlBlob(new Blob([svg], { type: 'image/svg+xml' }), dlName('.svg'))
+    if (doc !== docId || epoch !== openN) return
+    dlBlob(new Blob([svg], { type: 'image/svg+xml' }), name)
   } catch (e) { toast(t('downloads.svgError', { msg: e.message })) }
 }
 async function dlPdfClient() {
   if (!docId) return
   if (!typstReady()) { ensureTypst().catch(() => {}); toast(t('downloads.compilerLoading'), () => $('dlPdf').click()); return }
+  const doc = docId, epoch = openN, name = dlName('.pdf')
   try {
-    await shadowAll(activeFile ? shadow : getT()) // same shadows as preview: images/templates land in PDF
-    dlBlob(new Blob([await $typst.pdf({ mainFilePath: '/main.typ' })], { type: 'application/pdf' }), dlName('.pdf'))
+    if (!await shadowAll(activeFile ? shadow : getT()) || doc !== docId || epoch !== openN) return
+    const pdf = await $typst.pdf({ mainFilePath: '/main.typ' })
+    if (doc !== docId || epoch !== openN) return
+    dlBlob(new Blob([pdf], { type: 'application/pdf' }), name)
   } catch (e) { toast(t('downloads.pdfError', { msg: e.message })) }
 }
 function openExportDlg(fmt) { // options dialog: server compile, client fallback on plain settings
@@ -126,7 +137,7 @@ $('dlPng').onclick = () => openExportDlg('png')
 $('dlSvg').onclick = () => openExportDlg('svg')
 $('dlTyp').onclick = () => {
   if (!docId && !tplName) return
-  dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), activeFile || dlName('.typ')) // file tab: this file
+  dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), (tplName || (activeFile ? tabName(activeFile) : dlName('.typ'))))
 }
 $('dlPdf').onclick = () => openExportDlg('pdf')
 setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
@@ -134,3 +145,8 @@ setInterval(() => { // heals sets without input event (extensions, autofill): te
   pushLocal(); queueRender(); queueSave()
   }
 }, SAVE_MS)
+
+$('dlZip').onclick = async () => {
+  if (!docId || tplName) return
+  try { await expServer('zip', {}) } catch (e) { toast(e.message) }
+}

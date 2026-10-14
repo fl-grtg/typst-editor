@@ -44,3 +44,12 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #viewSeg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
 #viewSeg button:focus-visible, #exportBtn:focus-visible, #shareBtn:focus-visible, #cBadge:focus-visible, #eBadge:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
+
+#viewSeg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .16); }
+:root[data-theme="dark"] #viewSeg button.on { background: #414348; color: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #viewSeg button.on { background: #414348; color: #fff; } }
+
+#docHead { overflow: visible; padding: 2px 0; }
+#docHead .l1 { min-height: 22px; }
+#docHead .l2 { min-height: 18px; line-height: 18px; overflow: visible; }
+#docHead .l2 #save, #docHead .l2 #wsTxt { line-height: 18px; }

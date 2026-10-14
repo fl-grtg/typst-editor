@@ -33,7 +33,16 @@ class TitleSet(BaseModel):
 class TplSave(BaseModel):
     name: str = Field(max_length=100)
     content: str = Field(default="", max_length=200001)
-    folder: str = Field(default="", max_length=40)
+    folder: str | None = Field(default=None, max_length=40)
+    version: str = Field(default="", max_length=100)  # optional optimistic guard: updated_at from a previous read
+
+
+class TplDuplicate(BaseModel):
+    name: str = Field(max_length=100)
+
+
+class TplRename(TplDuplicate):
+    version: str = Field(default="", max_length=100)
 
 
 class Share(BaseModel):
@@ -79,6 +88,7 @@ class SnapRestore(BaseModel):
 
 class FileText(BaseModel):
     content: str = Field(default="", max_length=200001)
+    version: str | None = Field(default=None, max_length=64)
 
 
 class InviteNew(BaseModel):

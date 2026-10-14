@@ -40,7 +40,7 @@ def test_4_two_browsers_see_same_edit(browser, base_url, ctx, page):
     register(page, "e2e_dave")
     create_doc(page, "Collab doc")
     type_source(page, "shared text from A")
-    ctx2 = browser.new_context(base_url=base_url)
+    ctx2 = browser.new_context(base_url=base_url, locale="en-US")
     ctx2.set_default_timeout(15_000)
     try:
         p2 = ctx2.new_page()
@@ -78,7 +78,7 @@ def test_6_export_typ_downloads(page):
 
 
 def test_7_mobile_viewport_login_and_open_doc(browser, base_url):
-    mctx = browser.new_context(base_url=base_url, viewport={"width": 390, "height": 844})
+    mctx = browser.new_context(base_url=base_url, locale="en-US", viewport={"width": 390, "height": 844})
     mctx.set_default_timeout(15_000)
     try:
         mp = mctx.new_page()
@@ -87,6 +87,13 @@ def test_7_mobile_viewport_login_and_open_doc(browser, base_url):
         create_doc(mp, "Mobile doc")
         expect(mp.locator("#title")).to_have_text("Mobile doc")
         expect(mp.locator("#cm .cm-content")).to_be_visible()
+        mp.click("#navToggle")  # creating a document closes the mobile drawer
+        mp.click("#who")
+        settings = mp.locator("#setPop")
+        expect(settings).to_be_visible()
+        bounds = settings.bounding_box()
+        assert bounds is not None and bounds["y"] + bounds["height"] <= 844
+        assert settings.evaluate("n => getComputedStyle(n).overflowY") == "auto"
     finally:
         mctx.close()
 

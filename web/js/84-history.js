@@ -4,26 +4,31 @@ $('histBtn').onclick = e => {
   if (showPop('histPop')) renderHist()
 }
 async function renderHist() {
+  const doc = docId, epoch = openN
+  if (!doc) return
   const p = $('histPop'); p.replaceChildren()
   const save = el('button', 'save primary', t('history.saveSnap'))
-  save.onclick = async () => { save.disabled = true; const old = save.textContent; save.textContent = t('history.saving'); try { await api('POST', `/api/docs/${docId}/snapshots`, {}); renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
+  save.onclick = async () => { if (doc !== docId || epoch !== openN) return; save.disabled = true; const old = save.textContent; save.textContent = t('history.saving'); try { await api('POST', `/api/docs/${doc}/snapshots`, {}); if (doc === docId && epoch === openN) renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
   p.appendChild(save)
   let list = []
-  try { list = (await api('GET', `/api/docs/${docId}/snapshots`)).snapshots }
-  catch (e) { p.appendChild(el('div', 'srow', t('history.loadError', { msg: e.message }))); return }
+  try { list = (await api('GET', `/api/docs/${doc}/snapshots`)).snapshots }
+  catch (e) { if (doc === docId && epoch === openN) p.appendChild(el('div', 'srow', t('history.loadError', { msg: e.message }))); return }
+  if (doc !== docId || epoch !== openN) return
   if (!list.length) { const em = el('div', 'histEmpty'); em.textContent = t('history.autoHint'); p.appendChild(em) }
   list.forEach(s => {
     const row = el('div', 'srow')
     const kib = Math.round(s.size / 1024)
     row.appendChild(el('span', 't', ago(s.created_at) + (s.label ? ' · ' + s.label : '') + t('history.sizeKb', { kb: kib })))
     const df = el('button', null, t('history.compare')); df.title = t('history.compareTitle'); df.setAttribute('aria-label', df.title)
-    df.onclick = () => showDiff(s.id, row)
+    df.onclick = () => showDiff(s.id, row, doc)
     const rs = el('button', null, t('docs.restore')); rs.title = t('history.restoreTitle'); rs.setAttribute('aria-label', rs.title)
     rs.onclick = async () => {
       if (!await ask(t('history.restoreConfirm'), { noInput: true, ok: t('common.ok') })) return
+      if (doc !== docId || epoch !== openN) return
+      if (!await flushTab()) return
       const doRestore = async force => {
-        try { await api('POST', `/api/docs/${docId}/snapshots`, { label: t('history.beforeRestore') }).catch(() => {}) // auto snapshot: never restore without way back
-          await api('POST', `/api/docs/${docId}/snapshots/${s.id}/restore`, { ...(force ? { force: true } : {}) }); openDoc(docId) } // reload: editor/Yjs follow, no old autosave
+        if (doc !== docId || epoch !== openN) return
+        try { await api('POST', `/api/docs/${doc}/snapshots/${s.id}/restore`, { ...(force ? { force: true } : {}) }); if (doc === docId && epoch === openN) openDoc(doc) } // server saves the pre-restore snapshot atomically
         catch (e) {
           if (e.status === 409 && !force) toast(t('history.conflict'), () => doRestore(true), t('history.forceRestore'))
           else toast(t('history.restoreFail', { msg: e.message }), () => doRestore(force), t('common.retry'))
@@ -31,10 +36,11 @@ async function renderHist() {
       }
       doRestore()
     }
-    const xx = icoBtn(null, ICO_X); xx.title = t('history.delSnap'); xx.setAttribute('aria-label', xx.title)
+    const xx = icoBtn(null, ICO_X); xx.title = t('history.delSnap'); xx.setAttribute('aria-label', xx.title); xx.hidden = docRole !== 'owner'
     xx.onclick = async () => {
       if (!await ask(t('history.delSnapConfirm'), { noInput: true, ok: t('common.delete'), danger: true })) return
-      try { await api('DELETE', `/api/docs/${docId}/snapshots/${s.id}`); renderHist() }
+      if (doc !== docId || epoch !== openN) return
+      try { await api('DELETE', `/api/docs/${doc}/snapshots/${s.id}`); if (doc === docId && epoch === openN) renderHist() }
       catch (e) { toast(e.message) }
     }
     row.append(df, rs, xx); p.appendChild(row)
@@ -59,13 +65,16 @@ function lineDiff(a, b) { // LCS on lines (caps see above), output max DIFF_OUT 
   if (cut || out.length > DIFF_OUT) out.push([' ', t('history.truncated')])
   return out.slice(0, DIFF_OUT + 1)
 }
-async function showDiff(sid, row) {
+async function showDiff(sid, row, doc = docId) {
+  const epoch = openN
+  if (!row.isConnected || doc !== docId) return
   const open = row.nextSibling && row.nextSibling.classList && row.nextSibling.classList.contains('diff')
   row.parentNode.querySelectorAll('pre.diff').forEach(x => x.remove())
   if (open) return // was open: just collapse
   let s
-  try { s = await api('GET', `/api/docs/${docId}/snapshots/${sid}`) } catch (e) { toast(e.message); return }
-  const d = lineDiff(s.content, getT()) // file tab: diff against file content, not main shadow
+  try { s = await api('GET', `/api/docs/${doc}/snapshots/${sid}`) } catch (e) { toast(e.message); return }
+  if (doc !== docId || epoch !== openN || !row.isConnected) return
+  const d = lineDiff(s.content, activeFile ? shadow : getT()) // snapshots hold main.typ, not the open attachment
   const pre = el('pre', 'diff')
   if (!d.length) pre.appendChild(el('span', null, t('history.identical')))
   d.forEach(([k, ln]) => pre.appendChild(el('span', k, (k === 'a' ? '− ' : k === 'b' ? '+ ' : '') + ln.slice(0, 200) + '\n')))

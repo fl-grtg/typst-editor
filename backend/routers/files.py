@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from hashlib import sha256
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -76,7 +77,7 @@ def get_file_text(doc_id: str, name: str, req: Request, user: str = Depends(deps
     except OSError as e:
         log.warning("get_file_text gone %s: %s", n, e)
         raise HTTPException(404, "File gone") from e
-    return {"name": n, "content": content}
+    return {"name": n, "content": content, "version": sha256(content.encode("utf-8")).hexdigest()}
 
 
 @router.post("/api/docs/{doc_id}/files/{name:path}/text")
@@ -87,12 +88,19 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
     n = need_text(name)
     with _named_lock(f"upload:{doc_id}"):
         try:
+            if b.version is not None:
+                try:
+                    current = store.get(doc_id, n).decode("utf-8", errors="replace")
+                except FileNotFoundError:
+                    current = ""
+                if sha256(current.encode("utf-8")).hexdigest() != b.version:
+                    raise HTTPException(409, "File changed meanwhile; keep your draft and reload the file")
             save_text_file(doc_id, n, b.content, deps._owner(doc_id, user))
         except sqlite3.OperationalError as e:
             raise deps.busy_503("save_file_text", e) from e
     quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
     emit_doc(doc_id, "file")
-    return {"ok": True}
+    return {"ok": True, "version": sha256(b.content.encode("utf-8")).hexdigest()}
 
 
 @router.get("/api/docs/{doc_id}/files/{name:path}")

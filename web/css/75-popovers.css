@@ -22,8 +22,8 @@
 #sharePop #shares button:hover { background: var(--hover); color: var(--text); }
 #sharePop .hintline { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 4px 0 8px; }
 #sharePop input[readonly] { background: transparent; border-style: dashed; color: var(--sub); }
-#setPop { width: min(700px, calc(100vw - 24px)); max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); overflow: auto; padding: 14px 18px 18px; }
-#setPop .setGrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
+#setPop { width: min(1040px, calc(100vw - 32px)); max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); overflow: auto; padding: 14px 18px 18px; }
+#setPop .setGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 20px; align-items: start; }
 #setPop .setCol { display: flex; flex-direction: column; min-width: 0; }
 #setPop h4 { margin: 0; padding: 14px 0 4px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
 #setPop .sec .row { flex-wrap: nowrap; align-items: center; gap: 8px; margin-top: 8px; }
@@ -101,3 +101,18 @@
 #pop .er .ln { flex: none; min-width: 52px; font: 600 11px var(--mono); color: var(--danger); }
 #pop .er .em { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 
+
+#setPop .row label:has(#fmtSave) { display: inline-flex; align-items: center; gap: 8px; line-height: 1.5; }
+#setPop #fmtSave { flex: none; margin: 0 !important; align-self: center; }
+
+#setPop { position: fixed; left: var(--settings-left, 8px) !important; width: var(--settings-width, min(1040px, calc(100vw - 16px))); top: calc(var(--bar) + 6px) !important; transform: none; max-height: calc(100dvh - var(--bar) - 22px); }
+#setPop h4 { padding-top: 10px; }
+#setPop .sec { padding-bottom: 8px; }
+#setPop .row input { min-width: 0; }
+@media (max-width: 900px) { #setPop .setGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { #setPop { left: 8px !important; right: 8px; top: 16px !important; transform: none; } #setPop .setGrid { grid-template-columns: 1fr; } }
+
+#pop.errs { width: min(440px, calc(100vw - 32px)); }
+#pop .er { align-items: flex-start; }
+#pop .er .ln { padding-top: 2px; }
+#pop .er .em { white-space: normal; }

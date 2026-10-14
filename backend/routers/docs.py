@@ -6,13 +6,13 @@ import os
 import shutil
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 
 from backend import config, db, deps, search, sync
-from backend.constants import FOLDER_MAX, MAX_TXT, TITLE_MAX
+from backend.constants import FOLDER_MAX, MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.schemas import DocCreate, DocSave, FolderRename, FolderSet, TitleSet
 from backend.services import quota as quota_svc
-from backend.services.docfiles import store, sync_doc_files
+from backend.services.docfiles import file_type, store, sync_doc_files
 from backend.services.locks import _drop_doc_locks, _named_lock
 from backend.services.sidebar import notify_sidebar
 from backend.services.snapshots import auto_snap
@@ -97,6 +97,15 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(deps.me)) -> dict
         raise deps.busy_503("create_doc", e) from e
     notify_sidebar(user)
     return {"id": did}
+
+
+
+@router.post("/api/docs/import-zip")
+def import_zip(req: Request, f: UploadFile, title: str = Form(...), folder: str = Form(""), user: str = Depends(deps.me)) -> dict:
+    from backend.services.projectzip import import_project_zip
+
+    deps.limited(req, "create")
+    return import_project_zip(user, title, folder, f.file.read(UPLOAD_MAX + 1))
 
 
 @router.get("/api/docs/{doc_id}")
@@ -377,6 +386,10 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                 con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
                             "VALUES (?,?,?,?,?,?,?)",
                             (nid, user, title, text, d["folder"], now, now))
+                # Account for attachments with the doc row, even if the later
+                # disk reconciliation hits a transient database lock.
+                con.executemany("INSERT INTO files (doc_id, path, size, mtime, type) VALUES (?,?,?,?,?)",
+                                [(nid, e.path, e.size, e.mtime, file_type(e.path)) for e in entries])
         except sqlite3.IntegrityError as e:
             raise HTTPException(400, "Title already exists") from e
         except sqlite3.OperationalError as e:
@@ -437,8 +450,8 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
     # explicit post-commit verdict with the same rollback pattern as the
     # other writers (docfiles quota_guard callers). A transient lock anywhere
     # leaves the copy in place (fail-open: the next write re-checks). The
-    # verdict reads the files table, so a best-effort sync_doc_files failure
-    # above can undercount the copy and miss over-quota the same way.
+    # Attachment rows were inserted with the doc, so a reconciliation failure
+    # still leaves the copied bytes accounted for.
     try:
         _over = quota_svc.user_bytes(user) > quota_svc.quota_cap()
     except sqlite3.Error as e:
