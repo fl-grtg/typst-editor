@@ -2,7 +2,7 @@ HOST = "127.0.0.1" # Bind address.
 PORT = 8978 # HTTP port.
 DATA_DIR = "./data" # SQLite + files directory.
 TRUST_PROXY = false # Trust X-Forwarded-Proto/For from the reverse proxy. Set in config.toml or via env; env wins.
-# FORWARDED_ALLOW_IPS is env-only (uvicorn flag, not a config.toml key) — see .env.example and Dockerfile.
+FORWARDED_ALLOW_IPS = "127.0.0.1,::1" # Peers allowed to send X-Forwarded-* (comma-separated, CIDR ok). Also passed to uvicorn via env (see Dockerfile/.env.example) — keep both in sync; env wins. Never '*' with TRUST_PROXY=true (refuses to start).
 COOKIE_SECURE = "auto" # auto|true|false.
 REGISTRATION = "invite-only" # closed|invite-only|open. open only for local tests, never on the public internet.
 REGISTRATION_INVITE_TOKEN = "" # Invite code for accounts after the first; if set, even the first account needs it. Set before first start on public servers. Min 16 chars (generate: openssl rand -hex 32); a shorter non-empty value refuses to start.
@@ -14,12 +14,14 @@ RATE_LOGIN_PER_MIN = 10 # Login attempts per minute.
 RATE_REGISTER_PER_HOUR = 20 # Registrations per hour.
 RATE_AUTH_PER_MIN = 60 # Auth checks per minute (logout/me).
 RATE_JOIN_PER_MIN = 30 # Invite redemptions per minute.
+RATE_READ_PER_MIN = 30 # Account-less read-link views per minute (per IP + per token buckets).
 RATE_SEARCH_PER_MIN = 60 # Searches per minute.
 RATE_FILES_PER_MIN = 20 # File up- and downloads per minute.
 RATE_FILES_LIST_PER_MIN = 120 # File list refreshes per minute.
 RATE_SAVE_PER_MIN = 30 # Doc saves per minute.
 RATE_COMMENTS_PER_MIN = 30 # Comment writes per minute.
 RATE_EXPORT_PER_MIN = 5 # ZIP exports per minute.
+RATE_EXPORT_DOC_PER_MIN = 10 # Per-doc exports per minute (pdf/svg/png/zip, own bucket, isolated from full backup export).
 RATE_PW_PER_MIN = 10 # Password changes per minute.
 RATE_INVITE_PER_MIN = 10 # Invite creations per minute.
 RATE_SHARE_PER_MIN = 10 # Share changes per minute.
@@ -30,4 +32,10 @@ RATE_AVATAR_PER_MIN = 10 # Avatar uploads per minute.
 RATE_FOLDERS_PER_MIN = 20 # Folder operations per minute.
 RATE_KEYS_PER_MIN = 30 # API key management per minute.
 RATE_MCP_PER_MIN = 60 # MCP tool calls per minute.
+RATE_RENAME_PER_MIN = 10 # Doc renames per minute (own bucket, no longer shares save).
+RATE_DELETE_PER_MIN = 10 # Doc deletes per minute (own bucket, no longer shares save).
+RATE_RESTORE_PER_MIN = 10 # Doc restores per minute (own bucket, no longer shares save).
+RATE_MOVE_PER_MIN = 20 # Doc moves per minute (own bucket, no longer shares files).
+RATE_TEMPLATES_PER_MIN = 20 # Template saves/deletes/moves per minute (own bucket, no longer shares save/files).
+RATE_TPLFOLDERS_PER_MIN = 20 # Template folder ops per minute (own bucket, no longer shares files).
 # Full table: see backend/config.py (single source of truth for file+env parsing).

@@ -78,3 +78,83 @@ def test_avatar_get_no_limit(c):
     for _ in range(15): # reads are cheap + auth-gated: no 429 by design (404 = no avatar yet)
         codes.add(c.get("/api/avatar/alice").status_code)
     assert 429 not in codes
+
+
+def test_rename_ratelimit_429(c):
+    register_user(c, "alice")
+    did = make_doc(c, "R", content="hi")
+    ratelimit.clear()
+    codes = set()
+    for i in range(11): # rename scope is 10/min (own bucket, no longer shares save)
+        codes.add(c.post(f"/api/docs/{did}/rename", json={"title": f"R{i}"}).status_code)
+    assert 429 in codes
+
+
+def test_delete_ratelimit_429(c):
+    register_user(c, "alice")
+    dids = [make_doc(c, f"D{i}", content="hi") for i in range(11)]
+    ratelimit.clear()
+    codes = set()
+    for did in dids: # delete scope is 10/min (own bucket, no longer shares save)
+        codes.add(c.delete(f"/api/docs/{did}").status_code)
+    assert 429 in codes
+
+
+def test_restore_ratelimit_429(c):
+    register_user(c, "alice")
+    did = make_doc(c, "W", content="hi")
+    assert c.delete(f"/api/docs/{did}").status_code == 200
+    ratelimit.clear()
+    codes = set()
+    for _ in range(11): # restore scope is 10/min (own bucket, no longer shares save)
+        codes.add(c.post(f"/api/docs/{did}/restore").status_code)
+    assert 429 in codes
+
+
+def test_move_ratelimit_429(c):
+    register_user(c, "alice")
+    did = make_doc(c, "M", content="hi")
+    ratelimit.clear()
+    codes = set()
+    for _ in range(21): # move scope is 20/min (own bucket, no longer shares files)
+        codes.add(c.post(f"/api/docs/{did}/folder", json={"folder": "M"}).status_code)
+    assert 429 in codes
+
+
+def test_templates_ratelimit_429(c):
+    register_user(c, "alice")
+    ratelimit.clear()
+    codes = set()
+    for _ in range(21): # templates scope is 20/min (own bucket, no longer shares save/files)
+        codes.add(c.post("/api/templates", json={"name": "r.typ", "content": "x"}).status_code)
+    assert 429 in codes
+
+
+def test_tplfolders_ratelimit_429(c):
+    register_user(c, "alice")
+    ratelimit.clear()
+    codes = set()
+    for _ in range(21): # tplfolders scope is 20/min (own bucket, no longer shares files)
+        codes.add(c.delete("/api/tplfolders/Z").status_code)
+    assert 429 in codes
+
+
+def test_rename_isolated_from_save(c):
+    register_user(c, "alice")
+    did = make_doc(c, "S", content="hi")
+    ratelimit.clear()
+    for _ in range(30): # exhaust the save bucket (autosave cadence)
+        assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 200
+    assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 429
+    # rename has its own bucket: still works despite save exhaustion
+    assert c.post(f"/api/docs/{did}/rename", json={"title": "S2"}).status_code == 200
+
+
+def test_templates_isolated_from_save(c):
+    register_user(c, "alice")
+    did = make_doc(c, "S", content="hi")
+    ratelimit.clear()
+    for _ in range(30): # exhaust the save bucket
+        assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 200
+    # templates have their own bucket: still works despite save exhaustion
+    assert c.post("/api/templates", json={"name": "iso.typ", "content": "x"}).status_code == 200

@@ -1,11 +1,11 @@
-"""Tmp SQLite + Files Isolation pro Test."""
+"""Per-test isolation: temporary SQLite database and files directory."""
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 import backend.main as main
-from backend import db, ratelimit, sync
+from backend import db, deps, ratelimit, sync
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +19,7 @@ def _clear_ratelimit():
 def _clear_sync():
     sync.rooms.clear()
     sync._sess_cache.clear()
+    sync._quota_cache.clear()
     main._SIDEBAR_Q.clear()
     with main._DOC_LOCKS_GUARD:
         main._DOC_LOCKS.clear()
@@ -26,6 +27,7 @@ def _clear_sync():
     yield
     sync.rooms.clear()
     sync._sess_cache.clear()
+    sync._quota_cache.clear()
     main._SIDEBAR_Q.clear()
     with main._DOC_LOCKS_GUARD:
         main._DOC_LOCKS.clear()
@@ -36,7 +38,7 @@ def _clear_sync():
 def c(tmp_path, monkeypatch):
     monkeypatch.setenv("REGISTRATION", "open")  # Tests need open registration (Prod default is invite-only)
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "app.db")
-    monkeypatch.setattr(main, "FILES_DIR", tmp_path / "files")
+    monkeypatch.setattr(deps, "FILES_DIR", tmp_path / "files")
     db.init_db()
     with TestClient(main.app) as client:
         yield client

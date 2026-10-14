@@ -80,12 +80,10 @@ async def test_notify_on_more_mutations(c):
         await _one(lambda: c.post("/api/tplfolders", json={"folder": "U"}))
         await _one(lambda: c.delete("/api/tplfolders/U"))
         await _one(lambda: c.delete("/api/templates/m.typ"))
-        # content-only template update: no list change, no event
+        # Content updates refresh resources in other tabs too.
         c.post("/api/templates", json={"name": "n.typ", "content": "x"})
         await asyncio.wait_for(entry[1].get(), timeout=5)  # creation event
-        c.post("/api/templates", json={"name": "n.typ", "content": "y"})
-        await asyncio.sleep(0.3)
-        assert entry[1].empty(), "content-only update woke the sidebar"
+        await _one(lambda: c.post("/api/templates", json={"name": "n.typ", "content": "y"}))
         # hard delete: trash first, then delete again
         c.delete(f"/api/docs/{did}")
         await asyncio.wait_for(entry[1].get(), timeout=5)  # trash event
@@ -121,10 +119,9 @@ async def test_notify_template_folder_change(c):
     c.post("/api/templates", json={"name": "f.typ", "content": "x"})
     entry = _watch("uT")
     try:
-        # same folder update: no list change, no event
-        c.post("/api/templates", json={"name": "f.typ", "content": "y"})
-        await asyncio.sleep(0.3)
-        assert entry[1].empty(), "content-only update woke the sidebar"
+        # Same folder, new content: the resource still needs a refresh.
+        assert c.post("/api/templates", json={"name": "f.typ", "content": "y"}).status_code == 200
+        assert await asyncio.wait_for(entry[1].get(), timeout=5) == "sidebar"
         # folder change: list changes, event
         r = c.post("/api/templates", json={"name": "f.typ", "content": "y", "folder": "TF"})
         assert r.status_code == 200, r.text
@@ -164,8 +161,18 @@ async def test_notify_sharee(c):
         main._SIDEBAR_Q.get("guest", set()).discard(entry)
 
 
+def _effective_paths():
+    # FastAPI wraps each include_router() in one route object; flatten it back
+    # into the ordered list of concrete paths the dispatcher will try.
+    out = []
+    for r in main.app.routes:
+        sub = getattr(r, "original_router", None)
+        out.extend(x.path for x in sub.routes) if sub is not None else out.append(getattr(r, "path", None))
+    return out
+
+
 def test_events_route_beats_fallback():
-    paths = [r.path for r in main.app.routes]
+    paths = _effective_paths()
     assert "/api/events" in paths
     assert paths.index("/api/events") < paths.index("/api/{full_path:path}")
 

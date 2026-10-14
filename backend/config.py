@@ -22,6 +22,7 @@ class Config:
     PORT: int = 8978
     DATA_DIR: Path = ROOT / "data"
     TRUST_PROXY: bool = False
+    FORWARDED_ALLOW_IPS: str = "127.0.0.1,::1"
     COOKIE_SECURE: str = "auto"
     REGISTRATION: str = "invite-only"
     REGISTRATION_INVITE_TOKEN: str = ""
@@ -33,12 +34,14 @@ class Config:
     RATE_REGISTER_PER_HOUR: int = 20
     RATE_AUTH_PER_MIN: int = 60
     RATE_JOIN_PER_MIN: int = 30
+    RATE_READ_PER_MIN: int = 30
     RATE_SEARCH_PER_MIN: int = 60
     RATE_FILES_PER_MIN: int = 20
     RATE_FILES_LIST_PER_MIN: int = 120
     RATE_SAVE_PER_MIN: int = 30
     RATE_COMMENTS_PER_MIN: int = 30
     RATE_EXPORT_PER_MIN: int = 5
+    RATE_EXPORT_DOC_PER_MIN: int = 10
     RATE_PW_PER_MIN: int = 10
     RATE_INVITE_PER_MIN: int = 10
     RATE_SHARE_PER_MIN: int = 10
@@ -49,6 +52,12 @@ class Config:
     RATE_FOLDERS_PER_MIN: int = 20
     RATE_KEYS_PER_MIN: int = 30
     RATE_MCP_PER_MIN: int = 60
+    RATE_RENAME_PER_MIN: int = 10
+    RATE_DELETE_PER_MIN: int = 10
+    RATE_RESTORE_PER_MIN: int = 10
+    RATE_MOVE_PER_MIN: int = 20
+    RATE_TEMPLATES_PER_MIN: int = 20
+    RATE_TPLFOLDERS_PER_MIN: int = 20
 
 
 def _int(v: Any, d: int) -> int:
@@ -101,13 +110,17 @@ def _raw() -> dict:
 
 # Table-driven keys: one row per setting, raw TOML then env override.
 # (RATE_REGISTER is per-hour, the rest of the RATE_* family per-minute.)
-_STR_KEYS = ("HOST", "COOKIE_SECURE", "REGISTRATION", "REGISTRATION_INVITE_TOKEN")
+# FORWARDED_ALLOW_IPS stays a plain string (comma/space separated, parsed at
+# use site); it is intentionally NOT lowercased below (IPv6 has no case issue
+# but normalization would still be wrong for future tokens like '*').
+_STR_KEYS = ("HOST", "FORWARDED_ALLOW_IPS", "COOKIE_SECURE", "REGISTRATION", "REGISTRATION_INVITE_TOKEN")
 _BOOL_KEYS = ("TRUST_PROXY",)
 _PATH_KEYS = ("DATA_DIR",)
 _INT_KEYS = ("PORT", "SESSION_SECONDS", "MAX_DOCS_PER_USER", "MAX_BYTES_PER_USER",
              "MAX_FILES_PER_DOC", "RATE_REGISTER_PER_HOUR")
-_RATE_KEYS = ("LOGIN", "AUTH", "JOIN", "SEARCH", "FILES", "FILES_LIST", "SAVE", "COMMENTS", "EXPORT", "PW",
-              "INVITE", "SHARE", "SNAPSHOTS", "CREATE", "DUPLICATE", "AVATAR", "FOLDERS", "KEYS", "MCP")
+_RATE_KEYS = ("LOGIN", "AUTH", "JOIN", "READ", "SEARCH", "FILES", "FILES_LIST", "SAVE", "COMMENTS", "EXPORT", "EXPORT_DOC", "PW",
+              "INVITE", "SHARE", "SNAPSHOTS", "CREATE", "DUPLICATE", "AVATAR", "FOLDERS", "KEYS", "MCP",
+              "RENAME", "DELETE", "RESTORE", "MOVE", "TEMPLATES", "TPLFOLDERS")
 _ENV_KEYS = _STR_KEYS + _BOOL_KEYS + _PATH_KEYS + _INT_KEYS + tuple(f"RATE_{k}_PER_MIN" for k in _RATE_KEYS)
 
 # (attr, min, max) ranges; out-of-range falls back to the default with a warning.

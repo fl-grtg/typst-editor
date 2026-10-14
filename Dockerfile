@@ -27,6 +27,7 @@ RUN set -eux; \
 COPY backend/ ./backend/
 COPY scripts/backup.py ./scripts/backup.py
 COPY index.html vendor-cm.js manifest.json icon.svg icon-192.png icon-512.png docker-entrypoint.sh ./
+COPY vendor/ ./vendor/
 ENV DATA_DIR=/app/data
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

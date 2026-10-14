@@ -1,0 +1,21 @@
+/* esm.sh - yjs@13.6.27 */
+import "./lib0-0.2.99-array-ecc158598aea.js";
+import "./lib0-0.2.99-binary-174261e9818d.js";
+import "./lib0-0.2.99-buffer-2ff75503aac2.js";
+import "./lib0-0.2.99-decoding-17ef6199c56e.js";
+import "./lib0-0.2.99-encoding-9fc594dd93c3.js";
+import "./lib0-0.2.99-environment-835038b75ec0.js";
+import "./lib0-0.2.99-error-e274edb9cafb.js";
+import "./lib0-0.2.99-function-a862f7193cd5.js";
+import "./lib0-0.2.99-iterator-9fdc9246264c.js";
+import "./lib0-0.2.99-logging-2f4ef588297d.js";
+import "./lib0-0.2.99-map-dd128f8913da.js";
+import "./lib0-0.2.99-math-6fc8bb7b7e30.js";
+import "./lib0-0.2.99-object-a6397b8b6db6.js";
+import "./lib0-0.2.99-observable-6a0f7f31b447.js";
+import "./lib0-0.2.99-promise-43a7f0cd35ca.js";
+import "./lib0-0.2.99-random-536acffa1fef.js";
+import "./lib0-0.2.99-set-f3c418ac90fe.js";
+import "./lib0-0.2.99-string-a486aeec529f.js";
+import "./lib0-0.2.99-time-14ea3a029aec.js";
+export * from "./yjs-13.6.27-es2022-yjs.mjs-d9774489eb28.js";

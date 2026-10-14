@@ -24,11 +24,26 @@ Third-party components:
 5. pdf.js 3.11.174 - Apache-2.0
    PDF rendering in the browser.
 
-6. @myriaddreamin/typst-all-in-one.ts 0.7.0 - Apache-2.0
-   Typst compiler and renderer (WASM).
+6. @myriaddreamin/typst-all-in-one.ts 0.8.0-rc3 - Apache-2.0
+   Typst compiler and renderer (WASM), bundles Typst 0.15.1 (= CLI).
+   RC chosen deliberately: latest stable (0.7.0) still bundles Typst 0.14.2.
 
-7. @myriaddreamin/typst-ts-web-compiler 0.7.0 - Apache-2.0
+7. @myriaddreamin/typst-ts-web-compiler 0.8.0-rc3 - Apache-2.0
    Typst compiler WASM, loaded from jsDelivr.
 
-8. @myriaddreamin/typst-ts-renderer 0.7.0 - Apache-2.0
+8. @myriaddreamin/typst-ts-renderer 0.8.0-rc3 - Apache-2.0
    Typst renderer WASM, loaded from jsDelivr.
+
+9. @typstyle/typstyle-wasm-bundler 0.15.1 - Apache-2.0
+   Typst code formatter (WASM, 643 KB), self-hosted in vendor/.
+   https://github.com/typstyle-rs/typstyle
+
+Server-side CLI: Typst 0.15.1 (Dockerfile TYPST_VERSION, newest release;
+no 0.16 exists as of 2026-10-05). View cache is salted with `typst --version`.
+
+Additional bundled data editor dependencies:
+- @codemirror/lang-json 6.0.2, @codemirror/lang-xml 6.1.0,
+  @codemirror/lang-yaml 6.1.3, @codemirror/legacy-modes 6.5.5: MIT.
+  https://github.com/codemirror
+- yaml 2.9.1: ISC. https://github.com/eemeli/yaml
+- smol-toml 1.9.1: BSD-3-Clause. https://github.com/squirrelchat/smol-toml

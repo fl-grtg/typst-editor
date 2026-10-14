@@ -1,0 +1,2 @@
+/* esm.sh - y-protocols@1.0.7/auth */
+import"./yjs-13.6.27-es2022-yjs.mjs-d9774489eb28.js";import*as e from"./lib0-0.2.99-encoding-9fc594dd93c3.js";import*as r from"./lib0-0.2.99-decoding-17ef6199c56e.js";var o=0,a=(i,n)=>{e.writeVarUint(i,o),e.writeVarString(i,n)},d=(i,n,t)=>{switch(r.readVarUint(i)){case o:t(n,r.readVarString(i))}};export{o as messagePermissionDenied,d as readAuthMessage,a as writePermissionDenied};

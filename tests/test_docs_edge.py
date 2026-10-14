@@ -46,8 +46,8 @@ def test_duplicate_quota_413(c, monkeypatch):
 
 
 def test_folders_rename_duplicate_merges_docs(c):
-    # IST: rename auf existierenden Namen -> 200, Docs werden verschoben
-    # (UPDATE OR IGNORE: alter Ordner-Eintrag kann mit n=0 bestehen bleiben).
+    # Current behaviour: rename onto an existing name -> 200, docs are moved
+    # (UPDATE OR IGNORE: the old folder entry may remain with n=0).
     register_user(c, "alice")
     did = make_doc(c, "DupRename")
     assert c.post("/api/folders", json={"folder": "A"}).status_code == 200

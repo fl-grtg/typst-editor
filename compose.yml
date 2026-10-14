@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/fl-grtg/typst-editor:main
+    image: ghcr.io/fl-grtg/typst-editor:v0.1.0
     container_name: typst-editor
     pull_policy: always
     env_file: [{path: .env, required: false}]
@@ -9,7 +9,7 @@ services:
       # PORT comes from .env via ${PORT} below (default 8978). Do not pin here: it would override .env.
     volumes:
       - ${COMPOSE_DATA_PATH:-typst-data}:/app/data
-    restart: on-failure:5
+    restart: unless-stopped
     stop_grace_period: 15s
     deploy:
       replicas: 1 # rooms live in process memory (sync.py): more replicas would split sessions.

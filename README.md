@@ -10,7 +10,7 @@ One process: FastAPI serves the API, Yjs syncs edits, SQLite stores all. No Node
 
 ## ✨ Features
 
-- Live PDF preview, compiled in browser (Typst 0.7.0 WASM, pdf.js render)
+- Live PDF preview, compiled in browser (Typst 0.15.1 via typst.ts 0.8.0-rc3 WASM, pdf.js render)
 - Realtime collab via Yjs over `WS /ws/{doc_id}`, presence included, cookie-only auth
 - Owner/editor/reviewer roles (reviewer = Reader: comment only), share links, doc invites
 - Comment threads with line anchors, @-mentions, one-level replies, resolve, edit
@@ -58,6 +58,7 @@ File + env overrides; env wins. Parsed in `backend/config.py`. `.env.example`/`c
 | `DATA_DIR` | `./data` | SQLite + uploads; `/app/data` in container. |
 | `COMPOSE_DATA_PATH` | managed volume | Host path instead, e.g. `/srv/typst-data`. |
 | `TRUST_PROXY` | `false` | Set `true` behind a proxy, else cookies break. |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Peers allowed to send `X-Forwarded-*` (CIDR ok); same value goes to uvicorn. Never `*` with `TRUST_PROXY=true` (refuses to start). |
 | `REGISTRATION` | `invite-only` | `closed`, `invite-only`, or `open`. |
 | `REGISTRATION_INVITE_TOKEN` | empty | Min 16 chars when set, else start refuses. |
 | `SESSION_SECONDS` | `1209600` | 14 days. |
@@ -111,6 +112,7 @@ Needs `TRUST_PROXY=true`. Never expose directly; TLS is yours. Caddy:
 
 ```
 typst.example.com {
+    encode zstd gzip
     reverse_proxy 127.0.0.1:8978
 }
 ```
@@ -125,6 +127,10 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/typst.example.com/privkey.pem;
 
     client_max_body_size 12M;
+
+    gzip on;
+    gzip_comp_level 5;
+    gzip_types application/javascript application/wasm application/json text/css image/svg+xml;
 
     location / {
         proxy_pass http://127.0.0.1:8978;
@@ -141,7 +147,7 @@ server {
 }
 ```
 
-Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: point proxy at that port.
+Compression matters: the compiler (JS + WASM) is about 72 MB raw and about 26 MB compressed, so keep `encode`/`gzip` on. Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: point proxy at that port.
 
 Uvicorn trusts `X-Forwarded-For`/`Proto` only from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose the proxy uses a `172.x` IP, so extend the default: `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12`. Else all clients share one rate-limit bucket. Never `*` with `TRUST_PROXY=true`.
 
@@ -155,7 +161,7 @@ Report vulns via GitHub Private Vulnerability Reporting.
 No public issues for security problems.
 Allow time for a fix before disclosure.
 
-Unshare wipes pending invite links (they carry no username). First load needs internet (CDN: cdnjs/esm.sh/jsdelivr; pins: Typst 0.7.0, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0). Afterwards the shell stays in browser cache; saving needs net (24 h stash). No service worker (dropped 2026-10-03, plain HTTP cache). `Cache-Control: no-store` on `/`, `*.html`, `*.js`, `/api/*` (see `backend/main.py`); versioned assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP needs `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` for Typst WASM; user content renders via `textContent` only.
+Unshare wipes pending invite links (they carry no username). First load needs internet (CDN: cdnjs/esm.sh/jsdelivr; pins: typst.ts 0.8.0-rc3 = bundled Typst 0.15.1 = CLI 0.15.1, pdf.js 3.11.174, yjs 13.6.27, y-websocket 1.5.0). Typst alignment (2026-10-05): no 0.16 release exists (0.15.1 is newest), so CLI stays 0.15.1; WASM is 0.8.0-rc3 on purpose — latest stable (0.7.0) still bundles Typst 0.14.2, only the RC bundles 0.15.1. View cache is salted with `typst --version`, so CLI bumps auto-bust it. Afterwards the shell stays in browser cache; saving needs net (24 h stash). No service worker (dropped 2026-10-03, plain HTTP cache). `Cache-Control: no-store` on `/`, `*.html`, `*.js`, `/api/*` (see `backend/main.py`); versioned assets (`vendor-cm.js`, `manifest.json`, icons) are `immutable`. CSP needs `unsafe-inline`/`unsafe-eval`/`wasm-unsafe-eval` for Typst WASM; user content renders via `textContent` only.
 
 ### 🛠 Troubleshooting
 
@@ -170,16 +176,27 @@ Unshare wipes pending invite links (they carry no username). First load needs in
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest            # 176 tests
+python -m pytest            # 298 tests
 ruff check backend/ scripts/ tests/
 mypy backend/ scripts/ tests/
 ```
 
-Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build`. CI fails on diff or >600 KB.
+Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm run build`. CI fails on diff or >700 KB.
 
 ### 📦 Changelog
 
 See GitHub Releases (no CHANGELOG file, single README on purpose).
+
+## 🛠 Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+make dev      # run locally with reload
+make check    # ruff + mypy + frontend build check + tests
+```
+
+The frontend source lives in `web/`; `index.html` is generated (`python web/build.py`). Backend routers are in `backend/routers/`.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## 💡 Why
 
@@ -188,3 +205,9 @@ Most collab editors need heavy infra or lock you into a cloud. This is one conta
 ## 📜 License
 
 Apache-2.0, see `LICENSE`. Third-party versions in `NOTICE` (pins match CDN imports and CSP).
+
+## Modules and source bundles
+
+Global modules and document-local text files support `.typ`, `.bib`, `.csv`, `.tsv`, `.json`, `.yaml`/`.yml`, `.toml`, `.xml`, `.csl`, and `.txt`. CSV/TSV use a cell editor; BibLaTeX offers a source list and form alongside the raw editor. Structured data editors highlight syntax and validate their content. Shared documents resolve the owner's modules; local files take precedence.
+
+Use **Export ? Source ZIP with modules and files** for a self-contained bundle. Upload that ZIP to create a new document: choose its title and folder, and every bundled module becomes a document-local file. Bundles must contain `main.typ`; nested paths are preserved. Import accepts at most 10 MB compressed and 100 MB unpacked, with the usual per-file limits (200 KB text, 10 MB binary) and configured file-count/quota limits.

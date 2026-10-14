@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from conftest import login, make_doc, register_user
 
 from backend import config as backend_config
-from backend import db
+from backend import db, deps
 from backend import main as backend_main
 
 
@@ -56,7 +56,7 @@ def test_export_leaves_no_tmp(c):
     make_doc(c, "Backup", content="inhalt")
     r = c.get("/api/export.zip")
     assert r.status_code == 200
-    parent = backend_main.FILES_DIR.parent
+    parent = deps.get_files_dir().parent
     assert list(parent.glob("tmp*.zip")) == []
     assert list(parent.glob("*.tmp.*")) == []
 
