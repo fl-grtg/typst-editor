@@ -24,7 +24,9 @@ PREVIEW_TIMEOUT = 60_000
 def _new_file_tab(page, name):
     page.click("#tabs button.tadd")
     expect(page.locator("#modal")).to_be_visible()
-    page.locator("#modal button.pk").first.click()  # New Typst file
+    page.locator("#modal button.pk").first.click()  # New file
+    expect(page.locator("#mHead")).to_have_text("Choose file type")
+    page.locator("#modal button.pk").filter(has_text=".typ").first.click()
     expect(page.locator("#mHead")).to_have_text("New file")
     page.fill("#mInp", name)
     page.click("#mYes")
@@ -121,6 +123,8 @@ def test_ui_presentation_enter_navigate_exit(page):
     expect(page.locator("#vSplit")).to_have_class(re.compile(r"\bon\b"))
     page.click("#presentBtn")
     expect(page.locator("#presentBar")).to_be_visible()
+    page.mouse.move(640, 710)
+    page.locator("#presentExit").focus()
     page.click("#presentExit")
     expect(page.locator("#presentBar")).not_to_be_visible()
 

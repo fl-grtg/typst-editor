@@ -211,3 +211,15 @@ test('late fallback diagnostics cannot paint a different document', async () => 
   assert.equal(painted, false)
   assert.equal(c.cmpDiags.length, 0)
 })
+
+
+test('offline module edits stay dirty without sending requests or showing errors', async () => {
+  let requests = 0
+  const c = context({ tplName: 'layout.typ', tplDirty: true, tplSaving: null, tplT: null,
+    navigator: { onLine: false }, api: () => { requests++; throw Error('offline') },
+  })
+  vm.runInContext(part('web/js/60-docs.js', 'async function flushTpl()', 'async function loadTheirs('), c)
+  assert.equal(await c.flushTpl(), false)
+  assert.equal(requests, 0)
+  assert.equal(c.tplDirty, true)
+})

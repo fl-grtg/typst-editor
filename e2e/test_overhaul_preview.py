@@ -62,14 +62,14 @@ def test_pv2_pending_render_does_not_replace_template_view(page):
     page.keyboard.press("ControlOrMeta+End")
     page.keyboard.type("!")  # queue a doc render, then leave immediately
     page.click("#tplBtn")
-    page.locator("#tplPop button", has_text="New template").click()
+    page.locator("#tplPop button", has_text="Save as a global module").click()
     page.fill("#mInp", "ovstale.typ")
     page.click("#mYes")
     expect(page.locator("#title")).to_have_text("ovstale.typ")
     page.wait_for_timeout(6_000)  # a stale doc compile must not clobber this view
     assert page.locator("#preview canvas").count() == 0
     expect(page.locator("#preview")).to_contain_text(
-        "Preview not available for templates."
+        "Edit this file here; preview it in a document that uses it."
     )
     page.locator("#own .doc", has_text="OV stale doc").first.click()
     expect(page.locator("#title")).to_have_text("OV stale doc")

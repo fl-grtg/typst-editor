@@ -5,9 +5,8 @@ from playwright.sync_api import expect
 
 def _skip_tour(page, name):
     register(page, name)
-    expect(page.locator("#tourCard")).to_be_visible(timeout=20_000)  # fresh account: auto tour
-    page.locator("#tourCard button.ghost").click()  # Skip
-    expect(page.locator("#tourCard")).to_be_hidden()
+    expect(page.locator("#tourCard")).to_have_count(0)
+
 
 
 def _new_from_gallery(page, card_text, title):

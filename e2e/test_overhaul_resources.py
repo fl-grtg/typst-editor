@@ -6,14 +6,26 @@ from e2e.helpers import register
 
 def test_global_library_and_table_can_be_created_and_reused(page):
     register(page, "shelf_creator")
-    for header, name, title in [("libH", "sources.bib", "New library"),
-                                ("tblH", "numbers.csv", "New table")]:
-        page.locator(f"#{header} button").first.click()
-        expect(page.locator("#mHead")).to_have_text(title)
+    for ext, name in [("bib", "sources.bib"), ("csv", "numbers.csv")]:
+        page.locator("#tplH").hover()
+        page.locator("#tplH button[aria-label='New Modules']").click()
+        page.locator("#modal button.pk").filter(has_text="." + ext).first.click()
+        expect(page.locator("#mHead")).to_have_text("New file")
         page.fill("#mInp", name)
         page.click("#mYes")
         expect(page.locator("#title")).to_have_text(name)
-        expect(page.locator("#cm .cm-content")).not_to_be_empty()
+        if ext == "bib":
+            page.get_by_role("button", name="New entry", exact=True).click()
+            page.fill("#mInp", "reference")
+            page.click("#mYes")
+            page.locator(".bibField").filter(has_text="Title").locator("textarea").fill("Sample")
+            page.locator(".bibField").filter(has_text="Author").locator("textarea").fill("Doe, Jane")
+            page.locator(".bibField").filter(has_text="Year").locator("input").fill("2020")
+        else:
+            for r, values in enumerate([["name", "value"], ["A", "1"]]):
+                for c, value in enumerate(values):
+                    page.locator(f'.csvEditor [data-row="{r}"][data-col="{c}"]').fill(value)
+        expect(page.locator("#save")).to_contain_text("saved")
     response = page.request.post("/api/templates", data={"name": "layout.typ", "content":
                                  '#table(columns: 2, ..csv("numbers.csv").flatten())\n'
                                  '#bibliography("sources.bib")'})
@@ -23,8 +35,8 @@ def test_global_library_and_table_can_be_created_and_reused(page):
                                  "content": '#include "layout.typ"\n@reference'}).ok
     page.reload()
     page.wait_for_function("window.__booted === true")
-    expect(page.locator("#libs")).to_contain_text("sources.bib")
-    expect(page.locator("#tbls")).to_contain_text("numbers.csv")
+    expect(page.locator("#tpls")).to_contain_text("sources.bib")
+    expect(page.locator("#tpls")).to_contain_text("numbers.csv")
     for title in ["Global one", "Global two"]:
         page.locator("#own .doc .t").filter(has_text=title).click()
         expect(page.locator("#title")).to_have_text(title)
@@ -57,6 +69,7 @@ def test_shared_same_name_uses_owner_copy_and_cannot_edit_it(page, browser, base
         peer.keyboard.press("ControlOrMeta+A")
         peer.keyboard.press("Tab")
         peer.keyboard.press("Shift+Tab")
+        peer.click("#cm .cm-content")
         peer.keyboard.type("Must not replace")
         expect(peer.locator("#cm .cm-content")).to_contain_text("Owner-only marker")
         assert peer.request.get("/api/templates/shared.typ").json()["content"] == "Peer private marker"

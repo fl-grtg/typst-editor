@@ -99,7 +99,7 @@ def test_12_template_offline_stays_quiet(page, ctx):
     type_source(page, "template body")
     expect(page.locator("#wsTxt")).to_have_text("Live", timeout=20_000)
     page.click("#tplBtn")
-    page.locator("#tplPop button", has_text="New template").click()
+    page.locator("#tplPop button", has_text="Save as a global module").click()
     page.fill("#mInp", "off.typ")
     page.click("#mYes")
     expect(page.locator("#title")).to_have_text("off.typ", timeout=15_000)

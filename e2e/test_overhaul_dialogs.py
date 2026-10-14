@@ -60,10 +60,11 @@ def test_formatter_does_not_replace_a_document_opened_during_load(page):
 
 def test_keyboard_on_nested_document_action_runs_that_action(page):
     _docs(page, "audit_keyboard")
+    _open(page, "Audit first")
     before = len(page.request.get("/api/docs").json()["own"])
     row = page.locator("#own .doc").filter(has_text="Audit first")
     row.locator("button").first.press("Enter")
-    page.wait_for_function("document.querySelector('#title').textContent.includes('Audit first')")
+    expect(page.locator("#title")).to_have_text("Audit first (copy)")
     page.wait_for_timeout(250)
     after = len(page.request.get("/api/docs").json()["own"])
     assert after == before + 1
@@ -78,6 +79,8 @@ def test_history_diff_compares_main_when_attachment_tab_is_open(page):
     expect(page.locator("#tabs button.tab").filter(has_text="other.typ")).to_be_visible()
     page.locator("#tabs button.tab").filter(has_text="other.typ").click()
     expect(page.locator("#cm .cm-content")).to_contain_text("Completely different attachment")
+    expect(page.locator("#histBtn")).not_to_be_visible()
+    page.locator("#tabs button.tab").filter(has_text="main.typ").click()
     page.click("#histBtn")
     page.locator("#histPop .srow button").filter(has_text="Compare").first.click()
     expect(page.locator("#histPop pre.diff")).to_contain_text("Identical")

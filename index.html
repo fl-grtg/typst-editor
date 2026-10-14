@@ -3040,6 +3040,7 @@ async function flushTpl() { // persist a dirty resource before a view switch; fa
   if (tplSaving) { const ok = await tplSaving; if (!ok) return false }
   if (!tplName || !tplDirty) { clearTimeout(tplT); return true }
   clearTimeout(tplT)
+  if (navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return false }
   const key = tplName, text = getT(), epoch = tplOpenN
   tplSaving = (async () => {
   try {
@@ -3068,6 +3069,7 @@ async function loadTheirs(key) { // conflict escape: take the server text into t
     if (key !== tplName) return
     tplVer = r.version || ''
     const cc = tplCached(key); if (cc) { cc.content = r.content || ''; cc.updated_at = tplVer }
+    try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
     tplDirty = false; setT(r.content || ''); $('save').textContent = t('docs.saved') + wc(); paintTpls()
   } catch (e) { toast(e.message) }
 }
@@ -3152,10 +3154,12 @@ function queueTplSave() {
   clearTimeout(tplT)
   if (!tplName) return
   tplDirty = true
-  $('save').textContent = t('docs.saving')
+  $('save').textContent = t(navigator.onLine === false ? 'docs.offlineRetry' : 'docs.saving')
+  try { localStorage.setItem(resourceStashKey(tplName), JSON.stringify({ c: getT(), t: Date.now() })) } catch (e) {}
   const key = tplName
   tplT = setTimeout(() => { if (key === tplName) flushTpl() }, SAVE_MS)
 }
+addEventListener('online', () => { if (tplName && tplDirty) flushTpl() })
 let openN = 0, synced = false // sync state ready? Else no empty save to DB (Fix #2)
 function wsLive() { return !!(prov && prov.wsconnected) } // Yjs carries main.typ; REST autosave would only 409
 let connT = 0 // debounced disconnect paint: brief flaps stay invisible, no flicker
