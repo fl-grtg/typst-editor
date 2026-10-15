@@ -22,7 +22,7 @@ function context(extra = {}) {
     docId: 'document-a', docRole: 'owner', activeFile: 'chapter.typ', openN: 1,
     tplName: '', tplDirty: false, tabDirty: true, tabSaveFlight: null,
     tabVersions: new Map(), fileCache: new Map(), text: 'Draft', navigator: { onLine: true },
-    tabCanEdit: () => true, isTplKey: k => k.startsWith('tpl/'), tabName: k => k,
+    tabCanEdit: () => true, isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.replace(/^@tpl\//, ''),
     tabReq: (key, text) => ({ url: key, body: { content: text } }),
     toast: () => {}, t: (key, args) => key + (args?.msg || ''), wc: () => '',
     clearTimeout, fileT: null, myTpl: [], localStorage: { removeItem: () => {} },
@@ -33,7 +33,7 @@ function context(extra = {}) {
   c.getT = () => c.text
   return c
 }
-const saveSource = part('web/js/80-files-images.js', 'async function flushTab()', 'function tabLive()')
+const saveSource = part('web/js/80-files-images.js', 'async function flushTab(', 'function tabLive()')
 
 test('failed attachment save preserves the dirty buffer and blocks leaving it', async () => {
   const c = context({ api: async () => { throw new Error('conflict') } })
@@ -87,7 +87,7 @@ test('an old document save cannot clear a new document draft', async () => {
 
 test('a file read does not change the active buffer before it finishes', async () => {
   const pending = deferred()
-  const c = context({ activeFile: '', tabDirty: false, tabSeq: 0,
+  const c = context({ activeFile: '', tabDirty: false, tabSeq: 0, TEXT_EXT: /\.(typ|bib|csv)$/i,
     lastFiles: [{ name: 'chapter.typ' }], api: () => pending.promise,
     flushTab: async () => true, tabSaveState: () => {}, setT: () => { throw new Error('must not replace dirty text') },
   })
@@ -116,11 +116,11 @@ test('a delayed formatter does not format a different document', async () => {
 })
 
 test('shared resources stay read-only even when the viewer owns a same-named template', () => {
-  const c = context({ docRole: 'editor', openedTrashed: false, myTpl: [{ name: 'shared.typ' }] })
+  const c = context({ docRole: 'editor', openedTrashed: false, TEXT_EXT: /\.(typ|bib|csv)$/i, myTpl: [{ name: 'shared.typ' }] })
   const source = readFileSync(resolve(root, 'web/js/80-files-images.js'), 'utf8')
   const line = source.split('\n').find(s => s.startsWith('const tabCanEdit ='))
   vm.runInContext(line + '\nthis.canEdit = tabCanEdit', c)
-  assert.equal(c.canEdit('tpl/shared.typ'), false)
+  assert.equal(c.canEdit('@tpl/shared.typ'), false)
   assert.equal(c.canEdit('attachment.typ'), true)
   c.docRole = 'reviewer'
   assert.equal(c.canEdit('attachment.typ'), false)
@@ -222,4 +222,117 @@ test('offline module edits stay dirty without sending requests or showing errors
   assert.equal(await c.flushTpl(), false)
   assert.equal(requests, 0)
   assert.equal(c.tplDirty, true)
+})
+
+test('rights downgrade blocks dirty tab saves without discarding the draft', async () => {
+  for (const role of ['editor', 'reviewer']) {
+    let posts = 0
+    const c = context({ docRole: role, tabCanEdit: () => false, api: () => { posts++ } })
+    vm.runInContext(saveSource, c)
+    assert.equal(await c.flushTab(), false)
+    assert.equal(posts, 0)
+    assert.equal(c.tabDirty, true)
+    assert.equal(c.text, 'Draft')
+    assert.equal(c.$('save').textContent, 'projects.localDraft')
+    assert.equal(c.$('save').title, 'projects.readonlyDraft')
+  }
+})
+
+test('nested tpl local files and module tabs have distinct identities and save routes', () => {
+  const c = context({ docProject: 'project-a', openedTrashed: false })
+  vm.runInContext(part('web/js/80-files-images.js', 'const TPLK =', 'const tabKind =') +
+    part('web/js/80-files-images.js', 'function tabReq(', 'function paintTabs('), c)
+  assert.equal(c.isTplKey('tpl/foo.typ'), false)
+  assert.equal(c.isTplKey('@tpl/foo.typ'), true)
+  assert.equal(c.tabReq('tpl/foo.typ', 'local').url, '/api/docs/document-a/files/tpl%2Ffoo.typ/text')
+  assert.equal(c.tabReq('@tpl/foo.typ', 'module').url, '/api/projects/project-a/resources')
+})
+
+test('resource refresh updates only a clean idle active module and its base version', async () => {
+  for (const state of ['clean', 'dirty', 'saving']) {
+    const c = context({ activeFile: '@tpl/layout.typ', docProject: 'project-a', docResN: 0,
+      tabDirty: state === 'dirty', tabSaveFlight: state === 'saving' ? Promise.resolve() : null,
+      shadow: '', window: {}, tabSig: '',
+      api: async () => ({ resources: { 'layout.typ': 'Remote' }, versions: { 'layout.typ': 'v2' }, readonly: false }),
+      cm: { dispatch: () => {} }, editableComp: { reconfigure: x => x }, editMode: x => x,
+      queueTabs: () => {}, gutter: () => {}, refreshHl: () => {}, paintOutline: () => {},
+    })
+    c.setT = text => { c.text = text }
+    c.tabVersions.set(c.activeFile, 'v1')
+    vm.runInContext(part('web/js/20-completions.js', 'async function loadDocResources(', 'const projectResources'), c)
+    await c.loadDocResources(true)
+    assert.equal(c.text, state === 'clean' ? 'Remote' : 'Draft')
+    assert.equal(c.tabVersions.get(c.activeFile), state === 'clean' ? 'v2' : 'v1')
+    assert.equal(c.window.docTpl[0].content, state === 'clean' ? 'Remote' : 'Draft')
+  }
+})
+
+test('sidebar role changes disable the main editor in place and preserve drafts and Yjs', () => {
+  let editable
+  const ytext = { marker: 'original Yjs' }
+  const c = context({ activeFile: '', docRole: 'editor', openedTrashed: false, ytext,
+    cm: { dispatch: x => { editable = x.effects } }, editableComp: { reconfigure: x => x }, editMode: x => x,
+    updCNewTip: () => {}, hidePops: () => {}, queueTabs: () => {}, renderMediaChips: () => {}, lastFiles: [],
+  })
+  c.tabCanEdit = () => c.docRole !== 'reviewer'
+  vm.runInContext(part('web/js/60-docs.js', 'function refreshDocRole(', 'function updNavFade('), c)
+  c.refreshDocRole({ own: [], shared: [{ id: c.docId, role: 'reviewer' }] })
+  assert.equal(editable, false)
+  assert.equal(c.docRole, 'reviewer')
+  assert.equal(c.text, 'Draft')
+  assert.equal(c.tabDirty, true)
+  assert.equal(c.ytext, ytext)
+  assert.equal(c.$('histBtn').style.display, '')
+  c.refreshDocRole({ own: [{ id: c.docId }], shared: [{ id: c.docId, role: 'reviewer' }] })
+  assert.equal(c.docRole, 'owner')
+  assert.equal(editable, true)
+})
+
+
+test('readonly navigation keeps latest draft locally only with consent and working storage', async () => {
+  for (const choice of ['leave', 'stay', 'storage-fails']) {
+    const saved = new Map()
+    let posts = 0, prompts = 0
+    const c = context({ tabCanEdit: () => false, api: () => { posts++ },
+      askPick: async () => { prompts++; c.text = 'Latest draft'; return choice === 'stay' ? 1 : 0 },
+      localStorage: { setItem: (k, v) => { if (choice === 'storage-fails') throw Error('full'); saved.set(k, v) }, getItem: k => saved.get(k) },
+    })
+    c.tabVersions.set('chapter.typ', 'base-version')
+    vm.runInContext(saveSource, c)
+    assert.equal(await c.flushTab(), false)
+    assert.equal(prompts, 0)
+    assert.equal(await c.flushTab(true), choice === 'leave')
+    assert.equal(posts, 0)
+    assert.equal(c.tabDirty, choice !== 'leave')
+    if (choice === 'leave') {
+      const draft = JSON.parse(saved.get('document-achapter.typ'))
+      assert.equal(draft.c, 'Latest draft')
+      assert.equal(draft.version, 'base-version')
+      assert.ok(Date.now() - draft.t < 1000)
+    }
+  }
+})
+
+
+test('file draft recovery retains the local copy until a successful save', () => {
+  for (const text of ['Draft', 'Server text']) {
+    const saved = new Map([['document-achapter.typ', JSON.stringify({ t: Date.now(), c: 'Draft', version: 'v1' })]])
+    const c = context({ text, localStorage: { getItem: k => saved.get(k), removeItem: k => saved.delete(k) } })
+    vm.runInContext(part('web/js/80-files-images.js', 'function offerFileStash(', 'async function flushTab('), c)
+    c.offerFileStash('document-a', 'chapter.typ')
+    assert.ok(saved.has('document-achapter.typ'))
+  }
+})
+
+test('file draft recovery expires old copies and tolerates unavailable storage', () => {
+  let removed = false, offered = false
+  const c = context({ toast: () => { offered = true }, localStorage: {
+    getItem: () => JSON.stringify({ t: Date.now() - 86400001, c: 'Old draft' }), removeItem: () => { removed = true },
+  } })
+  vm.runInContext(part('web/js/80-files-images.js', 'function offerFileStash(', 'async function flushTab('), c)
+  c.offerFileStash('document-a', 'chapter.typ')
+  assert.equal(removed, true)
+  assert.equal(offered, false)
+  c.localStorage.getItem = () => { throw Error('unavailable') }
+  assert.doesNotThrow(() => c.offerFileStash('document-a', 'chapter.typ'))
 })

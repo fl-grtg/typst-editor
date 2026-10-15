@@ -12,6 +12,16 @@ def _res(c, name, content="#x", folder="", version=""):
     return c.post("/api/templates", json=body)
 
 
+def _snapshot(c, did, name):
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
+    body = {"source_scope": "personal", "source": name, "scope": "project", "project_id": pid, "name": name}
+    p = c.post("/api/library/pull-preview", json=body)
+    assert p.status_code == 200, p.text
+    r = c.post("/api/library/pull", json={**body, "preview": p.json()["preview"]})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def test_create_list_kinds_and_backward_compat(c):
     register_user(c, "u1")
     assert _res(c, "a.typ", "#include me").status_code == 200
@@ -56,6 +66,7 @@ def test_shared_doc_resolves_owner_resources_transitively(c):
     _res(c, "leaf.typ", "LEAF")
     _res(c, "refs.bib", "@book{k1,}")
     _res(c, "unrelated.typ", "NOPE")  # must NOT leak into the effective set
+    _snapshot(c, did, "mid.typ")
     register_user(c, "viw")
     # share with viewer (owner still logged? register logs in as v; switch back)
     login(c, "own")
@@ -182,6 +193,7 @@ def test_export_doc_merges_owner_resources(c):
     register_user(c, "own")
     did = make_doc(c, title="Exp", content='#include "part.typ"\nHello')
     _res(c, "part.typ", "PART")
+    _snapshot(c, did, "part.typ")
     register_user(c, "viw")
     login(c, "own")
     c.post(f"/api/docs/{did}/share", json={"username": "viw", "role": "editor"})
@@ -227,7 +239,7 @@ def test_effective_includes_versions(c):
     register_user(c, "own")
     did = make_doc(c, title="D", content='#include "a.typ"')
     _res(c, "a.typ", "A")
-    ver = c.get("/api/templates/a.typ").json()["version"]
+    ver = _snapshot(c, did, "a.typ")["version"]
     assert ver
     r = c.get(f"/api/docs/{did}/resources")
     assert r.status_code == 200
@@ -243,6 +255,7 @@ def test_nested_relative_resolution(c):
                json={"content": '#include "leaf.typ"\nPART'})
     assert r.status_code == 200, r.text
     _res(c, "leaf.typ", "LEAF")
+    _snapshot(c, did, "leaf.typ")
     r = c.get(f"/api/docs/{did}/resources")
     body = r.json()
     assert "sub/part.typ" in body["local"]
@@ -285,6 +298,7 @@ def test_csv_contents_do_not_expand(c):
     did = make_doc(c, title="D", content='#csv("data.csv")')
     _res(c, "data.csv", 'a,b\n"x.typ",2')
     _res(c, "x.typ", "PHANTOM")
+    _snapshot(c, did, "data.csv")
     body = c.get(f"/api/docs/{did}/resources").json()
     assert set(body["resources"]) == {"data.csv"}
     assert "x.typ" not in body["resources"]

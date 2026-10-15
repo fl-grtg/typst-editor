@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from backend import config, db, deps, search, sync
 from backend.constants import FOLDER_MAX, MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.schemas import DocCreate, DocSave, FolderRename, FolderSet, TitleSet
+from backend.services import projects
 from backend.services import quota as quota_svc
 from backend.services.docfiles import file_type, store, sync_doc_files
 from backend.services.locks import _drop_doc_locks, _named_lock
-from backend.services.sidebar import notify_sidebar
+from backend.services.sidebar import doc_users, notify_sidebar
 from backend.services.snapshots import auto_snap
 
 log = logging.getLogger("typst.main")
@@ -24,14 +25,16 @@ router = APIRouter()
 
 @router.get("/api/docs")
 def list_docs(req: Request, user: str = Depends(deps.me)) -> dict:
-    deps.limited(req, "files_list")
+    deps.limited(req, "sidebar")
     con = db.connect()
     try:
-        own = con.execute("SELECT id, title, folder, updated_at FROM docs WHERE owner=? AND trashed=0 "
+        own = con.execute("SELECT id, title, folder, project_id, updated_at FROM docs WHERE owner=? AND trashed=0 "
                           "ORDER BY updated_at DESC", (user,)).fetchall()
         shared = con.execute(
-            "SELECT d.id, d.title, d.owner, d.updated_at, s.role FROM docs d JOIN shares s ON s.doc_id=d.id "
-            "WHERE s.username=? AND d.trashed=0 ORDER BY d.updated_at DESC", (user,)).fetchall()
+            "SELECT d.id,d.title,d.owner,d.folder,d.project_id,d.updated_at,COALESCE(m.role,s.role) AS role FROM docs d "
+            "LEFT JOIN shares s ON s.doc_id=d.id AND s.username=? "
+            "LEFT JOIN project_members m ON m.project_id=d.project_id AND m.username=? "
+            "WHERE (s.username IS NOT NULL OR m.username IS NOT NULL) AND d.owner<>? AND d.trashed=0 ORDER BY d.updated_at DESC", (user,user,user)).fetchall()
         trash = con.execute("SELECT id, title, updated_at FROM docs WHERE owner=? AND trashed=1 "
                             "ORDER BY updated_at DESC", (user,)).fetchall()
         return {"own": [dict(r) for r in own],
@@ -54,15 +57,13 @@ def list_folders(req: Request, user: str = Depends(deps.me)) -> dict:
 @router.post("/api/folders")
 def make_folder(b: FolderSet, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "folders")
-    n = deps.check_folder_name(b.folder)
-    con = db.connect()
-    try:
-        deps.ensure_folder(con, user, "doc", n)
-        con.commit()
-        notify_sidebar(user)
-        return {"folder": n}
-    finally:
-        con.close()
+    with db.tx() as con:
+        title = deps.check_folder_name(b.folder).split("/")[0]
+        row = con.execute("SELECT project_id FROM legacy_project_folders WHERE owner=? AND folder=?", (user, title)).fetchone()
+        pid = row[0] if row else projects.create(con, user, title)
+        con.execute("INSERT OR IGNORE INTO legacy_project_folders VALUES (?,?,?)", (user, title, pid))
+    notify_sidebar(user)
+    return {"id": pid, "project_id": pid, "folder": title}
 
 
 @router.post("/api/docs/create")
@@ -90,11 +91,14 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(deps.me)) -> dict
                         "VALUES (?,?,?,?,?,?,?)",
                         (did, user, t, b.content,
                          b.folder.strip()[:FOLDER_MAX], now, now))
-            deps.ensure_folder(con, user, "doc", b.folder)
+            projects.attach_doc(con, did)
     except sqlite3.IntegrityError as e:
         raise HTTPException(400, "Title already exists") from e
     except sqlite3.OperationalError as e:
         raise deps.busy_503("create_doc", e) from e
+    from backend.services.project_history import auto_document
+    auto_document(did)
+    quota_svc.invalidate_quota_cache(user)
     notify_sidebar(user)
     return {"id": did}
 
@@ -115,7 +119,7 @@ def get_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     r = deps.need_access(user, doc_id)
     con = db.connect()
     try:
-        d = con.execute("SELECT id, owner, title, content, folder, trashed, updated_at FROM docs WHERE id=?",
+        d = con.execute("SELECT id, owner, title, content, folder, project_id, trashed, updated_at FROM docs WHERE id=?",
                         (doc_id,)).fetchone()
         if not d:
             raise HTTPException(404, "Doc gone")
@@ -200,13 +204,17 @@ async def save_doc(doc_id: str, b: DocSave, req: Request, user: str = Depends(de
 def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.check_doc_id(doc_id)
     deps.limited(req, "rename")
-    if deps.need_access(user, doc_id) != "owner":
-        raise HTTPException(403, "Only owner can rename")
+    role = deps.need_access(user, doc_id)
+    if role not in ("owner", "editor"):
+        raise HTTPException(403, "Only project editors can rename")
     t = b.title.strip()
     if not t or len(t) > TITLE_MAX:
         raise HTTPException(400, f"Title: 1-{TITLE_MAX} chars")
     con = db.connect()
     try:
+        if role != 'owner':
+            project = con.execute('SELECT project_id FROM docs WHERE id=?', (doc_id,)).fetchone()
+            projects.require(con, project['project_id'], user, edit=True)
         con.execute("UPDATE docs SET title=?, updated_at=? WHERE id=?", (t, db.now_iso(), doc_id))
         con.commit()
         notify_sidebar(user)
@@ -222,28 +230,38 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) ->
     deps.check_doc_id(doc_id)
     deps.limited(req, "delete")
     r = deps.need_access(user, doc_id, allow_trashed=True)
-    if r != "owner":
-        raise HTTPException(403, "Only owner can delete")
+    if r not in ("owner", "editor"):
+        raise HTTPException(403, "Only editors can delete")
+    audience = doc_users(doc_id)
     con = db.connect()
     try:
-        row = con.execute("SELECT trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
+        row = con.execute("SELECT trashed, project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
         if not row:
             raise HTTPException(404, "Doc gone")
         trashed = row["trashed"]
+        if r != "owner":
+            if trashed or not row["project_id"]:
+                raise HTTPException(403, "Only owner can permanently delete")
+            projects.require(con, row["project_id"], user, edit=True)
         if not trashed:
             con.execute("UPDATE docs SET trashed=1, updated_at=? WHERE id=?", (db.now_iso(), doc_id))
             con.commit()
             await sync.drop(doc_id)
             _drop_doc_locks(doc_id)
-            notify_sidebar(user)
+            for recipient in audience:
+                notify_sidebar(recipient)
             return {"trashed": True}
         con.execute("DELETE FROM docs WHERE id=?", (doc_id,))
+        if row["project_id"]:
+            con.execute("DELETE FROM projects WHERE id=? AND archived=1 AND NOT EXISTS (SELECT 1 FROM docs WHERE project_id=?)",
+                        (row["project_id"], row["project_id"]))
         con.commit()
     finally:
         con.close()
     await sync.drop(doc_id)
     _drop_doc_locks(doc_id)
-    notify_sidebar(user)
+    for recipient in audience:
+        notify_sidebar(recipient)
     try:
         shutil.rmtree(deps.get_files_dir() / doc_id, ignore_errors=True)
     except OSError:
@@ -259,75 +277,40 @@ def restore_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict
         raise HTTPException(403, "Only owner can restore")
     con = db.connect()
     try:
-        cur = con.execute("SELECT folder FROM docs WHERE id=?", (doc_id,)).fetchone()
+        cur = con.execute("SELECT folder,project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
         if cur is None:
             raise HTTPException(404, "Doc gone")
         fld = cur["folder"] if cur and cur["folder"] else ""
-        if fld and not con.execute("SELECT 1 FROM folders WHERE owner=? AND kind='doc' AND name=?",
+        if fld and not cur["project_id"] and not con.execute("SELECT 1 FROM folders WHERE owner=? AND kind='doc' AND name=?",
                                    (user, fld)).fetchone():
             fld = ""
+        if cur["project_id"]:
+            con.execute("UPDATE projects SET archived=0 WHERE id=?", (cur["project_id"],))
         con.execute("UPDATE docs SET trashed=0, folder=?, updated_at=? WHERE id=?", (fld, db.now_iso(), doc_id))
         con.commit()
-        notify_sidebar(user)
+        for recipient in doc_users(doc_id):
+            notify_sidebar(recipient)
         return {"ok": True}
+    except sqlite3.IntegrityError as e:
+        con.rollback()
+        raise HTTPException(409, "Name already exists in this project; rename the existing document before restoring") from e
     finally:
         con.close()
 
 
 @router.post("/api/docs/{doc_id}/folder")
 def move_doc(doc_id: str, b: FolderSet, req: Request, user: str = Depends(deps.me)) -> dict:
-    deps.check_doc_id(doc_id)
-    deps.limited(req, "move")
-    if deps.need_access(user, doc_id) != "owner":
-        raise HTTPException(403, "Only owner can move")
-    if len(b.folder.strip()) > FOLDER_MAX:
-        raise HTTPException(400, "Folder name too long")
-    con = db.connect()
-    try:
-        con.execute("UPDATE docs SET folder=?, updated_at=? WHERE id=?",
-                    (b.folder.strip()[:FOLDER_MAX], db.now_iso(), doc_id))
-        deps.ensure_folder(con, user, "doc", b.folder)
-        con.commit()
-        notify_sidebar(user)
-        return {"ok": True}
-    finally:
-        con.close()
+    raise HTTPException(410, "Document folders were replaced by projects")
 
 
 @router.delete("/api/folders/{name}")
 def drop_folder(name: str, req: Request, user: str = Depends(deps.me)) -> dict:
-    deps.limited(req, "folders")
-    n = name.strip()[:FOLDER_MAX]
-    con = db.connect()
-    try:
-        con.execute("UPDATE docs SET folder='' WHERE owner=? AND folder=? AND trashed=0", (user, n))
-        con.execute("DELETE FROM folders WHERE owner=? AND kind='doc' AND name=?", (user, n))
-        con.commit()
-        notify_sidebar(user)
-        return {"ok": True}
-    finally:
-        con.close()
+    raise HTTPException(410, "Document folders were replaced by projects")
 
 
 @router.post("/api/folders/rename")
 def rename_folder(b: FolderRename, req: Request, user: str = Depends(deps.me)) -> dict:
-    deps.limited(req, "folders")
-    if len(b.old.strip()) > FOLDER_MAX or len(b.new.strip()) > FOLDER_MAX:
-        raise HTTPException(400, "Folder name too long")
-    old, new = b.old.strip()[:FOLDER_MAX], b.new.strip()[:FOLDER_MAX]
-    if not old or not new or old == new:
-        raise HTTPException(400, "Empty folder name")
-    con = db.connect()
-    try:
-        con.execute("UPDATE docs SET folder=?, updated_at=? WHERE owner=? AND folder=? AND trashed=0",
-                    (new, db.now_iso(), user, old))
-        con.execute("UPDATE OR IGNORE folders SET name=? WHERE owner=? AND kind='doc' AND name=?",
-                    (new, user, old))
-        con.commit()
-        notify_sidebar(user)
-        return {"ok": True}
-    finally:
-        con.close()
+    raise HTTPException(410, "Document folders were replaced by projects")
 
 
 @router.post("/api/docs/{doc_id}/duplicate")
@@ -348,18 +331,36 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                 # connection before inserting (role may change in the gap).
                 if deps._tx_role(con, user, doc_id) not in ("owner", "editor"):
                     raise HTTPException(403, "Reviewer can only comment")
-                if con.execute("SELECT COUNT(*) AS n FROM docs WHERE owner=?", (user,)).fetchone()["n"] >= max_docs:
-                    raise HTTPException(400, "Too many docs")
-                d = con.execute("SELECT title, content, folder, trashed FROM docs WHERE id=?",
+                d = con.execute("SELECT title, content, folder, trashed, owner, project_id FROM docs WHERE id=?",
                                 (doc_id,)).fetchone()
                 if not d:
                     raise HTTPException(404, "Doc gone")
                 if d["trashed"]:
                     raise HTTPException(410, "In trash - restore first")
+                target_owner = user
+                guest_copy = not d["project_id"] and d["owner"] != user
+                if d["project_id"]:
+                    try:
+                        projects.require(con, d["project_id"], user, edit=True)
+                        target_owner = d["owner"]
+                    except HTTPException as e:
+                        if e.status_code != 404:
+                            raise
+                        guest_copy = True
+                if con.execute("SELECT COUNT(*) FROM docs WHERE owner=?", (target_owner,)).fetchone()[0] >= max_docs:
+                    raise HTTPException(400, "Too many docs")
                 base = d["title"] + " (copy)"
                 title, i = base, 2
-                while con.execute("SELECT 1 FROM docs WHERE owner=? AND title=? COLLATE NOCASE",
-                                  (user, title)).fetchone():
+                pid = d["project_id"]
+                while True:
+                    if pid is None:
+                        dup = con.execute("SELECT 1 FROM docs WHERE project_id IS NULL AND title=? COLLATE NOCASE AND trashed=0",
+                                          (title,)).fetchone()
+                    else:
+                        dup = con.execute("SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0",
+                                          (pid, title)).fetchone()
+                    if not dup:
+                        break
                     title, i = f"{base} {i}", i + 1
                     if i > 99:
                         raise HTTPException(400, "Too many copies")
@@ -382,10 +383,19 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                 if len(entries) > max_files:
                     raise HTTPException(400, "Too many files")
                 fbytes = sum(e.size for e in entries)
-                deps.check_quota(user, len(text.encode("utf-8")) + fbytes)
-                con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
-                            "VALUES (?,?,?,?,?,?,?)",
-                            (nid, user, title, text, d["folder"], now, now))
+                deps.check_quota(target_owner, len(text.encode("utf-8")) + fbytes)
+                source_project = projects.attach_doc(con, doc_id)
+                if guest_copy:
+                    from backend.services import resources
+                    shelf = {r[0]: r[1] for r in con.execute("SELECT name,content FROM project_resources WHERE project_id=?", (source_project,))}
+                    local = projects.local_texts(doc_id)
+                    copied = {n: c for n, c in resources.reachable_closure(shelf, local, text).items() if n not in local}
+                    quota_svc.check_quota(user, len(text.encode("utf-8")) + fbytes + sum(len(c.encode("utf-8")) for c in copied.values()), con)
+                    source_project = projects.create(con, user, title)
+                    con.executemany("INSERT INTO project_resources VALUES (?,?,?,?)", [(source_project, n, c, now) for n, c in copied.items()])
+                con.execute("INSERT INTO docs (id, owner, title, content, folder, project_id, created_at, updated_at) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (nid, target_owner, title, text, d["folder"], source_project, now, now))
                 # Account for attachments with the doc row, even if the later
                 # disk reconciliation hits a transient database lock.
                 con.executemany("INSERT INTO files (doc_id, path, size, mtime, type) VALUES (?,?,?,?,?)",
@@ -426,6 +436,8 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
             _rb = db.connect()
             try:
                 _rb.execute("DELETE FROM docs WHERE id=?", (nid,))
+                if guest_copy:
+                    _rb.execute("DELETE FROM projects WHERE id=? AND NOT EXISTS (SELECT 1 FROM docs WHERE project_id=?)", (source_project, source_project))
                 _rb.commit()
             except Exception as e:
                 log.warning("duplicate rollback %s failed: %s", nid, e)
@@ -453,7 +465,7 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
     # Attachment rows were inserted with the doc, so a reconciliation failure
     # still leaves the copied bytes accounted for.
     try:
-        _over = quota_svc.user_bytes(user) > quota_svc.quota_cap()
+        _over = quota_svc.user_bytes(target_owner) > quota_svc.quota_cap()
     except sqlite3.Error as e:
         log.warning("duplicate quota post-check %s inconclusive: %s", nid, e)
         _over = False
@@ -464,6 +476,8 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
             # this guards against, so a stuck row keeps the copy (fail-open).
             with db.tx() as _con:
                 _con.execute("DELETE FROM docs WHERE id=?", (nid,))
+                if guest_copy:
+                    _con.execute("DELETE FROM projects WHERE id=? AND NOT EXISTS (SELECT 1 FROM docs WHERE project_id=?)", (source_project, source_project))
         except sqlite3.OperationalError as e:
             log.warning("duplicate quota rollback %s failed: %s", nid, e)
         else:
@@ -475,10 +489,13 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                     _dst.unlink(missing_ok=True)
             except OSError:
                 pass
-            quota_svc.invalidate_quota_cache(user)
+            quota_svc.invalidate_quota_cache(target_owner)
             raise HTTPException(413, "Quota exceeded")
-    quota_svc.invalidate_quota_cache(user)
-    notify_sidebar(user)
+    quota_svc.invalidate_quota_cache(target_owner)
+    if d["project_id"]:
+        projects.notify(d["project_id"])
+    else:
+        notify_sidebar(user)
     return {"id": nid}
 
 

@@ -4,12 +4,22 @@ addEventListener('online', updOff); addEventListener('offline', updOff); updOff(
 addEventListener('online', () => { try { updConn() } catch (e) {} }) // repaint calmly, no toast (2E)
 addEventListener('offline', () => { try { updConn() } catch (e) {} }) // WS drops too: status flips to Offline at once
 // --- Share as popup next to comment button (not sidebar) ---
-let shares = [], shareN = 0, invN = 0
+let shares = [], shareProjectRole = '', shareN = 0, invN = 0
 async function loadShares() {
-  const id = ++shareN, doc = docId
+  const id = ++shareN, doc = docId, project = docProject
   let next
-  try { next = (await api('GET', `/api/docs/${doc}`)).shares } catch (e) { console.warn('shares failed', e); return }
-  if (id !== shareN || doc !== docId) return
+  try {
+    const result = await api('GET', project ? `/api/projects/${project}` : `/api/docs/${doc}`)
+    next = project ? result.members : result.shares
+    if (project && result.role === 'owner') {
+      const detail = await api('GET', `/api/docs/${doc}`)
+      const members = new Set((next || []).map(m => m.username))
+      next = [...(next || []), ...(detail.shares || []).filter(m => !members.has(m.username)).map(m => ({ ...m, doc_id: doc }))]
+    }
+    if (id !== shareN || doc !== docId || project !== docProject) return
+    shareProjectRole = project ? result.role : ''
+  } catch (e) { console.warn('shares failed', e); return }
+  if (id !== shareN || doc !== docId || project !== docProject) return
   shares = next
   renderShares()
 }
@@ -21,8 +31,9 @@ function roleSel(cur) { // Reader/Editor options, translated labels, backend val
   return s
 }
 function renderShares() {
-  const doc = docId
-  if (!doc || docRole !== 'owner' || openedTrashed) return
+  const doc = docId, project = docProject
+  if (!doc || (project ? shareProjectRole !== 'owner' : docRole !== 'owner') || openedTrashed) return
+  const shareUrl = project ? `/api/projects/${project}/members` : `/api/docs/${doc}/share`
   const p = $('sharePop'); p.replaceChildren()
   const top = el('div', 'sTop')
   const close = icoBtn(null, ICO_X); close.title = t('common.close'); close.setAttribute('aria-label', close.title)
@@ -32,31 +43,33 @@ function renderShares() {
   const inp = el('input'); inp.placeholder = t('share.userPh'); inp.setAttribute('aria-label', t('share.userPh'))
   const sel = roleSel('reviewer'); sel.setAttribute('aria-label', t('common.roleAria'))
   const ok = el('button', null, t('share.add'))
-  const go = () => { if (doc !== docId || ok.disabled || !inp.value.trim()) return; ok.disabled = true; api('POST', `/api/docs/${doc}/share`,
+  const go = () => { if ((doc !== docId || project !== docProject) || ok.disabled || !inp.value.trim()) return; ok.disabled = true; api('POST', shareUrl,
     { username: inp.value.trim(), role: sel.value })
     .then(() => { if (doc === docId) { inp.value = ''; loadShares() } }).catch(e => toast(e.message)).finally(() => ok.disabled = false) }
   ok.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go() }
   row.append(inp, sel, ok); p.appendChild(row)
   const list = el('div'); list.id = 'shares'
-  shares.forEach(s => {
+  shares.filter(s => s.role !== 'owner').forEach(s => {
     const div = el('div')
-    div.appendChild(el('span', 'who', s.username + ' '))
+    const memberUrl = s.doc_id ? `/api/docs/${s.doc_id}/share` : shareUrl
+    div.appendChild(el('span', 'who', s.username + (s.doc_id ? ' / ' + t('projects.documentOnly') : '') + ' '))
     const rs = roleSel(s.role); rs.setAttribute('aria-label', t('share.roleFor', { user: s.username })) // role editable inline (same endpoint as invite)
     rs.onchange = async () => {
       if (s.role === 'editor' && rs.value === 'reviewer' && !await ask(t('share.downgradeConfirm'), { noInput: true, danger: true, ok: t('share.downgrade') })) { rs.value = s.role; return }
-      if (doc !== docId) return
-      api('POST', `/api/docs/${doc}/share`, { username: s.username, role: rs.value })
+      if (doc !== docId || project !== docProject) return
+      api('POST', memberUrl, { username: s.username, role: rs.value })
         .then(() => { if (doc === docId) loadShares() }).catch(e => { rs.value = s.role; toast(e.message) })
     }
     const x = icoBtn(null, ICO_X); x.title = t('share.removeShare'); x.setAttribute('aria-label', x.title)
     x.onclick = async () => {
       if (!await ask(t('share.removeConfirm', { user: s.username }), { noInput: true, danger: true, ok: t('share.remove') })) return
-      if (doc !== docId) return
-      api('DELETE', `/api/docs/${doc}/share/${encodeURIComponent(s.username)}`).then(() => { if (doc === docId) loadShares() }).catch(e => toast(e.message))
+      if (doc !== docId || project !== docProject) return
+      api('DELETE', memberUrl + '/' + encodeURIComponent(s.username)).then(() => { if (doc === docId) loadShares() }).catch(e => toast(e.message))
     }
     div.append(rs, x); list.appendChild(div)
   })
   p.appendChild(list)
+  if (project) return
   p.appendChild(el('b', null, t('share.inviteTitle')))
   const hint = el('div', 'hintline'); hint.textContent = t('share.inviteHint'); p.appendChild(hint)
   const irow = el('div', 'row')
@@ -70,11 +83,11 @@ function renderShares() {
     catch (e) { ilink.select(); try { document.execCommand('copy') } catch (_) {} toast(t('common.copied')) }
   }
   ibtn.onclick = async () => {
-    if (doc !== docId || ibtn.disabled) return
+    if ((doc !== docId || project !== docProject) || ibtn.disabled) return
     ibtn.disabled = true; const old = ibtn.textContent; ibtn.textContent = t('share.creating')
     try {
       const r = await api('POST', `/api/docs/${doc}/invite`, { role: isel.value })
-      if (doc !== docId || !ilink.isConnected) return
+      if ((doc !== docId || project !== docProject) || !ilink.isConnected) return
       ilink.value = location.origin + '/?join=' + r.token
       ilink.select()
       cbtn.style.display = ''

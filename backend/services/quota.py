@@ -55,7 +55,7 @@ def quota_cap() -> int:
         return 524288000
 
 
-def user_bytes(user: str) -> int:
+def user_bytes(user: str, con: sqlite3.Connection | None = None) -> int:
     # File sizes come from the files table (1D), never from a filesystem
     # walk. Write-through on every mutation keeps it exact; list_files()
     # reconciles external writers (duplicate, MCP text edit) on next read.
@@ -63,7 +63,8 @@ def user_bytes(user: str) -> int:
     # cache there, Interna here).
     from backend import db as _db
 
-    con = _db.connect()
+    owns_connection = con is None
+    con = con if con is not None else _db.connect()
     try:
         r = con.execute(
             "SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))),0)"
@@ -83,6 +84,13 @@ def user_bytes(user: str) -> int:
             (user,),
         ).fetchone()
         total += int(t["n"] or 0)
+        pr = con.execute(
+            "SELECT COALESCE(SUM(LENGTH(CAST(r.content AS BLOB))),0) AS n "
+            "FROM project_resources r JOIN projects p ON p.id=r.project_id WHERE p.owner=?", (user,)
+        ).fetchone()
+        total += int(pr["n"] or 0)
+        ps = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(s.content AS BLOB))),0) AS n FROM project_snapshots s JOIN projects p ON p.id=s.project_id WHERE p.owner=?", (user,)).fetchone()
+        total += int(ps["n"] or 0)
         a = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
         if a and a["avatar"]:
             total += len(a["avatar"].encode("utf-8"))
@@ -93,7 +101,8 @@ def user_bytes(user: str) -> int:
         ).fetchone()
         total += int(f["n"] or 0)
     finally:
-        con.close()
+        if owns_connection:
+            con.close()
     return total
 
 
@@ -113,8 +122,9 @@ def doc_owner(doc_id: str, fallback: str = "") -> str:
         con.close()
 
 
-def check_quota(user: str, extra: int) -> None:
-    if user_bytes(user) + extra > quota_cap():
+def check_quota(user: str, extra: int, con: sqlite3.Connection | None = None) -> None:
+    current = user_bytes(user) if con is None else user_bytes(user, con)
+    if current + extra > quota_cap():
         raise HTTPException(413, "Quota exceeded")
 
 

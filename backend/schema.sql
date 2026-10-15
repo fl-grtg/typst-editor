@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS docs (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_docs_owner ON docs(owner);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_owner_title ON docs(owner, title COLLATE NOCASE);
+
 CREATE INDEX IF NOT EXISTS idx_docs_updated ON docs(updated_at);
 
 CREATE TABLE IF NOT EXISTS shares (
@@ -158,3 +158,25 @@ CREATE TABLE IF NOT EXISTS read_tokens (
     expires_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_read_tokens_doc ON read_tokens(doc_id);
+
+CREATE TABLE IF NOT EXISTS projects (
+ id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+ title TEXT NOT NULL, created_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
+ UNIQUE(owner, title)
+);
+CREATE TABLE IF NOT EXISTS project_members (
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ username TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+ role TEXT NOT NULL CHECK(role IN ('editor','reviewer')),
+ PRIMARY KEY(project_id, username)
+);
+CREATE TABLE IF NOT EXISTS project_resources (
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
+ PRIMARY KEY(project_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS project_snapshots (
+ id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+);

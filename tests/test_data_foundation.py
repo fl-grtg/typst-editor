@@ -58,7 +58,7 @@ def test_migrate_v13_backfills_files_table(tmp_path, monkeypatch):
     dbpath = _old_db(tmp_path, monkeypatch)
     con = db.connect()
     try:
-        assert con.execute("SELECT COUNT(*) AS n FROM schema_version").fetchone()["n"] == 12
+        assert con.execute("SELECT COUNT(*) AS n FROM schema_version WHERE v<=13").fetchone()["n"] == 12
         con.execute("SELECT 1 FROM files").fetchone()
         raise AssertionError("files should not exist yet")
     except sqlite3.OperationalError:
@@ -71,7 +71,7 @@ def test_migrate_v13_backfills_files_table(tmp_path, monkeypatch):
         con.commit()
         rows = con.execute("SELECT path, size FROM files ORDER BY path").fetchall()
         assert [(r["path"], r["size"]) for r in rows] == [("a.png", 10), ("sub/b.typ", 2)]
-        assert con.execute("SELECT COUNT(*) AS n FROM schema_version").fetchone()["n"] == 13
+        assert con.execute("SELECT COUNT(*) AS n FROM schema_version WHERE v<=13").fetchone()["n"] == 13
         assert con.execute("SELECT COUNT(*) AS n FROM notifications").fetchone()["n"] == 0
     finally:
         con.close()

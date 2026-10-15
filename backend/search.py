@@ -128,9 +128,9 @@ def _fts_hits(con: sqlite3.Connection, user: str, fq: str) -> list[sqlite3.Row]:
         f"snippet(docs_fts, 1, '', '', '...', {SNIPPET_TOKENS}) AS fts_snip "
         "FROM docs_fts JOIN docs d ON d.rowid=docs_fts.rowid "
         "LEFT JOIN shares s ON s.doc_id=d.id AND s.username=? "
-        "WHERE d.trashed=0 AND (d.owner=? OR s.username=?) AND docs_fts MATCH ? "
+        "WHERE d.trashed=0 AND (d.owner=? OR s.username=? OR EXISTS (SELECT 1 FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.id=d.project_id AND p.archived=0 AND (p.owner=? OR m.username IS NOT NULL))) AND docs_fts MATCH ? "
         "ORDER BY d.updated_at DESC LIMIT 20",
-        (user, user, user, fq)).fetchall()
+        (user, user, user, user, user, fq)).fetchall()
 
 
 def _like_rows(con: sqlite3.Connection, user: str, q: str) -> list[sqlite3.Row]:
@@ -138,9 +138,9 @@ def _like_rows(con: sqlite3.Connection, user: str, q: str) -> list[sqlite3.Row]:
     return con.execute(
         "SELECT d.id, d.title, d.owner, d.content, d.updated_at FROM docs d "
         "LEFT JOIN shares s ON s.doc_id=d.id AND s.username=? "
-        "WHERE d.trashed=0 AND (d.owner=? OR s.username=?) "
+        "WHERE d.trashed=0 AND (d.owner=? OR s.username=? OR EXISTS (SELECT 1 FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.id=d.project_id AND p.archived=0 AND (p.owner=? OR m.username IS NOT NULL))) "
         "AND (d.title LIKE ? ESCAPE '\\' OR d.content LIKE ? ESCAPE '\\') "
-        "ORDER BY d.updated_at DESC LIMIT 20", (user, user, user, like, like)).fetchall()
+        "ORDER BY d.updated_at DESC LIMIT 20", (user, user, user, user, user, like, like)).fetchall()
 
 
 def _use_fts(q: str) -> bool:
@@ -208,8 +208,8 @@ def search_visible(user: str, raw_q: str, con: sqlite3.Connection,
         cands = con.execute(
             "SELECT d.id, d.title, d.owner, d.content, d.updated_at FROM docs d "
             "LEFT JOIN shares s ON s.doc_id=d.id AND s.username=? "
-            "WHERE d.trashed=0 AND (d.owner=? OR s.username=?) "
-            "ORDER BY d.updated_at DESC", (user, user, user)).fetchall()
+            "WHERE d.trashed=0 AND (d.owner=? OR s.username=? OR EXISTS (SELECT 1 FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.id=d.project_id AND p.archived=0 AND (p.owner=? OR m.username IS NOT NULL))) "
+            "ORDER BY d.updated_at DESC", (user, user, user, user, user)).fetchall()
     except sqlite3.OperationalError:
         return hits[:MAX_HITS]
     for r in cands:

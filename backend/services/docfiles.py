@@ -177,7 +177,7 @@ def safe_name(name: str) -> str:
     for s in segs:
         if s in ("", "."):
             continue
-        n = re.sub(r"[^A-Za-z0-9._-]", "_", s.strip().lstrip("."))[:100]
+        n = re.sub(r"[^A-Za-z0-9._ ()-]", "_", s.strip().lstrip("."))[:100]
         if not n:
             raise HTTPException(400, "Unsupported file type or path")
         parts.append(n)

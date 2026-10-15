@@ -15,15 +15,16 @@ def test_empty_title_400(c):
     assert c.post(f"/api/docs/{did}/rename", json={"title": ""}).status_code == 400
 
 
-def test_unicode_folder(c):
+def test_unicode_project_replaces_document_folders(c):
     register_user(c, "alice")
     name = "Ünïcödé 📁"
-    assert c.post("/api/folders", json={"folder": name}).status_code == 200
-    did = make_doc(c, "Uni")
-    assert c.post(f"/api/docs/{did}/folder", json={"folder": name}).status_code == 200
-    folders = c.get("/api/folders").json()["folders"]
-    assert any(f["folder"] == name for f in folders)
-    assert c.get(f"/api/docs/{did}").json()["folder"] == name
+    result = c.post("/api/projects", json={"title": name})
+    assert result.status_code == 200
+    pid = result.json()["id"]
+    did = c.post(f"/api/projects/{pid}/docs", json={"title": "Uni"}).json()["id"]
+    assert c.get(f"/api/docs/{did}").json()["project_id"] == pid
+    assert c.get(f"/api/projects/{pid}").json()["title"] == name
+    assert c.post(f"/api/docs/{did}/folder", json={"folder": name}).status_code == 410
 
 
 def test_duplicate_copies_files(c):
@@ -45,37 +46,31 @@ def test_duplicate_quota_413(c, monkeypatch):
     assert c.post(f"/api/docs/{did}/duplicate").status_code == 413
 
 
-def test_folders_rename_duplicate_merges_docs(c):
-    # Current behaviour: rename onto an existing name -> 200, docs are moved
-    # (UPDATE OR IGNORE: the old folder entry may remain with n=0).
+def test_project_rename_conflict_preserves_both_projects(c):
     register_user(c, "alice")
-    did = make_doc(c, "DupRename")
-    assert c.post("/api/folders", json={"folder": "A"}).status_code == 200
-    assert c.post("/api/folders", json={"folder": "B"}).status_code == 200
-    assert c.post(f"/api/docs/{did}/folder", json={"folder": "A"}).status_code == 200
-    assert c.post("/api/folders/rename", json={"old": "A", "new": "B"}).status_code == 200
-    assert c.get(f"/api/docs/{did}").json()["folder"] == "B"
-    folders = {f["folder"]: f["n"] for f in c.get("/api/folders").json()["folders"]}
-    assert folders.get("B") == 1
+    first = c.post("/api/projects", json={"title": "A"}).json()["id"]
+    second = c.post("/api/projects", json={"title": "B"}).json()["id"]
+    assert c.post(f"/api/projects/{first}/rename", json={"title": "B"}).status_code == 409
+    assert c.get(f"/api/projects/{first}").json()["title"] == "A"
+    assert c.get(f"/api/projects/{second}").json()["title"] == "B"
+    assert c.post("/api/folders/rename", json={"old": "A", "new": "B"}).status_code == 410
 
 
-def test_folders_rename_unicode(c):
+def test_projects_rename_unicode(c):
     register_user(c, "alice")
-    name = "Ünïcödé Ordner"
-    assert c.post("/api/folders", json={"folder": "Alt"}).status_code == 200
-    assert c.post("/api/folders/rename", json={"old": "Alt", "new": name}).status_code == 200
-    folders = c.get("/api/folders").json()["folders"]
-    assert any(f["folder"] == name for f in folders)
+    pid = c.post("/api/projects", json={"title": "Alt"}).json()["id"]
+    name = "Ünïcödé Projekt"
+    assert c.post(f"/api/projects/{pid}/rename", json={"title": name}).status_code == 200
+    assert c.get(f"/api/projects/{pid}").json()["title"] == name
 
 
-def test_folders_rename_length_matrix(c):
-    # FOLDER_MAX=40: exakt 40 ok, 41 -> 400 (Validation-Handler mappt auf 400),
-    # leer/gleich -> 400.
+def test_projects_rename_length_matrix(c):
     register_user(c, "alice")
-    assert c.post("/api/folders", json={"folder": "Kurz"}).status_code == 200
-    ok40 = "y" * 40
-    assert c.post("/api/folders/rename", json={"old": "Kurz", "new": ok40}).status_code == 200
-    assert c.post("/api/folders/rename", json={"old": ok40, "new": "x" * 41}).status_code == 400
-    assert c.post("/api/folders/rename", json={"old": ok40, "new": ok40}).status_code == 400
-    assert c.post("/api/folders/rename", json={"old": "", "new": "x"}).status_code == 400
-    assert c.post("/api/folders/rename", json={"old": ok40, "new": "  "}).status_code == 400
+    pid = c.post("/api/projects", json={"title": "Kurz"}).json()["id"]
+    path = f"/api/projects/{pid}/rename"
+    valid = "y" * 100
+    assert c.post(path, json={"title": valid}).status_code == 200
+    assert c.post(path, json={"title": "x" * 101}).status_code == 400
+    assert c.post(path, json={"title": valid}).status_code == 200
+    assert c.post(path, json={"title": ""}).status_code == 400
+    assert c.post(path, json={"title": "  "}).status_code == 400

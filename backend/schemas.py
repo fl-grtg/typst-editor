@@ -38,7 +38,7 @@ class TplSave(BaseModel):
 
 
 class TplDuplicate(BaseModel):
-    name: str = Field(max_length=100)
+    name: str = Field(default="", max_length=100)
 
 
 class TplRename(TplDuplicate):

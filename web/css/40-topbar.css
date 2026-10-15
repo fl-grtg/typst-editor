@@ -53,3 +53,11 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #docHead .l1 { min-height: 22px; }
 #docHead .l2 { min-height: 18px; line-height: 18px; overflow: visible; }
 #docHead .l2 #save, #docHead .l2 #wsTxt { line-height: 18px; }
+
+#docHead { overflow: visible; }
+#docHead .l1 { min-height: 26px; overflow: visible; }
+#title { line-height: 1.5; padding-block: 2px; }
+#renBtn { flex: none; }
+
+#docHead .l2 { gap: 5px; }
+#wsTxt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

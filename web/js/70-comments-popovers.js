@@ -149,6 +149,7 @@ $('modal').addEventListener('keydown', e => { // minimal focus trap: Tab cycles 
 })
 // clean SVG icons (no emojis)
 const svgI = d => `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
+const ICO_MOVE = svgI('<path d="M2 5h11M10 2l3 3-3 3M14 11H3M6 8l-3 3 3 3"/>')
 const ICO_DUP = svgI('<rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.5v-.2A1.8 1.8 0 0 0 8.7 1.5H3.8a1.8 1.8 0 0 0-1.8 1.8v4.9a1.8 1.8 0 0 0 1.8 1.8h.2"/>')
 const ICO_EDIT = svgI('<path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/>')
 const ICO_X = svgI('<path d="M4 4l8 8M12 4l-8 8"/>')
@@ -194,7 +195,8 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   if (!p) return
   let ln = 1, col = 1
   try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
-  p.textContent = t('docs.posLine', { ln, col }) + (wc() || '') + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
+  p.textContent = t('docs.posCompact', { ln, col }) + (!activeFile && !tplName ? (wc() || '') : '')
+  p.title = t('docs.posLine', { ln, col }) + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
 function openTutorial() {
   window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
@@ -447,3 +449,5 @@ $('cNew').onclick = () => {
   const m = cm.state.selection.main // save selected spot along
   openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, QUOTE_MAX))
 }
+
+const ICO_MORE = svgI('<circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/>')

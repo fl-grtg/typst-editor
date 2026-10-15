@@ -81,11 +81,10 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
     prune_old_exports()
     con = db.connect()
     try:
-        docs = [dict(r) for r in con.execute("SELECT id, title, content, folder FROM docs WHERE owner=? AND trashed=0 "
+        docs = [dict(r) for r in con.execute("SELECT id, title, content, folder,project_id FROM docs WHERE owner=? AND trashed=0 "
                                              "ORDER BY folder, title", (user,)).fetchall()]
         tpls = [dict(r) for r in con.execute("SELECT name, content FROM templates WHERE owner=? ORDER BY name",
                                              (user,)).fetchall()]
-        shelf = {t["name"]: t["content"] or "" for t in tpls}
     finally:
         con.close()
     try:
@@ -136,6 +135,8 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
         with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
             for d in docs:
                 prefix = (zip_name(d["folder"]) + "/") if d["folder"] else ""
+                if d["project_id"]:
+                    prefix = "projects/" + d["project_id"] + "/" + prefix
                 base = zip_name(d["title"])
                 name, i = base, 2
                 while (prefix + name + ".typ").lower() in used:
@@ -193,9 +194,9 @@ def _export_zip(req: Request, background: BackgroundTasks, user: str) -> Respons
                 # Per-doc resource closure (owner's reachable set, local wins):
                 # the bundle carries what the doc compiles against, with
                 # original relative paths, alongside the global templates/.
-                if _res is not None and shelf:
+                if _res is not None:
                     try:
-                        found = _res.reachable_closure(shelf, local_texts, txt)
+                        found = _res.doc_effective(user, txt, local_texts, d["id"])["resources"]
                     except Exception as e:
                         log.warning("backup closure failed: %s", e)
                         found = {}

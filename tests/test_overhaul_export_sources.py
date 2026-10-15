@@ -29,6 +29,11 @@ def _bundle(c, title="Exp"):
                json={"content": '#import "../lib.typ": hi\n#let rows = csv("../data.csv")\n'
                                 'Part: #hi("nested") n=#rows.len().'})
     assert r.status_code == 200, r.text
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
+    body = {"source_scope": "personal", "source": "data.csv", "scope": "project", "project_id": pid, "name": "data.csv"}
+    p = c.post("/api/library/pull-preview", json=body)
+    assert p.status_code == 200, p.text
+    assert c.post("/api/library/pull", json={**body, "preview": p.json()["preview"]}).status_code == 200
     return did
 
 

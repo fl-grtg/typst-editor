@@ -43,18 +43,21 @@ async def test_notify_on_delete_restore(c):
 async def test_notify_on_mutations(c):
     register_user(c, "uM")
     did = make_doc(c, title="Mut")
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
     entry = _watch("uM")
 
     async def _one(call):
         r = call()
         assert r.status_code == 200, r.text
         assert await asyncio.wait_for(entry[1].get(), timeout=5) == "sidebar"
+        while not entry[1].empty():
+            entry[1].get_nowait()
 
     try:
         await _one(lambda: c.post(f"/api/docs/{did}/rename", json={"title": "Mut2"}))
-        await _one(lambda: c.post(f"/api/docs/{did}/folder", json={"folder": "F"}))
+        await _one(lambda: c.post(f"/api/projects/{pid}/rename", json={"title": "F"}))
         await _one(lambda: c.post(f"/api/docs/{did}/duplicate"))
-        await _one(lambda: c.post("/api/folders", json={"folder": "G"}))
+        await _one(lambda: c.post("/api/projects", json={"title": "G"}))
         await _one(lambda: c.post("/api/templates", json={"name": "t.typ", "content": "x"}))
     finally:
         main._SIDEBAR_Q.get("uM", set()).discard(entry)
@@ -64,7 +67,7 @@ async def test_notify_on_mutations(c):
 async def test_notify_on_more_mutations(c):
     register_user(c, "uN")
     did = make_doc(c, title="More")
-    c.post(f"/api/docs/{did}/folder", json={"folder": "F"})
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
     c.post("/api/templates", json={"name": "m.typ", "content": "x"})
     entry = _watch("uN")
 
@@ -72,10 +75,11 @@ async def test_notify_on_more_mutations(c):
         r = call()
         assert r.status_code == 200, r.text
         assert await asyncio.wait_for(entry[1].get(), timeout=5) == "sidebar"
+        while not entry[1].empty():
+            entry[1].get_nowait()
 
     try:
-        await _one(lambda: c.post("/api/folders/rename", json={"old": "F", "new": "G"}))
-        await _one(lambda: c.delete("/api/folders/G"))
+        await _one(lambda: c.post(f"/api/projects/{pid}/rename", json={"title": "G"}))
         await _one(lambda: c.post("/api/templates/m.typ/folder", json={"folder": "T"}))
         await _one(lambda: c.post("/api/tplfolders", json={"folder": "U"}))
         await _one(lambda: c.delete("/api/tplfolders/U"))

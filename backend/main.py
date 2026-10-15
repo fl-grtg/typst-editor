@@ -25,6 +25,8 @@ from backend.routers import (
     export,
     files,
     frontend,
+    library_copy,
+    projects,
     readmode,
     share,
     snapshots,
@@ -195,6 +197,8 @@ app.include_router(ws.router)
 app.include_router(auth.router)
 app.include_router(docs.router)
 app.include_router(templates.router)
+app.include_router(projects.router)
+app.include_router(library_copy.router)
 app.include_router(share.router)
 app.include_router(comments.router)
 app.include_router(files.router)

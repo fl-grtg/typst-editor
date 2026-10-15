@@ -60,11 +60,12 @@ def doc_users(doc_id: str) -> list[str]:
 
     con = _db.connect()
     try:
-        d = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
+        d = con.execute("SELECT owner, project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
         if not d:
             return []
         rows = con.execute("SELECT username FROM shares WHERE doc_id=?", (doc_id,)).fetchall()
-        return [d["owner"], *[r["username"] for r in rows]]
+        members = con.execute("SELECT username FROM project_members WHERE project_id=?", (d["project_id"],)).fetchall()
+        return list({d["owner"], *[r["username"] for r in rows], *[r["username"] for r in members]})
     finally:
         con.close()
 

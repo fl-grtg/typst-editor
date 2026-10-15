@@ -18,7 +18,7 @@ LOCK_NAME = ".lock"
 ROOMS_MAX = 500
 # Config wins: RATE_DEFAULTS only fallback/docs, real limits come from backend/config.py.
 RATE_DEFAULTS = {"login": (10, 60), "register": (20, 3600), "auth": (60, 60), "join": (30, 60),
-                 "search": (60, 60), "files": (20, 60), "files_list": (120, 60), "save": (30, 60), "comments": (30, 60),
+                 "search": (60, 60), "files": (20, 60), "sidebar": (120, 60), "files_list": (120, 60), "save": (30, 60), "comments": (30, 60),
                  "export": (5, 60), "export_doc": (10, 60), "pw": (10, 60), "invite": (10, 60), "share": (10, 60),
                  "snapshots": (60, 60), "create": (20, 60), "duplicate": (10, 60),
                  "avatar": (10, 60), "folders": (20, 60), "keys": (30, 60), "mcp": (60, 60),

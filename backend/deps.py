@@ -163,13 +163,10 @@ def _tx_role(con: sqlite3.Connection, user: str, doc_id: str) -> str:
         raise HTTPException(404, "Document not found")
     if d["trashed"]:
         raise HTTPException(410, "In trash - restore first")
-    if d["owner"] == user:
-        return "owner"
-    s = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
-                    (doc_id, user)).fetchone()
-    if not s:
+    r = db.role_on(con, user, doc_id)
+    if not r:
         raise HTTPException(404, "Document not found")
-    return s["role"]
+    return r
 
 
 def _folder_counts(con: sqlite3.Connection, owner: str, kind: str) -> list[dict]:
@@ -177,7 +174,7 @@ def _folder_counts(con: sqlite3.Connection, owner: str, kind: str) -> list[dict]
     # names from the items table merged with explicitly created (maybe empty)
     # folders from the folders table.
     if kind == "doc":
-        table, extra = "docs", "AND trashed=0"
+        table, extra = "docs", "AND trashed=0 AND project_id IS NULL"
     else:
         table, extra = "templates", ""
     rows = con.execute(f"SELECT folder, COUNT(*) AS n FROM {table} WHERE owner=? AND folder<>'' {extra} "

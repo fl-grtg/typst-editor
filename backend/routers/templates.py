@@ -142,7 +142,7 @@ def save_template(b: TplSave, req: Request, user: str = Depends(deps.me)) -> dic
 def duplicate_template(name: str, b: TplDuplicate, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "templates")
     src = _gone_404(name)
-    dst = res.res_name(b.name)
+    dst = res.res_name(b.name) if b.name else res.copy_name(src)
     if res.is_reserved(dst):
         raise HTTPException(400, "Reserved name")
     if res.kind_of(src) != res.kind_of(dst):
@@ -182,6 +182,11 @@ def duplicate_template(name: str, b: TplDuplicate, req: Request, user: str = Dep
                                       (user, src)).fetchone()
                     if not row:
                         raise HTTPException(404, "Template gone")
+                    if not b.name:
+                        number = 1
+                        while con.execute('SELECT 1 FROM templates WHERE owner=? AND name=?', (user, dst)).fetchone():
+                            number += 1
+                            dst = res.copy_name(src, number)
                     if con.execute("SELECT 1 FROM templates WHERE owner=? AND name=?",
                                    (user, dst)).fetchone():
                         raise HTTPException(400, "Name already exists")
@@ -271,7 +276,8 @@ def doc_resources(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
     lists doc-local text files (nested paths included), which win on exact
     path collisions. `versions` carries updated_at per reachable resource
     so owner tabs can show staleness. `readonly` tells the viewer the
-    shelf is not theirs.
+    shelf is not theirs. Project members may browse their whole shared library;
+    individual document guests still receive only reachable project resources.
     """
     deps.limited(req, "files_list")
     deps.check_doc_id(doc_id)
@@ -296,8 +302,23 @@ def doc_resources(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                     continue
     except (OSError, ValueError):
         pass
-    out = res.doc_effective(owner, main_text, local)
+    out = res.doc_effective(owner, main_text, local, doc_id)
     out["readonly"] = role != "owner"
+    if out["project_id"]:
+        from backend.services import projects
+        con = db.connect()
+        try:
+            try:
+                project_role = projects.role(con, out["project_id"], user)
+            except HTTPException:
+                project_role = ""
+            if project_role:
+                rows = con.execute("SELECT name,content,updated_at FROM project_resources WHERE project_id=?", (out["project_id"],)).fetchall()
+                out["resources"] = {r["name"]: r["content"] for r in rows if r["name"] not in local}
+                out["versions"] = {r["name"]: r["updated_at"] for r in rows if r["name"] not in local}
+            out["readonly"] = project_role not in ("owner", "editor")
+        finally:
+            con.close()
     return out
 
 

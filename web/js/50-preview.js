@@ -90,7 +90,7 @@ function pvResTpl() { // resolved templates this doc reaches (see .update-review
     if (typeof usedTpls === 'function') {
       const names = usedTpls() || []
       const set = new Set(names)
-      if (typeof activeFile !== 'undefined' && activeFile && activeFile.indexOf('tpl/') === 0) set.add(tabName(activeFile))
+      if (typeof activeFile !== 'undefined' && activeFile && isTplKey(activeFile)) set.add(tabName(activeFile))
       return projectResources().filter(x => set.has(x.name))
     }
   } catch (e) {}
@@ -273,7 +273,7 @@ async function shadowAll(main) { // files + templates as shadow: main-thread fal
   await $typst.addSource('/main.typ', main)
   return current()
 }
-const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName // render epoch/doc guard
+const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName || !!activeFile // render epoch/doc/file guard
 function pvSrcList() { // live source texts for honest cross-file anchors: [{key, text}]
   const out = []
   try {
@@ -295,7 +295,7 @@ function pvSrcList() { // live source texts for honest cross-file anchors: [{key
 }
 async function render() {
   const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName) return
+  if (!myDoc || myTplName || activeFile) return
   pvBar() // zoom pill extras once (needs consts from later files)
   if (pvWorkerFail || !pvEnsureWorker()) { await renderDirect(id, preview); return } // no worker: main-thread compile
   if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
@@ -481,7 +481,7 @@ function pvAnchorBack(pv, a) {
 async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   const myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName) return
+  if (!myDoc || myTplName || activeFile) return
   if (pvObs) pvObs.disconnect()
   pvSlots = []; pvPageSize = null // bare canvases below: drop slot state (zoom clicks size them directly)
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; ensureTypst().then(() => { if (docId) render() }).catch(() => {}); return } // loads in background, renders after

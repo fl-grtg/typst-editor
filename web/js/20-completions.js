@@ -2,6 +2,7 @@
 // myTpl = OWN shelf (editable). docTpl (GET /api/docs/{id}/resources) is the
 // effective compile set of the open doc (owner's reachable names, read-only).
 let myTpl = [], tplFolders = []
+let docProject = '', docResReadonly = true
 let tplLoadN = 0, docResAt = 0, docResN = 0, docResRefs = ''
 window.docTpl = []
 async function loadTpl() { // list only: never touches editor text (SSE-safe, dirty editors survive)
@@ -10,25 +11,35 @@ async function loadTpl() { // list only: never touches editor text (SSE-safe, di
     const [r, f] = await Promise.all([api('GET', '/api/templates'), api('GET', '/api/tplfolders')])
     if (n !== tplLoadN || who !== user) return
     myTpl = r.templates; tplFolders = f.folders
-    if (docId && isTplKey(activeFile) && tabDirty) { const row = myTpl.find(x => x.name === tabName(activeFile)); if (row) row.content = getT() }
+    if (docId && !docProject && isTplKey(activeFile) && tabDirty) { const row = myTpl.find(x => x.name === tabName(activeFile)); if (row) row.content = getT() }
   } catch (e) { return } // offline/error: keep the known shelf
   paintTpls()
   if (docId) queueRender()
 }
 async function loadDocResources(force) {
-  if (!docId || docRole === 'owner') return true
+  if (!docId || (docRole === 'owner' && !docProject)) return true
   const id = docId, epoch = openN
   const refs = [...(activeFile ? shadow : getT()).matchAll(/"([^"\n]+\.(?:typ|bib|csv))"/gi)].map(m => m[1]).sort().join('|')
   if (!force && Date.now() - docResAt < FILES_TTL && refs === docResRefs) return true
   const n = ++docResN
   const r = await api('GET', `/api/docs/${id}/resources`)
   if (id !== docId || epoch !== openN || n !== docResN) return false
+  docResReadonly = r.readonly !== false
   window.docTpl = Object.entries(r.resources || {}).map(([name, content]) => ({ name, content, updated_at: r.versions?.[name] || '' }))
+  if (isTplKey(activeFile)) {
+    const row = window.docTpl.find(x => x.name === tabName(activeFile))
+    if (row && (tabDirty || tabSaveFlight)) row.content = getT()
+    else if (row) {
+      if (getT() !== row.content) { setT(row.content); gutter(); refreshHl(); paintOutline() }
+      tabVersions.set(activeFile, row.updated_at)
+    }
+  }
   docResAt = Date.now(); docResRefs = refs
-  queueTabs()
+  if (isTplKey(activeFile)) cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
+  tabSig = ''; queueTabs()
   return true
 }
-const projectResources = () => docId && docRole !== 'owner' ? window.docTpl : myTpl
+const projectResources = () => docId && (docProject || docRole !== 'owner') ? window.docTpl : myTpl
 const RES_EXT = { template: '.typ', library: '.bib', table: '.csv', resource: '.typ', data: '.json' }
 const resLabel = kind => ['resource', 'data'].includes(kind) ? t('docs.secFiles') : ({ template: t('templates.kindtemplate'), library: t('templates.kindlibrary'), table: t('templates.kindtable') })[kind]
 const resKind = t => (t && t.kind) || (((t || {}).name || '').toLowerCase().endsWith('.bib') ? 'library' : ((t || {}).name || '').toLowerCase().endsWith('.csv') ? 'table' : 'template')

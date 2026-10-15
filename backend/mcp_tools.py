@@ -44,6 +44,7 @@ from backend import config as _config
 from backend import db, search, sync
 from backend.constants import EXPORT_FORMATS, EXPORT_MAX, MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.services import quota as quota_svc
+from backend.services.docfiles import safe_name
 
 log = logging.getLogger("typst.mcp")
 
@@ -211,14 +212,14 @@ def _title(seg: str) -> str:
 
 
 def _file_name(seg: str) -> str:
-    n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(seg or "").name.strip().lstrip("."))[:100]
+    n = re.sub(r"[^A-Za-z0-9._ ()-]", "_", Path(seg or "").name.strip().lstrip("."))[:100]
     if not n or ".tmp." in n:
         raise _bad("Invalid file name")
     return n
 
 
 def _tpl_name(seg: str) -> str:
-    n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(seg or "").name.strip().lstrip("."))[:100]
+    n = re.sub(r"[^A-Za-z0-9._ ()-]", "_", Path(seg or "").name.strip().lstrip("."))[:100]
     if not n.lower().endswith((".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl")):
         raise _bad("Template gone", 404)  # same status as UI tpl_name
     return n
@@ -227,8 +228,13 @@ def _tpl_name(seg: str) -> str:
 def _doc_by_title(owner: str, title: str) -> sqlite3.Row | None:
     con = db.connect()
     try:
-        return con.execute("SELECT id, owner, title, content, updated_at, trashed FROM docs "
-                           "WHERE owner=? AND title=? COLLATE NOCASE", (owner, title)).fetchone()
+        rows = con.execute("SELECT id, owner, title, content, updated_at, trashed FROM docs "
+                           "WHERE owner=? AND title=? COLLATE NOCASE ORDER BY trashed", (owner, title)).fetchall()
+        active = [r for r in rows if not r["trashed"]]
+        rows = active or rows
+        if len(rows) > 1:
+            raise _bad("Ambiguous document name; use /projects/<project-id>/docs/<name>", 409)
+        return rows[0] if rows else None
     finally:
         con.close()
 
@@ -247,7 +253,40 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
     if segs == ["templates"]:
         return {"kind": "templates"}
     head = segs[0]
-    if head == "docs" and len(segs) in (2, 3):
+    if head == "projects":
+        from backend.services import projects
+
+        if len(segs) == 1:
+            return {"kind": "projects"}
+        con = db.connect()
+        try:
+            role = apikeys.cap_min(cap, projects.require(con, segs[1], user))
+            res = {"kind": "project", "project_id": segs[1], "role": role}
+            if len(segs) == 2:
+                return res
+            if segs[2] == "resources":
+                res["kind"] = "project_resources"
+                if len(segs) > 3:
+                    from backend.routers.projects import resource_name
+                    res.update(kind="project_resource", name=resource_name("/".join(segs[3:])))
+                return res
+            if segs[2] == "docs":
+                if len(segs) == 3:
+                    return {**res, "kind": "project_docs"}
+                row = con.execute("SELECT id,owner,title,trashed FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0",
+                                  (segs[1], _title(segs[3]))).fetchone()
+                if not row:
+                    raise _bad("Document not found", 404)
+                if row["trashed"]:
+                    raise _bad("In trash - restore first", 410)
+                res.update(kind="doc", doc_id=row["id"], title=row["title"], owner=row["owner"])
+                if len(segs) > 4:
+                    res.update(kind="file", filename=safe_name("/".join(segs[4:])))
+                return res
+        finally:
+            con.close()
+        raise _bad("Unknown project path")
+    if head == "docs" and len(segs) >= 2:
         title = _title(segs[1])
         row = _doc_by_title(user, title)
         if not row:
@@ -255,13 +294,13 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
         if row["trashed"]:
             raise _bad("In trash - restore first", 410)
         role = apikeys.cap_min(cap, "owner")
-        res: dict = {"kind": "doc", "doc_id": row["id"], "title": row["title"],
+        res = {"kind": "doc", "doc_id": row["id"], "title": row["title"],
                      "owner": row["owner"], "role": role}
-        if len(segs) == 3:
+        if len(segs) >= 3:
             res["kind"] = "file"
-            res["filename"] = _file_name(segs[2])
+            res["filename"] = safe_name("/".join(segs[2:]))
         return res
-    if head == "shared" and len(segs) in (3, 4):
+    if head == "shared" and len(segs) >= 3:
         owner = segs[1].strip()
         if not owner or "/" in owner:
             raise _bad("Invalid owner")
@@ -274,9 +313,9 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
             raise _bad("In trash - restore first", 410)
         res = {"kind": "doc", "doc_id": row["id"], "title": row["title"],
                "owner": row["owner"], "role": apikeys.cap_min(cap, base)}
-        if len(segs) == 4:
+        if len(segs) >= 4:
             res["kind"] = "file"
-            res["filename"] = _file_name(segs[3])
+            res["filename"] = safe_name("/".join(segs[3:]))
         return res
     if head == "templates" and len(segs) == 2:
         name = _tpl_name(segs[1])
@@ -306,24 +345,34 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
     kind = res["kind"]
     con = db.connect()
     try:
+        if kind == "projects":
+            rows = con.execute("SELECT p.* FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.archived=0 AND (p.owner=? OR m.username IS NOT NULL) ORDER BY p.title", (user, user)).fetchall()
+            return {"projects": [dict(r) for r in rows]}
+        if kind in ("project", "project_docs"):
+            docs = con.execute("SELECT title,updated_at FROM docs WHERE project_id=? AND trashed=0 ORDER BY title", (res["project_id"],)).fetchall()
+            return {"docs": [dict(r) for r in docs], "resources": "/projects/" + res["project_id"] + "/resources"}
+        if kind == "project_resources":
+            rows = con.execute("SELECT name,updated_at FROM project_resources WHERE project_id=? ORDER BY name", (res["project_id"],)).fetchall()
+            return {"resources": [dict(r) for r in rows]}
         if kind == "root":
             own = con.execute("SELECT title, updated_at FROM docs WHERE owner=? AND trashed=0 "
                               "ORDER BY updated_at DESC", (user,)).fetchall()
             shared = con.execute(
-                "SELECT d.owner, d.title, d.updated_at, s.role FROM docs d JOIN shares s ON s.doc_id=d.id "
-                "WHERE s.username=? AND d.trashed=0 ORDER BY d.updated_at DESC", (user,)).fetchall()
+                "SELECT id, owner, title, updated_at FROM docs WHERE owner<>? AND trashed=0 ORDER BY updated_at DESC", (user,)).fetchall()
+            shared = [{**dict(r), "role": db.role_on(con, user, r["id"])} for r in shared if db.role_on(con, user, r["id"])]
             tpls = con.execute("SELECT name FROM templates WHERE owner=? ORDER BY name", (user,)).fetchall()
             return {"docs": [dict(r) for r in own],
                     "shared": [dict(r) for r in shared],
-                    "templates": [dict(r) for r in tpls]}
+                    "templates": [dict(r) for r in tpls],
+                    "projects": op_ls(user, cap, "/projects")["projects"]}
         if kind == "docs":
             own = con.execute("SELECT title, updated_at FROM docs WHERE owner=? AND trashed=0 "
                               "ORDER BY updated_at DESC", (user,)).fetchall()
             return {"docs": [dict(r) for r in own]}
         if kind == "shared":
             shared = con.execute(
-                "SELECT d.owner, d.title, d.updated_at, s.role FROM docs d JOIN shares s ON s.doc_id=d.id "
-                "WHERE s.username=? AND d.trashed=0 ORDER BY d.updated_at DESC", (user,)).fetchall()
+                "SELECT id, owner, title, updated_at FROM docs WHERE owner<>? AND trashed=0 ORDER BY updated_at DESC", (user,)).fetchall()
+            shared = [{**dict(r), "role": db.role_on(con, user, r["id"])} for r in shared if db.role_on(con, user, r["id"])]
             return {"shared": [dict(r) for r in shared]}
         if kind == "templates":
             tpls = con.execute("SELECT name FROM templates WHERE owner=? ORDER BY name", (user,)).fetchall()
@@ -356,6 +405,10 @@ def _page_text(text: str, offset: int, limit: int) -> tuple[str, int]:
 def op_read(user: str, cap: str, path: str, offset: int = 1, limit: int = 0) -> dict:
     res = resolve_path(user, cap, path)
     kind = res["kind"]
+    if kind == "project_resource":
+        text, marker = _project_resource_text(res)
+        content, total = _page_text(text, offset, limit)
+        return {"kind": kind, "name": res["name"], "content": content, "last_seen": marker, "offset": offset, "total_lines": total}
     if kind == "doc":
         live = sync.room_text(res["doc_id"])
         con = db.connect()
@@ -400,6 +453,17 @@ def op_read(user: str, cap: str, path: str, offset: int = 1, limit: int = 0) -> 
     raise _bad("read needs a document, file or template path, use ls to browse")
 
 
+def _project_resource_text(res: dict) -> tuple[str, str]:
+    con = db.connect()
+    try:
+        row = con.execute("SELECT content,updated_at FROM project_resources WHERE project_id=? AND name=?", (res["project_id"], res["name"])).fetchone()
+    finally:
+        con.close()
+    if not row:
+        raise _bad("Resource gone", 404)
+    return row["content"], row["updated_at"]
+
+
 def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
     from backend import deps
     from backend.services import sidebar
@@ -411,6 +475,22 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
     if path in ("", "/"):
         raise _bad("create needs a /docs/... or /templates/... path")
     segs = _split(path)
+    if segs[0] == "projects":
+        from backend.routers.projects import ProjectDoc, ResourceSave, create_document, save_resource
+
+        if len(segs) == 4 and segs[2] == "docs":
+            result = create_document(segs[1], ProjectDoc(title=_title(segs[3]), content=content), user)
+            return {**result, "path": path}
+        res = resolve_path(user, cap, path)
+        _need_edit(res)
+        if res["kind"] == "project_resource":
+            return save_resource(res["project_id"], ResourceSave(name=res["name"], content=content), user)
+        if res["kind"] == "file":
+            if Path(res["filename"]).suffix.lower() not in TEXT_SUFFIX:
+                raise _bad("Binary file - use upload to add it")
+            _write_text_file(res["doc_id"], res["filename"], content, user, cap, must_create=True)
+            return {"path": path, "name": res["filename"]}
+        raise _bad("create needs a project document or resource path")
     if segs[0] == "docs" and len(segs) == 2:
         title = _title(segs[1])
         try:
@@ -419,10 +499,14 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
             max_docs = 100
         did = db.new_id("d_")
 
+        created_project_id = None
+
         def _rollback_create() -> None:
             rc = db.connect()
             try:
                 rc.execute("DELETE FROM docs WHERE id=?", (did,))
+                if created_project_id:
+                    rc.execute("DELETE FROM projects WHERE id=? AND NOT EXISTS (SELECT 1 FROM docs WHERE project_id=?)", (created_project_id, created_project_id))
                 rc.commit()
             finally:
                 rc.close()
@@ -440,6 +524,8 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
                         now = db.now_iso()
                         con.execute("INSERT INTO docs (id, owner, title, content, folder, created_at, updated_at) "
                                     "VALUES (?,?,?,?,?,?,?)", (did, user, title, content, "", now, now))
+                        from backend.services import projects
+                        created_project_id = projects.attach_doc(con, did)
                 except sqlite3.IntegrityError as e:
                     raise _bad("Title already exists") from e
                 except sqlite3.OperationalError as e:
@@ -448,14 +534,14 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
             raise deps.busy_503("mcp_create", e) from e
         sidebar.notify_sidebar(user)
         return {"id": did, "title": title, "path": f"/docs/{title}"}
-    if segs[0] == "docs" and len(segs) == 3:
+    if segs[0] == "docs" and len(segs) >= 3:
+        filename = safe_name("/".join(segs[2:]))
         title = _title(segs[1])
         row = _doc_by_title(user, title)
         if not row:
             raise _bad("Document not found", 404)
         if row["trashed"]:
             raise _bad("In trash - restore first", 410)
-        filename = _file_name(segs[2])
         if Path(filename).suffix.lower() not in TEXT_SUFFIX:
             raise _bad("Binary file - use upload to add it")
         _write_text_file(row["id"], filename, content, user, cap, must_create=True)
@@ -601,6 +687,8 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
 def _current_text(user: str, res: dict) -> tuple[str, str]:
     """(text, version marker) for doc/file/template. Marker feeds last_seen."""
     kind = res["kind"]
+    if kind == "project_resource":
+        return _project_resource_text(res)
     if kind == "doc":
         live = sync.room_text(res["doc_id"])
         con = db.connect()
@@ -698,13 +786,7 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
                             raise _bad("In trash - restore first", 410)
                         # B5: role re-check ON the tx connection (db.doc_role
                         # opens its own connection and can go stale in the gap).
-                        _orow = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
-                        if _orow and _orow["owner"] == user:
-                            _role = "owner"
-                        else:
-                            _srow = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
-                                                (doc_id, user)).fetchone()
-                            _role = _srow["role"] if _srow else ""
+                        _role = db.role_on(con, user, doc_id) or ""
                         if apikeys.cap_min(cap, _role) not in ("owner", "editor"):
                             raise _bad("Reviewer can only comment", 403)
                         con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
@@ -723,6 +805,9 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
             await sync.replace_text(doc_id, new_text)
         elif not sync.persist(doc_id):
             db.clear_room_state(doc_id)
+    elif kind == "project_resource":
+        from backend.routers.projects import ResourceSave, save_resource
+        save_resource(res["project_id"], ResourceSave(name=res["name"], content=new_text, version=marker), user)
     elif kind == "file":
         _write_text_file(res["doc_id"], res["filename"], new_text, user, cap, must_create=False)
     else:
@@ -770,6 +855,7 @@ def op_search(user: str, cap: str, query: str) -> dict:
     con = db.connect()
     try:
         rows = search.search_visible(user, query, con, _files_dir(), sync.room_text)
+        resources = con.execute("SELECT r.*,p.owner FROM project_resources r JOIN projects p ON p.id=r.project_id LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.archived=0 AND (p.owner=? OR m.username IS NOT NULL) ORDER BY r.name", (user, user)).fetchall()
     finally:
         con.close()
     hits = []
@@ -777,6 +863,14 @@ def op_search(user: str, cap: str, query: str) -> dict:
         base = f"/docs/{h['title']}" if h["owner"] == user else f"/shared/{h['owner']}/{h['title']}"
         hits.append({"path": base, "title": h["title"], "owner": h["owner"],
                      "snippet": h["snippet"], "pos": h["pos"]})
+    q = search.normalize_query(query)
+    for r in resources:
+        if len(hits) >= search.MAX_HITS:
+            break
+        if q.lower() in r["name"].lower() or q.lower() in r["content"].lower():
+            snippet, pos = search.live_snippet(r["content"], q)
+            hits.append({"path": f"/projects/{r['project_id']}/resources/{r['name']}",
+                         "title": r["name"], "owner": r["owner"], "snippet": snippet, "pos": pos})
     return {"hits": hits}
 
 
@@ -1350,7 +1444,7 @@ def _collect_export_source(doc_id: str, max_bytes: int | None = None,
                 except Exception:
                     continue
         try:
-            eff = _res.doc_effective(owner, main_text, local_texts)
+            eff = _res.doc_effective(owner, main_text, local_texts, doc_id)
         except Exception as e:
             log.warning("export resource closure failed: %s", e)
             return main_text, files, skipped

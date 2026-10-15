@@ -23,26 +23,12 @@ function paintSecs() { // all sections collapsible, + creates folder directly
       const p = icoBtn('mini', ICO_PLUS); p.title = plus === 'doc' ? t('shell.newDoc') : t('templates.newResource', { kind: resLabel(plus) }); p.setAttribute('aria-label', p.title)
       p.onclick = e => { e.stopPropagation(); plus === 'doc' ? $('new').click() : newResource(plus) }
       H.appendChild(p)
-      {
-        const f = icoBtn('mini', svgI('<path d="M2 5h12v8H2zM2 5V3h4l2 2"/>'))
-        f.title = t(plus === 'doc' ? 'docs.newFolderBtn' : 'docs.newTplFolderBtn'); f.setAttribute('aria-label', f.title)
-        f.onclick = e => { e.stopPropagation(); plus === 'doc' ? newFolder() : newTplFolder() }; H.insertBefore(f, p)
-      }
+
     }
     B.style.display = secShut.has(h) ? 'none' : ''
     H.setAttribute('aria-expanded', String(!secShut.has(h)))
   }
   updNavFade() // content height changed
-}
-async function newFolder() {
-  const n = await ask(t('docs.newFolder'), { ph: t('docs.namePh'), maxLen: 40 })
-  if (n === null || !n.trim()) return
-  try { await api('POST', '/api/folders', { folder: n.trim() }); sidebar() } catch (e) { toast(e.message) }
-}
-async function newTplFolder() {
-  const n = await ask(t('docs.newTplFolder'), { ph: t('docs.namePh'), maxLen: 40 })
-  if (n === null || !n.trim()) return
-  try { await api('POST', '/api/tplfolders', { folder: n.trim() }); await loadTpl(); paintSecs() } catch (e) { toast(e.message) }
 }
 function jumpWant() { // jump to search hit (once after open)
   if (wantPos < 0) return
@@ -58,10 +44,10 @@ function watchSidebar() { // live sidebar: external list changes (MCP, other tab
     sideESErr = 0
     const es = sideES = new EventSource('/api/events')
     es.onopen = () => { sideESErr = 0; sideESRearms = 0 } // (re)connect resets counters
-    es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } resSync().finally(() => sidebar().catch(() => {})) })
+    es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } sideResourcesDirty = true; queueSidebar() })
     es.addEventListener('comment', e => { if (e.data === docId) loadComments().catch(() => {}) })
     es.addEventListener('member', e => { if (e.data === docId) { loadMembers(); sidebar() } })
-    es.addEventListener('file', e => { if (e.data === docId) { filesDirty = true; queueRender() } })
+    es.addEventListener('file', e => { if (e.data === docId) { filesDirty = true; queueRender(); queueSidebar() } })
     es.onerror = () => {
       if (es !== sideES) return // superseded stream: ignore
       if (++sideESErr > 3) {
@@ -72,36 +58,76 @@ function watchSidebar() { // live sidebar: external list changes (MCP, other tab
   } catch (e) { console.warn('watchSidebar', e) }
 }
 if (!window.__sideArmed) { window.__sideArmed = true; addEventListener('online', () => { watchSidebar(); sidebar().catch(() => {}) }) } // sleep/offline: re-arm stream + catch up
+let sideResourcesDirty = false
+let projects = []
 let sideN = 0
-async function sidebar() {
+let sidePending = null, sideAgain = false, sideRetry = 0, sideEventTimer = 0
+function queueSidebar() {
+  clearTimeout(sideEventTimer)
+  sideEventTimer = setTimeout(() => sidebar().catch(() => {}), 1000)
+}
+function sidebar() {
+  if (sidePending) { sideAgain = true; return sidePending }
+  sidePending = refreshSidebar().finally(() => {
+    sidePending = null
+    if (sideAgain) { sideAgain = false; clearTimeout(sideRetry); sideRetry = setTimeout(() => sidebar(), 1200) }
+  })
+  return sidePending
+}
+async function refreshSidebar() {
   const id = ++sideN
   let d
   try {
     d = await api('GET', '/api/docs')
     if (id !== sideN) return
-    folders = (await api('GET', '/api/folders')).folders
+    const pr = await api('GET', '/api/projects')
+    if (id !== sideN) return
+    projects = pr.projects
     if (id !== sideN) return
   }
   catch (e) {
     if (id !== sideN) return
     if (/401|logged|Login/i.test(e.message)) { location.reload(); return }
     if (navigator.onLine === false) return // quiet: offline bar shows it, 'online' event refreshes
-    if (e.status === 429) toast(t('docs.sidebarRefreshFail', { msg: e.message }), () => sidebar(), t('common.retry'))
+    if (e.status === 429) { clearTimeout(sideRetry); sideRetry = setTimeout(() => sidebar(), 15000) }
     return // keep old list
   }
+  if (sideResourcesDirty) { sideResourcesDirty = false; await resSync() }
   lastOwn = d.own; lastShared = d.shared
   if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
-  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs()
+  refreshDocRole(d)
+  if (docProject) shut.delete('project:' + docProject)
+  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
   paintTpls()
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
   if (!window.__navFadeArmed) { window.__navFadeArmed = true; addEventListener('resize', updNavFade) } // once: sidebar() runs per SSE push
+}
+function refreshDocRole(d) {
+  if (!docId) return
+  const own = d.own.some(x => x.id === docId)
+  const row = d.shared.find(x => x.id === docId)
+  const role = own ? 'owner' : row?.role
+  if (!role || role === docRole) return
+  docRole = role
+  const ro = openedTrashed || role === 'reviewer'
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
+  $('role').textContent = openedTrashed ? t('docs.trashBadge') : t(({ owner: 'common.roleOwner', editor: 'common.roleEditor', reviewer: 'common.roleReader' })[role])
+  $('roBanner').style.display = ro ? '' : 'none'
+  for (const id of ['renBtn', 'shareBtn', 'del']) $(id).style.display = role === 'owner' && !openedTrashed ? '' : 'none'
+  for (const id of ['imgBtn', 'mediaBtn', 'tplBtn', 'symBtn']) $(id).style.display = ro ? 'none' : ''
+  $('histBtn').style.display = openedTrashed ? 'none' : ''
+  $('cNew').style.display = !activeFile && !ro ? '' : 'none'
+  $('colWrap').hidden = ro
+  updCNewTip(); hidePops()
+  tabSig = ''; queueTabs(); renderMediaChips(lastFiles)
+  if (tabDirty && !tabCanEdit(activeFile)) { $('save').textContent = t('projects.localDraft'); $('save').title = t('projects.readonlyDraft') }
 }
 function updNavFade() { // bottom fade only while more content below
   const n = $('nav')
   n.classList.toggle('at-end', n.scrollHeight - n.scrollTop - n.clientHeight < 8)
 }
 function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
-  const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
+  const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
   div.setAttribute('role', 'button')
   div.appendChild(el('span', 't', shared && !bare ? t('docs.sharedRow', { owner: x.owner, title: x.title }) : x.title))
   const roleName = ({ owner: t('common.roleOwner'), editor: t('common.roleEditor'), reviewer: t('common.roleReader') })[x.role] || x.role
@@ -109,12 +135,15 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
   div.onclick = () => openDoc(x.id)
   kb(div, () => openDoc(x.id)) // keyboard: Enter/Space opens
   if (!shared) {
-    div.draggable = true
-    div.ondragstart = e => e.dataTransfer.setData('text/plain', x.id)
+    div.draggable = false
+  }
+  if (!bare && (!shared || (x.project_id && x.role === 'editor'))) {
     const dup = icoBtn('mini', ICO_DUP); dup.title = t('docs.duplicate'); dup.setAttribute('aria-label', dup.title)
     dup.onclick = e => { e.stopPropagation(); if (dup.disabled) return; dup.disabled = true // upBusy pattern: no double doc
       api('POST', `/api/docs/${x.id}/duplicate`).then(r => openDoc(r.id)).catch(e => toast(e.message)).finally(() => dup.disabled = false) } // openDoc repaints list itself
     div.appendChild(dup)
+  }
+  if (!shared || (x.project_id && x.role === 'editor')) {
     const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title)
     del.onclick = async e => {
       e.stopPropagation()
@@ -151,19 +180,14 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
     return
   }
   if (qc) qc.textContent = ''
-  const byF = new Map()
-  ;[...lastOwn].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }) || a.id.localeCompare(b.id)).forEach(x => {
-    if (!x.folder) box.appendChild(docRow(x))
-    else { if (!byF.has(x.folder)) byF.set(x.folder, []); byF.get(x.folder).push(x) }
-  })
-  folders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) }) // show empty folders
-  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintFolder(box, f, byF.get(f)))
+  lastOwn.filter(x => !x.project_id).forEach(x => box.appendChild(docRow(x)))
+  paintProjects(box, false)
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noDocs')))
 }
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
   const box = $('shared'); box.replaceChildren()
   const byO = new Map()
-  ;[...list].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
+  ;[...list].filter(x => !x.project_id || !projects.some(p => p.id === x.project_id)).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
   ;[...byO.keys()].sort((a, b) => a.localeCompare(b)).forEach(o => {
     const docs = byO.get(o)
     if (docs.length === 1) { box.appendChild(docRow(docs[0], true)); return }
@@ -177,43 +201,8 @@ function paintShared(list) { // one folder per person; one file = user/file like
     h.appendChild(hd); box.appendChild(h)
     if (!shut.has(k)) docs.forEach(x => { const r = docRow(x, true, true); r.classList.add('sub'); box.appendChild(r) })
   })
+  paintProjects(box, true)
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noShared')))
-}
-function paintFolder(box, f, docs) { // header: click collapses, rename, dissolve; drop sorts in
-  const h = el('div', 'fhd')
-  const hd = el('b', null, f)
-  hd.title = t('docs.expandCollapse')
-  hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', String(!shut.has(f))); hd.setAttribute('aria-label', f + (shut.has(f) ? t('docs.isCollapsed') : t('docs.isExpanded')))
-  const tog = () => {
-    shut.has(f) ? shut.delete(f) : shut.add(f)
-    saveShut()
-    paintOwn()
-  }
-  hd.onclick = tog
-  kb(hd, tog)
-  const rn = icoBtn('mini', ICO_EDIT); rn.title = t('docs.renameFolder'); rn.setAttribute('aria-label', rn.title)
-  rn.onclick = async e => {
-    e.stopPropagation()
-    const n = await ask(t('docs.renameFolder'), { value: f, maxLen: 40 })
-    if (n === null || !n.trim() || n.trim() === f) return
-    api('POST', '/api/folders/rename', { old: f, new: n.trim() }).then(sidebar).catch(e => toast(e.message))
-  }
-  const x = icoBtn('mini', ICO_X); x.title = t('docs.dissolveDocs'); x.setAttribute('aria-label', x.title)
-  x.onclick = async e => {
-    e.stopPropagation()
-    if (await ask(t('docs.dissolveConfirm', { f }), { noInput: true, ok: t('common.ok') }))
-      api('DELETE', '/api/folders/' + encodeURIComponent(f)).then(sidebar).catch(e => toast(e.message))
-  }
-  h.append(hd, rn, x)
-  h.ondragover = e => e.preventDefault()
-  h.ondrop = e => {
-    e.preventDefault()
-    const id = e.dataTransfer.getData('text/plain')
-    if (!id || id.startsWith('tpl:')) return // templates belong in template folders
-    api('POST', `/api/docs/${id}/folder`, { folder: f }).then(sidebar).catch(e => toast(e.message))
-  }
-  box.appendChild(h)
-  if (!shut.has(f)) docs.forEach(x => { const r = docRow(x); r.classList.add('sub'); box.appendChild(r) })
 }
 function paintTrash(trash) { // click peeks in (trash view), restore, delete permanently
   const h = $('trashH')
@@ -241,7 +230,7 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   const box = $('trash'); box.replaceChildren()
   box.style.display = secShut.has('trashH') ? 'none' : ''
   trash.forEach(x => {
-    const div = el('div', 'doc' + (x.id === docId ? ' cur' : ''))
+    const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
     div.setAttribute('role', 'button')
     div.appendChild(el('span', 't', x.title))
     div.title = x.title + t('docs.trashViewSuffix')
@@ -261,26 +250,6 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   })
 }
 $('q').oninput = () => { clearTimeout(findT); findT = setTimeout(runSearch, SEARCH_MS) }
-$('ownH').ondragover = e => e.preventDefault()
-$('ownH').ondrop = e => { // drop on Documents = move out of folder
-  e.preventDefault()
-  const id = e.dataTransfer.getData('text/plain')
-  if (!id || id.startsWith('tpl:')) return
-  api('POST', `/api/docs/${id}/folder`, { folder: '' }).then(sidebar).catch(e => toast(e.message))
-}
-$('tplH').ondragover = e => e.preventDefault()
-for (const hid of ['tplH', 'libH', 'tblH']) { // drop on Templates/Libraries/Tables = move out of folder (shared folder namespace)
-  const H = $(hid)
-  if (!H) continue
-  H.ondragover = e => e.preventDefault()
-  H.ondrop = e => {
-    e.preventDefault()
-    const id = e.dataTransfer.getData('text/plain')
-    if (!id || !id.startsWith('tpl:')) return
-    api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: '' })
-      .then(() => { loadTpl() }).catch(e => toast(e.message))
-  }
-}
 let searchN = 0
 async function runSearch() {
   findQ = $('q').value.trim()
@@ -293,29 +262,14 @@ async function runSearch() {
 }
 function resRow(tpl) { // click opens in editor, drag sorts into folder (all three resource kinds share this row)
   const div = document.createElement('div')
-  div.className = 'doc' + (tpl.name === tplName ? ' cur' : '')
+  div.className = 'doc private-module sub' + (tpl.name === tplName ? ' cur' : '')
   div.setAttribute('role', 'button')
   div.appendChild(el('span', 't', tpl.name)); div.title = tpl.name
   div.onclick = () => openTpl(tpl.name)
   kb(div, () => openTpl(tpl.name))
-  div.draggable = true
-  div.ondragstart = e => e.dataTransfer.setData('text/plain', 'tpl:' + tpl.name)
-  const dup = icoBtn('mini', ICO_DUP); dup.title = t('docs.duplicate'); dup.setAttribute('aria-label', dup.title)
-  dup.onclick = async e => {
-    e.stopPropagation()
-    const ext = tpl.name.slice(tpl.name.lastIndexOf('.')).toLowerCase()
-    const n = await ask(t('templates.dupTpl'), { value: tpl.name })
-    if (n === null || !n.trim()) return
-    let nn = n.trim().split(/[/\\]/).pop().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 100) // like backend: check matches exactly
-    if (!nn.toLowerCase().endsWith(ext)) nn = nn.replace(/\.[^.]*$/, '') + ext // duplicates keep the file type
-    if (!nn.replace(/\.[^.]*$/, '')) return
-    await loadTpl() // fresh: else upsert would silently overwrite
-    const src = myTpl.find(x => x.name === tpl.name) || tpl // no stale closure: state after reload
-    if (myTpl.some(x => x.name === nn)) { toast(t('common.nameExists')); return }
-    try { await api('POST', '/api/templates/' + encodeURIComponent(tpl.name) + '/duplicate', { name: nn }); await loadTpl(); sidebar() }
-    catch (err) { toast(err.message) }
-  }
-  div.appendChild(dup)
+  projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
+  projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name))
+  projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
   const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title)
   del.onclick = async e => {
     e.stopPropagation()
@@ -327,46 +281,10 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   div.appendChild(del)
   return div
 }
-function paintResFolder(box, f, docs, key) { // like paintFolder, for resources only (shared folder namespace, per-kind collapse keys)
-  const h = el('div', 'fhd'), k = key + f
-  const hd = el('b', null, f)
-  hd.title = t('docs.expandCollapse')
-  hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', String(!shut.has(k))); hd.setAttribute('aria-label', f + (shut.has(k) ? t('docs.isCollapsed') : t('docs.isExpanded')))
-  const togT = () => { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut(); paintTpls() }
-  hd.onclick = togT
-  kb(hd, togT)
-  const rn = icoBtn('mini', ICO_EDIT); rn.title = t('docs.renameFolder'); rn.setAttribute('aria-label', rn.title)
-  rn.onclick = async e => {
-    e.stopPropagation()
-    const n = await ask(t('docs.renameFolder'), { value: f, maxLen: 40 })
-    if (n === null || !n.trim() || n.trim() === f) return
-    api('POST', '/api/tplfolders/rename', { old: f, new: n.trim() }).then(loadTpl).catch(e => toast(e.message))
-  }
-  const x = icoBtn('mini', ICO_X); x.title = t('templates.dissolveTpls'); x.setAttribute('aria-label', x.title)
-  x.onclick = async e => {
-    e.stopPropagation()
-    if (await ask(t('docs.dissolveConfirm', { f }), { noInput: true, ok: t('common.ok') }))
-      api('DELETE', '/api/tplfolders/' + encodeURIComponent(f)).then(loadTpl).catch(e => toast(e.message))
-  }
-  h.append(hd, rn, x)
-  h.ondragover = e => e.preventDefault()
-  h.ondrop = e => {
-    e.preventDefault()
-    const id = e.dataTransfer.getData('text/plain')
-    if (!id || !id.startsWith('tpl:')) return
-    api('POST', '/api/templates/' + encodeURIComponent(id.slice(4)) + '/folder', { folder: f })
-      .then(loadTpl).catch(e => toast(e.message))
-  }
-  box.appendChild(h)
-  if (!shut.has(k)) docs.forEach(t => { const r = resRow(t); r.classList.add('sub'); box.appendChild(r) })
-}
 function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.bib/.csv) from the shared myTpl shelf
   const box = $(boxId); if (!box) return
   box.replaceChildren()
-  const { top, byF } = groupBy(resOf(kind))
-  top.forEach(t => box.appendChild(resRow(t)))
-  tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
-  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => paintResFolder(box, f, byF.get(f), key))
+  resOf(kind).forEach(t => box.appendChild(resRow(t)))
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t(emptyKey))) // create via + New above (type + folder step)
 }
 function paintTpls() { // templates + libraries + tables sections: click opens in editor
@@ -416,7 +334,7 @@ async function loadTheirs(key) { // conflict escape: take the server text into t
   } catch (e) { toast(e.message) }
 }
 async function resSync() { // SSE follow-up: fresh list first, open resource follows only when clean (dirty editors never wiped)
-  try { await loadTpl() } catch (e) {}
+  try { await loadTpl(); if (docProject) await loadDocResources(true) } catch (e) {}
   if (!tplName) return
   const cc = tplCached(tplName)
   if (!cc) return
@@ -443,6 +361,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   prov?.destroy(); ydoc?.destroy(); prov = ydoc = ytext = null
   const wd = $('wsDot'); if (wd) { wd.style.background = '#8e8e93'; wd.title = t('docs.offline') }; const wt0 = $('wsTxt'); if (wt0) wt0.textContent = t('docs.offline')
   threads = []; members = []; lastC = ''; marks = new Set(); syncPage = 0 // do not carry click page into next doc
+  docProject = ''; docResReadonly = true
   activeFile = ''; clearTimeout(fileT); bibKeys = [] // tabs closed (see paintTabs)
   $('tabs').style.display = 'none'
   fileCache.clear(); mediaNames = []; lastMedia = ''; lastFiles = []; mediaOpen = false
@@ -456,7 +375,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
 async function openTpl(name) {
   const n = ++openN
   if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
-  if (n !== openN || !await flushTab() || n !== openN) return
+  if (n !== openN || !await flushTab(true) || n !== openN) return
   const tpl = tplCached(name)
   if (!tpl) return
   ++tplOpenN
@@ -538,7 +457,7 @@ function closeView() { // no doc open: buttons off, empty view in
     } catch (e) { toast(t('docs.offlineRetry')) }
   }
   leaveDoc()
-  docId = ''; tplName = ''; lastC = ''
+  docId = ''; tplName = ''; lastC = ''; docTitle = ''
   for (const b of ['shareBtn', 'histBtn', 'symBtn', 'imgBtn', 'mediaBtn', 'tplBtn', 'del', 'renBtn', 'dlTyp', 'dlPdf', 'dlPng', 'dlSvg', 'dlZip', 'cNew']) $(b).style.display = 'none'; $('colWrap').hidden = true
   for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = 'none' // no doc: no status blobs
   cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }) // no doc: read-only
@@ -552,7 +471,7 @@ function closeView() { // no doc open: buttons off, empty view in
 async function openDoc(id) {
   const n = ++openN, wp = wantPos // keep search jump across leaveDoc (see docRow search)
   if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
-  if (n !== openN || !await flushTab() || n !== openN) return
+  if (n !== openN || !await flushTab(true) || n !== openN) return
   let d
   try { d = await api('GET', `/api/docs/${id}`) }
   catch (e) { toast(e.message); sidebar(); return }
@@ -563,10 +482,10 @@ async function openDoc(id) {
   wantPos = wp
   if (tplName) setView('split')
   hidePops()
-  docId = id; docRole = d.role; tplName = ''
+  docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
   openedTrashed = !!d.trashed
   const ro = d.role === 'reviewer' || openedTrashed // trash: read yes, write no
-  $('title').textContent = d.title; $('title').classList.remove('is-empty')
+  $('title').textContent = d.title; $('title').classList.remove('is-empty'); docTitle = d.title
   $('tools').style.display = ''; $('pvTools').style.display = ''
   $('renBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
   $('viewSeg').style.display = ''; $('cNew').style.display = ro ? 'none' : ''
@@ -577,14 +496,14 @@ async function openDoc(id) {
   rl.onclick = openedTrashed ? restoreOpen : null
   $('roBanner').style.display = ro ? '' : 'none'
   updCNewTip()
-  $('del').style.display = d.role === 'owner' ? '' : 'none'
+  $('del').style.display = !ro ? '' : 'none'
   $('del').title = openedTrashed ? t('docs.delPermBtn') : t('docs.moveTrash')
   $('del').setAttribute('aria-label', $('del').title)
   lastC = ''; synced = false
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!ro)) })
   $('shareBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
   for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = '' // doc open: status back
-  $('histBtn').style.display = ro ? 'none' : '' // history writes: reviewer/trash excluded
+  $('histBtn').style.display = openedTrashed ? 'none' : '' // project history is readable from every file
   $('imgBtn').style.display = ro ? 'none' : ''
   $('mediaBtn').style.display = ro ? 'none' : ''
   $('tplBtn').style.display = ro ? 'none' : ''
@@ -644,7 +563,7 @@ async function openDoc(id) {
   const fileDoc = docId
   api('GET', `/api/docs/${id}/files`).then(r => { if (fileDoc === docId && n === openN) { lastFiles = r.files; paintTabs() } }).catch(console.warn)
   sidebar(); loadComments().catch(e => console.warn('comments failed', e)); loadMembers()
-  if (d.role !== 'owner') noteSharedRes(id)
+  if (!d.project_id && d.role !== 'owner') noteSharedRes(id)
 }
 let sharedNoted = new Set() // disclosure once per doc per session: shared compiles use the owner's copies
 function noteSharedRes(id) {

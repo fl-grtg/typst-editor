@@ -22,6 +22,7 @@ from backend.services.docfiles import (
     touch_doc,
 )
 from backend.services.locks import _named_lock
+from backend.services.project_history import auto_document
 from backend.services.sidebar import emit_doc
 
 log = logging.getLogger("typst.main")
@@ -60,6 +61,7 @@ def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(de
     with _named_lock(f"upload:{doc_id}"):
         out = _upload_locked(doc_id, f, n, user)
     quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
+    auto_document(doc_id)
     emit_doc(doc_id, "file")
     return out
 
@@ -99,6 +101,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
         except sqlite3.OperationalError as e:
             raise deps.busy_503("save_file_text", e) from e
     quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
+    auto_document(doc_id)
     emit_doc(doc_id, "file")
     return {"ok": True, "version": sha256(b.content.encode("utf-8")).hexdigest()}
 
@@ -146,5 +149,6 @@ def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(deps.m
             drop_file(doc_id, n)
             touch_doc(doc_id)
             quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
+            auto_document(doc_id)
             emit_doc(doc_id, "file")
     return {"ok": True}

@@ -198,10 +198,10 @@ def list_members(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dic
     deps.need_access(user, doc_id)
     con = db.connect()
     try:
-        d = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
+        d = con.execute("SELECT owner,project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
         if not d:
             raise HTTPException(404, "Doc gone")
-        rows = con.execute("SELECT username FROM shares WHERE doc_id=? ORDER BY username", (doc_id,)).fetchall()
-        return {"members": [d["owner"], *[r["username"] for r in rows]]}
+        rows = con.execute("SELECT username FROM shares WHERE doc_id=? UNION SELECT username FROM project_members WHERE project_id=? ORDER BY username", (doc_id, d["project_id"])).fetchall()
+        return {"members": [d["owner"], *[r["username"] for r in rows if r["username"] != d["owner"]]]}
     finally:
         con.close()

@@ -31,7 +31,8 @@ def test_export_import_preserves_local_files_and_localizes_global_modules(c):
     imported = result.json()["id"]
     document = c.get(f"/api/docs/{imported}").json()
     assert document["content"] == main
-    assert document["folder"] == "Archive"
+    assert document["folder"] == ""
+    assert c.get(f"/api/projects/{document['project_id']}").json()["title"] == "Archive"
     for name, expected in [("layout.typ", '= Global layout'), ("values.json", '{"amount":12}'), ("chapters/chapter.typ", "Nested chapter")]:
         assert c.get(f"/api/docs/{imported}/files/{name}/text").json()["content"] == expected
     assert len(c.get("/api/templates").json()["templates"]) == 2
@@ -63,8 +64,10 @@ def test_zip_can_have_one_enclosing_folder_and_conflicts_do_not_overwrite(c):
     first = import_zip(c, data)
     assert first.status_code == 200
     assert c.get(f"/api/docs/{first.json()['id']}/files/part.typ/text").json()["content"] == "Part"
-    assert import_zip(c, data).status_code == 400
-    assert len(c.get("/api/docs").json()["own"]) == count + 1
+    second = import_zip(c, data)
+    assert second.status_code == 200
+    assert second.json()["id"] != first.json()["id"]
+    assert len(c.get("/api/docs").json()["own"]) == count + 2
 
 
 def test_zip_import_rolls_back_when_storage_write_fails(c, monkeypatch):

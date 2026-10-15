@@ -21,8 +21,10 @@
   function head(t) { return { head: t } }
 
   function exportItems() {
-    return [
-      it(t('menu.dlTyp'), function () { click('dlTyp') }, { on: shown('dlTyp') }),
+    var download = $('dlTyp'), file = download && download.dataset.kind === 'file'
+    var first = it(t('menu.dlFile', { ext: '.' + (download && download.dataset.extension || 'typ') }), function () { click('dlTyp') }, { on: shown('dlTyp') })
+    if (file) return [first, it(t('menu.dlZip'), function () { click('dlZip') }, { on: shown('dlZip') })]
+    return [first,
       it(t('menu.dlPdf'), function () { click('dlPdf') }, { on: shown('dlPdf') }),
       it(t('menu.dlPng'), function () { click('dlPng') }, { on: shown('dlPng') }),
       it(t('menu.dlSvg'), function () { click('dlSvg') }, { on: shown('dlSvg') }),
@@ -92,7 +94,7 @@
         it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
       ]
     },
-    export: function () { return [head(t('menu.dlHead'))].concat(exportItems()) },
+    export: function () { return [head(t($('dlTyp').dataset.kind === 'file' ? 'menu.dlFileHead' : 'menu.dlHead'))].concat(exportItems()) },
     all: function () {
       return [head(t('menu.fileH'))].concat(DEF.file(), [head(t('menu.editH'))], DEF.edit(), [head(t('menu.viewH'))], DEF.view(), [head(t('menu.helpH'))], DEF.help())
     }
@@ -210,7 +212,10 @@
     expand()
     var h = $(hid)
     if (!h) return
-    if (h.getAttribute('aria-expanded') === 'false') h.click()
+    if (h.getAttribute('aria-expanded') === 'false') {
+      var label = h.querySelector('.lbl')
+      if (label) label.click(); else h.click()
+    }
     setTimeout(function () { try { h.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } catch (e) {} }, 60)
   }
   var RAIL = {
@@ -220,6 +225,7 @@
     search: function () { expand(); setTimeout(function () { var q = $('q'); if (q) { q.focus(); q.select() } }, 80) },
     ol: function () { section('olH') },
     tpl: function () { section('tplH') },
+    trash: function () { section('trashH') },
     theme: function () { setTheme(effective() === 'dark' ? 'light' : 'dark') },
     set: function () { click('who') },
     help: function () { click('helpBtn') }

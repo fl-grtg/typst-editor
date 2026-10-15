@@ -114,10 +114,11 @@ def test_restore_ratelimit_429(c):
 def test_move_ratelimit_429(c):
     register_user(c, "alice")
     did = make_doc(c, "M", content="hi")
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
     ratelimit.clear()
     codes = set()
-    for _ in range(21): # move scope is 20/min (own bucket, no longer shares files)
-        codes.add(c.post(f"/api/docs/{did}/folder", json={"folder": "M"}).status_code)
+    for i in range(21): # project rename uses the move bucket
+        codes.add(c.post(f"/api/projects/{pid}/rename", json={"title": f"M{i}"}).status_code)
     assert 429 in codes
 
 

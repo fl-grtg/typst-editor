@@ -10,7 +10,7 @@ function resLine(tpl) { // the one line a doc needs: compiler resolves it agains
   return tpl.line || `#include "${n}"`
 }
 function renderTpl() {
-  const shared = docId && docRole !== 'owner'
+  const shared = docId && (docProject || docRole !== 'owner')
   const p = $('tplPop'); p.replaceChildren()
   const tip = el('div', 'tip'); tip.textContent = t('templates.tip'); p.appendChild(tip)
   const note = el('div', 'tip'); note.textContent = t('templates.sharedResNote'); p.appendChild(note)
@@ -22,19 +22,31 @@ function renderTpl() {
     x.onclick = async e => {
       e.stopPropagation()
       if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return
-      try { await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)); await loadTpl(); renderTpl(); sidebar() }
+      const project = docProject, document = docId
+      try {
+        if (project) {
+          await api('DELETE', `/api/projects/${project}/resources/${encodeURIComponent(tpl.name)}?version=${encodeURIComponent(tpl.updated_at || '')}`)
+          if (docId !== document || docProject !== project) return
+          if (activeFile === TPLK + tpl.name) await switchTab('', true)
+          tabPins.delete(tpl.name); tabVersions.delete(TPLK + tpl.name)
+          await loadDocResources(true); tabSig = ''; paintTabs(); queueRender()
+        } else await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name))
+        await loadTpl(); renderTpl(); sidebar()
+      }
       catch (err) { toast(err.message) }
     }
-    row.appendChild(b); if (!shared) row.appendChild(x); return row
+    row.appendChild(b)
+    if (docProject) { const edit = icoBtn('x', ICO_EDIT); edit.title = t('projects.openModule'); edit.setAttribute('aria-label', edit.title); edit.onclick = () => { tabPins.add(tpl.name); switchTab(TPLK + tpl.name); hidePops() }; row.appendChild(edit) }
+    if (!shared || (docProject && !docResReadonly)) row.appendChild(x); return row
   }
-  const { top, byF } = groupBy(projectResources())
-  top.forEach(t => p.appendChild(mkRow(t)))
-  tplFolders.forEach(f => { if (!byF.has(f.folder)) byF.set(f.folder, []) })
-  ;[...byF.keys()].sort((a, b) => a.localeCompare(b)).forEach(f => {
-    if (!byF.get(f).length) return // empty folders only in sidebar, not in insert popup
-    p.appendChild(el('div', 'fh', f))
-    byF.get(f).forEach(t => p.appendChild(mkRow(t)))
+  projectResources().forEach(tpl => p.appendChild(mkRow(tpl)))
+  if (docProject && !docResReadonly) myTpl.forEach(tpl => {
+    const row = el('div', 'trow')
+    const b = el('button', 'go', tpl.name); b.title = t('projects.pullInsert'); b.setAttribute('aria-label', b.title)
+    b.onclick = () => insertPersonalResource(tpl).catch(e => toast(e.message))
+    row.appendChild(b); p.appendChild(row)
   })
+  if (docProject && !docResReadonly) { const create = el('button', null, t('projects.newResource')); create.onclick = () => newProjectResource(docProject).catch(e => toast(e.message)); p.appendChild(create) }
   if (shared) return
   const nw = el('button')
   nw.append(el('span', 'use', t('templates.newTpl')), el('span', 'ins', t('templates.newTplSub')))

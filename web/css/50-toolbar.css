@@ -84,3 +84,6 @@
 #tabs .tabw:hover button.tab { background: transparent; }
 #tabs .tabw button.tx { background: transparent; }
 #tabs .tabw button.tx:hover { background: var(--press); }
+
+#tabs button.tadd { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; }
+#tabs button.tadd svg { display: block; flex: none; }

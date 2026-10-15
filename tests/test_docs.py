@@ -8,6 +8,8 @@ def test_register_creates_tutorial(c):
     assert len(tut) == 1
     body = c.get(f"/api/docs/{tut[0]['id']}").json()
     assert "Example Paper" in body["content"]
+    assert body["project_id"]
+    assert body["project_id"] in [p["id"] for p in c.get("/api/projects").json()["projects"]]
 
 
 def test_create_save_rename(c):
@@ -19,11 +21,12 @@ def test_create_save_rename(c):
     assert c.get(f"/api/docs/{did}").json()["title"] == "B"
 
 
-def test_duplicate_title_400(c):
+def test_equal_titles_create_separate_projects(c):
     register_user(c, "alice")
-    make_doc(c, "Gleich")
+    first = make_doc(c, "Gleich")
     r = c.post("/api/docs/create", json={"title": "Gleich"})
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert c.get(f"/api/docs/{first}").json()["project_id"] != c.get(f"/api/docs/{r.json()['id']}").json()["project_id"]
 
 
 def test_duplicate_trash_restore(c):

@@ -164,7 +164,7 @@ def test_parallel_init_db_single_v13_and_backup(tmp_path, monkeypatch):
     assert errors == []
     con = db.connect()
     try:
-        assert con.execute("SELECT COUNT(*) AS n FROM schema_version").fetchone()["n"] == 13
+        assert con.execute("SELECT COUNT(*) AS n FROM schema_version WHERE v<=13").fetchone()["n"] == 13
         assert con.execute("SELECT COUNT(*) AS n FROM schema_version WHERE v=13").fetchone()["n"] == 1
         assert con.execute("SELECT COUNT(*) AS n FROM files").fetchone()["n"] == 2
         assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"

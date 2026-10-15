@@ -37,17 +37,19 @@ def test_delete_me_clears_db_and_files(c):
     assert c.get("/api/me").status_code == 401
 
 
-def test_folders_crud(c):
+def test_projects_crud(c):
     register_user(c, "alice")
-    did = make_doc(c, "Sortiert")
-    assert c.post("/api/folders", json={"folder": "Proj"}).status_code == 200
-    assert c.post(f"/api/docs/{did}/folder", json={"folder": "Proj"}).status_code == 200
-    assert c.get("/api/folders").json()["folders"] == [{"folder": "Proj", "n": 1}]
-    assert c.post("/api/folders/rename", json={"old": "Proj", "new": "Neu"}).status_code == 200
-    assert c.get("/api/folders").json()["folders"] == [{"folder": "Neu", "n": 1}]
-    assert c.delete("/api/folders/Neu").status_code == 200
-    assert c.get("/api/folders").json()["folders"] == []
-    assert c.get(f"/api/docs/{did}").json()["folder"] == ""
+    result = c.post("/api/projects", json={"title": "Proj"})
+    assert result.status_code == 200
+    pid = result.json()["id"]
+    did = c.post(f"/api/projects/{pid}/docs", json={"title": "Sortiert"}).json()["id"]
+    assert c.get(f"/api/docs/{did}").json()["project_id"] == pid
+    assert c.post(f"/api/projects/{pid}/rename", json={"title": "Neu"}).status_code == 200
+    assert c.get(f"/api/projects/{pid}").json()["title"] == "Neu"
+    assert c.delete(f"/api/projects/{pid}").status_code == 200
+    assert pid not in [p["id"] for p in c.get("/api/projects").json()["projects"]]
+    assert c.post(f"/api/docs/{did}/restore").status_code == 200
+    assert c.get(f"/api/projects/{pid}").json()["title"] == "Neu"
 
 
 def test_templates_crud(c):

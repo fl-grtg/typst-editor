@@ -51,30 +51,14 @@ $('out').onclick = () => { try { clearTimeout(sideESTimer); sideES?.close(); sid
   location.reload()
 }) }
 $('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
-  const doc = docId, resource = tplName, epoch = openN
-  if (tplName) { // template: save new + delete old (else upsert overwrites)
-    const nv = await ask(t('templates.renameTpl'), { value: tplName })
-    if (nv === null || !nv.trim() || nv.trim() === tplName) return
-    if (resource !== tplName || epoch !== openN || !await flushTpl()) return
-    await loadTpl() // fresh: else guard misses foreign names
-    if (myTpl.some(x => x.name === nv.trim())) { toast(t('common.nameExists')); return }
-    try {
-      if (resource !== tplName || epoch !== openN) return
-      const old = myTpl.find(x => x.name === resource)
-      const r = await api('POST', '/api/templates/' + encodeURIComponent(resource) + '/rename', { name: nv.trim(), version: tplVer || old?.updated_at || '' })
-      if (resource !== tplName || epoch !== openN) return
-      tplName = r.name; $('title').textContent = r.name
-      tplVer = r.version || ''; tplDirty = false
-      await loadTpl(); renderTpl(); sidebar()
-    } catch (e) { toast(e.message) }
-    return
-  }
+  const doc = docId, epoch = openN
+  if (tplName) { await renamePersonalResource(tplName); return }
   if (!docId || docRole !== 'owner') return
-  const nt = await ask(t('docs.renameDoc'), { value: $('title').textContent })
+  const nt = await ask(t('docs.renameDoc'), { value: (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent })
   if (nt === null || !nt.trim()) return
   if (doc !== docId || epoch !== openN) return
   api('POST', `/api/docs/${doc}/rename`, { title: nt.trim() })
-    .then(() => { if (doc === docId && epoch === openN) $('title').textContent = nt.trim(); sidebar() })
+    .then(() => { if (doc === docId && epoch === openN) { $('title').textContent = nt.trim(); docTitle = nt.trim(); tabSig = ''; paintTabs() } sidebar() })
     .catch(e => toast(e.message))
 }
 function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
@@ -87,15 +71,7 @@ function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery 
     const row = document.querySelector('#mCard .mRow'); row.style.display = ''
     const yes = $('mYes'); yes.disabled = false; yes.textContent = t('common.create'); yes.style.background = ''; yes.style.color = ''
     const box = document.createElement('div'); box.id = 'mExtra'
-    const fl = el('label', null, t('docs.folderLabel'))
-    let selF = ''
-    const fgrp = el('div'); fgrp.setAttribute('role', 'radiogroup'); fgrp.setAttribute('aria-label', t('docs.folderLabel'))
-    const nn = document.createElement('input'); nn.type = 'text'; nn.placeholder = t('docs.newFolderName'); nn.setAttribute('aria-label', t('docs.newFolderName')); nn.maxLength = 40; nn.style.display = 'none'
-    const addF = (v, lab) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), lab); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
-    addF('', t('docs.noFolder'))
-    folders.forEach(f => addF(f.folder, f.n === 1 ? t('docs.folderDocsOne', { f: f.folder, n: f.n }) : t('docs.folderDocsMany', { f: f.folder, n: f.n })))
-    addF('__new', t('docs.newFolderOpt'))
-    box.append(fl, fgrp, nn, el('label', null, t('gallery.galLabel')))
+    box.appendChild(el('label', null, t('gallery.galLabel')))
     let selT = 0
     const grp = el('div'); grp.id = 'galGrid'; grp.setAttribute('role', 'radiogroup'); grp.setAttribute('aria-label', t('gallery.galLabel'))
     GALLERY.forEach((g, i) => grp.appendChild(galleryCard(g, !i, () => { selT = i; grp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); grp.children[i].classList.add('on'); grp.children[i].setAttribute('aria-pressed', 'true') })))
@@ -104,7 +80,7 @@ function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery 
     const done = v => { ov.style.display = 'none'; modalInert(false); box.remove(); askRes = null; prev?.focus?.(); res(v) }
     askRes = () => done(null)
     $('mNo').onclick = () => done(null)
-    yes.onclick = () => { done({ title: inp.value, folder: selF === '__new' ? nn.value.trim() : selF, tpl: selT }) }
+    yes.onclick = () => { done({ title: inp.value, tpl: selT }) }
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
     setTimeout(() => { if (ov.style.display !== 'none') { inp.focus(); inp.select() } }, 30)
   })
@@ -119,20 +95,11 @@ function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (l
     const row = document.querySelector('#mCard .mRow'); row.style.display = ''
     const yes = $('mYes'); yes.disabled = false; yes.textContent = t('common.create'); yes.style.background = ''; yes.style.color = ''
     const box = document.createElement('div'); box.id = 'mExtra'
-    const fl = el('label', null, t('docs.folderLabel'))
-    let selF = ''
-    const fgrp = el('div'); fgrp.setAttribute('role', 'radiogroup'); fgrp.setAttribute('aria-label', t('docs.folderLabel'))
-    const nn = document.createElement('input'); nn.type = 'text'; nn.placeholder = t('docs.newFolderName'); nn.setAttribute('aria-label', t('docs.newFolderName')); nn.maxLength = 40; nn.style.display = 'none'
-    const addF = (v, lab) => { const b = el('button', 'pk' + (v === selF ? ' on' : ''), lab); b.setAttribute('aria-pressed', v === selF); b.onclick = () => { selF = v; fgrp.querySelectorAll('.pk').forEach(x => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false') }); b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); nn.style.display = v === '__new' ? '' : 'none'; if (v === '__new') nn.focus() }; fgrp.appendChild(b) }
-    addF('', t('docs.noFolder'))
-    tplFolders.forEach(f => addF(f.folder, f.n === 1 ? t('templates.folderTplOne', { f: f.folder, n: f.n }) : t('templates.folderTplMany', { f: f.folder, n: f.n })))
-    addF('__new', t('docs.newFolderOpt'))
-    box.append(fl, fgrp, nn)
     $('mCard').insertBefore(box, row)
     const done = v => { ov.style.display = 'none'; modalInert(false); box.remove(); askRes = null; prev?.focus?.(); res(v) }
     askRes = () => done(null)
     $('mNo').onclick = () => done(null)
-    yes.onclick = () => { done({ name: inp.value, folder: selF === '__new' ? nn.value.trim() : selF }) }
+    yes.onclick = () => { done({ name: inp.value, folder: '' }) }
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
     setTimeout(() => inp.focus(), 30)
   })
@@ -143,9 +110,9 @@ $('new').onclick = async () => {
   if (k !== 0) return
   const r = await askNewDoc()
   if (!r) return
-  const b = $('new'), old = b.textContent; b.disabled = true; b.textContent = t('docs.creating')
-  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('docs.newDocTitle'), content: galleryContent(r.tpl), folder: r.folder })).id) }
-  catch (e) { toast(e.message) } finally { b.disabled = false; b.textContent = old }
+  const b = $('new'); b.disabled = true
+  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('projects.new'), content: galleryContent(r.tpl), folder: '' })).id) }
+  catch (e) { toast(e.message) } finally { b.disabled = false }
 }
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
@@ -158,7 +125,7 @@ async function importUpload(f) {
     if (/\.zip$/i.test(f.name)) {
       const r = await askNewDoc(f.name.replace(/\.zip$/i, ''))
       if (!r) return
-      const body = new FormData(); body.append('f', f); body.append('title', r.title.trim() || t('docs.newDocTitle')); body.append('folder', r.folder)
+      const body = new FormData(); body.append('f', f); body.append('title', r.title.trim() || t('projects.new')); body.append('folder', '')
       const response = await fetch('/api/docs/import-zip', { method: 'POST', body })
       if (!response.ok) throw new Error(expMsg(await response.text()))
       await openDoc((await response.json()).id); sidebar(); return
@@ -177,13 +144,13 @@ async function importUpload(f) {
       if (!r || !r.name.trim()) return
       await loadTpl()
       if (myTpl.some(x => x.name === r.name.trim())) { toast(t('common.nameExists')); return }
-      const result = await api('POST', '/api/templates', { name: r.name.trim(), content: txt, folder: r.folder })
+      const result = await api('POST', '/api/templates', { name: r.name.trim(), content: txt, folder: '' })
       await loadTpl(); sidebar(); openTpl(result.name || r.name.trim()); return
     }
     const ttl = f.name.replace(/\.typ$/i, '').slice(0, 100)
     const r = await askNewDoc(ttl)
     if (!r) return
-    openDoc((await api('POST', '/api/docs/create', { title: r.title.trim() || ttl, content: txt, folder: r.folder })).id)
+    openDoc((await api('POST', '/api/docs/create', { title: r.title.trim() || ttl, content: txt, folder: '' })).id)
   } catch (e) { toast(e.message) } finally { upBusy = false }
 }
 $('docPick').onchange = () => { const f = $('docPick').files[0]; $('docPick').value = ''; importUpload(f) }
@@ -209,7 +176,7 @@ $('del').onclick = async () => {
 setInterval(() => {
   if (!docId) return
   loadComments().catch(e => console.warn('comments poll failed', e))
-  if (docRole !== 'owner' && navigator.onLine !== false) {
+  if ((docProject || docRole !== 'owner') && navigator.onLine !== false) {
     const doc = docId, before = JSON.stringify(window.docTpl)
     loadDocResources(true).then(ok => { if (ok && doc === docId && before !== JSON.stringify(window.docTpl)) queueRender() }).catch(() => {})
   }

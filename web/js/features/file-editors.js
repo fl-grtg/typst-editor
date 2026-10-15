@@ -217,7 +217,9 @@ function syncFileToolbar(ext) {
     group.classList.toggle('type-hidden', !!formatting && !typst)
   }
   for (const id of ['cNew', 'imgBtn', 'mediaBtn', 'tplBtn', 'symBtn', 'colWrap', 'citeLibrary']) $(id)?.classList.toggle('type-hidden', !typst)
-  $('histBtn').classList.toggle('type-hidden', !typst || !!activeFile || !!tplName)
+  $('histBtn').classList.toggle('type-hidden', !docId || !!tplName)
+  if (docId && !openedTrashed) $('histBtn').style.display = ''
+  updateFileView()
   $('fmtDoc')?.classList.toggle('type-hidden', !['typ', 'json'].includes(ext))
   $('tools').querySelector('.grp')?.classList.toggle('type-hidden', (grid && !csvRaw) || (bib && !bibRaw))
   $('tools').dataset.format = ext

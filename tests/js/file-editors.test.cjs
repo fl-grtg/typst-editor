@@ -60,14 +60,15 @@ test('bundled data parsers reject invalid JSON, YAML and TOML', async () => {
 })
 
 
-test('canceling file type selection closes the nested creation flow', async () => {
+test('tab add uses the project menu and file type cancellation stays closed', async () => {
   const files = fs.readFileSync(path.join(root, 'web/js/80-files-images.js'), 'utf8')
   const funcs = files.slice(files.indexOf('async function chooseFileType'), files.indexOf('async function deleteFile'))
-  const calls = []
-  const ctx = vm.createContext({ FILE_TYPES: ['typ', 'bib'], t: k => k, askPick: async () => calls.length ? -1 : (calls.push('picker'), 0), newFile: ext => calls.push(ext) })
+  const project = { id: 'p' }, calls = []
+  const ctx = vm.createContext({ projects: [project], docProject: 'p', projectEditable: () => true, projectMenu: p => calls.push(p),
+    FILE_TYPES: ['typ', 'bib'], t: k => k, askPick: async () => null })
   vm.runInContext(funcs, ctx)
   await ctx.tabAdd()
-  assert.deepEqual(calls, ['picker'])
+  assert.deepEqual(calls, [project])
   for (const value of [-1, null, undefined, 99]) { ctx.askPick = async () => value; assert.equal(await ctx.chooseFileType(), null) }
   ctx.askPick = async () => 0
   assert.equal(await ctx.chooseFileType(), '.typ')

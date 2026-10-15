@@ -137,6 +137,9 @@ $('dlPng').onclick = () => openExportDlg('png')
 $('dlSvg').onclick = () => openExportDlg('svg')
 $('dlTyp').onclick = () => {
   if (!docId && !tplName) return
+  if (docId && activeFile && !isTplKey(activeFile) && !TEXT_EXT.test(activeFile)) {
+    const a = document.createElement('a'); a.href = `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}`; a.download = activeFile; a.click(); return
+  }
   dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), (tplName || (activeFile ? tabName(activeFile) : dlName('.typ'))))
 }
 $('dlPdf').onclick = () => openExportDlg('pdf')
@@ -148,5 +151,12 @@ setInterval(() => { // heals sets without input event (extensions, autofill): te
 
 $('dlZip').onclick = async () => {
   if (!docId || tplName) return
-  try { await expServer('zip', {}) } catch (e) { toast(e.message) }
+  try {
+    if (!await flushTab() || !await flushTpl()) return
+    if (!docProject) return await expServer('zip', {})
+    const project = docProject
+    const response = await fetch(`/api/projects/${project}/export-zip`)
+    if (!response.ok) throw new Error(expMsg(await response.text()))
+    dlBlob(await response.blob(), (projects.find(p => p.id === project)?.title || 'project') + '.zip')
+  } catch (e) { toast(e.message) }
 }

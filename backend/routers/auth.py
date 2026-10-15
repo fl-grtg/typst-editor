@@ -104,6 +104,8 @@ def register(b: Register, res: Response, req: Request) -> dict:
                 did, now = db.new_id("d_"), db.now_iso()
                 con.execute("INSERT INTO docs (id, owner, title, content, created_at, updated_at) VALUES (?,?,?,?,?,?)",
                             (did, name, "Tutorial", TUTORIAL, now, now))
+                from backend.services import projects
+                projects.attach_doc(con, did, check_quota=False)
                 if empty:
                     log.warning("first user created")
         except sqlite3.IntegrityError as e:
@@ -333,7 +335,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
     if new == user:
         return {"user": user}
     # No ON UPDATE CASCADE in schema.sql (adding it needs a real migration,
-    # FKs are bare REFERENCES): rename stays an explicit 7-table move inside
+    # FKs are bare REFERENCES): rename stays an explicit move inside
     # one transaction. Pre-check message is generic (no user enumeration).
     con = db.connect()
     try:
@@ -358,6 +360,10 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
             con.execute("UPDATE templates SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE folders SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE api_keys SET username=? WHERE username=?", (new, user))
+            con.execute("UPDATE projects SET owner=? WHERE owner=?", (new, user))
+            con.execute("UPDATE project_members SET username=? WHERE username=?", (new, user))
+            con.execute("UPDATE legacy_project_folders SET owner=? WHERE owner=?", (new, user))
+            con.execute("UPDATE notifications SET recipient=? WHERE recipient=?", (new, user))
             con.execute("DELETE FROM users WHERE name=?", (user,))
     except sqlite3.OperationalError as e:
         log.warning("rename_me %s -> %s busy: %s", user, new, e)
@@ -372,6 +378,8 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
     sync.drop_sess_cache(user)
     sync.drop_sess_cache(new)
     _drop_user_locks(user)
+    quota_svc.invalidate_quota_cache(user)
+    quota_svc.invalidate_quota_cache(new)
     return {"user": new}
 
 
@@ -435,9 +443,11 @@ def get_avatar(username: str, req: Request, user: str = Depends(deps.me)) -> Res
         if username != user:
             ok = con.execute(
                 "SELECT 1 FROM docs d WHERE d.trashed=0 "
-                "AND (d.owner=? OR EXISTS (SELECT 1 FROM shares WHERE doc_id=d.id AND username=?)) "
-                "AND (d.owner=? OR EXISTS (SELECT 1 FROM shares WHERE doc_id=d.id AND username=?)) "
-                "LIMIT 1", (user, user, username, username)).fetchone()
+                "AND (d.owner=? OR EXISTS (SELECT 1 FROM shares WHERE doc_id=d.id AND username=?) "
+                "OR EXISTS (SELECT 1 FROM project_members WHERE project_id=d.project_id AND username=?)) "
+                "AND (d.owner=? OR EXISTS (SELECT 1 FROM shares WHERE doc_id=d.id AND username=?) "
+                "OR EXISTS (SELECT 1 FROM project_members WHERE project_id=d.project_id AND username=?)) "
+                "LIMIT 1", (user, user, user, username, username, username)).fetchone()
             if not ok:
                 raise HTTPException(404, "No image")
         r = con.execute("SELECT avatar FROM users WHERE name=?", (username,)).fetchone()

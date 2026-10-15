@@ -55,3 +55,5 @@ def auto_snap(doc_id: str, content: str, label: str = "") -> None:
                 pass
     finally:
         con.close()
+    from backend.services.project_history import auto_document
+    auto_document(doc_id)

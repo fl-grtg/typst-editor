@@ -573,6 +573,11 @@ async def _flush_one(doc_id: str, r: dict) -> bool:
         r["text_len"] = len(text)
     except Exception as e:
         log.warning("flush_one %s text_len update failed: %s", doc_id, e)
+    try:
+        from backend.services.project_history import auto_document
+        await asyncio.to_thread(auto_document, doc_id)
+    except Exception as e:
+        log.warning("Project checkpoint %s failed: %s", doc_id, e)
     return True
 
 
@@ -962,6 +967,14 @@ def flush_all() -> None:
                 log.warning("flush_all %s text_len failed: %s", doc_id, e)
         except Exception as e:
             log.warning("flush_all %s: save failed: %s", doc_id, e)
+
+
+def room_snapshot(doc_id: str) -> tuple[bytes, str] | None:
+    r = rooms.get(doc_id)
+    if not r:
+        return None
+    with _doc_lock(r):
+        return r["doc"].get_update(), str(r["doc"].get("typst", type=Text))
 
 
 def room_text(doc_id: str) -> str | None:

@@ -341,10 +341,44 @@ def _migrate_v13(con: sqlite3.Connection) -> None:
     logging.getLogger(__name__).info("v13 attachment scan complete: %d files", scanned)
 
 
+def _migrate_v14(con: sqlite3.Connection) -> None:
+    if "project_id" not in _cols(con, "docs"):
+        con.execute("ALTER TABLE docs ADD COLUMN project_id TEXT REFERENCES projects(id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_docs_project ON docs(project_id)")
+
+
+def _migrate_v15(con: sqlite3.Connection) -> None:
+    if "archived" not in _cols(con, "projects"):
+        con.execute("ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_v16(con: sqlite3.Connection) -> None:
+    from backend.services import projects
+    con.execute("CREATE TABLE IF NOT EXISTS legacy_project_folders (owner TEXT NOT NULL, folder TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, PRIMARY KEY(owner,folder))")
+    for d in con.execute("SELECT id FROM docs WHERE project_id IS NULL ORDER BY owner,folder,trashed,id").fetchall():
+        projects.attach_doc(con, d["id"], check_quota=False)
+    for f in con.execute("SELECT owner,name FROM folders WHERE kind='doc'").fetchall():
+        title = f["name"].split("/")[0]
+        if not con.execute("SELECT 1 FROM legacy_project_folders WHERE owner=? AND folder=?", (f["owner"], title)).fetchone():
+            pid = projects.create(con, f["owner"], title)
+            con.execute("INSERT INTO legacy_project_folders VALUES (?,?,?)", (f["owner"], title, pid))
+    con.execute("DELETE FROM folders WHERE kind='doc'")
+
+
+def _migrate_v17(con: sqlite3.Connection) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS project_snapshots (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+
+
+def _migrate_v18(con: sqlite3.Connection) -> None:
+    con.execute("DROP INDEX IF EXISTS idx_docs_owner_title")
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_project_title ON docs(project_id,title COLLATE NOCASE) WHERE project_id IS NOT NULL AND trashed=0")
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_legacy_title ON docs(owner,title COLLATE NOCASE) WHERE project_id IS NULL AND trashed=0")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12, _migrate_v13,
+    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18,
 )
 
 
@@ -430,17 +464,26 @@ def init_db() -> None:
         con.close()
 
 
+def role_on(con: sqlite3.Connection, user: str, doc_id: str) -> str | None:
+    d = con.execute("SELECT owner, project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
+    if not d:
+        return None
+    if d["owner"] == user:
+        return "owner"
+    # Project membership is authoritative for members, including downgrades.
+    if d["project_id"]:
+        m = con.execute("SELECT role FROM project_members WHERE project_id=? AND username=?",
+                        (d["project_id"], user)).fetchone()
+        if m:
+            return m["role"]
+    s = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?", (doc_id, user)).fetchone()
+    return s["role"] if s else None
+
+
 def doc_role(user: str, doc_id: str) -> str | None:
     con = connect()
     try:
-        d = con.execute("SELECT owner FROM docs WHERE id=?", (doc_id,)).fetchone()
-        if not d:
-            return None
-        if d["owner"] == user:
-            return "owner"
-        s = con.execute("SELECT role FROM shares WHERE doc_id=? AND username=?",
-                        (doc_id, user)).fetchone()
-        return s["role"] if s else None
+        return role_on(con, user, doc_id)
     finally:
         con.close()
 

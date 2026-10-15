@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from backend import db
 
 RESOURCE_EXTS = {".typ": "template", ".bib": "library", ".csv": "table", ".tsv": "table", **dict.fromkeys((".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl"), "data")}
-REF_RE = re.compile(r'"([^"\n]{1,120})"')
+REF_RE = re.compile(r'"([^"\n]{1,240})"')
 # Explicit bounds (not silent truncation): per-text scan cap + total closure
 # cap. Typical docs reach a handful of files; the caps only stop cycles and
 # pathological inputs. A capped-away file surfaces as a normal Typst
@@ -38,7 +38,7 @@ def kind_of(name: str) -> str:
 
 
 def res_name(raw: str) -> str:
-    n = re.sub(r"[^A-Za-z0-9._-]", "_", Path(raw or "").name.strip().lstrip("."))[:100]
+    n = re.sub(r"[^A-Za-z0-9._ ()-]", "_", Path(raw or "").name.strip().lstrip("."))[:100]
     if not n or kind_of(n) == "":
         raise HTTPException(400, "Unsupported text resource extension")
     return n
@@ -65,17 +65,9 @@ def insert_line(name: str) -> str:
 
 
 def _is_plausible_ref(raw: str) -> bool:
-    """True when a quoted string can be a file ref (not prose).
-
-    Stored names never contain whitespace (sanitizers turn it into `_`),
-    so any quoted string with whitespace is prose, never a path. This
-    keeps e.g. `"hello world"` or `"see figure 3.typ for details"` from
-    pulling unrelated resources that happen to share a basename.
-    """
+    """Quoted paths may contain spaces, including generated copy names."""
     n = (raw or "").strip()
-    if not n or len(n) > 120:
-        return False
-    if any(ch.isspace() for ch in n):
+    if not n or len(n) > 240:
         return False
     if kind_of(n) == "" and kind_of(Path(n).name) == "":
         return False
@@ -132,6 +124,11 @@ def _resolve_ref(referrer: str | None, ref: str,
     for c in cands:
         if c and c in local:
             return c
+    for c in cands:
+        if c and c in shelf:
+            return c
+    if any(ch.isspace() for ch in raw):
+        return None
     base = posixpath.basename(raw)
     if base in local:
         return base
@@ -206,7 +203,7 @@ def reachable(owner_texts: dict[str, str], entry_texts: list[str]) -> dict[str, 
     return got
 
 
-def doc_effective(owner: str, main_text: str, local_files: dict[str, str]) -> dict:
+def doc_effective(owner: str, main_text: str, local_files: dict[str, str], doc_id: str = "") -> dict:
     """Compile set for one doc: owner's reachable resources, local files win.
 
     Returns `resources` (name -> content, reachable shelf names NOT shadowed
@@ -216,15 +213,26 @@ def doc_effective(owner: str, main_text: str, local_files: dict[str, str]) -> di
     """
     con = db.connect()
     try:
-        rows = con.execute("SELECT name, content, updated_at FROM templates WHERE owner=?",
-                           (owner,)).fetchall()
+        d = con.execute("SELECT project_id FROM docs WHERE id=?", (doc_id,)).fetchone() if doc_id else None
+        project_id = d["project_id"] if d else None
+        if project_id:
+            rows = con.execute("SELECT name,content,updated_at FROM project_resources WHERE project_id=?", (project_id,)).fetchall()
+        else:
+            rows = con.execute("SELECT name, content, updated_at FROM templates WHERE owner=?", (owner,)).fetchall()
     finally:
         con.close()
     shelf = {r["name"]: r["content"] or "" for r in rows}
     versions = {r["name"]: r["updated_at"] or "" for r in rows}
     found = reachable_closure(shelf, local_files or {}, main_text or "")
     resources = {n: c for n, c in found.items() if n not in (local_files or {})}
-    return {"owner": owner,
+    return {"owner": owner, "project_id": project_id,
             "resources": resources,
             "local": sorted(local_files or {}),
             "versions": {n: versions.get(n, "") for n in resources}}
+
+
+def copy_name(name: str, number: int = 1) -> str:
+    suffix = Path(name).suffix
+    stem = name[:-len(suffix)] if suffix else name
+    tag = ' (copy)' if number == 1 else f' (copy {number})'
+    return stem[:100 - len(tag) - len(suffix)] + tag + suffix
