@@ -52,8 +52,9 @@ def notify(project_id: str) -> None:
 
 def create(con, owner: str, title: str, archived: bool = False) -> str:
     base, suffix = title, 2
-    while con.execute("SELECT 1 FROM projects WHERE owner=? AND title=?", (owner, title)).fetchone():
-        title = f"{base} ({suffix})"
+    while con.execute("SELECT 1 FROM projects WHERE owner=? AND title=? COLLATE NOCASE", (owner, title)).fetchone():
+        tail = f" ({suffix})"
+        title = base[:100-len(tail)] + tail
         suffix += 1
     pid = db.new_id("p_")
     con.execute("INSERT INTO projects(id,owner,title,created_at,archived) VALUES (?,?,?,?,?)",
@@ -72,8 +73,10 @@ def attach_doc(con, doc_id: str, project_id: str | None = None, *, check_quota: 
                local: dict | None = None) -> str:
     from backend.services import quota, resources
     d = con.execute("SELECT * FROM docs WHERE id=?", (doc_id,)).fetchone()
-    if d["project_id"]:
+    if d["project_id"] and not project_id:
         return d["project_id"]
+    if d["project_id"] and d["project_id"] != project_id:
+        raise HTTPException(409, "Document belongs to another project")
     pid = project_id
     if not pid:
         title = d["folder"].split("/")[0] if d["folder"] else d["title"]

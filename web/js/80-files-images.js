@@ -129,7 +129,7 @@ function paintTabs() {
     if (ec) { const e = el('span', 'te', String(ec)); e.title = t('files.tabErrors', { n: ec }); b.appendChild(e) }
     b.setAttribute('aria-label', !k ? t('files.editMain') : isTplKey(k) ? t('files.tplTab', { name: nm }) : t('files.editTab', { name: nm }))
     b.onclick = () => switchTab(k)
-    b.ondblclick = () => { if (canEdit) { const p = projects.find(p => p.id === docProject); if (main) renameProjectDocument({ id: entry.document, title }); else if (p) renameProjectEntry(p, entry.name, entry.document, entry.resource) } }
+    b.ondblclick = () => { if (canEdit) { const p = projects.find(p => p.id === docProject); if (main) renameProjectDocument({ id: entry.document, title }); else if (p) renameProjectEntry(p, entry.name, entry.document, entry.resource); else toast(t('projects.contextGone')) } }
     w.appendChild(b)
     if (canEdit) {
       const x = icoBtn('tx', ICO_X); x.title = t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
@@ -319,20 +319,6 @@ function mainAppend(line) { // add a line at the end of main.typ through Yjs (ed
   const s = ytext.toString()
   ydoc.transact(() => ytext.insert(s.length, (s && !s.endsWith('\n') ? '\n' : '') + line + '\n'), 'tabs')
 }
-async function newFile(ext) {
-  const raw = await ask(t('files.newFileHead'), { ph: t('files.newFilePh', { ext }), maxLen: 60 })
-  if (raw == null || !raw.trim()) return
-  const nn = fileNameOk(raw, ext)
-  if (!nn) { toast(t('files.nameBad')); return }
-  if (lastFiles.some(f => f.name === nn)) { toast(t('common.nameExists')); return }
-  try {
-    await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(nn)}/text`, { content: fileStart(ext) })
-    await refreshFiles(); filesDirty = true
-    tabSig = ''; await switchTab(nn)
-    const line = /\.typ$/i.test(nn) ? `#include "${nn}"` : /\.bib$/i.test(nn) ? `#bibliography("${nn}")` : ''
-    if (line) toast(t('files.created', { name: nn }), () => mainAppend(line), t('files.insertLine'))
-  } catch (e) { toast(t('files.uploadFail', { msg: e.message })) }
-}
 const FILE_TYPES = ['typ', 'bib', 'csv', 'tsv', 'json', 'yaml', 'toml', 'xml', 'txt', 'csl']
 const fileStart = ext => ({ json: '{}\n', yaml: '{}\n', yml: '{}\n', toml: '', xml: '<data/>\n', csl: '<?xml version="1.0" encoding="utf-8"?>\n<style xmlns="http://purl.org/net/xbiblio/csl" version="1.0">\n  <info><title>Style</title><id>https://example.com/style</id></info>\n  <citation><layout><text variable="title"/></layout></citation>\n</style>\n' })[ext] || ''
 async function chooseFileType() {
@@ -341,10 +327,13 @@ async function chooseFileType() {
   return Number.isInteger(i) && i >= 0 && i < FILE_TYPES.length ? '.' + FILE_TYPES[i] : null
 }
 async function tabAdd() {
-  const project = projects.find(p => p.id === docProject)
-  if (project && projectEditable(project)) {
-    try { await projectMenu(project) } catch (error) { toast(error.message) }
-  }
+  const id = docProject, doc = docId, epoch = openN
+  try {
+    const project = projects.find(p => p.id === id) || (id ? await api('GET', `/api/projects/${id}`) : null)
+    if (docId !== doc || openN !== epoch || docProject !== id) return
+    if (project && projectEditable(project)) await projectMenu(project)
+    else toast(t('projects.contextGone'))
+  } catch (error) { toast(error.message) }
 }
 async function deleteFile(name) { // undo toast keeps a way back (text: content restored; binary: from cache)
   const cached = fileCache.get(name)
@@ -368,29 +357,6 @@ async function deleteFile(name) { // undo toast keeps a way back (text: content 
 }
 async function askDeleteFile(name) {
   if (await ask(t('files.delConfirm', { name }), { noInput: true, ok: t('common.delete'), danger: true })) deleteFile(name)
-}
-async function renameFile(old) { // text files only: copy + delete, quoted references in main.typ follow
-  const m = TEXT_EXT.exec(old)
-  if (!m) return
-  const raw = await ask(t('files.renameHead'), { value: old, maxLen: 60 })
-  if (raw == null) return
-  const nn = fileNameOk(raw, m[1].toLowerCase())
-  if (!nn) { toast(t('files.nameBad')); return }
-  if (nn === old) return
-  if (lastFiles.some(f => f.name === nn)) { toast(t('common.nameExists')); return }
-  try {
-    await flushTab()
-    const cur = old === activeFile ? getT() : (await api('GET', `/api/docs/${docId}/files/${encodeURIComponent(old)}/text`)).content
-    await api('POST', `/api/docs/${docId}/files/${encodeURIComponent(nn)}/text`, { content: cur })
-    await api('DELETE', `/api/docs/${docId}/files/${encodeURIComponent(old)}`)
-    const q = '"' + old + '"', s = ytext && docRole !== 'reviewer' ? ytext.toString() : '', at = []
-    for (let i = s.indexOf(q); i >= 0 && s; i = s.indexOf(q, i + q.length)) at.push(i)
-    if (at.length) ydoc.transact(() => { for (let k = at.length - 1; k >= 0; k--) { ytext.delete(at[k], q.length); ytext.insert(at[k], '"' + nn + '"') } }, 'tabs')
-    if (activeFile === old) { activeFile = nn; const st = tabState.get(old); if (st) tabState.set(nn, st) }
-    tabState.delete(old); fileCache.delete(old)
-    await refreshFiles(); filesDirty = true; tabSig = ''; paintTabs(); queueRender()
-    toast(at.length ? t('files.renamedRefs', { name: nn, n: at.length }) : t('files.renamed', { name: nn }))
-  } catch (e) { toast(e.message) }
 }
 let imgIns = false // only via image button, not via manager upload
 function insImage(name) { // #image() at cursor

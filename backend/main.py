@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import sqlite3
 from contextlib import asynccontextmanager
 from typing import Any
@@ -53,7 +54,12 @@ from backend.services.sidebar import _SIDEBAR_Q  # noqa: F401
 log = logging.getLogger("typst.main")
 
 
-db.init_db()
+try:
+    db.init_db()
+except (OSError, sqlite3.DatabaseError) as e:
+    log.error("Cannot initialize DATA_DIR %s: check volume permissions, free space and the migration backup before restarting: %s",
+              config.load().DATA_DIR, e)
+    raise
 
 
 @asynccontextmanager
@@ -104,6 +110,8 @@ async def _app_lifespan(app: FastAPI):
         pass
     # Paths resolve lazily (db.get_db_path/get_files_dir follow DATA_DIR).
     _acquire_single_lock()
+    if not shutil.which("typst"):
+        log.warning("Typst CLI is missing from PATH: server-side export/view is unavailable; install the pinned Typst version or use the container image")
     try:
         log.info("trash sweep: %s", reap_trash_dirs())
     except Exception as e:

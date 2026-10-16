@@ -4,17 +4,17 @@ function projectEntries(p) {
   const documents = p.documents || [...lastOwn, ...lastShared].filter(d => d.project_id === p.id)
   return { documents, resources: p.resources || [], files: p.files || [] }
 }
-function projectEntryCount(p) {
-  const e = projectEntries(p)
-  return e.documents.length + e.resources.length + e.files.length
-}
 function projectAction(host, icon, label, run) {
   const b = icoBtn('mini', icon); b.title = label; b.setAttribute('aria-label', label)
   b.onclick = e => { e.stopPropagation(); Promise.resolve().then(run).catch(e => toast(e.message)) }
   host.appendChild(b); return b
 }
 async function openProjectEntry(p, document, name, resource) {
-  if (!document) return
+  if (!document) {
+    toast(t('projects.needsDocument'))
+    document = await newProjectDoc(p.id)
+    if (!document) return
+  }
   if (docId !== document) await openDoc(document)
   if (docId !== document || docProject !== p.id) return
   if (name) {
@@ -78,6 +78,7 @@ async function newProjectDoc(id) {
   const r = await api('POST', `/api/projects/${id}/docs`, { title: choice.title.trim(), content: galleryContent(choice.tpl) })
   shut.delete('project:' + id); saveShut()
   await openDoc(r.id)
+  return r.id
 }
 async function newProjectResource(id) {
   const ext = await chooseFileType()
@@ -85,13 +86,12 @@ async function newProjectResource(id) {
   const raw = await ask(t('files.newFileHead'), { ph: t('files.newFilePh', { ext: ext.slice(1) }), maxLen: 240 })
   if (!raw?.trim()) return
   const name = raw.trim().toLowerCase().endsWith(ext) ? raw.trim() : raw.trim() + ext
-  await api('POST', `/api/projects/${id}/resources`, { name: name.trim(), content: fileStart(name.split('.').pop().toLowerCase()) })
+  const result = await api('POST', `/api/projects/${id}/resources`, { name: name.trim(), content: fileStart(name.split('.').pop().toLowerCase()) })
   await sidebar()
   const project = projects.find(p => p.id === id) || await api('GET', `/api/projects/${id}`)
   const documents = projectEntries(project).documents
   const document = documents.find(d => d.id === docId)?.id || documents[0]?.id
-  if (document) await openProjectEntry(project, document, name.trim(), true)
-  else toast(t('projects.resourceCreated'))
+  await openProjectEntry(project, document, result.name, true)
 }
 async function pullLibrary(source, target) {
   const document = docId, project = docProject, epoch = openN
@@ -189,8 +189,13 @@ async function projectMenu(p) {
             else if (choice === 1) await api('POST', `/api/projects/${p.id}/resources`, { name: file.name, content: await file.text() })
           } else if (TEXT_EXT.test(file.name)) await api('POST', `/api/projects/${p.id}/resources`, { name: file.name, content: await file.text() })
           else {
-            const doc = projectEntries(p).documents[0]?.id
-            if (!doc) throw new Error(t('projects.uploadNeedsDoc'))
+            let doc = projectEntries(p).documents[0]?.id
+            if (!doc) {
+              toast(t('projects.uploadNeedsDoc'))
+              await newProjectDoc(p.id)
+              if (docProject !== p.id || !docId) return
+              doc = docId
+            }
             const existing = (await api('GET', `/api/docs/${doc}/files`)).files
             if (existing.some(f => f.name === file.name)) throw new Error(t('common.nameExists'))
             const body = new FormData(); body.append('f', file)
@@ -226,23 +231,45 @@ async function renameProjectDocument(d) {
   await sidebar()
 }
 async function renameProjectEntry(p, name, document, resource) {
-  if (!await flushTab()) return
+  if (!p) { toast(t('projects.contextGone')); return }
+  const doc = docId, epoch = openN
+  if (!await flushTab() || !await flushTpl()) return
   const next = await ask(t('projects.renameWarning'), { value: name, maxLen: 240 })
   if (!next?.trim() || next.trim() === name) return
-  await api('POST', `/api/projects/${p.id}/rename-entry`, { name, target: next.trim(), doc_id: resource ? '' : document })
-  if (docProject === p.id) {
-    if (activeFile === (resource ? TPLK + name : name)) await switchTab('', true)
+  const body = { name, target: next.trim(), doc_id: resource ? '' : document }
+  const preview = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, body)
+  if (doc !== docId || epoch !== openN) return
+  const details = [t('projects.renameReferences', { name: preview.name }), ...(preview.references.length ? preview.references : [t('projects.noReferences')]), t('projects.dynamicReferences')].join('\n')
+  if (!await ask(details, { noInput: true }) || doc !== docId || epoch !== openN) return
+  const result = await api('POST', `/api/projects/${p.id}/rename-entry`, { ...body, target: preview.name, version: preview.version })
+  if (docId === doc && openN === epoch && docProject === p.id) {
+    const old = resource ? TPLK + name : name, next = resource ? TPLK + result.name : result.name
+    if (activeFile === old && (resource || document === docId)) {
+      clearTimeout(fileT); activeFile = next
+      const state = tabState.get(old); if (state) tabState.set(next, state)
+      tabState.delete(old); tabVersions.delete(old); tabVersions.set(next, result.version)
+      if (resource) { tabPins.delete(name); tabPins.add(result.name) }
+      else { const cached = fileCache.get(old); if (cached) fileCache.set(next, cached); fileCache.delete(old) }
+      if (tabDirty) queueFileSave()
+    }
     filesDirty = true; await loadDocResources(true); tabSig = ''; queueRender()
   }
   await sidebar()
+  toast(t('files.renamed', { name: result.name }))
 }
 async function deleteProjectEntry(p, name, document, resource) {
+  if (!p) { toast(t('projects.contextGone')); return }
+  const doc = docId, epoch = openN
   if (!await ask(t('files.delConfirm', { name }), { noInput: true, danger: true })) return
   if (resource) {
     const current = (await api('GET', `/api/projects/${p.id}/resources`)).resources.find(r => r.name === name)
+    if (!current) { toast(t('files.tplGone')); await sidebar(); return }
     await api('DELETE', `/api/projects/${p.id}/resources/${encodeURIComponent(name)}?version=${encodeURIComponent((current.updated_at || current.version))}`)
   } else await api('DELETE', `/api/docs/${document}/files/${encodeURIComponent(name)}`)
-  if (docProject === p.id) { if (activeFile === (resource ? TPLK + name : name)) await switchTab('', true); filesDirty = true; await loadDocResources(true); queueRender() }
+  if (docId === doc && openN === epoch && docProject === p.id) {
+    if (activeFile === (resource ? TPLK + name : name) && (resource || document === docId) && !tabDirty) await switchTab('', true)
+    filesDirty = true; await loadDocResources(true); queueRender()
+  }
   await sidebar()
 }
 

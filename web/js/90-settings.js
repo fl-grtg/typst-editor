@@ -167,6 +167,14 @@ function renderSettings() {
     .then(() => { avatarV++; paintMe(); renderPeers(); renderSettings() })
     .catch(e => { setMsg = e.message; renderSettings() })
   ar.append(im, pick, rm); colL.appendChild(grp(t('settings.avatar'), sec(ar)))
+  const storage = el('div', 'hint')
+  colL.appendChild(sec(storage))
+  api('GET', '/api/me').then(d => {
+    if (!storage.isConnected || !d.storage) return
+    const mib = bytes => (bytes / 1048576).toFixed(2)
+    storage.textContent = t('projects.storage', { used: mib(d.storage.used), limit: mib(d.storage.limit) })
+    if (d.storage.migration_allowance) storage.textContent += ' ' + t('projects.migrationAllowance', { amount: mib(d.storage.migration_allowance) })
+  }).catch(e => { if (storage.isConnected) storage.textContent = e.message })
   const nr = el('div', 'row')
   const nn = el('input'); nn.placeholder = t('settings.newName'); nn.setAttribute('aria-label', t('settings.newName')); nn.value = user
   const npw = el('input'); npw.type = 'password'; npw.placeholder = t('settings.pwGroup'); npw.setAttribute('aria-label', t('settings.pwForName'))

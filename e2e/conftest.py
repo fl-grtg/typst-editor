@@ -7,6 +7,7 @@ The live preview loads the Typst compiler from a CDN (until assets are self-host
 so these tests need outbound internet access.
 """
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -20,6 +21,13 @@ pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 
 expect.set_options(timeout=15_000)  # assertion waits match the ctx action timeout (expect default is only 5s)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, 'rep_' + report.when, report)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -111,16 +119,28 @@ def browser():
         try:
             b = p.chromium.launch()
         except Exception as e:  # browser binary missing
-            pytest.skip(f"no Playwright browser available: {e}")
+            pytest.fail(f"no Playwright browser available: {e}")
         yield b
         b.close()
 
 
 @pytest.fixture()
-def ctx(browser, base_url):
+def ctx(browser, base_url, request):
     c = browser.new_context(base_url=base_url, accept_downloads=True, locale="en-US")
     c.set_default_timeout(15_000)
+    c.tracing.start(screenshots=True, snapshots=True, sources=True)
     yield c
+    if getattr(request.node, 'rep_call', None) and request.node.rep_call.failed:
+        dest = ROOT / 'test-results' / re.sub(r'[^A-Za-z0-9_-]', '_', request.node.nodeid)
+        dest.mkdir(parents=True, exist_ok=True)
+        c.tracing.stop(path=str(dest / 'trace.zip'))
+        for i, page in enumerate(c.pages):
+            try:
+                page.screenshot(path=str(dest / f'page-{i}.png'))
+            except Exception:
+                pass
+    else:
+        c.tracing.stop()
     c.close()
 
 

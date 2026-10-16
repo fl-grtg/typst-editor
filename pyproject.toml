@@ -1,6 +1,6 @@
 [project]
 name = "typst-editor"
-version = "0.1.0"
+version = "0.2.0rc1"
 license = "Apache-2.0" # SPDX (PEP 639), must match LICENSE
 
 [tool.pytest.ini_options]

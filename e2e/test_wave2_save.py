@@ -13,7 +13,7 @@ test_11 (offline queue): typing (and even explicit Ctrl+S) while offline must
 test_12 (template offline): template autosave failures stay quiet offline
     (status line only, no toast); the typed text survives.
 """
-from helpers import create_doc, register, type_source
+from helpers import create_doc, open_private_copy, register, type_source
 from playwright.sync_api import expect
 
 
@@ -98,10 +98,7 @@ def test_12_template_offline_stays_quiet(page, ctx):
     create_doc(page, "2E tpl doc")
     type_source(page, "template body")
     expect(page.locator("#wsTxt")).to_have_text("Live", timeout=20_000)
-    page.click("#tplBtn")
-    page.locator("#tplPop button", has_text="Save as a global module").click()
-    page.fill("#mInp", "off.typ")
-    page.click("#mYes")
+    open_private_copy(page, 'off.typ')
     expect(page.locator("#title")).to_have_text("off.typ", timeout=15_000)
     expect(page.locator("#toast")).to_be_hidden(timeout=10_000)  # drain online phase: clean slate
     seen = []

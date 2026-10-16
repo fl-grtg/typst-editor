@@ -73,7 +73,7 @@ def test_shared_same_name_uses_owner_copy_and_cannot_edit_it(page, browser, base
         peer.keyboard.type("Must not replace")
         expect(peer.locator("#cm .cm-content")).to_contain_text("Owner-only marker")
         assert peer.request.get("/api/templates/shared.typ").json()["content"] == "Peer private marker"
-        peer.locator("#tabs button.tab").filter(has_text="main.typ").click()
+        peer.locator("#tabs button.tab").first.click()
         expect(peer.locator("#cm .cm-content")).to_have_attribute("contenteditable", "true")
         assert page.request.delete(f"/api/docs/{did}/share/shared_shelf_peer").ok
         expect(peer.locator("#title")).not_to_have_text("Shared resource test")

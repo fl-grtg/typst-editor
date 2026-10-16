@@ -19,6 +19,7 @@ Thumbs.db
 dist/
 build/
 coverage/
+test-results/
 coverage.xml
 *.cover
 *.lcov

@@ -250,10 +250,10 @@ def room(doc_id: str) -> dict:
             log.warning("room %s: trashed check failed, assume open: %s", doc_id, e)
             trashed_now = False
         try:
-            text_len = len(str(doc.get("typst", type=Text)))
+            text_len = len(str(doc.get("typst", type=Text)).encode("utf-8"))
         except Exception as e:
             log.warning("room %s: text_len failed: %s", doc_id, e)
-            text_len = len(content or "")
+            text_len = len((content or "").encode("utf-8"))
         r = {"doc": doc, "conns": set(), "users": {}, "tokens": {}, "sess_at": {},
              "saved": time.monotonic(), "dirty": init_dirty,
              "dirty_since": time.monotonic() if init_dirty else 0.0,
@@ -482,7 +482,7 @@ def _size_ok(room_or_doc: Any, payload: bytes, cached_len: int | None = None) ->
             r = room_or_doc
             doc = r["doc"]
             with _doc_lock(r):
-                cur_len = len(str(doc.get("typst", type=Text)))
+                cur_len = len(str(doc.get("typst", type=Text)).encode("utf-8"))
                 if cur_len + len(payload) <= MAX_TXT:
                     return True
                 try:
@@ -492,7 +492,7 @@ def _size_ok(room_or_doc: Any, payload: bytes, cached_len: int | None = None) ->
                     return False
         else:
             doc = room_or_doc  # type: ignore[assignment]
-            cur_len = len(str(doc.get("typst", type=Text)))
+            cur_len = len(str(doc.get("typst", type=Text)).encode("utf-8"))
             # Fast path: current text + raw payload bytes still fit. Payload
             # bytes over-estimate added chars (Yjs metadata), so this never
             # falsely rejects small edits; near-limit edits fall through to the
@@ -510,7 +510,7 @@ def _size_ok(room_or_doc: Any, payload: bytes, cached_len: int | None = None) ->
             trial: Doc = Doc()
             trial.apply_update(src)
             trial.apply_update(payload)
-            exact = len(str(trial.get("typst", type=Text)))
+            exact = len(str(trial.get("typst", type=Text)).encode("utf-8"))
         except Exception as e:
             log.warning("size check trial failed, reject: %s", e)
             return False
@@ -565,12 +565,15 @@ async def _flush_one(doc_id: str, r: dict) -> bool:
     except Exception as e:
         log.warning("flush_one %s save failed: %s", doc_id, e)
         return False
-    r["dirty"] = False
-    r["dirty_since"] = 0.0
+    with _doc_lock(r):
+        r["dirty"] = r["doc"].get_update() != yjs
+        if not r["dirty"]:
+            r["dirty_since"] = 0.0
     r["saved"] = time.monotonic()
     _mark_quota_blocked(r, False)
     try:
-        r["text_len"] = len(text)
+        with _doc_lock(r):
+            r["text_len"] = len(str(r["doc"].get("typst", type=Text)).encode("utf-8"))
     except Exception as e:
         log.warning("flush_one %s text_len update failed: %s", doc_id, e)
     try:
@@ -919,7 +922,7 @@ def persist(doc_id: str) -> bool:
         r["saved"] = time.monotonic()
         _mark_quota_blocked(r, False)
         try:
-            r["text_len"] = len(_text)
+            r["text_len"] = len(_text.encode("utf-8"))
         except Exception as e:
             log.warning("persist %s text_len failed: %s", doc_id, e)
     except Exception as e:
@@ -962,7 +965,7 @@ def flush_all() -> None:
             r["saved"] = time.monotonic()
             _mark_quota_blocked(r, False)
             try:
-                r["text_len"] = len(_text)
+                r["text_len"] = len(_text.encode("utf-8"))
             except Exception as e:
                 log.warning("flush_all %s text_len failed: %s", doc_id, e)
         except Exception as e:
@@ -1010,7 +1013,7 @@ async def replace_text(doc_id: str, content: str) -> None:
         log.warning("replace_text %s: apply failed: %s", doc_id, e)
         return
     try:
-        r["text_len"] = len(content)
+        r["text_len"] = len(content.encode("utf-8"))
     except Exception as e:
         log.warning("replace_text %s text_len failed: %s", doc_id, e)
     try:
@@ -1029,8 +1032,10 @@ async def replace_text(doc_id: str, content: str) -> None:
 
             yjs = await asyncio.to_thread(_snap_replace)
             await asyncio.to_thread(db.save_room, doc_id, yjs, content)
-            r["dirty"] = False
-            r["dirty_since"] = 0.0
+            with _doc_lock(r):
+                r["dirty"] = doc.get_update() != yjs
+                if not r["dirty"]:
+                    r["dirty_since"] = 0.0
             r["saved"] = time.monotonic()
         except Exception as e:
             log.warning("replace_text %s: save failed: %s", doc_id, e)
@@ -1214,7 +1219,7 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
                         continue
                     try:
                         with _doc_lock(r):
-                            r["text_len"] = len(str(doc.get("typst", type=Text)))
+                            r["text_len"] = len(str(doc.get("typst", type=Text)).encode("utf-8"))
                     except Exception as e:
                         log.warning("handle %s: text_len update failed: %s", doc_id, e)
                     # 1C write-behind: mark dirty only. The flusher persists

@@ -9,7 +9,7 @@ pv2 (stale switch): a render queued for the doc must not replace the template
 pv3 (long doc): 30 pages render virtualized; a re-render keeps the deep scroll
     anchor; cursor follow reaches the first/last page through the text index.
 """
-from helpers import create_doc, register
+from helpers import create_doc, open_private_copy, register
 from playwright.sync_api import expect
 
 PREVIEW_TIMEOUT = 60_000
@@ -45,6 +45,9 @@ def test_pv1_include_tab_same_length_edit_recompiles(page):
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+A")
     page.keyboard.type(chap_v2)
+    # File tabs intentionally pause the document preview; the next main-tab render must see the edit.
+    expect(page.locator('#preview')).not_to_be_visible()
+    page.locator('#tabs button.tab').first.click()
     expect(page.locator("#eBadge")).to_be_visible(timeout=PREVIEW_TIMEOUT)
     expect(page.locator("#preview .pvPage[data-done]").first).to_be_visible()
 
@@ -61,10 +64,7 @@ def test_pv2_pending_render_does_not_replace_template_view(page):
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+End")
     page.keyboard.type("!")  # queue a doc render, then leave immediately
-    page.click("#tplBtn")
-    page.locator("#tplPop button", has_text="Save as a global module").click()
-    page.fill("#mInp", "ovstale.typ")
-    page.click("#mYes")
+    open_private_copy(page, 'ovstale.typ')
     expect(page.locator("#title")).to_have_text("ovstale.typ")
     page.wait_for_timeout(6_000)  # a stale doc compile must not clobber this view
     assert page.locator("#preview canvas").count() == 0

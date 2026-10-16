@@ -224,7 +224,9 @@ def get_me(req: Request, user: str = Depends(deps.me)) -> dict:
     con = db.connect()
     try:
         r = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
-        return {"user": user, "hasAvatar": bool(r and r["avatar"])}
+        return {"user": user, "hasAvatar": bool(r and r["avatar"]),
+                "storage": {"used": quota_svc.user_bytes(user, con), "limit": quota_svc.user_cap(user, con),
+                            "migration_allowance": quota_svc.migration_allowance(user, con)}}
     finally:
         con.close()
 
@@ -353,6 +355,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
                 raise HTTPException(400, "Rename failed")
             con.execute("INSERT INTO users (name, hash, avatar) VALUES (?,?,?)",
                         (new, row["hash"], row["avatar"]))
+            con.execute("UPDATE users SET migration_bytes=(SELECT migration_bytes FROM users WHERE name=?) WHERE name=?", (user, new))
             con.execute("UPDATE sessions SET username=? WHERE username=?", (new, user))
             con.execute("UPDATE docs SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE shares SET username=? WHERE username=?", (new, user))

@@ -10,16 +10,72 @@ function setup(extra = {}) {
   vm.runInContext(source, c)
   return c
 }
-test('project expansion counts documents, project resources and document files', () => {
-  const c = setup()
-  assert.equal(c.projectEntryCount({ id: 'p', documents: [{ id: 'd' }] }), 1)
-  assert.equal(c.projectEntryCount({ id: 'p', documents: [{ id: 'd' }], resources: [{ name: 'a.bib' }] }), 2)
-  assert.equal(c.projectEntryCount({ id: 'p', documents: [{ id: 'd' }], files: [{ doc_id: 'd', name: 'data.csv' }] }), 2)
-  assert.equal(c.projectEntryCount({ id: 'p', documents: [{ id: 'd' }, { id: 'e' }] }), 2)
+
+test('new resource opens the normalized server name', async () => {
+  let opened
+  const c = setup({ chooseFileType: async () => '.typ', ask: async () => 'Änderungen',
+    fileStart: () => '', shut: new Set(), saveShut: () => {}, projects: [{ id: 'p', documents: [{ id: 'd' }] }],
+    api: async () => ({ name: '_nderungen.typ' }) })
+  c.openProjectEntry = async (_p, _doc, name) => { opened = name }
+  await c.newProjectResource('p')
+  assert.equal(opened, '_nderungen.typ')
+})
+
+test('delete missing module reports the race without issuing a write', async () => {
+  let writes = 0, message
+  const c = setup({ ask: async () => true, toast: value => { message = value },
+    api: async method => { if (method !== 'GET') writes++; return { resources: [] } } })
+  await c.deleteProjectEntry({ id: 'p' }, 'gone.typ', 'd', true)
+  assert.equal(writes, 0)
+  assert.equal(message, 'files.tplGone')
+  await c.deleteProjectEntry(undefined, 'gone.typ', 'd', true)
+  assert.equal(message, 'projects.contextGone')
+})
+
+test('rename confirmation lists references and submits the preview version', async () => {
+  const prompts = [], writes = []
+  const c = setup({ ask: async (label, opts) => { prompts.push(label); return opts?.noInput ? true : 'new.typ' },
+    api: async (_method, url, body) => {
+      if (url.endsWith('-preview')) return { name: 'new.typ', version: 'v1', references: ['Doc/main.typ: old.typ'] }
+      writes.push(body); return { name: 'new.typ' }
+    }, TPLK: '@', filesDirty: false, tabSig: '', queueRender: () => {} })
+  await c.renameProjectEntry({ id: 'p' }, 'old.typ', 'd', true)
+  assert.ok(prompts[1].includes('Doc/main.typ: old.typ'))
+  assert.equal(writes[0].version, 'v1')
+})
+
+test('late rename completion cannot reset a different document draft', async () => {
+  let finish
+  const c = setup({ TPLK: '@tpl/', ask: async (_label, opts) => opts?.noInput ? true : 'new.typ',
+    api: async (_method, url) => url.endsWith('-preview') ? { name: 'new.typ', version: 'v1', references: [] } : new Promise(r => { finish = r }),
+    queueRender: () => assert.fail('new document must remain untouched') })
+  const pending = c.renameProjectEntry({ id: 'p' }, 'old.typ', 'd', true)
+  while (!finish) await Promise.resolve()
+  c.docId = 'other'; c.openN = 2; c.activeFile = '@tpl/old.typ'; c.tabDirty = true
+  finish({ name: 'new.typ', version: 'v2' }); await pending
+  assert.equal(c.activeFile, '@tpl/old.typ')
+  assert.equal(c.tabDirty, true)
+})
+
+test('typing during rename survives under the normalized new name and version', async () => {
+  let finish, saves = 0
+  const c = setup({ TPLK: '@tpl/', activeFile: '@tpl/old.typ', tabDirty: false, fileT: 0,
+    clearTimeout: () => {}, tabState: new Map(), tabVersions: new Map(), tabPins: new Set(['old.typ']),
+    ask: async (_label, opts) => opts?.noInput ? true : 'new.typ',
+    api: async (_method, url) => url.endsWith('-preview') ? { name: 'new.typ', version: 'v1', references: [] } : new Promise(r => { finish = r }),
+    queueRender: () => {}, queueFileSave: () => { saves++ } })
+  const pending = c.renameProjectEntry({ id: 'p' }, 'old.typ', 'd', true)
+  while (!finish) await Promise.resolve()
+  c.tabDirty = true
+  finish({ name: 'new.typ', version: 'v2' }); await pending
+  assert.equal(c.activeFile, '@tpl/new.typ')
+  assert.equal(c.tabVersions.get('@tpl/new.typ'), 'v2')
+  assert.equal(c.tabDirty, true)
+  assert.equal(saves, 1)
 })
 test('legacy document fallback and library permissions exclude guests and readers', () => {
   const c = setup({ lastOwn: [{ id: 'd', project_id: 'p' }] })
-  assert.equal(c.projectEntryCount({ id: 'p' }), 1)
+  assert.equal(c.projectEntries({ id: 'p' }).documents.length, 1)
   for (const role of ['guest', 'reviewer']) assert.equal(c.projectEditable({ role }), false)
   assert.equal(c.projectEditable({ role: 'editor' }), true)
   assert.equal(c.projectEditable({ role: 'editor', can_edit_library: false }), false)

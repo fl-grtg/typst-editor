@@ -1,0 +1,6 @@
+# Build the local candidate instead of pulling the last published stable image.
+services:
+  app:
+    image: typst-editor:0.2.0rc1
+    build: .
+    pull_policy: build

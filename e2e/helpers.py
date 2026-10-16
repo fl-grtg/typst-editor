@@ -44,3 +44,15 @@ def type_source(page: Page, text: str) -> None:
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+A")
     page.keyboard.type(text)
+
+
+def open_private_copy(page: Page, name: str) -> None:
+    source = page.locator('#cm .cm-content').inner_text()
+    response = page.request.post('/api/templates', data={'name': name, 'content': source})
+    assert response.ok, response.text()
+    row = page.locator('#tpls .doc').filter(has_text=name)
+    expect(row).to_have_count(1)
+    if not row.is_visible():
+        page.locator('#tplH').press('Enter')
+    row.locator('.t').click()
+    expect(page.locator('#title')).to_have_text(name)

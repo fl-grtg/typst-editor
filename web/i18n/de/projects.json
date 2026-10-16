@@ -26,7 +26,6 @@
   "keepDraftLeave": "Entwurf lokal behalten und verlassen",
   "stay": "Hier bleiben",
   "draftStorageFailed": "Der Entwurf konnte nicht lokal gespeichert werden. Bleibe hier und kopiere deine Änderungen.",
-  "removeMemberWarning": "Entzieht auch Dokumentfreigaben und macht bestehende Einladungslinks im Projekt ungültig.",
   "new": "Neues Projekt",
   "rename": "Projekt umbenennen",
   "pullPersonal": "In meine globalen Module kopieren",
@@ -46,5 +45,13 @@
   "copyProjectHint": "Eine unabhängige Kopie in einem Projekt anlegen",
   "moveProjectHint": "In ein anderes Projekt verschieben",
   "pullPersonalHint": "Als unabhängiges Modul in deiner privaten Sammlung behalten",
-  "duplicateName": "{stem} (copy){ext}"
+  "duplicateName": "{stem} (copy){ext}",
+  "needsDocument": "Lege ein Dokument an, um die Module dieses Projekts zu öffnen und zu bearbeiten.",
+  "contextGone": "Lade das Projekt neu, bevor du diese Aktion verwendest.",
+  "renameReferences": "In {name} umbenennen. Diese Verweise musst du anschließend anpassen:",
+  "noReferences": "Keine statischen Verweise gefunden.",
+  "dynamicReferences": "Dynamische Pfade können nicht erkannt werden. Verweise werden nicht automatisch geändert.",
+  "removeMemberWarning": "Dabei werden auch alle offenen Einladungslinks sämtlicher Projektdokumente ungültig, einschließlich der Links für andere Personen.",
+  "storage": "Speicher: {used} / {limit} MiB. Private Originale, Projektkopien und Checkpoints zählen jeweils zum Speicher.",
+  "migrationAllowance": "Enthält {amount} MiB dauerhafte Migrationszugabe für die vorhandene Projektbibliothek. Neue Kopien zählen regulär."
 }
