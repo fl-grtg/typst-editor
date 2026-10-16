@@ -375,10 +375,33 @@ def _migrate_v18(con: sqlite3.Connection) -> None:
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_legacy_title ON docs(owner,title COLLATE NOCASE) WHERE project_id IS NULL AND trashed=0")
 
 
+def _migrate_v19(con: sqlite3.Connection) -> None:
+    if "migration_bytes" not in _cols(con, "users"):
+        con.execute("ALTER TABLE users ADD COLUMN migration_bytes INTEGER NOT NULL DEFAULT 0")
+        con.execute("UPDATE users SET migration_bytes=(SELECT COALESCE(SUM(LENGTH(CAST(r.content AS BLOB))),0) "
+                    "FROM project_resources r JOIN projects p ON p.id=r.project_id WHERE p.owner=users.name)")
+    seen: set[tuple[str, str]] = set()
+    for p in con.execute("SELECT id,owner,title FROM projects ORDER BY created_at,id").fetchall():
+        title, number = p["title"], 2
+        # Match SQLite's ASCII NOCASE, including on non-ASCII project titles.
+        key = con.execute("SELECT lower(?)", (title,)).fetchone()[0]
+        if (p["owner"], key) in seen:
+            while True:
+                suffix = f" ({number})"
+                title = p["title"][:100-len(suffix)] + suffix
+                key = con.execute("SELECT lower(?)", (title,)).fetchone()[0]
+                number += 1
+                if not con.execute("SELECT 1 FROM projects WHERE owner=? AND title=? COLLATE NOCASE AND id<>?", (p["owner"], title, p["id"])).fetchone():
+                    break
+        con.execute("UPDATE projects SET title=? WHERE id=?", (title, p["id"]))
+        seen.add((p["owner"], key))
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_owner_title_nocase ON projects(owner,title COLLATE NOCASE)")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18,
+    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19,
 )
 
 
@@ -500,13 +523,17 @@ def get_room_state(doc_id: str) -> tuple[bytes | None, str]:
 
 
 def save_room(doc_id: str, yjs: bytes, text: str) -> None:
-    con = connect()
-    try:
+    from backend.services import quota
+
+    with tx() as con:
+        row = con.execute("SELECT owner,content,yjs,trashed FROM docs WHERE id=?", (doc_id,)).fetchone()
+        if not row or row["trashed"]:
+            return
+        extra = len(text.encode("utf-8")) + len(yjs) - len(row["content"].encode("utf-8")) - len(row["yjs"] or b'')
+        quota.check_quota(row["owner"], extra, con)
         con.execute("UPDATE docs SET yjs=?, content=?, updated_at=? WHERE id=?",
                     (yjs, text, now_iso(), doc_id))
-        con.commit()
-    finally:
-        con.close()
+    quota.invalidate_quota_cache(row["owner"])
 
 
 def clear_room_state(doc_id: str) -> None:

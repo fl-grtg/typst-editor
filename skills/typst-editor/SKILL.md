@@ -1,6 +1,6 @@
 ---
 name: typst-editor
-description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, export, search, upload, comment). Use for /docs, /shared, /templates work through the typst-editor server.
+description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, export, search, upload, comment). Use for /docs, /shared, /templates, /projects work through the typst-editor server.
 ---
 
 # Typst Editor — MCP Agent Skill
@@ -47,21 +47,22 @@ Copy paths from `ls` output, never invent them.
 
 | Tool | Does |
 | --- | --- |
-| `ls(path="/")` | `/`, `/docs`, `/shared`, `/templates`, or a doc path (its files) |
-| `read(path, offset=1, limit=0)` | line window over doc / text file / template (offset 1-based, limit 0 = all, past-the-end → `""`) → `content` + echoed `offset` + `total_lines` + `last_seen` (pass to `edit`) |
-| `create(path, content="")` | new doc, file, or template (needs `.typ` suffix, else `404`). `400` if it exists; binary names need `upload` instead |
-| `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§5), max 200_000 chars |
-| `search(query)` | doc main text (titles + content, no files/templates), min 2 chars, max 20 hits |
+| `ls(path="/")` | `/`, `/docs`, `/shared`, `/templates`, `/projects`, or a doc path (its files) |
+| `read(path, offset=1, limit=0)` | line window over doc / text file / template / project resource (offset 1-based, limit 0 = all, past-the-end → `""`) → `content` + echoed `offset` + `total_lines` + `last_seen` (pass to `edit`) |
+| `create(path, content="")` | new doc, file, template, or project doc/resource (template needs `.typ`-like suffix, else `404`). `400` if it exists; binary names need `upload` instead |
+| `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§5), max 200000 UTF-8 bytes |
+| `search(query)` | doc main text + reachable project resources (titles + content), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
 | `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
 | `view(path, pages="1-5", scale=1.0)` | doc pages as viewable image blocks (longest side ≤1280px) → image blocks + `count` + `total_pages` + `cache_hit` + `last_seen`; pages format `"2"`, `"1-5"`, `"6-10"`, `"1-3,5"` — numbers 1-20, max 20 per call; `scale` 0.5-3.0 (default 1.0 → 144 ppi). Compile errors → `422` with `diagnostics: [{file, line, col, message}]`. No manual decode needed — see §8 |
-| `export(path, format="pdf")` | doc as file → `format` + `mime` + `filename` + `content_base64` + `size_bytes`. Formats: `pdf` (full multi-page PDF), `svg`/`png` (single page directly, multi-page docs arrive as ZIP of `page-{n}` files), `zip` (source bundle: `main.typ` + `files/…` + `SKIPPED.txt` if oversized). Read-only: reviewer keys work. Always decode + save, see §9 |
+| `export(path, format="pdf")` | doc as file → `format` + `mime` + `filename` + `content_base64` + `size_bytes`. Formats: `pdf` (full multi-page PDF), `svg`/`png` (single page directly, multi-page docs arrive as ZIP of `page-{n}` files), `zip` (document source bundle: `main.typ` + `files/…` + `SKIPPED.txt` if oversized — not a project ZIP, no project round-trip). Read-only: reviewer keys work. Always decode + save, see §9 |
 
 ## 4. Paths
 
-- `/docs/{Title}` = doc (readable AND its file list; `ls` a file or template path → `400`, use `read`), `/docs/{Title}/{File}` = text/attachment
-- `/shared/{Owner}/{Title}[/{File}]` = shared with the key owner
-- `/templates/{Name}.typ` = reusable template
+- `/docs/{Title}` = own doc (readable AND its file list; `ls` a file or template path → `400`, use `read`), `/docs/{Title}/{File}` = text/attachment (legacy alias; new docs live in a project)
+- `/projects/{id}` = project; `/projects/{id}/docs` = its docs; `/projects/{id}/docs/{Title}[/{File}]` = unambiguous doc path (doc titles per project unique case-insensitive; project titles per owner unique case-insensitive via v19 NOCASE index: create auto-suffixes ` (2)`…, rename → `409`); `/projects/{id}/resources[/{Name}]` = shared project library
+- `/shared/{Owner}/{Title}[/{File}]` = doc shared with the key owner (legacy single-doc guests: only that doc + its reachable sources, no member list)
+- `/templates/{Name}.typ` = private collection entry (no compile fallback; use explicit pull/copy to bring it into a project as an independent, separately counted copy)
 - `/` inside a title breaks the path → such titles are unreachable (`400` at create)
 
 ## 5. Edit rules
@@ -75,14 +76,16 @@ Copy paths from `ls` output, never invent them.
 ## 6. On errors
 
 - `404` → path is wrong or renamed: `ls` the parent again, never retry blindly.
-- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment only — that is the minimum of key role and share role. Rename/share/delete/invite/resolve don't exist as MCP tools — human in the UI.
-- `410` → doc is trashed: tell the human to restore it in the UI.
+- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment only — that is the minimum of key role and share role. Project guests see only their shared docs. Rename/share/delete/invite/resolve don't exist as MCP tools — human in the UI (file/resource rename there is two-step: `rename-entry-preview` returns `{name, version, references}`, `rename-entry` requires that `version`; UI shows static references + dynamic-path hint and asks for confirmation, no auto-rewrite; removing a project member shows an explicit broad-revoke warning before confirming).
+- `409` → ambiguous legacy title (same title in several projects): switch to `/projects/{id}/docs/{Title}`; project/doc title collisions on create/rename also → `409` (project create auto-suffixes instead); stale file/resource rename `version` → `409` (re-run preview in UI); for `edit` it can also mean anchor-gone/anchor-ambiguous (see §5).
+- `410` → doc is trashed (restore in UI) or retired folder route (use `/projects`); stop and tell the human.
 - `429` → rate limit (60/min): back off, don't retry-loop. REST export of the same doc also serializes per user (`429 Export already running`) — wait, then retry once.
 - `export` errors: bad `format` or file/template path → `400`; unknown doc → `404`; compile errors → `422` with `diagnostics` (same shape as `view`: fix the quoted line, re-export); source/output over 100 MB → `413`; missing `typst` CLI or 30s timeout → `500`.
 
 ## 7. Limits
 
-- `search` <2 chars: no hits. `upload`: 200 files/doc, 500 MB/user. Text: max 200_000 chars (`create`/`edit` fail above). `view`: needs the `typst` CLI on the server (Docker image has it).
+- `search` <2 chars: no hits. `upload`: 200 files/doc, 500 MB/user default cap + one-time permanent `migration_bytes` allowance for the existing project library (effective limit `quota.user_cap`, visible via `GET /api/me` `storage{used,limit,migration_allowance}` + Settings; new copies count normally; over quota → `413`). Text: max 200000 UTF-8 bytes (`create`/`edit` fail above). `view`: needs the `typst` CLI on the server (Docker image has it).
+- Server version `0.2.0rc1` (`pyproject.toml`) is a prerelease candidate, not yet published; see `RELEASE_NOTES.md` (candidate draft, no full acceptance claimed). Live-doc write-behind persists on a nominal ~2 s interval + last disconnect with no guaranteed loss bound (failed flushes, quota blocks or load can delay it).
 - `export`: needs the `typst` CLI too (except `zip`, which is pure bundling). Source + output capped at 100 MB (`413` beyond); compile timeout 30s (`500`). Exports the live text if someone has the doc open, else the saved content. Filename is sanitized from the title (`<stem>.<fmt>`, multi-page svg/png as `<stem>-<fmt>.zip`).
 
 ## 8. Seeing pages (pixel check)

@@ -62,7 +62,8 @@ function renderShares() {
     }
     const x = icoBtn(null, ICO_X); x.title = t('share.removeShare'); x.setAttribute('aria-label', x.title)
     x.onclick = async () => {
-      if (!await ask(t('share.removeConfirm', { user: s.username }), { noInput: true, danger: true, ok: t('share.remove') })) return
+      const warning = project && !s.doc_id ? t('projects.removeMemberWarning') : ''
+      if (!await ask([t('share.removeConfirm', { user: s.username }), warning].filter(Boolean).join('\n'), { noInput: true, danger: true, ok: t('share.remove') })) return
       if (doc !== docId || project !== docProject) return
       api('DELETE', memberUrl + '/' + encodeURIComponent(s.username)).then(() => { if (doc === docId) loadShares() }).catch(e => toast(e.message))
     }

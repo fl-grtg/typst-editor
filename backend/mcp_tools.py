@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi import UploadFile as FastUploadFile
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
@@ -340,6 +340,21 @@ def _files_dir() -> Path:
     return quota_svc.files_dir()
 
 
+def _shared_docs(con: sqlite3.Connection, user: str) -> list[dict]:
+    return [dict(r) for r in con.execute(
+        "SELECT d.id,d.owner,d.title,d.updated_at,COALESCE(m.role,s.role) AS role FROM docs d "
+        "LEFT JOIN shares s ON s.doc_id=d.id AND s.username=? "
+        "LEFT JOIN project_members m ON m.project_id=d.project_id AND m.username=? "
+        "WHERE d.owner<>? AND d.trashed=0 AND (s.username IS NOT NULL OR m.username IS NOT NULL) "
+        "ORDER BY d.updated_at DESC", (user, user, user))]
+
+
+def _write_request(user: str) -> Request:
+    # MCP authenticates and rate-limits the real HTTP request separately.
+    # Router-backed MCP mutations also enforce their own per-user write bucket.
+    return Request({"type": "http", "client": ("mcp:" + user, 0), "headers": []})
+
+
 def op_ls(user: str, cap: str, path: str = "/") -> dict:
     res = resolve_path(user, cap, path) if path not in ("", "/") else {"kind": "root"}
     kind = res["kind"]
@@ -357,9 +372,7 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
         if kind == "root":
             own = con.execute("SELECT title, updated_at FROM docs WHERE owner=? AND trashed=0 "
                               "ORDER BY updated_at DESC", (user,)).fetchall()
-            shared = con.execute(
-                "SELECT id, owner, title, updated_at FROM docs WHERE owner<>? AND trashed=0 ORDER BY updated_at DESC", (user,)).fetchall()
-            shared = [{**dict(r), "role": db.role_on(con, user, r["id"])} for r in shared if db.role_on(con, user, r["id"])]
+            shared = _shared_docs(con, user)
             tpls = con.execute("SELECT name FROM templates WHERE owner=? ORDER BY name", (user,)).fetchall()
             return {"docs": [dict(r) for r in own],
                     "shared": [dict(r) for r in shared],
@@ -370,9 +383,7 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
                               "ORDER BY updated_at DESC", (user,)).fetchall()
             return {"docs": [dict(r) for r in own]}
         if kind == "shared":
-            shared = con.execute(
-                "SELECT id, owner, title, updated_at FROM docs WHERE owner<>? AND trashed=0 ORDER BY updated_at DESC", (user,)).fetchall()
-            shared = [{**dict(r), "role": db.role_on(con, user, r["id"])} for r in shared if db.role_on(con, user, r["id"])]
+            shared = _shared_docs(con, user)
             return {"shared": [dict(r) for r in shared]}
         if kind == "templates":
             tpls = con.execute("SELECT name FROM templates WHERE owner=? ORDER BY name", (user,)).fetchall()
@@ -470,7 +481,7 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
 
     if cap == "reviewer":
         raise _bad("Reviewer can only comment", 403)
-    if len(content) > MAX_TXT:
+    if len(content.encode("utf-8")) > MAX_TXT:
         raise _bad("Doc too large (max 200 KB)")
     if path in ("", "/"):
         raise _bad("create needs a /docs/... or /templates/... path")
@@ -479,12 +490,12 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
         from backend.routers.projects import ProjectDoc, ResourceSave, create_document, save_resource
 
         if len(segs) == 4 and segs[2] == "docs":
-            result = create_document(segs[1], ProjectDoc(title=_title(segs[3]), content=content), user)
+            result = create_document(segs[1], ProjectDoc(title=_title(segs[3]), content=content), _write_request(user), user)
             return {**result, "path": path}
         res = resolve_path(user, cap, path)
         _need_edit(res)
         if res["kind"] == "project_resource":
-            return save_resource(res["project_id"], ResourceSave(name=res["name"], content=content), user)
+            return save_resource(res["project_id"], ResourceSave(name=res["name"], content=content), _write_request(user), user)
         if res["kind"] == "file":
             if Path(res["filename"]).suffix.lower() not in TEXT_SUFFIX:
                 raise _bad("Binary file - use upload to add it")
@@ -608,7 +619,7 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
     from backend import deps
     from backend.services import docfiles, locks
 
-    if len(content) > MAX_TXT:
+    if len(content.encode("utf-8")) > MAX_TXT:
         raise _bad("Max 200 KB")
     with locks._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
@@ -748,7 +759,7 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
     if n > 1 and not replace_all:
         raise _bad(f"anchor-ambiguous: {n} matches, add context or use replace_all=true", 409)
     new_text = current.replace(old_string, new_string, -1 if replace_all else 1)
-    if len(new_text) > MAX_TXT:
+    if len(new_text.encode("utf-8")) > MAX_TXT:
         raise _bad("Doc too large (max 200 KB)")
     if new_text == current:
         return {"ok": True, "replaced": 0, "last_seen": marker, "stale": stale}
@@ -807,7 +818,7 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
             db.clear_room_state(doc_id)
     elif kind == "project_resource":
         from backend.routers.projects import ResourceSave, save_resource
-        save_resource(res["project_id"], ResourceSave(name=res["name"], content=new_text, version=marker), user)
+        save_resource(res["project_id"], ResourceSave(name=res["name"], content=new_text, version=marker), _write_request(user), user)
     elif kind == "file":
         _write_text_file(res["doc_id"], res["filename"], new_text, user, cap, must_create=False)
     else:

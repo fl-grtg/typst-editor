@@ -26,7 +26,6 @@
   "keepDraftLeave": "Keep local draft and leave",
   "stay": "Stay",
   "draftStorageFailed": "The local draft could not be stored. Stay here and copy your changes.",
-  "removeMemberWarning": "Also removes document shares and invalidates existing invitation links in this project.",
   "new": "New project",
   "rename": "Rename project",
   "pullPersonal": "Copy to my global modules",
@@ -46,5 +45,13 @@
   "copyProjectHint": "Create an independent copy in a project",
   "moveProjectHint": "Move to another project",
   "pullPersonalHint": "Keep an independent module in your private collection",
-  "duplicateName": "{stem} (copy){ext}"
+  "duplicateName": "{stem} (copy){ext}",
+  "needsDocument": "Create a document to open and edit this project's modules.",
+  "contextGone": "Reload the project before using this action.",
+  "renameReferences": "Rename to {name}. Update these references afterwards:",
+  "noReferences": "No static references found.",
+  "dynamicReferences": "Dynamic paths cannot be detected. References are not changed automatically.",
+  "removeMemberWarning": "This also revokes all open invitation links for every document in this project, including links intended for other people.",
+  "storage": "Storage: {used} / {limit} MiB. Private originals, project copies and checkpoints each count towards storage.",
+  "migrationAllowance": "Includes {amount} MiB of permanent upgrade allowance for the existing project library. New copies count normally."
 }

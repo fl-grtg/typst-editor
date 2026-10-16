@@ -17,7 +17,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: pip check
+      - name: Install Typst 0.15.1
+        run: |
+          curl -fsSL --retry 3 -o /tmp/typst.tar.xz https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz
+          tar -xJf /tmp/typst.tar.xz -C /tmp
+          sudo install /tmp/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst
+          typst --version
       - run: pytest -q
+        env:
+          REQUIRE_TYPST: "1"
       - run: python scripts/backup.py --dry-run
       - run: python web/build.py --check
   lint:
@@ -86,10 +94,9 @@ jobs:
           echo "vendor-cm.js $sz bytes (budget 716800)"
           test "$sz" -le 716800
   e2e:
-    # Browser smoke tests. Informational until the first green runs are confirmed.
+    # Browser regressions are required for a release candidate.
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -100,4 +107,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-e2e.txt
       - run: playwright install --with-deps chromium
+      - name: Install Typst 0.15.1
+        run: |
+          curl -fsSL --retry 3 -o /tmp/typst.tar.xz https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz
+          tar -xJf /tmp/typst.tar.xz -C /tmp
+          sudo install /tmp/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst
       - run: pytest e2e -q
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failures
+          path: test-results/
+          if-no-files-found: ignore

@@ -108,7 +108,24 @@ def user_bytes(user: str, con: sqlite3.Connection | None = None) -> int:
 
 def is_over_quota(user: str) -> bool:
     """True when the user is over quota. Lets OperationalError through."""
-    return user_bytes(user) > quota_cap()
+    return user_bytes(user) > user_cap(user)
+
+
+def migration_allowance(user: str, con: sqlite3.Connection | None = None) -> int:
+    from backend import db
+
+    own = con is None
+    con = db.connect() if con is None else con
+    try:
+        row = con.execute("SELECT migration_bytes FROM users WHERE name=?", (user,)).fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        if own:
+            con.close()
+
+
+def user_cap(user: str, con: sqlite3.Connection | None = None) -> int:
+    return quota_cap() + migration_allowance(user, con)
 
 
 def doc_owner(doc_id: str, fallback: str = "") -> str:
@@ -124,7 +141,7 @@ def doc_owner(doc_id: str, fallback: str = "") -> str:
 
 def check_quota(user: str, extra: int, con: sqlite3.Connection | None = None) -> None:
     current = user_bytes(user) if con is None else user_bytes(user, con)
-    if current + extra > quota_cap():
+    if current + extra > user_cap(user, con):
         raise HTTPException(413, "Quota exceeded")
 
 
@@ -157,11 +174,11 @@ def quota_guard(
     races (second walk) and calls rollback() before raising 413.
     OperationalError passes through so callers map it to 503.
     """
-    if user_bytes(owner) + extra > quota_cap():
+    if user_bytes(owner) + extra > user_cap(owner):
         raise HTTPException(413, "Quota exceeded")
     yield
     try:
-        over = user_bytes(owner) > quota_cap()
+        over = user_bytes(owner) > user_cap(owner)
     except sqlite3.OperationalError:
         raise
     if over:

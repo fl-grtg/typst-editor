@@ -41,9 +41,13 @@ def test_project_rename_entries_and_editor_delete(c):
     c.post(f'/api/projects/{pid}/resources', json={'name': 'occupied.typ', 'content': 'keep'})
     url = f'/api/projects/{pid}/rename-entry'
     assert c.post(url, json={'name': 'old.typ', 'target': 'occupied.typ'}).status_code == 409
-    assert c.post(url, json={'name': 'old.typ', 'target': 'new.typ'}).status_code == 200
+    body = {'name': 'old.typ', 'target': 'new.typ'}
+    preview = c.post(url + '-preview', json=body).json()
+    assert c.post(url, json={**body, 'version': preview['version']}).status_code == 200
     c.post(f'/api/docs/{did}/files', files={'f': ('a.png', b'image', 'image/png')})
-    assert c.post(url, json={'name': 'a.png', 'target': 'nested/b.png', 'doc_id': did}).status_code == 200
+    body = {'name': 'a.png', 'target': 'nested/b.png', 'doc_id': did}
+    preview = c.post(url + '-preview', json=body).json()
+    assert c.post(url, json={**body, 'version': preview['version']}).status_code == 200
     assert c.get(f'/api/docs/{did}/files/nested/b.png').content == b'image'
     register_user(c, 'bob')
     login(c, 'alice')

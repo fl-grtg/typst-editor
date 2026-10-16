@@ -22,15 +22,14 @@ PREVIEW_TIMEOUT = 60_000
 
 
 def _new_file_tab(page, name):
-    page.click("#tabs button.tadd")
-    expect(page.locator("#modal")).to_be_visible()
-    page.locator("#modal button.pk").first.click()  # New file
-    expect(page.locator("#mHead")).to_have_text("Choose file type")
-    page.locator("#modal button.pk").filter(has_text=".typ").first.click()
-    expect(page.locator("#mHead")).to_have_text("New file")
-    page.fill("#mInp", name)
-    page.click("#mYes")
-    expect(page.locator("#tabs button.tab", has_text=name + ".typ")).to_be_visible()
+    # Local attachments still use the file save route; the plus menu now creates project modules.
+    did = next(d['id'] for d in page.request.get('/api/docs').json()['own'] if d['title'].startswith('UI '))
+    response = page.request.post(f'/api/docs/{did}/files/{name}.typ/text', data={'content': ''})
+    assert response.ok, response.text()
+    tab = page.locator('#tabs button.tab').filter(has_text=name + '.typ')
+    expect(tab).to_be_visible()
+    tab.click()
+    expect(tab).to_have_attribute('aria-selected', 'true')
 
 
 def _wait_saved(page):
@@ -81,8 +80,8 @@ def test_ui_rapid_tab_switch_keeps_newest(page):
     _new_file_tab(page, "bfile")
     type_source(page, "BBB two")
     _wait_saved(page)
-    page.locator("#tabs button.tab", has_text="main.typ").click()
-    expect(page.locator("#tabs button.tab", has_text="main.typ")).to_have_attribute("aria-selected", "true")
+    page.locator("#tabs button.tab").first.click()
+    expect(page.locator("#tabs button.tab").first).to_have_attribute("aria-selected", "true")
 
     def _slow(route):
         if route.request.method == "GET" and "afile.typ" in route.request.url:
@@ -155,4 +154,4 @@ def test_ui_tabs_roving_focus_and_mobile(page):
     h = page.evaluate("() => document.querySelector('#tabs button.tab').getBoundingClientRect().height")
     assert h >= 40, f"mobile tab hit target too small: {h}"
     page.locator("#tabs button.tab", has_text="afile.typ").click()
-    expect(page.locator("#tabs button.tx").first).to_be_visible()
+    expect(page.locator("#tabs .tabw.on button.tx")).to_be_visible()

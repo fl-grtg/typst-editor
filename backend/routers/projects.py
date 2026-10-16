@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import posixpath
 import sqlite3
 from typing import Literal
 
@@ -100,7 +101,7 @@ def convert_folder(b: Convert, req: Request, user: str = Depends(deps.me)) -> di
         if b.preview != p["preview"]:
             raise HTTPException(409, "Folder changed; review the conversion preview again")
         quota.check_quota(user, sum(len(c.encode("utf-8")) for c in p["resources"].values()), con)
-        if con.execute("SELECT 1 FROM projects WHERE owner=? AND title=?", (user, b.folder)).fetchone():
+        if con.execute("SELECT 1 FROM projects WHERE owner=? AND title=? COLLATE NOCASE", (user, b.folder)).fetchone():
             raise HTTPException(409, "Project name already exists")
         now = db.now_iso()
         con.execute("INSERT INTO projects(id,owner,title,created_at) VALUES (?,?,?,?)", (pid, user, b.folder, now))
@@ -181,7 +182,8 @@ def list_resources(project_id: str, user: str = Depends(deps.me)) -> dict:
 
 
 @router.post("/api/projects/{project_id}/resources")
-def save_resource(project_id: str, b: ResourceSave, user: str = Depends(deps.me)) -> dict:
+def save_resource(project_id: str, b: ResourceSave, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "templates")
     name = resource_name(b.name)
     size = len(b.content.encode("utf-8"))
     if size > MAX_TXT:
@@ -203,7 +205,8 @@ def save_resource(project_id: str, b: ResourceSave, user: str = Depends(deps.me)
 
 
 @router.delete("/api/projects/{project_id}/resources/{name:path}")
-def delete_resource(project_id: str, name: str, version: str, user: str = Depends(deps.me)) -> dict:
+def delete_resource(project_id: str, name: str, version: str, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "delete")
     name = resource_name(name)
     with db.tx() as con:
         projects.require(con, project_id, user, edit=True)
@@ -220,7 +223,8 @@ def delete_resource(project_id: str, name: str, version: str, user: str = Depend
 
 
 @router.post("/api/projects/{project_id}/docs")
-def create_document(project_id: str, b: ProjectDoc, user: str = Depends(deps.me)) -> dict:
+def create_document(project_id: str, b: ProjectDoc, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "create")
     folder = safe_name(b.folder + "/placeholder.typ").rsplit("/", 1)[0] if b.folder else ""
     if not b.title.strip() or len(b.content.encode("utf-8")) > MAX_TXT:
         raise HTTPException(400, "Invalid title or content too large")
@@ -233,8 +237,11 @@ def create_document(project_id: str, b: ProjectDoc, user: str = Depends(deps.me)
         if con.execute("SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0", (project_id, b.title.strip())).fetchone():
             raise HTTPException(409, "Document title already exists")
         did, now = db.new_id("d_"), db.now_iso()
-        con.execute("INSERT INTO docs(id,owner,title,content,folder,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (did, owner, b.title.strip(), b.content, folder, None, now, now))
+        try:
+            con.execute("INSERT INTO docs(id,owner,title,content,folder,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (did, owner, b.title.strip(), b.content, folder, project_id, now, now))
+        except sqlite3.IntegrityError as e:
+            raise HTTPException(409, "Document title already exists") from e
         projects.attach_doc(con, did, project_id)
     quota.invalidate_quota_cache(owner)
     projects.notify(project_id)
@@ -281,7 +288,7 @@ def rename_project(project_id: str, b: ProjectTitle, req: Request, user: str = D
         raise HTTPException(400, "Title is required")
     with db.tx() as con:
         projects.require(con, project_id, user, owner=True)
-        if con.execute("SELECT 1 FROM projects WHERE owner=? AND title=? AND id<>?", (user, b.title.strip(), project_id)).fetchone():
+        if con.execute("SELECT 1 FROM projects WHERE owner=? AND title=? COLLATE NOCASE AND id<>?", (user, b.title.strip(), project_id)).fetchone():
             raise HTTPException(409, "Project title already exists")
         con.execute("UPDATE projects SET title=? WHERE id=?", (b.title.strip(), project_id))
     projects.notify(project_id)
@@ -292,6 +299,51 @@ class EntryRename(BaseModel):
     name: str = Field(min_length=1, max_length=240)
     target: str = Field(min_length=1, max_length=240)
     doc_id: str = ""
+    version: str = ""
+
+
+@router.post("/api/projects/{project_id}/rename-entry-preview")
+def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "files_list")
+    name, target = safe_name(b.name), safe_name(b.target)
+    con = db.connect()
+    try:
+        projects.require(con, project_id, user, edit=True)
+        docs = con.execute("SELECT id,title,content FROM docs WHERE project_id=? AND trashed=0", (project_id,)).fetchall()
+        if b.doc_id:
+            if b.doc_id not in {d['id'] for d in docs}:
+                raise HTTPException(404, "Document not found")
+            try:
+                version = hashlib.sha256(store.get(b.doc_id, name)).hexdigest()
+            except FileNotFoundError:
+                raise HTTPException(404, "File not found") from None
+        else:
+            target = resource_name(target)
+            row = con.execute("SELECT updated_at FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
+            if not row:
+                raise HTTPException(404, "Resource not found")
+            version = row[0]
+        references = []
+        library = {r[0]: r[1] for r in con.execute("SELECT name,content FROM project_resources WHERE project_id=?", (project_id,))}
+        for d in docs:
+            if b.doc_id and d['id'] != b.doc_id:
+                continue
+            local = projects.local_texts(d['id'])
+            local_names = {f.path for f in store.list(d['id'])}
+            live = sync.room_text(d['id'])
+            for path, content in {**library, **local, 'main.typ': live if live is not None else d['content']}.items():
+                if not path.lower().endswith('.typ'):
+                    continue
+                for match in resources.REF_RE.finditer(content):
+                    ref = match.group(1).replace('\\', '/')
+                    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), ref)) if not ref.startswith('/') else ref.lstrip('/')
+                    if resolved == name and (b.doc_id or name not in local_names):
+                        references.append(f"{d['title']}/{path}: {ref}")
+        return {"name": target, "version": version, "references": sorted(set(references))}
+    except OSError as e:
+        raise HTTPException(409, "Files changed or could not be read; retry rename preview") from e
+    finally:
+        con.close()
 
 
 @router.post("/api/projects/{project_id}/rename-entry")
@@ -301,34 +353,51 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
 
     deps.limited(req, "rename")
     old, target = safe_name(b.name), safe_name(b.target)
-    with _named_lock(f"upload:{b.doc_id}"), db.tx() as con:
-        projects.require(con, project_id, user, edit=True)
-        if not b.doc_id:
-            target = resource_name(target)
-            if con.execute("SELECT 1 FROM project_resources WHERE project_id=? AND name=?", (project_id, target)).fetchone():
-                raise HTTPException(409, "Name already exists")
-            if not con.execute("SELECT 1 FROM project_resources WHERE project_id=? AND name=?", (project_id, old)).fetchone():
-                raise HTTPException(404, "Resource not found")
-            con.execute("UPDATE project_resources SET name=?,updated_at=? WHERE project_id=? AND name=?", (target, db.now_iso(), project_id, old))
-        else:
-            if not con.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (b.doc_id, project_id)).fetchone():
-                raise HTTPException(404, "Document not found")
-            source, destination = store.doc_path(b.doc_id, old), store.doc_path(b.doc_id, target)
-            if destination.exists():
-                raise HTTPException(409, "Name already exists")
-            if not source.is_file():
-                raise HTTPException(404, "File not found")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            source.rename(destination)
-            try:
-                stat = destination.stat()
-                con.execute("DELETE FROM files WHERE doc_id=? AND path=?", (b.doc_id, old))
-                con.execute("INSERT INTO files(doc_id,path,size,mtime,type) VALUES (?,?,?,?,?)", (b.doc_id, target, stat.st_size, stat.st_mtime, file_type(target)))
-            except Exception:
+    with _named_lock(f"upload:{b.doc_id}"):
+        renamed = False
+        try:
+            with db.tx() as con:
+                projects.require(con, project_id, user, edit=True)
+                if not b.doc_id:
+                    target = resource_name(target)
+                    if con.execute("SELECT 1 FROM project_resources WHERE project_id=? AND name=?", (project_id, target)).fetchone():
+                        raise HTTPException(409, "Name already exists")
+                    row = con.execute("SELECT updated_at FROM project_resources WHERE project_id=? AND name=?", (project_id, old)).fetchone()
+                    if not row:
+                        raise HTTPException(404, "Resource not found")
+                    if b.version != row[0]:
+                        raise HTTPException(409, "Resource changed; review rename again")
+                    version = db.now_iso()
+                    con.execute("UPDATE project_resources SET name=?,updated_at=? WHERE project_id=? AND name=?", (target, version, project_id, old))
+                else:
+                    if not con.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (b.doc_id, project_id)).fetchone():
+                        raise HTTPException(404, "Document not found")
+                    source, destination = store.doc_path(b.doc_id, old), store.doc_path(b.doc_id, target)
+                    if destination.exists():
+                        raise HTTPException(409, "Name already exists")
+                    if not source.is_file():
+                        raise HTTPException(404, "File not found")
+                    if b.version != hashlib.sha256(store.get(b.doc_id, old)).hexdigest():
+                        raise HTTPException(409, "File changed; review rename again")
+                    version = b.version
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    source.rename(destination)
+                    renamed = True
+                    try:
+                        stat = destination.stat()
+                        con.execute("DELETE FROM files WHERE doc_id=? AND path=?", (b.doc_id, old))
+                        con.execute("INSERT INTO files(doc_id,path,size,mtime,type) VALUES (?,?,?,?,?)", (b.doc_id, target, stat.st_size, stat.st_mtime, file_type(target)))
+                    except Exception:
+                        destination.rename(source)
+                        raise
+        except Exception as e:
+            if renamed and destination.exists() and not source.exists():
                 destination.rename(source)
-                raise
+            if isinstance(e, OSError):
+                raise HTTPException(409, "File changed or could not be renamed; retry rename preview") from e
+            raise
     projects.notify(project_id)
-    return {"name": target}
+    return {"name": target, "version": version}
 
 
 class TransferEntry(BaseModel):

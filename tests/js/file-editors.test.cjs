@@ -64,11 +64,15 @@ test('tab add uses the project menu and file type cancellation stays closed', as
   const files = fs.readFileSync(path.join(root, 'web/js/80-files-images.js'), 'utf8')
   const funcs = files.slice(files.indexOf('async function chooseFileType'), files.indexOf('async function deleteFile'))
   const project = { id: 'p' }, calls = []
-  const ctx = vm.createContext({ projects: [project], docProject: 'p', projectEditable: () => true, projectMenu: p => calls.push(p),
+  const ctx = vm.createContext({ projects: [project], docProject: 'p', docId: 'd', openN: 1, projectEditable: () => true, projectMenu: p => calls.push(p),
     FILE_TYPES: ['typ', 'bib'], t: k => k, askPick: async () => null })
   vm.runInContext(funcs, ctx)
   await ctx.tabAdd()
   assert.deepEqual(calls, [project])
+  ctx.projects = []
+  ctx.api = async () => project
+  await ctx.tabAdd()
+  assert.deepEqual(calls, [project, project])
   for (const value of [-1, null, undefined, 99]) { ctx.askPick = async () => value; assert.equal(await ctx.chooseFileType(), null) }
   ctx.askPick = async () => 0
   assert.equal(await ctx.chooseFileType(), '.typ')

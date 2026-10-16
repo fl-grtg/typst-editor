@@ -1,11 +1,23 @@
 """Per-test isolation: temporary SQLite database and files directory."""
+import os
+import shutil
+import tempfile
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
-import backend.main as main
-from backend import db, deps, ratelimit, sync
+# main initializes SQLite at import, before pytest can install its fixtures.
+_IMPORT_DATA = tempfile.TemporaryDirectory(prefix="typst-tests-")
+os.environ.setdefault("DATA_DIR", _IMPORT_DATA.name)
+
+import backend.main as main  # noqa: E402
+from backend import db, deps, ratelimit, sync  # noqa: E402
+
+
+def pytest_sessionstart(session):
+    if os.environ.get("REQUIRE_TYPST") == "1" and not shutil.which("typst"):
+        pytest.exit("Typst CLI is required for integration tests", returncode=1)
 
 
 @pytest.fixture(autouse=True)

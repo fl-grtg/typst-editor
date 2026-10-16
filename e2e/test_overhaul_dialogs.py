@@ -63,24 +63,27 @@ def test_keyboard_on_nested_document_action_runs_that_action(page):
     _open(page, "Audit first")
     before = len(page.request.get("/api/docs").json()["own"])
     row = page.locator("#own .doc").filter(has_text="Audit first")
-    row.locator("button").first.press("Enter")
-    expect(page.locator("#title")).to_have_text("Audit first (copy)")
+    row.get_by_role("button", name="Rename document", exact=True).press("Enter")
+    expect(page.locator('#modal')).to_be_visible()
+    page.fill('#mInp', 'Audit renamed')
+    page.click('#mYes')
+    expect(page.locator("#title")).to_have_text("Audit renamed")
     page.wait_for_timeout(250)
     after = len(page.request.get("/api/docs").json()["own"])
-    assert after == before + 1
+    assert after == before
 
 
 def test_history_diff_compares_main_when_attachment_tab_is_open(page):
     first, _ = _docs(page, "audit_history")
-    assert page.request.post(f"/api/docs/{first}/snapshots", data={}).ok
     assert page.request.post(f"/api/docs/{first}/files/other.typ/text",
                              data={"content": "Completely different attachment"}).ok
+    project = page.request.get(f'/api/docs/{first}').json()['project_id']
+    assert page.request.post(f'/api/projects/{project}/snapshots', data={}).ok
     _open(page, "Audit first")
     expect(page.locator("#tabs button.tab").filter(has_text="other.typ")).to_be_visible()
     page.locator("#tabs button.tab").filter(has_text="other.typ").click()
     expect(page.locator("#cm .cm-content")).to_contain_text("Completely different attachment")
-    expect(page.locator("#histBtn")).not_to_be_visible()
-    page.locator("#tabs button.tab").filter(has_text="main.typ").click()
+    expect(page.locator("#histBtn")).to_be_visible()
     page.click("#histBtn")
     page.locator("#histPop .srow button").filter(has_text="Compare").first.click()
     expect(page.locator("#histPop pre.diff")).to_contain_text("Identical")
