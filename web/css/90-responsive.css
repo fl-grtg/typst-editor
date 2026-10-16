@@ -31,8 +31,6 @@
   #find button { min-height: 40px; }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
   #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
-  #setPop { width: auto; left: calc(8px + env(safe-area-inset-left)) !important; right: calc(8px + env(safe-area-inset-right)); max-height: calc(100dvh - 69px - env(safe-area-inset-bottom)); overflow-y: auto; }
-  #setPop .setGrid { grid-template-columns: 1fr; }
   #menu button { min-height: 40px; }
   #exportBtn span, #shareBtn span { display: none; }
   #exportBtn, #shareBtn { padding: 0; }
