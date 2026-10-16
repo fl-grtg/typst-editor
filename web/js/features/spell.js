@@ -14,7 +14,7 @@ function applySpell() { // dictionary follows the open document (attribute on th
 }
 function spellSettingsSec() { // settings group section: per-doc language + browser-dictionary hint
   const sec = document.createElement('div'); sec.className = 'sec'
-  const row = document.createElement('div'); row.className = 'row'
+  const row = document.createElement('div'); row.className = 'row settingRow'
   const lab = document.createElement('label'); lab.textContent = t('editor.spell'); lab.setAttribute('for', 'spellSel')
   const sel = document.createElement('select')
   sel.id = 'spellSel'

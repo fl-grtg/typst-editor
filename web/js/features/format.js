@@ -37,15 +37,14 @@ async function formatDoc(quiet) { // whole doc, one undo step; never throws (sav
 const fmtSaveOn = () => { try { return localStorage.getItem('typst_fmt_save') === '1' } catch (e) { return false } }
 function formatSettingsSec() { // settings group section: format on save (toolbar keeps the once-button only)
   const sec = document.createElement('div'); sec.className = 'sec'
-  const row = document.createElement('div'); row.className = 'row'
-  const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'fmtSave'
+  const row = document.createElement('div'); row.className = 'row settingRow'
+  const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'fmtSave'; cb.className = 'settingSwitch'; cb.setAttribute('role', 'switch')
   cb.checked = fmtSaveOn()
   cb.setAttribute('aria-label', t('editor.formatSave')); cb.title = t('editor.formatSaveT')
   cb.onchange = () => { try { localStorage.setItem('typst_fmt_save', cb.checked ? '1' : '0') } catch (e) {} }
   const lab = document.createElement('label'); lab.textContent = t('editor.formatSave'); lab.setAttribute('for', 'fmtSave')
   lab.title = t('editor.formatSaveT')
-  lab.append(cb); cb.style.marginLeft = '6px' // box right of text, close - clicking text toggles
-  row.append(lab)
+  row.append(lab, cb)
   sec.appendChild(row)
   return sec
 }
