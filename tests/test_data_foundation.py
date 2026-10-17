@@ -127,6 +127,13 @@ def test_quota_reads_table_not_disk(c):
     assert c.get(f"/api/docs/{did}/files").status_code == 200
     assert quota_svc.user_bytes("alice") == base + 150
     assert c.delete(f"/api/docs/{did}/files/sneaky.png").status_code == 200
+    # Delete archives to trash (trash_entries counts toward quota until emptied).
+    assert quota_svc.user_bytes("alice") == base + 150
+    trash = c.get("/api/docs").json()["trash"]
+    assert any(x.get("title") == "sneaky.png" for x in trash)
+    for x in [t for t in trash if t.get("title") == "sneaky.png"]:
+        if x.get("kind"):
+            assert c.delete(f"/api/trash/{x['id']}").status_code == 200
     assert quota_svc.user_bytes("alice") == base + 100
 
 
@@ -188,8 +195,7 @@ def test_safe_name_paths():
     assert safe_name("sub/dir/b.typ") == "sub/dir/b.typ"
     with pytest.raises(HTTPException):
         safe_name("../evil.png")
-    with pytest.raises(HTTPException):
-        safe_name("tool.exe")
+    assert safe_name("tool.exe") == "tool.exe"  # generic attachments are allowed
     with pytest.raises(HTTPException):
         safe_name("a.png.tmp.123")
 
@@ -422,3 +428,14 @@ def test_search_finds_duplicated_filename(c):
     nid = c.post(f"/api/docs/{did}/duplicate").json()["id"]
     hits = c.get("/api/search", params={"q": "zqxwjk-protokoll"}).json()["hits"]
     assert {h["id"] for h in hits} == {did, nid}
+
+
+def test_checkpoint_migration_preserves_ambiguous_manual_saves():
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE project_snapshots (id TEXT PRIMARY KEY, label TEXT NOT NULL)")
+    con.executemany("INSERT INTO project_snapshots VALUES (?,?)", [("manual", ""), ("restore", "Before restore"), ("named", "My checkpoint")])
+    db._migrate_v25(con)
+    db._migrate_v25(con)
+    assert [row[0] for row in con.execute("SELECT kind FROM project_snapshots")] == ["manual"] * 3
+    con.close()

@@ -46,7 +46,6 @@ def test_export_import_preserves_local_files_and_localizes_global_modules(c):
     [("main.typ", "Main"), ("../bad.typ", "Bad")],
     [("main.typ", "Main"), ("/bad.typ", "Bad")],
     [("main.typ", "Main"), ("chapter.typ", "A"), ("CHAPTER.typ", "B")],
-    [("main.typ", "Main"), ("script.exe", "Bad")],
     [("main.typ", b"\xff")],
 ])
 def test_invalid_archives_do_not_create_documents(c, entries):
@@ -88,3 +87,14 @@ def test_zip_import_rolls_back_when_storage_write_fails(c, monkeypatch):
         import_zip(c, bundle([("main.typ", "Main"), ("a.typ", "A"), ("b.typ", "B")]))
     assert c.get("/api/docs").json()["own"] == before
     assert not list(deps.get_files_dir().glob("d_*"))
+
+
+def test_source_zip_preserves_generic_binary_attachment(c):
+    register_user(c, "zipgeneric")
+    result = import_zip(c, bundle([("main.typ", "Main"), ("assets/data.bin", b"\x00\xff")]))
+    assert result.status_code == 200, result.text
+    did = result.json()["id"]
+    response = c.get(f"/api/docs/{did}/files/assets/data.bin")
+    assert response.status_code == 200
+    assert response.content == b"\x00\xff"
+    assert response.headers["content-disposition"].startswith("attachment;")

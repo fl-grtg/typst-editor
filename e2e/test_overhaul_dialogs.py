@@ -47,7 +47,8 @@ def test_formatter_does_not_replace_a_document_opened_during_load(page):
     _open(page, "Audit first")
     pending = []
     page.route("**/vendor/typstyle-wasm-glue-*.js", lambda route: pending.append(route))
-    page.click("#fmtDoc")
+    page.locator('#menubar [data-menu="edit"]').click()
+    page.locator('#menu button').filter(has_text='Format document').click()
     page.wait_for_timeout(150)
     assert pending, "formatter import must remain pending for the race"
     _open(page, "Audit second")
@@ -59,11 +60,14 @@ def test_formatter_does_not_replace_a_document_opened_during_load(page):
 
 
 def test_keyboard_on_nested_document_action_runs_that_action(page):
-    _docs(page, "audit_keyboard")
+    _, other = _docs(page, "audit_keyboard")
     _open(page, "Audit first")
     before = len(page.request.get("/api/docs").json()["own"])
     row = page.locator("#own .doc").filter(has_text="Audit first")
-    row.get_by_role("button", name="Rename document", exact=True).press("Enter")
+    row.get_by_role("button", name="Menu", exact=True).press("Enter")
+    assert page.request.post(f'/api/docs/{other}/rename', data={'title': 'Sidebar refreshed'}).ok
+    expect(page.locator('#own .doc .t').filter(has_text='Sidebar refreshed')).to_be_visible()
+    page.locator('#modal button.pk').filter(has_text='Rename document').press('Enter')
     expect(page.locator('#modal')).to_be_visible()
     page.fill('#mInp', 'Audit renamed')
     page.click('#mYes')

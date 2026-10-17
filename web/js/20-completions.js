@@ -26,7 +26,7 @@ async function loadDocResources(force) {
   if (id !== docId || epoch !== openN || n !== docResN) return false
   docResReadonly = r.readonly !== false
   window.docTpl = Object.entries(r.resources || {}).map(([name, content]) => ({ name, content, updated_at: r.versions?.[name] || '' }))
-  if (isTplKey(activeFile)) {
+  if (isTplKey(activeFile) && !window.changeSession) {
     const row = window.docTpl.find(x => x.name === tabName(activeFile))
     if (row && (tabDirty || tabSaveFlight)) row.content = getT()
     else if (row) {
@@ -35,7 +35,7 @@ async function loadDocResources(force) {
     }
   }
   docResAt = Date.now(); docResRefs = refs
-  if (isTplKey(activeFile)) cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
+  if (isTplKey(activeFile) && !window.changeSession) cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
   tabSig = ''; queueTabs()
   return true
 }
@@ -333,8 +333,9 @@ const markField = StateField.define({
   provide: f => gutterLineClass.from(f),
 })
 class ThreadDot extends GutterMarker {
-  get elementClass() { return 'hasThread' }
-  eq(o) { return o instanceof ThreadDot }
+  constructor(suggestion = false) { super(); this.suggestion = suggestion }
+  get elementClass() { return this.suggestion ? 'hasThread hasSuggestion' : 'hasThread' }
+  eq(o) { return o instanceof ThreadDot && o.suggestion === this.suggestion }
 }
 class PeerCaret extends WidgetType {
   constructor(c, n) { super(); this.c = c; this.n = n }
@@ -371,15 +372,48 @@ function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spo
   if (!cands.length) return -1
   return near(cands)
 }
-function refreshHl() { // highlight from saved ranges: never breaks on typing
-  const t = getT(), rs = []
+function threadHighlights() {
+  const rs = []
   for (const th of threads) {
+    if (th.suggestion_status && th.suggestion_status !== 'pending') continue
     if (th.a == null || th.b == null) continue
-    const a = Math.max(0, Math.min(t.length, th.a)), b = Math.max(0, Math.min(t.length, th.b))
-    if (b > a) rs.push(Decoration.mark({ class: 'cm-hl' }).range(a, b))
+    let source = th
+    if (th.suggestion_status === 'pending') {
+      const span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
+      const a = Math.min(th.b, th.a + span.a)
+      source = { ...th, a, b: Math.max(a, th.b - span.b) }
+    }
+    const { from: a, to: b } = threadEditorRange(source)
+    if (b > a) rs.push(Decoration.mark({
+      class: th.suggestion_status === 'pending' ? 'cm-hl cm-suggestion suggestionDeleted' : 'cm-hl',
+      attributes: th.suggestion_status === 'pending' ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
+    }).range(a, b))
+    if (th.suggestion_status === 'pending') {
+      const widget = new SuggestionReplacement(th)
+      if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
+    }
   }
-  cm.dispatch({ effects: setHl.of(RangeSet.of(rs, true)) }) // true: CM sorts (same from-pos allowed)
+  return rs
 }
-let threads = [], marks = new Set(), popAnchor = null // null = closed (anchors are 1-based)
+function tokenCut(text, cut, from) { // snap a char cut out of the strict inside of math/raw/string tokens (from: keep the token's left edge)
+  try {
+    let best = cut
+    typstParser.parse(text).iterate({ enter(node) {
+      if (node.from < cut && cut < node.to && /^(Raw|RawInline|Equation|Math|Str|String)$/.test(node.name)) best = from ? Math.min(best, node.from) : Math.max(best, node.to)
+    } })
+    return best
+  } catch (e) { return cut } // no parser in scope (tests): plain char trim
+}
+function tokenSafeSpan(old, { a, b }) { // tokenCut both trim ends so a pending mark stays visually continuous over whole tokens
+  if (a + b > old.length || a < 0 || b < 0) return { a, b }
+  const na = a ? tokenCut(old, a, true) : a
+  const nb = b ? old.length - tokenCut(old, old.length - b, false) : b
+  return { a: na, b: nb }
+}
+function refreshHl() {
+  if (window.suggestionDraft) { paintDraftSuggestions(); return }
+  cm.dispatch({ effects: setHl.of(RangeSet.of(threadHighlights(), true)) })
+}
+let threads = [], marks = new Set(), markStyle = '', popAnchor = null // null = closed (anchors are 1-based)
 let applying = false // remote sync writes: triggers no push
 const typstSupport = typst_lezer() // hoisted: project completions register via .language.data below

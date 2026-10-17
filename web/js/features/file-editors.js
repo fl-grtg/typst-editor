@@ -117,6 +117,13 @@ function paintBib() {
     const row = el('label', 'bibField'), input = el(label === t('editor.entryType') ? 'select' : multiline ? 'textarea' : 'input')
     if (input.tagName === 'SELECT') for (const type of [...new Set([value, 'book', 'article', 'inproceedings', 'incollection', 'thesis', 'report', 'online', 'misc'])]) { const option = el('option', null, type); option.value = type; input.append(option) }
     if (multiline) input.rows = 1
+    if (window.changeSession) {
+      const original = window.changeSession.files.get(sessionKey(sessionCurrent()))
+      const before = original && !window.changeSession.original ? parseBib(original.base || '').find(e => e.key === entry.key) : null
+      const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
+      const old = label === t('editor.entryKey') ? before?.key : label === t('editor.entryType') ? before?.type : before?.fields.find(f => f.name === fieldName)?.value || ''
+      row.classList.toggle('bib-proposed', !!original && !window.changeSession.original && old !== value)
+    }
     row.append(el('span', null, label)); input.value = value; input.spellcheck = false
     if (multiline) input.style.height = Math.min(134, 38 + 18 * (value.split('\n').length - 1)) + 'px'
     input.readOnly = !editable || !!disabled
@@ -196,7 +203,7 @@ bibTools.append(bibSwitch, bibNew); $('tools').insertBefore(bibTools, $('tools')
 const gridTools = el('span', 'fmt fileTools gridTools'), gridSwitch = el('button'), gridClear = el('button')
 gridSwitch.onclick = () => { csvRaw = !csvRaw; csvSource = null; paintCsv(); if (!csvRaw) { csvWindow = ''; csvRender() } syncFileToolbar((tplName || tabName(activeFile)).split('.').pop()) }
 gridClear.onmousedown = e => e.preventDefault()
-gridClear.onclick = () => { if (!cm.state.facet(EditorView.editable)) return; csvPut(csvSelection[0], csvSelection[1], ''); csvSave(); csvWindow = ''; csvRender(); csvFocus(...csvSelection) }
+gridClear.onclick = () => { if (!cm.state.facet(EditorView.editable)) return; csvClearSelection() }
 gridTools.append(gridSwitch, gridClear); $('tools').insertBefore(gridTools, $('tools').querySelector('.tsp'))
 const TOOL_ICONS = {
   source: '<path d="M5 4L1 8l4 4M11 4l4 4-4 4M9 2L7 14"/>',
@@ -216,12 +223,11 @@ function syncFileToolbar(ext) {
     const formatting = group.querySelector('[data-fmt]')
     group.classList.toggle('type-hidden', !!formatting && !typst)
   }
-  for (const id of ['cNew', 'imgBtn', 'mediaBtn', 'tplBtn', 'symBtn', 'colWrap', 'citeLibrary']) $(id)?.classList.toggle('type-hidden', !typst)
+  for (const id of ['cNew', 'insertMore', 'imgBtn', 'mediaBtn', 'tplBtn', 'symBtn', 'colWrap', 'citeLibrary']) $(id)?.classList.toggle('type-hidden', !typst)
   $('histBtn').classList.toggle('type-hidden', !docId || !!tplName)
   if (docId && !openedTrashed) $('histBtn').style.display = ''
   updateFileView()
   $('fmtDoc')?.classList.toggle('type-hidden', !['typ', 'json'].includes(ext))
-  $('tools').querySelector('.grp')?.classList.toggle('type-hidden', (grid && !csvRaw) || (bib && !bibRaw))
   $('tools').dataset.format = ext
   toolIcon(gridSwitch, csvRaw ? 'editor.cells' : 'editor.source', csvRaw ? 'cells' : 'source')
   toolIcon(gridClear, 'editor.clearCell', 'clear'); gridClear.disabled = !editable; gridClear.hidden = csvRaw

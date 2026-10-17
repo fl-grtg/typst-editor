@@ -24,7 +24,10 @@ def test_global_library_and_table_can_be_created_and_reused(page):
         else:
             for r, values in enumerate([["name", "value"], ["A", "1"]]):
                 for c, value in enumerate(values):
-                    page.locator(f'.csvEditor [data-row="{r}"][data-col="{c}"]').fill(value)
+                    cell = page.locator(f'.csvEditor [data-row="{r}"][data-col="{c}"]')
+                    cell.dblclick()
+                    cell.fill(value)
+                    cell.press('Enter')
         expect(page.locator("#save")).to_contain_text("saved")
     response = page.request.post("/api/templates", data={"name": "layout.typ", "content":
                                  '#table(columns: 2, ..csv("numbers.csv").flatten())\n'

@@ -219,3 +219,12 @@ def test_quota_check_observes_uncommitted_project_bytes(c, monkeypatch):
         with pytest.raises(HTTPException) as e:
             quota.check_quota("alice", 0, con)
         assert e.value.status_code == 413
+
+
+def test_project_resource_returns_normalized_unicode_name(c):
+    register_user(c, "unicode_module")
+    project = c.post("/api/projects", json={"title": "Normalization"}).json()["id"]
+    response = c.post(f"/api/projects/{project}/resources", json={"name": "\u00c4nderungen.typ", "content": "Text"})
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "_nderungen.typ"
+    assert c.get(f"/api/projects/{project}/resources").json()["resources"][0]["name"] == "_nderungen.typ"

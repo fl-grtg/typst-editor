@@ -37,9 +37,10 @@ def list_docs(req: Request, user: str = Depends(deps.me)) -> dict:
             "WHERE (s.username IS NOT NULL OR m.username IS NOT NULL) AND d.owner<>? AND d.trashed=0 ORDER BY d.updated_at DESC", (user,user,user)).fetchall()
         trash = con.execute("SELECT id, title, updated_at FROM docs WHERE owner=? AND trashed=1 "
                             "ORDER BY updated_at DESC", (user,)).fetchall()
+        trash_items = con.execute("SELECT id,name AS title,created_at AS updated_at,kind,project_id,doc_id FROM trash_entries WHERE owner=? ORDER BY created_at DESC", (user,)).fetchall()
         return {"own": [dict(r) for r in own],
                 "shared": [dict(r) for r in shared],
-                "trash": [dict(r) for r in trash]}
+                "trash": [dict(r) for r in trash] + [dict(r) for r in trash_items]}
     finally:
         con.close()
 
@@ -228,6 +229,15 @@ def rename_doc(doc_id: str, b: TitleSet, req: Request, user: str = Depends(deps.
 
 @router.delete("/api/docs/{doc_id}")
 async def delete_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
+    return await _delete_doc(doc_id, req, user)
+
+
+@router.post("/api/docs/{doc_id}/trash")
+async def trash_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
+    return await _delete_doc(doc_id, req, user, trash_only=True)
+
+
+async def _delete_doc(doc_id: str, req: Request, user: str, trash_only: bool = False) -> dict:
     deps.check_doc_id(doc_id)
     deps.limited(req, "delete")
     deps.need_access(user, doc_id, allow_trashed=True)
@@ -243,13 +253,20 @@ async def delete_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) ->
             raise HTTPException(403, "Only editors can delete")
         trashed = bool(row["trashed"])
         if role != "owner":
-            if trashed or not row["project_id"]:
+            if (trashed and not trash_only) or not row["project_id"]:
                 raise HTTPException(403, "Only owner can permanently delete")
             projects.require(con, row["project_id"], user, edit=True)
+        if trashed and trash_only:
+            return {"trashed": True}
         if not trashed:
             con.execute("UPDATE docs SET trashed=1,updated_at=? WHERE id=?", (db.now_iso(), doc_id))
         else:
+            # Permanent delete: files/comments go with the doc (FK
+            # cascade), but trash_entries references docs only by id —
+            # purge its copies, otherwise every restore attempt dead-ends
+            # on "Restore the original document first".
             con.execute("DELETE FROM docs WHERE id=?", (doc_id,))
+            con.execute("DELETE FROM trash_entries WHERE doc_id=?", (doc_id,))
             if row["project_id"]:
                 con.execute("DELETE FROM projects WHERE id=? AND archived=1 AND NOT EXISTS (SELECT 1 FROM docs WHERE project_id=?)",
                             (row["project_id"], row["project_id"]))
@@ -506,3 +523,33 @@ def search_docs(req: Request, q: str = "", user: str = Depends(deps.me)) -> dict
     finally:
         con.close()
     return {"hits": [{k: h[k] for k in ("id", "title", "owner", "snippet", "pos")} for h in rows]}
+
+
+@router.post("/api/trash/{entry_id}/restore")
+def restore_trash_entry(entry_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
+    from backend.services import trash
+
+    deps.limited(req, "restore")
+    return trash.restore(user, entry_id)
+
+
+@router.delete("/api/trash/{entry_id}")
+def delete_trash_entry(entry_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
+    from backend.services.locks import _named_lock
+
+    deps.limited(req, "delete")
+    with _named_lock("trash:" + entry_id):
+        with db.tx() as con:
+            row = con.execute("SELECT project_id,doc_id FROM trash_entries WHERE id=? AND owner=?",
+                              (entry_id, user)).fetchone()
+            if not row:
+                raise HTTPException(404, "Trash entry gone")
+            con.execute("DELETE FROM trash_entries WHERE id=?", (entry_id,))
+    quota_svc.invalidate_quota_cache(user)
+    notify_sidebar(user)
+    if row["project_id"]:
+        projects.notify(row["project_id"])
+    if row["doc_id"]:
+        from backend.services.sidebar import emit_doc
+        emit_doc(row["doc_id"], "file")
+    return {"ok": True}

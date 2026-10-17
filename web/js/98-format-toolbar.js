@@ -2,7 +2,7 @@
 function fmtWrap(a, b = a) {
   const st = cm.state, doc = st.doc, { from, to } = st.selection.main
   const before = doc.sliceString(Math.max(0, from - a.length), from), after = doc.sliceString(to, Math.min(doc.length, to + b.length))
-  if (from !== to && before === a && after === b) { // already wrapped: unwrap
+  if (before === a && after === b && (from !== to || a !== b || doc.sliceString(0, from - a.length).split(a).length % 2 === 1)) { // already wrapped: unwrap (collapsed caret only for an own empty pair: even marker count left of it; a closer|opener boundary of two spans must wrap instead, unwrapping would fuse them)
     cm.dispatch({ changes: [{ from: from - a.length, to: from }, { from: to, to: to + b.length }], selection: { anchor: from - a.length, head: to - a.length }, userEvent: 'input' })
     return
   }
@@ -19,8 +19,18 @@ function fmtLines(prefixRe, makePrefix) { // per-line prefix: heading / lists
   const lines = []
   for (let n = first; n <= last; n++) lines.push(doc.line(n))
   const next = makePrefix(lines)
+  const oldLens = lines.map(l => { const m = prefixRe.exec(l.text); return m ? m[0].length : 0 })
+  const deltas = oldLens.map(old => next.length - old)
+  const total = deltas.reduce((a, b) => a + b, 0)
+  const prevBeforeLast = deltas.slice(0, -1).reduce((a, b) => a + b, 0)
+  const firstStart = lines[0].from, lastStart = lines[lines.length - 1].from
+  const anchor = from <= firstStart + oldLens[0] ? firstStart + next.length : from + deltas[0]
+  const headPos = to <= lastStart + oldLens[oldLens.length - 1]
+    ? lastStart + prevBeforeLast + next.length
+    : to + total
   cm.dispatch({
-    changes: lines.map(l => { const m = prefixRe.exec(l.text); return { from: l.from, to: l.from + (m ? m[0].length : 0), insert: next } }),
+    changes: lines.map((l, i) => ({ from: l.from, to: l.from + oldLens[i], insert: next })),
+    selection: to === from ? { anchor } : { anchor, head: headPos },
     userEvent: 'input',
   })
 }

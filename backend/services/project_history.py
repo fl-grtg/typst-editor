@@ -4,17 +4,21 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 
 from backend import db, sync
-from backend.constants import SNAP_MAX
+from backend.constants import AUTO_SNAP_KEEP, AUTO_SNAP_KEEP_WEEKS
 from backend.services import quota
 from backend.services.docfiles import store
 from backend.services.locks import _named_lock
+
+log = logging.getLogger("typst.main")
 
 
 def stamp(con: sqlite3.Connection, project_id: str) -> tuple:
@@ -67,12 +71,46 @@ def capture(con: sqlite3.Connection, project_id: str) -> dict:
     return {'documents': documents, 'resources': resources}
 
 
-def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '') -> str:
+def _retain(con: sqlite3.Connection, project_id: str) -> None:
+    """Retention for automatic checkpoints (runs inside every save tx).
+
+    Each checkpoint embeds document contents, all attachments base64 and
+    the module library - pruning a checkpoint frees those bytes for real
+    (asset bytes are per-checkpoint copies, not deduped). Policy: keep the
+    newest AUTO_SNAP_KEEP automatic checkpoints, plus one per older week
+    within AUTO_SNAP_KEEP_WEEKS weeks. Manual checkpoints (kind='manual')
+    and the project's oldest row (creation anchor) are never removed.
+    """
+    rows = con.execute(
+        "SELECT id,kind,created_at FROM project_snapshots WHERE project_id=? "
+        "ORDER BY created_at DESC,rowid DESC", (project_id,)).fetchall()
+    if len(rows) <= AUTO_SNAP_KEEP:
+        return  # autos alone are within the flat cap; nothing prunable
+    autos: list[tuple[str, str]] = [(r["id"], r["created_at"]) for r in rows if r["kind"] == "auto"]
+    # Manual checkpoints and the project's oldest row (creation anchor)
+    # never enter the delete set, whatever the auto backlog looks like.
+    keep = {r["id"] for r in rows if r["kind"] == "manual"}
+    keep.add(rows[-1]["id"])
+    keep.update(sid for sid, _created in autos[:AUTO_SNAP_KEEP])
+    seen_weeks: set[int] = set()
+    now = datetime.now(UTC)
+    for sid, created in autos[AUTO_SNAP_KEEP:]:
+        week = (now - datetime.fromisoformat(created)).days // 7
+        if week < AUTO_SNAP_KEEP_WEEKS and week not in seen_weeks:
+            seen_weeks.add(week)
+            keep.add(sid)
+    con.execute(
+        "DELETE FROM project_snapshots WHERE project_id=? AND id NOT IN "
+        f"({','.join('?' * len(keep))})", (project_id, *keep))
+
+
+def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual') -> str:
     content = json.dumps(state, ensure_ascii=False, sort_keys=True)
     owner = con.execute('SELECT owner FROM projects WHERE id=?', (project_id,)).fetchone()[0]
     sid = db.new_id('ps_')
-    con.execute('INSERT INTO project_snapshots VALUES (?,?,?,?,?)', (sid, project_id, content, label, db.now_iso()))
-    con.execute('DELETE FROM project_snapshots WHERE project_id=? AND id NOT IN (SELECT id FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC LIMIT ?)', (project_id, project_id, SNAP_MAX))
+    con.execute('INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind) VALUES (?,?,?,?,?,?)',
+                (sid, project_id, content, label, db.now_iso(), kind))
+    _retain(con, project_id)
     quota.check_quota(owner, 0, con)
     return sid
 
@@ -99,7 +137,6 @@ def diff_text(state: dict) -> str:
 
 
 def auto(project_id: str) -> None:
-    import logging
     from datetime import UTC, datetime, timedelta
 
     from backend.constants import SNAP_EVERY
@@ -123,17 +160,24 @@ def auto(project_id: str) -> None:
             if last and last[0] >= (datetime.now(UTC) - timedelta(seconds=SNAP_EVERY)).isoformat():
                 return
             unchanged(con, project_id, expected)
-            save(con, project_id, state)
+            save(con, project_id, state, kind='auto')
         quota.invalidate_quota_cache(p['owner'])
     except (HTTPException, sqlite3.Error, OSError) as e:
-        logging.getLogger('typst.main').warning('Project auto checkpoint skipped: %s', e)
+        log.warning('Project auto checkpoint skipped: %s', e)
 
 
 def auto_document(doc_id: str) -> None:
-    con = db.connect()
+    # Warn-only: callers (save_doc / op_edit / files routes) have already
+    # committed their mutation and only catch HTTPException, so a busy DB
+    # here must not turn into a post-commit 500.
     try:
-        row = con.execute('SELECT project_id FROM docs WHERE id=?', (doc_id,)).fetchone()
-    finally:
-        con.close()
+        con = db.connect()
+        try:
+            row = con.execute('SELECT project_id FROM docs WHERE id=?', (doc_id,)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        log.warning('auto_document %s lookup skipped: %s', doc_id, e)
+        return
     if row and row[0]:
         auto(row[0])

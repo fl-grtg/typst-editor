@@ -11,6 +11,7 @@ def test_module_server_name_and_rename_preview(page):
     page.locator('#modal button.pk').filter(has_text='.typ').first.click()
     page.fill('#mInp', 'Änderungen')
     page.click('#mYes')
+    # Resource names use the server's ASCII normalization; the UI must open that returned name.
     tab = page.locator('#tabs button.tab').filter(has_text='_nderungen.typ')
     expect(tab).to_have_attribute('aria-selected', 'true')
     tab.dblclick()

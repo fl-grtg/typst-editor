@@ -9,7 +9,7 @@
   var openFor = null, items = [], idx = -1
 
   function click(id) { var b = $(id); if (b) b.click() }
-  function shown(id) { var b = $(id); return !!b && b.style.display !== 'none' && !b.disabled && !b.hidden }
+  function shown(id) { var b = $(id); return !!b && b.style.display !== 'none' && !b.disabled && !b.hidden && !b.classList.contains('type-hidden') }
   function pressed(id) { var b = $(id); return !!b && (b.getAttribute('aria-pressed') === 'true' || b.classList.contains('on')) }
   function key(k, extra) {
     window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: k, ctrlKey: !mac, metaKey: mac, bubbles: true, cancelable: true }, extra || {})))
@@ -32,6 +32,15 @@
     ]
   }
   var DEF = {
+    insert: function () {
+      return [
+        it(t('menu.addPic'), function () { click('imgBtn') }, { on: shown('imgBtn') }),
+        it(t('menu.addTpl'), function () { click('tplBtn') }, { on: shown('tplBtn') }),
+        it(t('menu.addSym'), function () { click('symBtn') }, { on: shown('symBtn') }),
+        it(t('editor.citeLibrary'), function () { click('citeLibrary') }, { on: shown('citeLibrary') }),
+        it(t('shell.colWrap'), function () { click('colPick') }, { on: shown('colWrap') })
+      ]
+    },
     file: function () {
       return [
         it(t('menu.newDoc'), function () { click('new') }),
@@ -55,6 +64,13 @@
         it(t('menu.bold'), function () { fmt('bold') }, { kbd: M + 'B', on: fmtOn('bold') }),
         it(t('menu.italic'), function () { fmt('italic') }, { kbd: M + 'I', on: fmtOn('italic') }),
         it(t('menu.underline'), function () { fmt('underline') }, { kbd: M + 'U', on: fmtOn('underline') }),
+        it(t('editor.formatDoc'), function () { click('fmtDoc') }, { on: shown('fmtDoc') }),
+        it(t('shell.fmtHead'), function () { fmt('heading') }, { on: fmtOn('heading') }),
+        it(t('shell.fmtBul'), function () { fmt('bullets') }, { on: fmtOn('bullets') }),
+        it(t('shell.fmtNum'), function () { fmt('numbers') }, { on: fmtOn('numbers') }),
+        it(t('shell.fmtMath'), function () { fmt('math') }, { on: fmtOn('math') }),
+        it(t('shell.fmtCode'), function () { fmt('code') }, { on: fmtOn('code') }),
+        it(t('shell.fmtLink'), function () { fmt('link') }, { on: fmtOn('link') }),
         SEP,
         it(t('menu.comment'), function () { click('cNew') }, { on: shown('cNew') }),
         it(t('menu.addPic'), function () { click('imgBtn') }, { on: shown('imgBtn') }),
@@ -177,7 +193,7 @@
   }, true)
   addEventListener('resize', function () { close(false) })
   addEventListener('blur', function () { close(false) })
-  document.querySelectorAll('#menubar [data-menu], #exportBtn').forEach(function (b) {
+  document.querySelectorAll('#menubar [data-menu], #exportBtn, #insertMore').forEach(function (b) {
     b.addEventListener('keydown', function (e) {
       if ((e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') && openFor !== b) { e.preventDefault(); open(b, b.dataset.menu); focusItem(0) }
     })

@@ -6,6 +6,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import Any
+from weakref import WeakValueDictionary
 
 from backend import db
 from backend.constants import LOCK_NAME
@@ -15,14 +16,14 @@ log = logging.getLogger("typst.main")
 
 _LOCK_FH = None
 
-_DOC_LOCKS: dict[str, threading.Lock] = {}
+_DOC_LOCKS: WeakValueDictionary[str, threading.Lock] = WeakValueDictionary()
 
 _DOC_LOCKS_GUARD = threading.Lock()
 
-_EXPORT_LOCKS: dict[str, threading.Lock] = {}
+_EXPORT_LOCKS: WeakValueDictionary[str, threading.Lock] = WeakValueDictionary()
 
 
-def _lock_for(store: dict[str, threading.Lock], key: str) -> threading.Lock:
+def _lock_for(store: WeakValueDictionary[str, threading.Lock], key: str) -> threading.Lock:
     with _DOC_LOCKS_GUARD:
         lock = store.get(key)
         if lock is None:
@@ -44,20 +45,13 @@ def _export_lock(user: str) -> threading.Lock:
 
 
 def _drop_doc_locks(doc_id: str) -> None:
-    # Drop per-doc locks when the room is gone (no reaper thread).
-    # Never drop a held lock: the holder still relies on it for mutual exclusion.
-    with _DOC_LOCKS_GUARD:
-        for _key in (f"upload:{doc_id}", f"ws:{doc_id}"):
-            _lock = _DOC_LOCKS.get(_key)
-            if _lock is not None and not _lock.locked():
-                _DOC_LOCKS.pop(_key, None)
+    # Weak entries disappear only after every holder and prospective waiter
+    # releases its reference. Explicit removal could split mutual exclusion.
+    pass
 
 
 def _drop_user_locks(user: str) -> None:
-    # Drop per-user locks when the user is gone (no reaper thread).
-    with _DOC_LOCKS_GUARD:
-        _DOC_LOCKS.pop(f"dup:{user}", None)
-        _EXPORT_LOCKS.pop(user, None)
+    pass
 
 
 def _lock_path() -> Path:

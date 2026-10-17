@@ -124,7 +124,7 @@ def list_project_snaps(project_id: str, req: Request, user: str = Depends(deps.m
     con = db.connect()
     try:
         projects.require(con, project_id, user)
-        return {"snapshots": [dict(r) for r in con.execute("SELECT id,label,created_at,LENGTH(CAST(content AS BLOB)) AS size FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC", (project_id,))]}
+        return {"snapshots": [dict(r) for r in con.execute("SELECT id,label,kind,created_at,LENGTH(CAST(content AS BLOB)) AS size FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC", (project_id,))]}
     finally:
         con.close()
 
@@ -233,7 +233,7 @@ def _restore_project_state(project_id: str, sid: str, b: SnapRestore, user: str)
                     saved = con.execute('SELECT content FROM docs WHERE id=?', (did,)).fetchone()[0]
                     if live is not None and live != saved and not b.force:
                         raise HTTPException(409, 'Project has unsaved live changes; retry with force')
-                project_history.save(con, project_id, before, 'Before restore')
+                project_history.save(con, project_id, before, 'Before restore', kind='auto')
                 extra = 0
                 for d in state['documents']:
                     old = con.execute('SELECT content,yjs FROM docs WHERE id=?', (d['id'],)).fetchone()

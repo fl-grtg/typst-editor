@@ -32,15 +32,16 @@ async function login(u, p) {
     const d = await api('POST', regMode ? '/api/register' : '/api/login', body)
     user = d.user // session via cookie only (HttpOnly)
     $('p').value = ''; $('inv').value = ''
-    try { avatarV = (await api('GET', '/api/me')).hasAvatar ? 1 : 0 } catch (e) {} // avatar must show without reload
+    try { const who = user, me = await api('GET', '/api/me'); avatarV = me.hasAvatar ? 1 : 0; loadSpell(me.spell_language, who) } catch (e) {} // avatar must show without reload
     $('login').style.display = 'none'; $('app').classList.add('on')
     cm.measure() // built hidden (login): remeasure sync now, else cursor/clicks off
     paintMe()
+    const initialOpen = openN
     const hadJoin = !!new URLSearchParams(location.search).get('join')
     try { await sidebar(); } catch (e) {}
     watchSidebar()
     await loadTpl(); const joined = await checkJoin()
-    if (!docId && !tplName && !hadJoin && !joined) {
+    if (openN === initialOpen && !docId && !tplName && !hadJoin && !joined) {
       const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
       if (pick) openDoc(pick.id)
     }
@@ -50,7 +51,10 @@ $('login').onsubmit = e => { e.preventDefault(); login($('u').value, $('p').valu
 $('out').onclick = () => { try { clearTimeout(sideESTimer); sideES?.close(); sideES = null } catch (e) {}; api('POST', '/api/logout').finally(() => {
   location.reload()
 }) }
+let renBusy = false // double-click: no second dialog/POST while one rename flies
 $('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
+  if (renBusy) return; renBusy = true
+  try {
   const doc = docId, epoch = openN
   if (tplName) { await renamePersonalResource(tplName); return }
   if (!docId || docRole !== 'owner') return
@@ -60,6 +64,7 @@ $('renBtn').onclick = async () => { // pencil behind title (owner only, template
   api('POST', `/api/docs/${doc}/rename`, { title: nt.trim() })
     .then(() => { if (doc === docId && epoch === openN) { $('title').textContent = nt.trim(); docTitle = nt.trim(); tabSig = ''; paintTabs() } sidebar() })
     .catch(e => toast(e.message))
+  } finally { renBusy = false }
 }
 function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
   return new Promise(res => {
@@ -118,10 +123,10 @@ let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
 async function importUpload(f) {
   if (!f || upBusy) return
-  if (!/\.(zip|typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i.test(f.name)) { toast(t('files.nameBad')); return }
-  if (f.size > (/\.zip$/i.test(f.name) ? 10 * 1024 * 1024 : 200 * 1024)) { toast(t('docs.maxKb')); return }
+  if (f.size > (TEXT_EXT.test(f.name) ? 200 * 1024 : 10 * 1024 * 1024)) { toast(t(TEXT_EXT.test(f.name) ? 'docs.maxKb' : 'docs.maxBinary')); return }
   upBusy = true
   try {
+    if (!TEXT_EXT.test(f.name) && !/\.zip$/i.test(f.name)) { await uploadToProject([f]); return }
     if (/\.zip$/i.test(f.name)) {
       const r = await askNewDoc(f.name.replace(/\.zip$/i, ''))
       if (!r) return
@@ -153,7 +158,13 @@ async function importUpload(f) {
     openDoc((await api('POST', '/api/docs/create', { title: r.title.trim() || ttl, content: txt, folder: '' })).id)
   } catch (e) { toast(e.message) } finally { upBusy = false }
 }
-$('docPick').onchange = () => { const f = $('docPick').files[0]; $('docPick').value = ''; importUpload(f) }
+$('docPick').onchange = async () => {
+  const files = [...$('docPick').files]; $('docPick').value = ''
+  if (!files.length || upBusy) return
+  if (files.length === 1) { await importUpload(files[0]); return }
+  upBusy = true
+  try { await uploadToProject(files) } catch (e) { toast(e.message) } finally { upBusy = false }
+}
 $('del').onclick = async () => {
   const doc = docId, resource = tplName, epoch = openN
   if (tplName) { // delete open template
@@ -182,7 +193,7 @@ setInterval(() => {
   }
 }, POLL_MS)
 const unsafeState = () => { // edits that may not have reached the server yet
-  if (tplDirty || tabDirty) return true
+  if (window.changeSession?.dirty || window.suggestionDraft?.changed || tplDirty || tabDirty) return true
   const s = $('save').textContent || ''
   if (!docId && !tplName) return false
   if (openedTrashed || docRole === 'reviewer') return false
@@ -194,7 +205,7 @@ addEventListener('beforeunload', e => { if (unsafeState()) { e.preventDefault();
 addEventListener('pagehide', () => { // stash latest edits, 2s save may still be pending
   const live = !!(prov && prov.wsconnected)
   if (!tplDirty && !tabDirty && $('save').textContent.startsWith(t('docs.saved'))) { try { if (docId) localStorage.removeItem('typst-pending-' + docId) } catch (e) {} return }
-  try { if (docId && ytext && synced && docRole !== 'reviewer' && !live) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline only: keepalive may fail, openDoc offers restore
+  try { if (docId && ytext && docRole !== 'reviewer' && !openedTrashed && (!live || !synced)) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // live-but-unsynced too: WS bytes in flight die with the tab, keepalive below only runs when synced (openDoc offers restore, drops silently if converged)
   try { // file/template tab with unsaved edits: stash a copy (keepalive below may fail, switchTab offers restore)
     if (docId && activeFile && tabDirty && typeof fileStashKey === 'function') lsSet(fileStashKey(docId, activeFile), JSON.stringify({ t: Date.now(), c: getT() }))
   } catch (e) {}
@@ -214,15 +225,16 @@ addEventListener('pagehide', () => { // stash latest edits, 2s save may still be
 
 checkInvite() // ?invite=CODE: registration view + prefilled code (join handled separately by checkJoin)
 api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
-  user = d.user; avatarV = d.hasAvatar ? 1 : 0 // persist avatar across reloads
+  user = d.user; avatarV = d.hasAvatar ? 1 : 0; loadSpell(d.spell_language) // persist avatar across reloads
   $('login').style.display = 'none'; $('app').classList.add('on')
   cm.measure() // see above: built hidden -> remeasure sync
   paintMe()
+  const initialOpen = openN
   const hadJoin = !!new URLSearchParams(location.search).get('join')
   try { await sidebar(); } catch (e) {}
   watchSidebar()
   await loadTpl(); const joined = await checkJoin()
-  if (!docId && !tplName && !hadJoin && !joined) {
+  if (openN === initialOpen && !docId && !tplName && !hadJoin && !joined) {
     const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
     if (pick) openDoc(pick.id)
   }

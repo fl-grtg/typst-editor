@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from backend import auth, config, db, deps, sync
 from backend.constants import MAX_PW, MIN_PW, NAME_RE
-from backend.schemas import AvatarSet, KeyCreate, Login, NameChange, PwChange, PwOnly, Register
+from backend.schemas import AvatarSet, KeyCreate, Login, NameChange, PwChange, PwOnly, Register, SpellPreference
 from backend.services import quota as quota_svc
 from backend.services.apikeys import _ROLE_RANK, KEY_ROLES, me_with_key, mint_api_key
 from backend.services.locks import _drop_user_locks, _named_lock
@@ -223,12 +223,20 @@ def get_me(req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "auth")  # own auth bucket: must not share files_list with preview polling
     con = db.connect()
     try:
-        r = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
-        return {"user": user, "hasAvatar": bool(r and r["avatar"]),
+        r = con.execute("SELECT avatar,spell_language FROM users WHERE name=?", (user,)).fetchone()
+        return {"user": user, "hasAvatar": bool(r and r["avatar"]), "spell_language": r["spell_language"] if r else "auto",
                 "storage": {"used": quota_svc.user_bytes(user, con), "limit": quota_svc.user_cap(user, con),
                             "migration_allowance": quota_svc.migration_allowance(user, con)}}
     finally:
         con.close()
+
+
+@router.post("/api/me/preferences")
+def save_preferences(b: SpellPreference, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "auth")
+    with db.tx() as con:
+        con.execute("UPDATE users SET spell_language=? WHERE name=?", (b.spell_language, user))
+    return {"spell_language": b.spell_language}
 
 
 @router.post("/api/keys")
@@ -355,7 +363,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
                 raise HTTPException(400, "Rename failed")
             con.execute("INSERT INTO users (name, hash, avatar) VALUES (?,?,?)",
                         (new, row["hash"], row["avatar"]))
-            con.execute("UPDATE users SET migration_bytes=(SELECT migration_bytes FROM users WHERE name=?) WHERE name=?", (user, new))
+            con.execute("UPDATE users SET migration_bytes=(SELECT migration_bytes FROM users WHERE name=?), spell_language=(SELECT spell_language FROM users WHERE name=?) WHERE name=?", (user, user, new))
             con.execute("UPDATE sessions SET username=? WHERE username=?", (new, user))
             con.execute("UPDATE docs SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE shares SET username=? WHERE username=?", (new, user))
@@ -367,6 +375,11 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
             con.execute("UPDATE project_members SET username=? WHERE username=?", (new, user))
             con.execute("UPDATE legacy_project_folders SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE notifications SET recipient=? WHERE recipient=?", (new, user))
+            # suggestion_packages has no ON UPDATE cascade either: without
+            # this move the final DELETE FROM users cascades away every
+            # package the user authored.
+            con.execute("UPDATE suggestion_packages SET author=? WHERE author=?", (new, user))
+            con.execute("UPDATE trash_entries SET owner=? WHERE owner=?", (new, user))
             con.execute("DELETE FROM users WHERE name=?", (user,))
     except sqlite3.OperationalError as e:
         log.warning("rename_me %s -> %s busy: %s", user, new, e)

@@ -142,7 +142,7 @@ test('project share preserves document-only guests without granting project memb
 test('same-named local and project resource tabs coexist', () => {
   const files = readFileSync('web/js/80-files-images.js', 'utf8')
   const fn = files.slice(files.indexOf('function tabItems()'), files.indexOf('const tabErrs'))
-  const c = setup({ lastFiles: [{ name: 'foo.typ' }], TEXT_EXT: /\.typ$/, usedTpls: () => [],
+  const c = setup({ lastFiles: [{ name: 'foo.typ' }], TEXT_EXT: /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i, usedTpls: () => [],
     tabPins: new Set(['foo.typ']), effTpl: () => [{ name: 'foo.typ' }], isTplKey: () => false, TPLK: '@tpl/' })
   vm.runInContext(fn, c)
   assert.deepEqual(Array.from(c.tabItems()), ['', 'foo.typ', '@tpl/foo.typ'])
@@ -245,7 +245,7 @@ test('history remains project-wide for modules and read-only project members', (
 test('preview does not start a compiler for module or binary tabs', async () => {
   const preview = readFileSync('web/js/50-preview.js', 'utf8')
   const fn = preview.slice(preview.indexOf('async function render()'), preview.indexOf('async function renderDirect'))
-  const c = setup({ tplName: '', activeFile: '@tpl/module.typ', renderN: 0, $: () => ({}), pvBar: () => assert.fail('must not compile file tab') })
+  const c = setup({ window: {}, tplName: '', activeFile: '@tpl/module.typ', renderN: 0, $: () => ({}), pvBar: () => assert.fail('must not compile file tab') })
   vm.runInContext(fn, c)
   await c.render()
   c.activeFile = 'image.png'

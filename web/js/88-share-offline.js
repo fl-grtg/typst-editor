@@ -32,7 +32,7 @@ function roleSel(cur) { // Reader/Editor options, translated labels, backend val
 }
 function renderShares() {
   const doc = docId, project = docProject
-  if (!doc || (project ? shareProjectRole !== 'owner' : docRole !== 'owner') || openedTrashed) return
+  if (!doc || (project ? shareProjectRole !== 'owner' : docRole !== 'owner') || openedTrashed) { $('sharePop').style.display = 'none'; return } // not shareable here: no stale list behind an open pop
   const shareUrl = project ? `/api/projects/${project}/members` : `/api/docs/${doc}/share`
   const p = $('sharePop'); p.replaceChildren()
   const top = el('div', 'sTop')
@@ -145,13 +145,14 @@ $('shareBtn').onclick = e => {
   if (showPop('sharePop')) loadShares()
 }
 document.addEventListener('click', e => {
+  if (e.target.closest('#modal')) return
   for (const [p, b] of Object.entries(POP_BTN)) { // click outside closes (one loop not 5 blocks)
     const box = $(p)
     if (box && box.style.display !== 'none' && !$(b).contains(e.target) && !box.contains(e.target))
       box.style.display = 'none'
   }
   const pop = $('pop') // click outside closes, never with text draft (highlight/tooltip opens, not closes)
-  if (pop && popAnchor != null && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,.cm-tooltip')
-      && ![...pop.querySelectorAll('input')].some(i => i.value.trim()))
+  if (pop && popAnchor != null && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,[data-suggestion-change],[data-suggestion-id],.cm-tooltip')
+      && ![...pop.querySelectorAll('input,textarea')].some(i => i.value.trim()))
     closePop()
 })

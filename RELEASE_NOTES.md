@@ -1,5 +1,14 @@
 # Release Notes — `0.2.0rc1` (Prerelease candidate DRAFT, not published)
 
+Additional local changes under review: floating comments avoid the entire marked
+source range; all collaborators can propose tracked source changes, including via
+MCP `suggest`/`suggestions`; owner/editor acceptance is explicit. Spelling is an
+account preference. Image viewing, project file drops, generic attachment upload,
+completion refresh, source/preview matching and checkpoint-menu deletion have
+been revised. Migrations 20-25 are required. These additions are not a published
+release or a completed browser acceptance report.
+
+
 Status: candidate draft only. Source version is `pyproject.toml` = `0.2.0rc1`.
 No tag, no published image/digest, no release date is assigned in this draft.
 Final acceptance, CI and image verification remain pending. This draft does
@@ -42,9 +51,27 @@ candidate digest yet.
   wipes all open invites of all project docs (broad revoke, links carry no
   username). The share UI states this broad effect explicitly before confirming
   (`projects.removeMemberWarning`, implemented).
-- Project checkpoints (manual + auto, at most every 15 min, up to 50 per
-  project) with `Before restore` copy; two-stage trash (project archived until
-  its last doc is hard-deleted); single worker (`--workers 1`).
+- Project checkpoints (manual + auto, at most every 15 min) with
+  `Before restore` copy; manual checkpoints and the creation checkpoint are
+  kept forever, automatic checkpoints self-prune to the 10 newest plus one
+  per week within 5 weeks (`AUTO_SNAP_KEEP`/`AUTO_SNAP_KEEP_WEEKS`, v25);
+  two-stage trash (project archived until its last doc is hard-deleted);
+  single worker (`--workers 1`).
+- Suggestion/comment reliability: comments and suggestions survive empty-doc
+  races and reloads (ranges re-derive after websocket sync); pending
+  suggestion matching uses backend semantics; package sessions clamp stale
+  positions instead of crashing; changed-package files are painted exactly.
+- Suggester staging: packages can stage file adds, deletes and binary
+  replaces; deletions land in the project owner's trash only at accept
+  time. Review packages by others surface as a topbar badge
+  (`GET /api/notifications/summary`) and open the package session directly.
+- Robustness: per-owner quota serialization, delta-aware trash restore,
+  id-scoped delete rollbacks, request-body cap (32 MB) for API/MCP,
+  proposal saves moved out of the write transaction, list endpoints capped
+  (`op_suggestions` projection), account rename keeps authored packages
+  (FK update, no cascade loss).
+- Migrations 20-25 are required (`suggestion_*` columns, `trash_entries`,
+  `suggestion_packages`, trash index, snapshot `kind`).
 
 ## Breaking changes vs. earlier behavior
 
@@ -88,8 +115,9 @@ candidate digest yet.
 
 ## Upgrade notes
 
-- Returning DBs migrate through v19 on start (fresh DBs run the same chain).
-  The migration does not block on quota; affected accounts may land over limit
+- Returning DBs migrate through v21 on start (fresh DBs run the same chain).
+  v20 adds suggestions and v21 adds the account spelling preference.
+  The v19 migration does not block on quota; affected accounts may land over limit
   and then stay readable/exportable/deletable with new writes at `413`.
 - Settings and `GET /api/me` show the permanent allowance share; no recurring
   grant for new data and no promise about scope/duration of any future grant.

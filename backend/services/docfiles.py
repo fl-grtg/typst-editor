@@ -168,7 +168,7 @@ def file_type(path: str) -> str:
 def safe_name(name: str) -> str:
     # Relative "a/b/c.png" paths (new) and flat names (old callers, MCP)
     # share this check: segments are sanitized like before, ".." and
-    # absolute paths are rejected, the suffix whitelist still applies.
+    # absolute paths are rejected. Attachments may have any extension.
     raw = (name or "").strip().replace("\\", "/")
     segs = raw.split("/")
     if any(s == ".." for s in segs):
@@ -184,8 +184,6 @@ def safe_name(name: str) -> str:
     if not parts:
         raise HTTPException(400, "Unsupported file type or path")
     n = "/".join(parts)
-    if Path(n).suffix.lower() not in deps.ALLOWED_IMG:
-        raise HTTPException(400, "Unsupported file type or path")
     if ".tmp." in n:
         raise HTTPException(400, "Reserved name")
     return n
@@ -262,8 +260,42 @@ def _max_files() -> int:
         return 200
 
 
+def _project_of(doc_id: str) -> str:
+    """Project holding this doc ("" for standalone docs) - name-rule scope."""
+    con = db.connect()
+    try:
+        row = con.execute("SELECT project_id FROM docs WHERE id=? AND trashed=0", (doc_id,)).fetchone()
+    finally:
+        con.close()
+    return (row["project_id"] or "") if row else ""
+
+
+def _assert_name_free(doc_id: str, name: str) -> None:
+    """#7: reject names a sibling doc or a project module already shows.
+
+    Replacing this doc's own existing entry injects no new name and stays
+    legal even next to pre-existing duplicates.
+    """
+    from backend.services import projects
+
+    try:
+        store.get(doc_id, name)
+    except (OSError, HTTPException):
+        pass  # nothing here yet: this write may introduce the name
+    else:
+        return
+    pid = _project_of(doc_id)
+    if pid:
+        con = db.connect()
+        try:
+            projects.assert_file_name_free(con, pid, name, exempt_files={(doc_id, name)})
+        finally:
+            con.close()
+
+
 def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
     max_files = _max_files()
+    _assert_name_free(doc_id, n)
     d = deps.get_files_dir() / doc_id
     try:
         d.mkdir(parents=True, exist_ok=True)
@@ -370,6 +402,7 @@ def need_text(name: str) -> str:
 def save_text_file(doc_id: str, name: str, content: str, owner: str) -> None:
     """Same write path as the text-tab route: tmp+replace, quota, table sync."""
     name = need_text(name)  # validate here too: callers must not skip the suffix whitelist
+    _assert_name_free(doc_id, name)
     if len(content.encode("utf-8")) > MAX_TXT:
         raise HTTPException(400, "Max 200 KB")
     try:

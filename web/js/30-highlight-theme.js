@@ -23,11 +23,23 @@ const spellCode = StateField.define({
   update: (marks, tr) => tr.docChanged ? spellCodeMarks(tr.state) : marks,
   provide: field => EditorView.decorations.from(field)
 })
+function claimedComments() { // painted comment ranges: spell tiles inside them would split the mark, so tokens there stay unclaimed
+  try { // pre-boot first build may lack the comment machinery yet
+    if (typeof threads === 'undefined') return []
+    const out = []
+    for (const th of threads) {
+      if (th.a == null || th.b == null || th.suggestion_status && th.suggestion_status !== 'pending') continue
+      const r = threadEditorRange(th)
+      if (r.to > r.from) out.push(r)
+    }
+    return out
+  } catch (e) { return [] }
+}
 function spellCodeMarks(state) {
-  const marks = []
+  const marks = [], claimed = claimedComments()
   typstParser.parse(state.doc.toString()).iterate({ enter(node) {
     if (/^(FuncCall|SetRule|ShowRule|LetBinding|ModuleImport|ModuleInclude|Equation|Import|Include|Math|Raw|LineComment|BlockComment|Ident|Hash|Numeric|String|Str)$/.test(node.name)) {
-      if (node.to > node.from) marks.push(Decoration.mark({ attributes: { spellcheck: 'false' } }).range(node.from, node.to))
+      if (node.to > node.from && !claimed.some(k => node.from < k.to && node.to > k.from)) marks.push(Decoration.mark({ attributes: { spellcheck: 'false' } }).range(node.from, node.to))
       return false
     }
   } })
@@ -85,15 +97,45 @@ $('cm').addEventListener('mousemove', errTipMove) // full-line error tooltip: an
 $('cm').addEventListener('mouseleave', errTipHide)
 $('cm').addEventListener('mousedown', e => { // click on line number or yellow highlight opens card
   if (findOpen && findI >= 0) { findI = -1; paintFind(false) } // manual click drops the current hit: all blue, typing stays where clicked
+  const packageHit = e.target.closest('[data-package-change]')
+  if (packageHit && window.changeSession) { openSessionChange(+packageHit.dataset.packageChange); return }
+  const suggestion = e.target.closest('[data-suggestion-change], [data-suggestion-id]')
+  if (suggestion) { openSuggestionBox(suggestion); return }
   const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
-  if (g && marks.has(+g.textContent)) { openPop(+g.textContent, false); return }
+  if (g && marks.has(+g.textContent)) { openLinePop(+g.textContent); return }
   const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
   if (hl) {
-    const p = cm.posAtDOM(hl)
-    const th = threads.find(t => t.a != null && p >= t.a && p <= t.b)
-    if (th) openPop(th.anchor, false)
+    const p = cm.posAtCoords({ x: e.clientX, y: e.clientY }) ?? cm.posAtDOM(hl)
+    const th = threads.find(th => {
+      const r = threadEditorRange(th)
+      return th.a != null && p >= r.from && p <= r.to
+    })
+    if (th) openPop(cm.state.doc.lineAt(p).number, false)
   }
 })
+// #3 hover-claim: hovering any fragment of a comment thread / suggestion / package patch also lights up all its other fragments
+const CLAIM_KINDS = ['data-comment-id', 'data-suggestion-id', 'data-suggestion-change', 'data-package-change']
+let claimKind = null, claimId = null
+function claimSet(t) {
+  for (const kind of CLAIM_KINDS) {
+    const n = t.closest && t.closest('[' + kind + ']')
+    if (!n) continue
+    const id = n.getAttribute(kind)
+    if (kind === claimKind && id === claimId) return
+    clearClaim()
+    claimKind = kind; claimId = id
+    for (const el of cm.dom.querySelectorAll('[' + kind + ']')) if (el.getAttribute(kind) === id) el.classList.add('cm-hl-claim')
+    return
+  }
+  clearClaim()
+}
+function clearClaim() {
+  if (claimKind == null) return
+  for (const el of cm.dom.querySelectorAll('.cm-hl-claim')) el.classList.remove('cm-hl-claim')
+  claimKind = claimId = null
+}
+cm.dom.addEventListener('mouseover', e => claimSet(e.target))
+cm.dom.addEventListener('mouseleave', clearClaim)
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/g
 function urlAt(doc, p) { // web link at doc pos: {url, from, to} or null
   const line = doc.lineAt(p)
@@ -169,13 +211,16 @@ const setT = v => { // a new text buffer also needs a fresh undo stack
   if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.() }
 }
 function onEdit(mapPos, changes, oldLen) {
+  if (window.changeSession) { sessionRecord(changes, oldLen); return }
+  if (window.suggestionDraft) { recordSuggestionEdit(changes, oldLen); return }
+  if (window.suggestionPopup) closePop(true)
   gutter()
   if (tplName) { queueTplSave(); return } // template: save directly, no sync/render
   if (docRole === 'reviewer' || !ytext) return
   paintOutline()
   if (activeFile) { queueFileSave(); tabLive(); return } // file/template tab: only that text + preview, no Yjs
   pushLocal(); queueRender(); queueSave()
-  if (mapPos) mapThreads(mapPos)
+  if (mapPos) mapThreads(mapPos, true, oldLen) // oldLen: anchors can sit at the pre-edit end; full-doc growth must not clip them before mapPos
   reanchor()
   if (threads.length) refreshHl()
 }
@@ -192,27 +237,38 @@ function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not 
     anchorDirty.clear()
   }, SAVE_MS)
 }
-function mapThreads(mapPos, paint = true) { // start left, end right: typing before stays out, inside/after grows
-  const t = activeFile ? shadow : getT() // file tab: anchors live in main, not in file text (Fix #5)
+function mapThreads(mapPos, paint = true, fromLen) { // start left, end right: typing before stays out, inside/after grows
+  const t = activeFile || window.suggestionDraft ? shadow : getT() // file tab: anchors live in main, not in file text (Fix #5)
+  const len = fromLen == null ? t.length : Math.max(0, Math.min(fromLen, t.length)) // Round5 High #2: stale anchors beyond the changeset must not reach mapPos (RangeError on empty/short changesets)
   for (const th of threads) {
     if (th.a == null || th.b == null) continue
-    const a = Math.max(0, Math.min(t.length, mapPos(th.a, false)))
-    const b = Math.max(0, Math.min(t.length, mapPos(th.b, true)))
+    const collapsed = th.a === th.b
+    let a = Math.max(0, Math.min(t.length, mapPos(Math.min(th.a, len), false)))
+    let b = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
+    if (collapsed && a === 0 && b === t.length && t.length) b = a // full-text insert delta: a collapsed range must not balloon to the whole doc
     th.a = Math.min(a, b); th.b = Math.max(a, b)
-    const line = t.slice(0, th.a).split('\n').length
-    if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+    if (th.b > th.a || (!th.quote && th.suggestion_status !== 'pending')) { // collapsed away: never persist a sanitized anchor from stale offsets — except quoteless comments, whose whole data IS the anchor line
+      const line = t.slice(0, th.a).split('\n').length
+      if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+    }
   }
   if (!paint) return
   gutter(); refreshHl()
   if (popAnchor != null) movePop()
 }
 function initRanges() { // ranges from quote (once; then mapping keeps them alive)
-  const t = getT()
-  if (!t) return
+  const t = window.suggestionDraft || window.changeSession ? shadow : getT()
+  if (!t) return // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
   for (const th of threads) {
     if (th.a != null) continue
-    const i = th.quote ? locateQuote(t, th.quote, th.anchor) : -1
-    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + th.quote.length) }
-    else { th.a = posOfLine(t, th.anchor); th.b = th.a + t.slice(th.a).split('\n')[0].length }
+    const pending = th.suggestion_status === 'pending'
+    const quote = pending ? th.suggestion_old : th.quote
+    const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1 // non-overlap count like the backend
+    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + quote.length) }
+    else { // empty pending old (legacy) or quoteless comment: anchor line, same fallback as reanchor
+      th.a = posOfLine(t, th.anchor)
+      th.b = th.a + t.slice(th.a).split('\n')[0].length
+      if (pending) th.conflict = true
+    }
   }
 }

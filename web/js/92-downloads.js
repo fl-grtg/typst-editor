@@ -138,13 +138,19 @@ $('dlSvg').onclick = () => openExportDlg('svg')
 $('dlTyp').onclick = () => {
   if (!docId && !tplName) return
   if (docId && activeFile && !isTplKey(activeFile) && !TEXT_EXT.test(activeFile)) {
+    const session = window.changeSession, proposed = session?.files.get(sessionKey(sessionCurrent()))
+    if (proposed) {
+      const bytes = sessionBytes(proposed, session.original)
+      if (bytes == null) { toast(t('packages.fileAbsent')); return }
+      dlBlob(new Blob([bytes]), !session.original && proposed.action === 'rename' ? proposed.target : activeFile); return
+    }
     const a = document.createElement('a'); a.href = `/api/docs/${docId}/files/${encodeURIComponent(activeFile)}`; a.download = activeFile; a.click(); return
   }
   dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), (tplName || (activeFile ? tabName(activeFile) : dlName('.typ'))))
 }
 $('dlPdf').onclick = () => openExportDlg('pdf')
 setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
-  if (docId && ytext && docRole !== 'reviewer' && !activeFile && getT() !== shadow) {
+  if (docId && ytext && docRole !== 'reviewer' && !activeFile && !window.suggestionDraft && !window.changeSession && getT() !== shadow) {
   pushLocal(); queueRender(); queueSave()
   }
 }, SAVE_MS)

@@ -16,6 +16,7 @@ from backend.constants import FOLDER_MAX, MAX_TXT
 from backend.schemas import FolderRename, FolderSet, TplDuplicate, TplRename, TplSave
 from backend.services import quota as quota_svc
 from backend.services import resources as res
+from backend.services import trash
 from backend.services.docfiles import store
 from backend.services.sidebar import notify_sidebar
 
@@ -189,14 +190,14 @@ def duplicate_template(name: str, b: TplDuplicate, req: Request, user: str = Dep
                             dst = res.copy_name(src, number)
                     if con.execute("SELECT 1 FROM templates WHERE owner=? AND name=?",
                                    (user, dst)).fetchone():
-                        raise HTTPException(400, "Name already exists")
+                        raise HTTPException(409, "Name already exists")
                     con.execute("INSERT INTO templates (owner, name, content, line, folder, updated_at) "
                                 "VALUES (?,?,?,?,?,?)",
                                 (user, dst, row["content"] or "", res.insert_line(dst),
                                  row["folder"] or "", db.now_iso()))
                     _box["inserted"] = True
             except sqlite3.IntegrityError as e:
-                raise HTTPException(400, "Name already exists") from e
+                raise HTTPException(409, "Name already exists") from e
             except sqlite3.OperationalError as e:
                 raise deps.busy_503("duplicate_template", e) from e
     except sqlite3.OperationalError as e:
@@ -226,6 +227,8 @@ def rename_template(name: str, b: TplRename, req: Request, user: str = Depends(d
             version = db.now_iso()
             con.execute("UPDATE templates SET name=?, line=?, updated_at=? WHERE owner=? AND name=?",
                         (new, res.insert_line(new), version, user, old))
+    except sqlite3.IntegrityError as e:
+        raise HTTPException(409, "Name already exists") from e
     except sqlite3.OperationalError as e:
         raise deps.busy_503("rename_template", e) from e
     notify_sidebar(user)
@@ -236,17 +239,19 @@ def rename_template(name: str, b: TplRename, req: Request, user: str = Depends(d
 def delete_template(name: str, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "templates")
     n = _gone_404(name)
-    con = db.connect()
     try:
-        cur = con.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, n))
-        con.commit()
-        if cur.rowcount == 0:
-            raise HTTPException(404, "Template gone")
-        quota_svc.invalidate_quota_cache(user)
-        notify_sidebar(user)
-        return {"ok": True}
-    finally:
-        con.close()
+        with db.tx() as con:
+            row = con.execute("SELECT * FROM templates WHERE owner=? AND name=?", (user, n)).fetchone()
+            if not row:
+                raise HTTPException(404, "Template gone")
+            trash.archive(con, user, "personal", n, (row["content"] or "").encode(),
+                          line=row["line"] or "", folder=row["folder"] or "")
+            con.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, n))
+    except sqlite3.OperationalError as e:
+        raise deps.busy_503("delete_template", e) from e
+    quota_svc.invalidate_quota_cache(user)
+    notify_sidebar(user)
+    return {"ok": True}
 
 
 @router.post("/api/templates/{name}/folder")

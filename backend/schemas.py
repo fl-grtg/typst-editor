@@ -65,6 +65,20 @@ class CommentEdit(BaseModel):
     text: str = Field(max_length=2001)
 
 
+class SuggestionNew(BaseModel):
+    old_string: str = Field(max_length=20000)
+    new_string: str = Field(max_length=20000)
+    text: str = Field(default="", max_length=2000)
+
+
+class SuggestionBatch(BaseModel):
+    changes: list[SuggestionNew] = Field(min_length=1, max_length=50)
+
+
+class SpellPreference(BaseModel):
+    spell_language: str = Field(pattern="^(auto|de|en|off)$")
+
+
 class ResolveSet(BaseModel):
     resolved: bool = True
 

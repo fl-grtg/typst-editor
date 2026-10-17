@@ -7,6 +7,7 @@ thread-contention smoke test proving mutual exclusion per key.
 import threading
 
 import backend.main as main
+from backend.services import locks
 
 
 def test_rename_applied():
@@ -77,3 +78,43 @@ def test_different_keys_do_not_block_each_other():
     ta.join()
     tb.join()
     assert counts == {"test:ka": 100, "test:kb": 100}
+
+
+def test_drop_preserves_lock_even_before_acquire():
+    # A caller may retain the lock before entering its critical section.
+    lock = locks._named_lock("upload:racedrop")
+    with lock:
+        locks._drop_doc_locks("racedrop")
+        assert locks._named_lock("upload:racedrop") is lock
+    locks._drop_doc_locks("racedrop")
+    assert locks._named_lock("upload:racedrop") is lock
+    locks._drop_doc_locks("racedrop")  # idempotent
+    assert locks._named_lock("upload:racedrop") is lock
+
+
+def test_drop_user_locks_same_semantics():
+    dup = locks._named_lock("dup:racedropuser")
+    with dup:
+        locks._drop_user_locks("racedropuser")
+        # held: kept with identity, mutual exclusion intact
+        assert locks._named_lock("dup:racedropuser") is dup
+    locks._drop_user_locks("racedropuser")
+    assert locks._named_lock("dup:racedropuser") is dup
+    # A prospective export waiter must keep the same lock too.
+    elock = locks._export_lock("racedropuser")
+    locks._drop_user_locks("racedropuser")
+    assert locks._export_lock("racedropuser") is elock
+
+
+def test_registry_reclaims_only_unreferenced_locks():
+    import gc
+    import weakref
+
+    lock = locks._named_lock("upload:reclaim")
+    reference = weakref.ref(lock)
+    locks._drop_doc_locks("reclaim")
+    assert locks._named_lock("upload:reclaim") is lock
+    del lock
+    gc.collect()
+    assert reference() is None
+    assert "upload:reclaim" not in locks._DOC_LOCKS
