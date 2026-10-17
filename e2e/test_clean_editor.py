@@ -266,14 +266,15 @@ def test_large_binary_draft_survives_reload(page):
     expect(page.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
     page.locator('#imgPick').set_input_files({'name': 'large.png', 'mimeType': 'image/png', 'buffer': b'\0' * (4 * 1024 * 1024)})
     expect(page.locator('.package-file .t').filter(has_text='large.png')).to_be_visible()
-    page.wait_for_function("""async () => {
+    page.wait_for_function('window.changeSession?.stashFailed === false')
+    assert page.evaluate("""async () => {
       const s = window.changeSession
       const request = indexedDB.open('typst-proposal-drafts', 1)
       const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error) })
       const read = db.transaction('drafts').objectStore('drafts').get('typst-package-large_proposal-' + s.project)
       const saved = await new Promise(resolve => { read.onsuccess = () => resolve(read.result) })
       db.close()
-      return saved?.files.some(f => f.path === 'large.png' && f.content.length > 5 * 1024 * 1024)
+      return window.changeSession === s && saved?.files.some(f => f.path === 'large.png' && f.content.length > 5 * 1024 * 1024)
     }""")
     page.once('dialog', lambda dialog: dialog.accept())
     page.reload()

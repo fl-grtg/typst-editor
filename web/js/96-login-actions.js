@@ -36,12 +36,11 @@ async function login(u, p) {
     $('login').style.display = 'none'; $('app').classList.add('on')
     cm.measure() // built hidden (login): remeasure sync now, else cursor/clicks off
     paintMe()
-    const initialOpen = openN
     const hadJoin = !!new URLSearchParams(location.search).get('join')
     try { await sidebar(); } catch (e) {}
     watchSidebar()
     await loadTpl(); const joined = await checkJoin()
-    if (openN === initialOpen && !docId && !tplName && !hadJoin && !joined) {
+    if (openN === 0 && !docId && !tplName && !hadJoin && !joined) {
       const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
       if (pick) openDoc(pick.id)
     }
@@ -229,12 +228,11 @@ api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
   $('login').style.display = 'none'; $('app').classList.add('on')
   cm.measure() // see above: built hidden -> remeasure sync
   paintMe()
-  const initialOpen = openN
   const hadJoin = !!new URLSearchParams(location.search).get('join')
   try { await sidebar(); } catch (e) {}
   watchSidebar()
   await loadTpl(); const joined = await checkJoin()
-  if (openN === initialOpen && !docId && !tplName && !hadJoin && !joined) {
+  if (openN === 0 && !docId && !tplName && !hadJoin && !joined) {
     const pick = (lastOwn.find(x => x.title === 'Tutorial') || lastOwn[0] || lastShared[0])
     if (pick) openDoc(pick.id)
   }

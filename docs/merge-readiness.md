@@ -87,6 +87,13 @@ The historical counts in `prerelease-validation.md` describe earlier candidates.
   asynchronous restoration. The proposal-start paint is inside its cleanup
   guard. The follow-up passed 141 JavaScript tests and both delayed-start and
   document-only guest browser regressions (13.90 seconds).
+- The next CI run exposed late auth initialization selecting Tutorial during an
+  already-started navigation, and a reload-test async predicate that returned a
+  truthy Promise before saving finished. Initial selection now requires zero
+  prior navigation; the reload test waits for the application's completed-write
+  flag and separately awaits its database read. No extra production storage
+  mechanism was added. Validation: 142 JavaScript tests, four affected browser
+  tests (34.68 seconds), Ruff and full Mypy passed.
 
 ## User acceptance
 
