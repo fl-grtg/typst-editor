@@ -62,6 +62,59 @@ def test_csv_added_file_cell_accept_and_permission_validation(c):
     assert accept(c, project, partial, file_id=file['id'], cell={'row': 0, 'column': 1}).json()['files'] == []
 
 
+def test_bib_field_edit_accept_preserves_other_pending_fields(c):
+    project, _ = setup(c)
+    base = '@book{key, title={Old 😀}, author={Jane}}\n'
+    proposed = base.replace('Old 😀', 'New 😀').replace('Jane', 'Joan')
+    selected = base.replace('Old 😀', 'New 😀')
+    assert c.post(f'/api/projects/{project}/resources', json={'name': 'sources.bib', 'content': base}).status_code == 200
+    package = submit(c, project, [{'kind': 'resource', 'path': 'sources.bib', 'action': 'modify', 'base': base, 'content': proposed,
+                                  'changes': [{'old_string': base, 'new_string': proposed}]}])
+    file = package['files'][0]
+    response = accept(c, project, package, file_id=file['id'], field_edit={'old_string': base, 'new_string': selected})
+    assert response.status_code == 200, response.text
+    partial = response.json()
+    assert partial['files'][0]['base'] == selected
+    assert partial['files'][0]['content'] == proposed
+    resources = c.get(f'/api/projects/{project}/resources').json()['resources']
+    assert next(r for r in resources if r['name'] == 'sources.bib')['content'] == selected
+    assert accept(c, project, partial, file_id=file['id'], field_edit={'old_string': base, 'new_string': selected}).status_code == 409
+    assert accept(c, project, partial, file_id=file['id'], field_edit={'old_string': selected, 'new_string': proposed}).json()['files'] == []
+
+
+def test_document_delete_proposal_is_recoverable_and_keeps_live_text_and_attachments(c):
+    project, document = setup(c, 'Original')
+    current = 'Latest live text'
+    with sync._doc_lock(sync.room(document)):
+        text = sync.room(document)['doc'].get('typst', type=Text)
+        del text[:]
+        text.insert(0, current)
+    assert c.post(f'/api/docs/{document}/files', files={'f': ('image.png', b'image')}).status_code == 200
+    package = submit(c, project, [{'kind': 'document', 'doc_id': document, 'path': 'main.typ', 'action': 'delete', 'base': current}])
+    assert c.get(f'/api/docs/{document}').status_code == 200
+    assert accept(c, project, package).status_code == 200
+    assert c.get(f'/api/docs/{document}').status_code == 410
+    assert any(d['id'] == document for d in c.get('/api/docs').json()['trash'])
+    assert c.post(f'/api/docs/{document}/restore').status_code == 200
+    assert c.get(f'/api/docs/{document}').json()['content'] == current
+    assert c.get(f'/api/docs/{document}/files/image.png').content == b'image'
+
+
+def test_document_delete_with_pending_children_requires_combined_acceptance(c):
+    project, document = setup(c, '#image("image.png")')
+    assert c.post(f'/api/docs/{document}/files', files={'f': ('image.png', b'old')}).status_code == 200
+    package = submit(c, project, [
+        {'kind': 'document', 'doc_id': document, 'path': 'main.typ', 'action': 'delete', 'base': '#image("image.png")'},
+        {'kind': 'file', 'doc_id': document, 'path': 'image.png', 'action': 'delete', 'base': base64.b64encode(b'old').decode(), 'binary': True},
+    ])
+    assert accept(c, project, package, file_id=package['files'][0]['id']).status_code == 409
+    assert c.get(f'/api/docs/{document}').status_code == 200
+    assert accept(c, project, package).status_code == 200
+    assert c.post(f'/api/docs/{document}/restore').status_code == 200
+    assert c.get(f'/api/docs/{document}/files/image.png').status_code == 404
+    assert any(d['title'] == 'image.png' for d in c.get('/api/docs').json()['trash'])
+
+
 def setup(c, content="first old\nlast old\n"):
     register_user(c, "alice")
     document = make_doc(c, "Packages", content)

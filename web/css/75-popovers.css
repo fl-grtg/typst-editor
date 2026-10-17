@@ -120,7 +120,7 @@
 .suggestionCard pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; padding: 8px; border-radius: var(--r-sm); font: 12px/1.5 var(--mono); }
 .suggestionCard .before { background: var(--danger-soft); }
 .suggestionCard .after { background: rgba(145, 90, 225, .14); }
-.proposalCells { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.proposalCells { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; }
 .proposalCells th { width: 42px; text-align: left; color: var(--sub); font: 12px var(--mono); }
 #pop .proposalCells td { display: table-cell; width: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px; border-bottom: 1px solid var(--line); border-radius: 0; cursor: default; }
 #pop .proposalCells .tx { background: var(--acc-soft); }

@@ -166,6 +166,11 @@ $('docPick').onchange = async () => {
 }
 $('del').onclick = async () => {
   const doc = docId, resource = tplName, epoch = openN
+  if (window.changeSession || window.suggestionDraft) {
+    if (activeFile) await deleteProjectEntry({ id: docProject }, tabName(activeFile), docId, isTplKey(activeFile))
+    else await stageDocumentDelete(doc)
+    return
+  }
   if (tplName) { // delete open template
     if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('common.delete'), danger: true })) return
     if (resource !== tplName || epoch !== openN) return

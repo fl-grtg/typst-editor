@@ -181,8 +181,13 @@ function pvCall(job, id) { // one compile round-trip (rejects into the render er
       if (id !== renderN) { done(); ok({ skip: true }); return } // stale: newer render queued, spare the worker
       const w = pvEnsureWorker()
       if (!w || pvWorkerFail || !pvWorkerOk) { done(); bad(new Error(t('preview.compileFailed'))); return }
-      pvJobs.set(job.id, { ok: m => { done(); ok(m) }, bad: e => { done(); bad(e) } })
-      try { w.postMessage(job) } catch (e) { pvJobs.delete(job.id); done(); bad(e) }
+      const message = { ...job, full: job.sig !== pvSentSig || !pvMapped }
+      if (!message.full) { delete message.files; delete message.tpl }
+      pvJobs.set(job.id, {
+        ok: m => { pvSentSig = job.sig; pvMapped = true; done(); ok(m) },
+        bad: e => { pvMapped = false; done(); bad(e) }
+      })
+      try { w.postMessage(message) } catch (e) { pvJobs.delete(job.id); pvMapped = false; done(); bad(e) }
     }))
   })
 }
@@ -306,17 +311,13 @@ async function render() {
     const main = window.changeSession ? sessionMainText() : activeFile ? shadow : getT() // file tab: preview still compiles main.typ
     const pf = await pvFiles()
     if (!pf || pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
-    const job = { cmd: 'work', id: ++pvJobN, main }
-    if (pf.sig !== pvSentSig || !pvMapped) { // worker shadow: full set once, then only main.typ
-      job.full = true
-      job.files = [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes }))
-      job.tpl = (pf.tpl || []).map(x => ({ name: x.name, content: x.content }))
-    }
+    const job = { cmd: 'work', id: ++pvJobN, main, sig: pf.sig,
+      files: [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes })),
+      tpl: (pf.tpl || []).map(x => ({ name: x.name, content: x.content })) }
     const m = await pvCall(job, id) // compile off the main thread: typing stays fluid
     if (!m || m.skip || pvStale(id, myDoc, myTplName)) return
     wDiags = m.diags
     if (pvStale(id, myDoc, myTplName)) return
-    pvSentSig = pf.sig; pvMapped = true
     const doc = await pdfjsLib.getDocument({ data: m.pdf }).promise
     if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
     oldPdf?.destroy(); oldPdf = doc

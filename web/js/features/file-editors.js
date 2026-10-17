@@ -4,7 +4,7 @@ const bibPanel = el('div', 'bibEditor'); bibPanel.hidden = true; $('editWrap').a
 const emptyFileLanguage = []
 let bibEditing = false
 let bibQuery = ''
-let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, validationTimer = 0
+let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, bibProposal = null, bibOriginal = false, validationTimer = 0
 function parseBib(text) {
   const entries = [], re = /@(\w+)\s*([{(])/g; let match
   while ((match = re.exec(text))) {
@@ -79,9 +79,10 @@ function paintBib() {
   const source = getT(), editable = cm.state.facet(EditorView.editable)
   const emptyYears = editable ? emptyBibYearChanges(source) : []
   if (emptyYears.length) { queueMicrotask(() => { if (identity === bibIdentity && source === getT() && cm.state.facet(EditorView.editable)) cm.dispatch({ changes: emptyYears, userEvent: 'input' }) }); return }
-  if (source === bibSource && editable === bibEditable) return
+  const proposal = window.changeSession?.files.get(sessionKey(sessionCurrent())) || null, original = !!window.changeSession?.original
+  if (source === bibSource && editable === bibEditable && proposal === bibProposal && original === bibOriginal) return
   const listScroll = bibPanel.querySelector('.bibList')?.scrollTop || 0
-  bibSource = source; bibEditable = editable; bibPanel.replaceChildren()
+  bibSource = source; bibEditable = editable; bibProposal = proposal; bibOriginal = original; bibPanel.replaceChildren()
   const bar = el('div', 'bibBar'), raw = el('button', 'btn', t(bibRaw ? 'editor.entries' : 'editor.source'))
   raw.onclick = () => { bibRaw = !bibRaw; bibSource = null; paintBib() }
   const add = el('button', 'btn', t('editor.newEntry')); add.disabled = !editable
@@ -124,9 +125,9 @@ function paintBib() {
       const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
       const originals = parseBib(original?.base || ''), before = originals.find(e => e.key === entry.key) || originals[bibSelected]
       const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
-      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo } : e.fields.find(f => f.name === fieldName)
+      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo, value: e.key } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === fieldName)
       const current = range(parseBib(getT())[bibSelected]), old = range(before)
-      const proposed = !!original && sessionFieldIndex(current?.from, current?.to, old) >= 0
+      const proposed = !!original && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
       row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
       caption.onclick = input.onclick = caption.onkeydown = null
       caption.removeAttribute('role'); caption.removeAttribute('tabindex'); caption.removeAttribute('title')
@@ -135,7 +136,8 @@ function paintBib() {
         caption.onclick = input.onclick = e => {
           if (e.currentTarget === caption) e.preventDefault()
           const latest = range(parseBib(getT())[bibSelected])
-          openSessionField(latest?.from, latest?.to, row, old)
+          const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
+          openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name })
         }
         caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }
       }

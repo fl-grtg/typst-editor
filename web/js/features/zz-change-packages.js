@@ -186,6 +186,7 @@ async function startChangeSession(proposal = null) {
     if (project !== docProject || docId !== current || openN !== epoch || window.changeSession || window.suggestionDraft) return
     window.changeSession = s
     await sessionActivate()
+    paintOwn(); paintShared(lastShared); paintTabs()
     return window.changeSession === s
   } finally {
     sessionStarting = false
@@ -288,14 +289,16 @@ async function openTopPackage(entry) {
   } catch (e) { toast(e.message) }
 }
 window.openTopPackage = openTopPackage
-async function acceptSessionSelection(fileId = '', changeId = '', cell = null) {
+async function acceptSessionSelection(fileId = '', changeId = '', cell = null, fieldEdit = null) {
   const s = window.changeSession
   if (!s?.package || s.busy || !await saveSessionCorrections() || window.changeSession !== s) return
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
   try {
-    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell })
+    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell, field_edit: fieldEdit })
     if (window.changeSession !== s) return
-    const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const deletedCurrent = [...s.files.values()].some(f => f.kind === 'document' && f.doc_id === docId && f.action === 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const deletedActive = [...s.files.values()].some(f => f.kind !== 'document' && sessionKey(f) === sessionKey(sessionCurrent()) && f.action === 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && f.action !== 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
     s.package = proposal; s.files = new Map(proposal.files.map(f => [sessionKey(f), sessionRuntime(f)]))
     if (proposal.files.length) for (const old of acceptedDocuments) {
       const current = await api('GET', '/api/docs/' + old.doc_id)
@@ -305,7 +308,18 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null) {
     s.commentRanges.clear(); s.dirty = false; s.previewRevision++; s.original = false; filesDirty = true; fileCache.clear(); pvSentSig = ''; closePop(true)
     for (const th of threads) { th.a = null; th.b = null } // accepted text replaced the base: rebuild comment ranges on the fresh shadow
     initRanges(); invalidateCommentCache() // the accepted text reaches shadow via WS: the stale-ordered re-anchor must not stick behind the poll dedupe
-    if (!proposal.files.length) { s.busy = false; await endChangeSession(true) }
+    if (deletedActive) {
+      if (isTplKey(activeFile)) await loadDocResources(true)
+      else lastFiles = lastFiles.filter(f => f.name !== activeFile)
+      activeFile = ''; tabDirty = false; setT(shadow); tabSig = ''
+    }
+    if (deletedCurrent) {
+      const deletedId = docId
+      s.busy = false; await endChangeSession(true); closeView()
+      const fallback = projects.find(p => p.id === s.project)?.documents?.find(d => d.id !== deletedId)
+      if (fallback) { await openDoc(fallback.id); if (proposal.files.length) await startChangeSession(proposal) }
+    }
+    else if (!proposal.files.length) { s.busy = false; await endChangeSession(true) }
     else { s.busy = false; await loadDocResources(true); await sessionActivate(); await sidebar() }
   } catch (e) { toast(e.message) }
   finally { s.busy = false; if (window.changeSession === s) await sessionActivate(); paintSuggestionControls() }
@@ -363,36 +377,44 @@ function sessionFieldIndex(from, to, before = null) {
     from != null && (r.a === r.b ? r.a >= from && r.a <= to : r.a < to && r.b > from) ||
     before && r.from < before.to && r.to > before.from)
 }
-function openSessionField(from, to, node, before = null, cell = null) {
+function openSessionField(from, to, node, before = null, cell = null, bibField = null) {
   const index = sessionFieldIndex(from, to, before)
-  if (index >= 0) openSessionChange(index, [node], cell)
+  if (index >= 0) openSessionChange(index, [node], cell, bibField)
 }
-function openSessionChange(index, anchors = null, cell = null) {
+function openSessionChange(index, anchors = null, cell = null, bibField = null) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[index]
   if (!range || s.original) return
   const nodes = anchors || [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
   const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
-  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bib: !!anchors?.[0].classList.contains('bibField') })
+  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bibField })
 }
-function sessionBibChanges(file, index) {
-  const before = parseBib(file.base || ''), after = parseBib(file.content || ''), changes = []
-  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
-  for (let i = 0; i < Math.max(before.length, after.length); i++) {
-    const next = after[i], old = before.find(e => e.key === next?.key) || before[i]
-    const fields = e => !e ? [] : [
-      { name: 'key', value: e.key, from: e.keyFrom, to: e.keyTo },
-      { name: 'type', value: e.type, from: e.typeFrom, to: e.typeTo }, ...e.fields
-    ]
-    const previous = fields(old), current = fields(next)
-    for (const name of new Set([...previous, ...current].map(f => f.name))) {
-      const a = previous.find(f => f.name === name), b = current.find(f => f.name === name)
-      if ((a?.value || '') !== (b?.value || '') && sessionFieldIndex(b?.from, b?.to, a) === index) {
-        const label = name === 'key' ? t('editor.entryKey') : name === 'type' ? t('editor.entryType') : labels[name] || name
-        changes.push({ label: before.length > 1 || after.length > 1 ? (next?.key || old?.key || '') + ' · ' + label : label, old: a?.value || '', next: b?.value || '' })
-      }
-    }
+function sessionBibField(file, selector) {
+  const before = parseBib(file.base || ''), after = parseBib(file.content || '')
+  const next = after[selector.entry], old = before.find(e => e.key === next?.key) || before[selector.entry]
+  const field = e => !e ? null : selector.name === '$key' ? { from: e.keyFrom, to: e.keyTo, value: e.key } : selector.name === '$type' ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === selector.name)
+  return { old, next, before: field(old), after: field(next) }
+}
+function sessionBibPatch(file, selector, accept) {
+  const field = sessionBibField(file, selector), text = accept ? file.base || '' : file.content
+  const target = accept ? field.old : field.next, source = accept ? field.next : field.old
+  const previous = accept ? field.before : field.after, value = accept ? field.after : field.before
+  const sourceText = accept ? file.content : file.base || ''
+  if (!target) {
+    if (!source) return null
+    const body = value && !selector.name.startsWith('$') ? selector.name + ' = ' + sourceText.slice(value.from, value.to) + ',\n' : ''
+    return { from: text.length, to: text.length, insert: '\n@' + source.type + '{' + source.key + ',\n' + body + '}\n' }
   }
-  return changes
+  if (selector.name.startsWith('$')) {
+    if (!value) return { from: target.from, to: target.to, insert: '' }
+    return { from: previous.from, to: previous.to, insert: value.value }
+  }
+  if (!value) return previous ? { from: previous.statementFrom, to: previous.statementTo, insert: '' } : null
+  const raw = sourceText.slice(value.from, value.to)
+  if (previous) return { from: previous.from, to: previous.to, insert: raw }
+  const following = source.fields.slice(source.fields.indexOf(value) + 1).map(f => target.fields.find(t => t.name === f.name)).find(Boolean)
+  const at = following ? following.statementFrom : target.end
+  const prefix = text.slice(target.from, at).trimEnd().endsWith(',') ? '' : ','
+  return { from: at, to: at, insert: prefix + sourceText.slice(value.statementFrom, value.statementTo) }
 }
 function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
@@ -405,6 +427,14 @@ function sessionCard(box) {
       if (!await saveSessionCorrections()) return
       const actual = s.files.get(sessionKey(sessionCurrent()))
       if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
+      if (box.bibField) {
+        const patch = sessionBibPatch(actual, box.bibField, true)
+        if (!patch) return
+        const state = EditorState.create({ doc: actual.base || '' }), delta = state.changes(patch)
+        const edits = suggestionChanges(actual.base || '', delta.apply(state.doc).toString(), delta)
+        if (edits.length === 1) await acceptSessionSelection(actual.id, '', null, edits[0])
+        return
+      }
       const match = actual?.changes?.find(c => { const start = actual.base.indexOf(c.old_string); return start >= 0 && range.from >= start && range.to <= start + c.old_string.length })
       if (match) await acceptSessionSelection(actual.id, match.id)
       else toast(t('comments.suggestionConflict'))
@@ -418,6 +448,9 @@ function sessionCard(box) {
     if (box.cell) {
       const { row, column } = box.cell, before = parseCsv(file.base || '', csvDelimiter)
       csvPut(row, column, before[row]?.[column] || ''); csvSave(); csvWindow = ''; csvRender()
+    } else if (box.bibField) {
+      const patch = sessionBibPatch(file, box.bibField, false)
+      if (patch) cm.dispatch({ changes: patch })
     } else cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } })
   }
   if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) header.append(remove)
@@ -432,14 +465,11 @@ function sessionCard(box) {
     if (next) { const after = el('td', 'tx', next); if (!old) after.colSpan = 2; tr.append(after) }
     table.append(tr)
     card.append(table)
-  } else if (box.bib) {
-    for (const field of sessionBibChanges(file, box.index)) {
-      const item = el('div', 'proposalBibField')
-      item.append(el('b', null, field.label))
-      if (field.old) item.append(el('div', 'qt suggestionDeleted', field.old))
-      if (field.next) item.append(el('div', 'tx', field.next))
-      card.append(item)
-    }
+  } else if (box.bibField) {
+    const field = sessionBibField(file, box.bibField), item = el('div', 'proposalBibField')
+    if (field.before?.value) item.append(el('div', 'qt suggestionDeleted', field.before.value))
+    if (field.after?.value) item.append(el('div', 'tx', field.after.value))
+    card.append(item)
   } else {
     if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
     if (range.next) card.append(el('div', 'tx', range.next))
@@ -450,13 +480,13 @@ function sessionCard(box) {
 function paintSessionSidebar() {
   const s = window.changeSession
   document.querySelectorAll('.package-files').forEach(node => node.remove())
-  document.querySelectorAll('.package-modified').forEach(node => node.classList.remove('package-modified'))
+  document.querySelectorAll('#own .package-modified, #own .package-deleted, #shared .package-modified, #shared .package-deleted').forEach(node => node.classList.remove('package-modified', 'package-deleted'))
   if (!s) return
   const group = el('div', 'package-files')
   group.append(el('b', 'package-caption', s.package?.title || t('packages.draft')))
   sessionFiles(s).forEach(file => {
     const existing = [...document.querySelectorAll('[data-package-key]')].find(row => row.closest('.project-group')?.dataset.projectId === s.project && row.dataset.packageKey === sessionKey(file))
-    if (existing) { existing.classList.add('package-modified'); return }
+    if (existing) { existing.classList.add('package-modified'); existing.classList.toggle('package-deleted', file.action === 'delete'); return }
     const documentTitle = file.kind === 'document' && (projects.find(p => p.id === s.project)?.documents?.find(d => d.id === file.doc_id)?.title || (file.doc_id === docId ? docTitle : ''))
     const name = documentTitle ? documentTitle.replace(/\.typ$/i, '') + '.typ' : file.path
     const row = el('div', 'doc sub package-file'), label = el('span', 't', (file.action === 'add' ? '+ ' : file.action === 'delete' ? '− ' : '') + name)
@@ -485,6 +515,7 @@ async function discardSessionFile(file) {
   s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar()
   if (file.action === 'add' && sessionKey(file) === sessionKey(sessionCurrent())) await switchTab('')
   else await sessionActivate()
+  paintTabs()
 }
 async function sessionOpenFile(file) {
   if (file.doc_id && file.doc_id !== docId) { await openDoc(file.doc_id); if (docId !== file.doc_id) return }
@@ -659,15 +690,31 @@ upText = async file => {
   return (await stageToPackage(file)) ? '' : sessionOriginalUpText(file)
 }
 const sessionOriginalDeleteEntry = deleteProjectEntry, sessionOriginalRenameEntry = renameProjectEntry
+async function stageSessionDelete(identity) {
+  const s = window.changeSession
+  if (!s || !canStageProjectDelete(s.project)) return
+  const f = await sessionEnsure(identity)
+  if (!f || window.changeSession !== s || !canStageProjectDelete(s.project)) return
+  if (f.action === 'add') s.files.delete(sessionKey(f))
+  else { f.action = 'delete'; f.content = null; f.changes = [] }
+  s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); await sessionActivate(); paintTabs()
+}
+async function stageDocumentDelete(document) {
+  if (!window.changeSession && window.suggestionDraft) {
+    try {
+      if (!await leaveSuggestionDraft() || window.suggestionDraft || !await startChangeSession()) return true
+    } catch (e) { toast(e.message); return true }
+  }
+  const s = window.changeSession
+  if (!s) return false
+  if (!projects.find(p => p.id === s.project)?.documents?.some(d => d.id === document)) { toast(t('packages.sourceBlocked')); return true }
+  try { await stageSessionDelete({ kind: 'document', doc_id: document, path: 'main.typ' }) } catch (e) { toast(e.message) }
+  return true
+}
 const originalDeleteProjectEntry = async (project, name, document, resource) => {
   const s = window.changeSession
   if (!s || s.project !== project?.id) return sessionOriginalDeleteEntry(project, name, document, resource)
-  if (s.original || s.busy) return
-  const f = await sessionEnsure({ kind: resource ? 'resource' : 'file', doc_id: resource ? '' : document, path: name })
-  if (!f || window.changeSession !== s) return
-  if (f.action === 'add') s.files.delete(sessionKey(f))
-  else { f.action = 'delete'; f.content = null; f.changes = [] }
-  s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); await sessionActivate()
+  await stageSessionDelete({ kind: resource ? 'resource' : 'file', doc_id: resource ? '' : document, path: name })
 }
 deleteProjectEntry = async (project, name, document, resource) => { // Round5 #4: suggest-mode deletes stage into a package too - the suggester's trash is never touched (accept archives it in the project owner's trash)
   if (!window.changeSession && window.suggestionDraft) {

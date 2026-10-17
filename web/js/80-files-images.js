@@ -119,7 +119,8 @@ function paintTabs() {
   if (activeFile && !items.includes(activeFile)) { activeFile = ''; tabDirty = false; setT(shadow); gutter(); refreshHl(); paintOutline(); items = tabItems() } // deleted/removed: back to main, editor must show main again (else file text leaks into main)
   const canEdit = docRole !== 'reviewer'
   const labels = typeof projects !== 'undefined' ? projects.find(p => p.id === docProject)?.documents?.map(d => d.id + ':' + d.title).join('|') : ''
-  const sig = [docRole, activeFile, $('title').textContent, labels, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
+  const proposalState = [...(window.changeSession?.files.values() || [])].map(f => [f.kind, f.doc_id, f.path, f.action].join(':')).join('|')
+  const sig = [docRole, activeFile, $('title').textContent, labels, proposalState, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
   if (sig === tabSig && bar.firstChild) { bar.style.display = ''; paintSuggestionControls(); return }
   tabSig = sig
   const fk = bar.contains(document.activeElement) && document.activeElement.dataset ? (document.activeElement.dataset.k ?? null) : null // repaint drops focus: give it back below
@@ -131,7 +132,10 @@ function paintTabs() {
     const document = typeof projects !== 'undefined' && projects.find(p => p.id === docProject)?.documents?.find(d => d.id === entry.document)
     const title = document?.title || (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
     const on = k === activeFile, nm = main ? title.replace(/\.typ$/i, '') + '.typ' : entry.name
+    const staged = window.changeSession?.files.get([main ? 'document' : entry.resource ? 'resource' : 'file', entry.resource ? '' : entry.document, main ? 'main.typ' : entry.name].join(':'))
+    const deleted = staged?.action === 'delete'
     const w = el('span', 'tabw' + (on ? ' on' : ''))
+    w.classList.toggle('package-deleted', deleted)
     const b = el('button', 'tab')
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.dataset.k = k
     const ic = el('span', 'ti'); ic.dataset.kind = tabKind(k); ic.setAttribute('aria-hidden', 'true')
@@ -143,9 +147,9 @@ function paintTabs() {
     b.onclick = () => switchTab(k)
     b.ondblclick = () => { if (canEdit) { const p = projects.find(p => p.id === docProject); if (main) renameProjectDocument({ id: entry.document, title }); else if (p) renameProjectEntry(p, entry.name, entry.document, entry.resource); else toast(t('projects.contextGone')) } }
     w.appendChild(b)
-    if (canEdit) {
-      const x = icoBtn('tx', ICO_X); x.title = t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
-      x.onclick = async e => { e.stopPropagation(); try { if (main) { if (!await ask(t('docs.moveTrashConfirm', { title }), { noInput: true })) return; await api('DELETE', `/api/docs/${entry.document}`); if (entry.document === docId) closeView(); await sidebar() } else await deleteProjectEntry(projects.find(p => p.id === docProject), entry.name, entry.document, entry.resource) } catch (error) { toast(error.message) } }
+    if (canEdit || canStageProjectDelete(docProject)) {
+      const x = icoBtn('tx', deleted ? ICO_UNDO : ICO_X); x.title = deleted ? t('packages.discardFile') : t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
+      x.onclick = async e => { e.stopPropagation(); try { if (deleted) { await discardSessionFile(staged); return } if (main) { if (await stageDocumentDelete(entry.document)) return; if (!await ask(t('docs.moveTrashConfirm', { title }), { noInput: true })) return; await api('DELETE', `/api/docs/${entry.document}`); if (entry.document === docId) closeView(); await sidebar() } else await deleteProjectEntry(projects.find(p => p.id === docProject), entry.name, entry.document, entry.resource) } catch (error) { toast(error.message) } }
       w.appendChild(x)
     }
     bar.appendChild(w)

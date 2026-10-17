@@ -27,7 +27,7 @@ async function paintImageFile(name) {
   else view.alt = name
   view.onerror = () => { if (imageFile.dataset.key === key) { imageFile.dataset.failed = '1'; imageFile.hidden = true; $('cmWrap').hidden = false } }
   try {
-    const staged = proposed ? sessionBytes(proposed, session.original) : null
+    const staged = proposed ? sessionBytes(proposed, session.original || proposed.action === 'delete') : null
     if (proposed && staged == null) { toast(t('packages.fileAbsent')); view.onerror(); return }
     const response = staged ? new Response(staged) : await fetch(`/api/docs/${docId}/files/${encodeURIComponent(name)}`)
     if (!response.ok) throw Error(response.status)

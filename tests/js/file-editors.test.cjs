@@ -60,6 +60,22 @@ test('CSV cell review offsets include quoted multiline fields and CRLF correctly
   ])
 })
 
+test('Bib field review patches only the selected field and preserves adjacent proposals', () => {
+  const packages = fs.readFileSync(path.join(root, 'web/js/features/zz-change-packages.js'), 'utf8')
+  vm.runInContext(packages.slice(packages.indexOf('function sessionBibField('), packages.indexOf('function sessionCard(')), context)
+  const base = '@book{key, title={Old {nested} title}, author={Jane}, custom=macro}\n'
+  const content = base.replace('Jane', 'Joan').replace('custom=macro', 'custom=macro, doi={new}')
+  const file = { base, content }
+  const apply = (text, patch) => text.slice(0, patch.from) + patch.insert + text.slice(patch.to)
+  assert.equal(apply(base, context.sessionBibPatch(file, { entry: 0, name: 'author' }, true)), base.replace('Jane', 'Joan'))
+  assert.equal(apply(content, context.sessionBibPatch(file, { entry: 0, name: 'author' }, false)), content.replace('Joan', 'Jane'))
+  assert.equal(parse(apply(content, context.sessionBibPatch(file, { entry: 0, name: 'doi' }, false)))[0].fields.some(f => f.name === 'doi'), false)
+  const added = parse(apply(base, context.sessionBibPatch(file, { entry: 0, name: 'doi' }, true)))[0]
+  assert.equal(added.fields.find(f => f.name === 'doi').value, 'new')
+  assert.equal(added.fields.find(f => f.name === 'author').value, 'Jane')
+  assert.equal(added.fields.find(f => f.name === 'custom').value, 'macro')
+})
+
 test('bundled data parsers reject invalid JSON, YAML and TOML', async () => {
   const { pathToFileURL } = require('node:url')
   const bundle = await import(pathToFileURL(path.join(root, 'vendor-cm.js')).href)

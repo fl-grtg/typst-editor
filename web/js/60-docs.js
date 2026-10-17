@@ -176,10 +176,11 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
       api('POST', `/api/docs/${x.id}/duplicate`).then(r => openDoc(r.id)).catch(e => toast(e.message)).finally(() => dup.disabled = false) } // openDoc repaints list itself
     div.appendChild(dup)
   }
-  if (!shared || (x.project_id && x.role === 'editor')) {
+  if (!shared || (x.project_id && (x.role === 'editor' || canStageProjectDelete(x.project_id)))) {
     const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title)
     del.onclick = async e => {
       e.stopPropagation()
+      if (await stageDocumentDelete(x.id)) return
       if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('common.ok') })) return
       try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
       if (x.id === docId) closeView()

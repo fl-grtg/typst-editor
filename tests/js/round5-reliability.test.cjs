@@ -242,6 +242,8 @@ test('suggest-mode uploads and deletes stage into a package, never touch the liv
     c.window.changeSession.files.set(JSON.stringify(identity), f)
     return f
   }
+  const projects = fs.readFileSync('web/js/features/projects.js', 'utf8')
+  vm.runInContext(projects.slice(projects.indexOf('function canStageProjectDelete('), projects.indexOf('function projectEntries(')), c)
   vm.runInContext(zz.slice(zz.indexOf('const sessionOriginalUpFile = upFile'), zz.indexOf('const sessionOriginalNewResource = newProjectResource')), c)
   const pic = { name: 'pic.png', size: 10, arrayBuffer: async () => new Uint8Array([1]).buffer }
   assert.equal(await c.upFile(pic), '') // routed: '' like every staged upload (no name, no live write)

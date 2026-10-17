@@ -54,6 +54,7 @@ class Selection(BaseModel):
     file_id: str = ""
     change_id: str = ""
     cell: Cell | None = None
+    field_edit: Change | None = None
 
 
 @router.get("/api/projects/{project_id}/proposals")
@@ -121,13 +122,13 @@ async def accept_package(
     project_id: str, package_id: str, body: Selection, req: Request, user: str = Depends(deps.me)
 ) -> dict:
     deps.limited(req, "comments")
-    if (body.change_id or body.cell) and not body.file_id:
+    if (body.change_id or body.cell or body.field_edit) and not body.file_id:
         raise HTTPException(400, "Select the file containing the change")
-    if body.change_id and body.cell:
+    if sum(bool(s) for s in (body.change_id, body.cell, body.field_edit)) > 1:
         raise HTTPException(400, "Select either a text change or a cell")
-    result, updates = await asyncio.to_thread(
+    result, updates, deleted_documents = await asyncio.to_thread(
         packages.accept, user, project_id, package_id, body.revision, body.file_id, body.change_id,
-        body.cell.model_dump() if body.cell else None
+        body.cell.model_dump() if body.cell else None, body.field_edit.model_dump() if body.field_edit else None
     )
     try:
         for room, update, _ in updates:
@@ -142,6 +143,11 @@ async def accept_package(
         # The mutation already committed: a broken broadcast must not surface
         # as a 500 (clients would retry and hit 409 "no longer pending").
         log.warning("proposal accept bcast: %s", e)
+    for document in deleted_documents:
+        try:
+            await sync.drop(document)
+        except Exception as e:
+            log.warning("proposal accept disconnect %s: %s", document, e)
     return result
 
 

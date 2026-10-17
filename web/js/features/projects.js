@@ -1,5 +1,9 @@
 // Projects own documents and their copied resource library.
 function projectEditable(p) { return p.can_edit_library ?? ['owner', 'editor'].includes(p.role) }
+function canStageProjectDelete(project) {
+  const s = window.changeSession
+  return !!s && s.project === project && !s.original && !s.busy && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole))
+}
 function projectEntries(p) {
   const documents = p.documents || [...lastOwn, ...lastShared].filter(d => d.project_id === p.id)
   return { documents, resources: p.resources || [], files: p.files || [] }
@@ -14,6 +18,13 @@ function compactSidebarActions(host, keep = 0) {
   if (actions.length < 2) return
   actions.forEach(button => button.remove())
   projectAction(host, ICO_MORE, t('shell.menuMore'), async () => {
+    const s = window.changeSession
+    const staged = s && host.closest('.project-group')?.dataset.projectId === s.project ? s.files.get(host.dataset.packageKey) : null
+    if (staged?.action === 'delete') {
+      const choice = await askPick(host.title || host.querySelector('.t')?.textContent || '', [[t('packages.discardFile'), '']])
+      if (choice === 0) await discardSessionFile(staged)
+      return
+    }
     const choice = await askPick(host.title || host.querySelector('.t, b')?.textContent || '', actions.map(button => [button.title, '']))
     if (choice != null && !actions[choice]?.disabled) actions[choice]?.click()
   })
@@ -78,6 +89,8 @@ function paintProjects(box, shared) {
       projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name })
       if (projectEditable(p)) {
         projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource))
+      }
+      if (projectEditable(p) || canStageProjectDelete(p.id)) {
         projectAction(row, ICO_TRASH, t('common.delete'), () => deleteProjectEntry(p, name, document, resource))
       }
       compactSidebarActions(row)

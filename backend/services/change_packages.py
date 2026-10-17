@@ -98,8 +98,8 @@ def validate_file(file: dict) -> None:
         raise HTTPException(400, "Project resources have no document scope")
     if file["action"] not in ("modify", "add", "delete", "rename"):
         raise HTTPException(400, "Invalid file action")
-    if file["kind"] == "document" and file["action"] != "modify":
-        raise HTTPException(400, "Document proposals currently modify document text")
+    if file["kind"] == "document" and file["action"] not in ("modify", "delete"):
+        raise HTTPException(400, "Document proposals may modify or delete documents")
     if file.get("binary") and file["kind"] != "file":
         raise HTTPException(400, "Only attachments may be binary")
     if file["action"] == "add" and file.get("base") is not None:
@@ -226,7 +226,10 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
 def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict, str | None]]) -> None:
     texts: dict[tuple[str, str, str], str] = {}
     available = set()
+    deleting = {f['doc_id'] for f, _ in writes if f['kind'] == 'document' and f['action'] == 'delete'}
     for row in con.execute("SELECT id,content FROM docs WHERE project_id=? AND trashed=0", (project,)):
+        if row['id'] in deleting:
+            continue
         identity = ("document", row["id"], "main.typ")
         # room_text() returns "" for an emptied live room (not None) - only
         # a missing room falls back to the DB text, like snapshot().
@@ -248,6 +251,8 @@ def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict
     sensitive = {key(f) for f in pending if f["action"] == "delete" or f["action"] == "rename"}
     sensitive.update((f["kind"], f.get("doc_id", ""), f.get("target", f["path"])) for f in pending if f["action"] in ("add", "rename"))
     for file, content in writes:
+        if file['kind'] == 'file' and file.get('doc_id') in deleting:
+            continue
         identity = key(file)
         if file["action"] in ("delete", "rename"):
             available.discard(identity)
@@ -331,9 +336,11 @@ def csv_cell_content(base: str, proposed: str, row: int, column: int, delimiter:
 
 
 def accept(
-    user: str, project: str, package: str, revision: int, file_id: str = "", change_id: str = "", cell: dict | None = None
-) -> tuple[dict, list]:
+    user: str, project: str, package: str, revision: int, file_id: str = "", change_id: str = "", cell: dict | None = None,
+    field_edit: dict | None = None
+) -> tuple[dict, list, list[str]]:
     updates = []
+    deleted_documents: list[str] = []
     backups: dict[tuple[str, str], bytes | None] = {}
     with ExitStack() as locks:
         locks.enter_context(_named_lock("packages:" + project))
@@ -369,12 +376,17 @@ def accept(
                     if change_id and (file["action"] != "modify" or file.get("binary")):
                         raise HTTPException(400, "Single-change acceptance requires a text modification")
                     current = snapshot(con, project, file)
-                    if cell is not None:
-                        if file["action"] not in ("modify", "add") or file.get("binary") or not file["path"].lower().endswith((".csv", ".tsv")):
-                            raise HTTPException(400, "Cell acceptance requires a CSV or TSV modification")
+                    if cell is not None or field_edit is not None:
+                        extensions = (".bib",) if field_edit else (".csv", ".tsv")
+                        if file["action"] not in ("modify", "add") or file.get("binary") or not file["path"].lower().endswith(extensions):
+                            raise HTTPException(400, "Selection requires a supported structured text modification")
                         if current != file.get("base"):
                             raise HTTPException(409, "Original file changed")
-                        content = csv_cell_content(current or "", file["content"], cell["row"], cell["column"], "\t" if file["path"].lower().endswith(".tsv") else ",")
+                        if field_edit is not None:
+                            content = apply_changes(current or "", [field_edit])
+                        else:
+                            assert cell is not None
+                            content = csv_cell_content(current or "", file["content"], cell["row"], cell["column"], "\t" if file["path"].lower().endswith(".tsv") else ",")
                         if content != file["content"]:
                             remaining.append({**file, "action": "modify", "base": content, "changes": [{"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}]})
                         accepted += 1
@@ -420,11 +432,15 @@ def accept(
                         accepted += 1
                     writes.append((file, content))
                 if not writes and not stale_marked and not proposal["files"] and not file_id:
-                    return proposal, []
+                    return proposal, [], []
                 if not writes and not stale_marked:
                     raise HTTPException(409, "No pending changes selected")
                 if writes:
                     dependencies(con, project, proposal["files"], writes)
+                deleting = {f['doc_id'] for f, _ in writes if f['kind'] == 'document' and f['action'] == 'delete'}
+                if any(f['kind'] == 'file' and f.get('doc_id') in deleting for f in remaining):
+                    raise HTTPException(409, "Accept document deletion and its attachment changes together")
+                writes.sort(key=lambda item: item[0]['kind'] == 'document' and item[0]['action'] == 'delete')
                 for document in documents:
                     names = {entry.path for entry in store.list(document)}
                     for file, content in writes:
@@ -441,7 +457,7 @@ def accept(
                     binary = file.get("binary")
                     if data_size(content, bool(binary)) > (10 * 1024 * 1024 if binary else MAX_TXT):
                         raise HTTPException(413, "Accepted file too large")
-                    if file["action"] == "delete":
+                    if file["action"] == "delete" and file["kind"] != "document":
                         payload = base64.b64decode(original or "") if binary else (original or "").encode()
                         trash.archive(con, owner, file["kind"], file["path"], payload, project_id=project, doc_id=file.get("doc_id", ""))
                     name = file.get("target", file["path"]) if file["action"] == "rename" else file["path"]
@@ -453,6 +469,11 @@ def accept(
                     if file["action"] == "rename" and snapshot(con, project, {**file, "path": name}) is not None:
                         raise HTTPException(409, "Rename target exists")
                     if file["kind"] == "document":
+                        if file["action"] == "delete":
+                            con.execute("UPDATE docs SET content=?,yjs=?,trashed=1,updated_at=? WHERE id=?",
+                                        (original or '', sync.room(file['doc_id'])['doc'].get_update(), db.now_iso(), file['doc_id']))
+                            deleted_documents.append(file['doc_id'])
+                            continue
                         if len((content or "").encode()) > MAX_TXT:
                             raise HTTPException(413, "Document too large")
                         if file["doc_id"] not in doc_before:
@@ -532,4 +553,4 @@ def accept(
             room["saved"] = time.monotonic()
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
-    return result, updates
+    return result, updates, deleted_documents

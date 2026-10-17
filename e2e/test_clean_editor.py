@@ -1,4 +1,5 @@
 """The compact toolbar keeps insertion and staged uploads reachable."""
+import base64
 import re
 
 import pytest
@@ -34,6 +35,7 @@ def test_structured_proposal_actions_without_source_mode(page, extension, action
     page.locator('#own .doc .t').filter(has_text='Structured review').click()
     expect(page.locator('#title')).to_have_text('Structured review')
     expect(page.locator('#wsTxt')).to_have_text('Live')
+    page.wait_for_function('synced')
     page.evaluate('entry => window.openTopPackage(entry)', {'project': project, 'id': package})
     page.wait_for_function('id => window.changeSession?.package?.id === id', arg=package)
     page.locator('#own .doc .t').filter(has_text=name).click()
@@ -52,20 +54,26 @@ def test_structured_proposal_actions_without_source_mode(page, extension, action
         else:
             expect(row.locator('.tx')).to_have_count(0)
     elif change == 'replace':
-        expect(page.locator('#pop .proposalBibField').filter(has_text='Title').locator('.tx')).to_have_text('New title')
-        expect(page.locator('#pop .proposalBibField').filter(has_text='Author(s)').locator('.tx')).to_have_text('Joan')
+        expect(page.locator('#pop .proposalBibField .tx')).to_have_text('New title')
+        expect(page.locator('#pop .proposalBibField')).to_have_count(1)
+        expect(page.locator('#pop')).not_to_contain_text('Joan')
     else:
         expect(page.locator('#pop .tx')).to_have_count(0)
     expect(page.locator('#pop .qt').filter(has_text='Old')).to_contain_text('Old')
     page.locator('#pop .th .hd button').nth(0 if action == 'accept' else 1).click()
     expect(page.locator('#pop')).not_to_be_visible()
-    if action == 'accept':
+    if extension == 'bib' and change == 'replace':
+        page.wait_for_function('window.changeSession && !window.changeSession.busy')
+        expect(page.locator('.bibField').filter(has=page.locator('span', has_text=re.compile('^Title$')))).not_to_have_class(re.compile('bib-proposed'))
+        expect(page.locator('.bib-proposed .proposalFieldAction').filter(has_text='Author(s)')).to_be_visible()
+    elif action == 'accept':
         page.wait_for_function('!window.changeSession')
     else:
         page.wait_for_function("[...window.changeSession.files.values()].every(f => f.content === f.base)")
     expect(page.locator('#cmWrap')).not_to_be_visible()
     resources = page.request.get(f'/api/projects/{project}/resources').json()['resources']
-    assert next(r for r in resources if r['name'] == name)['content'] == (content if action == 'accept' else base)
+    expected = base.replace('Old title', 'New title') if extension == 'bib' and change == 'replace' else content
+    assert next(r for r in resources if r['name'] == name)['content'] == (expected if action == 'accept' else base)
 
 
 def test_bib_draft_marks_and_opens_changed_input_immediately(page):
@@ -117,6 +125,7 @@ def test_csv_review_accepts_and_discards_only_clicked_cell(page):
     page.locator('#own .doc .t').filter(has_text='Cell review').click()
     expect(page.locator('#title')).to_have_text('Cell review')
     expect(page.locator('#wsTxt')).to_have_text('Live')
+    page.wait_for_function('synced')
     page.evaluate('entry => window.openTopPackage(entry)', {'project': project, 'id': package})
     page.wait_for_function('id => window.changeSession?.package?.id === id', arg=package)
     page.locator('#own .doc .t').filter(has_text='data.csv').click()
@@ -138,6 +147,113 @@ def test_csv_review_accepts_and_discards_only_clicked_cell(page):
     page.locator('#pop .th .hd button').nth(1).click()
     page.wait_for_function("[...window.changeSession.files.values()].every(f => f.content === f.base)")
     expect(page.locator('.csv-proposed')).to_have_count(0)
+
+
+@pytest.mark.parametrize('kind', ['document', 'module', 'file'])
+def test_project_deletions_stage_undo_and_accept_without_live_delete(page, kind):
+    register(page, 'stage_del_' + kind)
+    create_doc(page, 'Delete review')
+    expect(page.locator('#wsTxt')).to_have_text('Live')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Delete review')
+    project, target_doc = document['project_id'], document['id']
+    name = {'document': 'Target', 'module': 'layout.typ', 'file': 'picture.png'}[kind]
+    if kind == 'document':
+        target_doc = page.request.post(f'/api/projects/{project}/docs', data={'title': name, 'content': 'Target source'}).json()['id']
+    elif kind == 'module':
+        assert page.request.post(f'/api/projects/{project}/resources', data={'name': name, 'content': 'Module source'}).ok
+    else:
+        image = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==')
+        assert page.request.post(f'/api/docs/{target_doc}/files', multipart={'f': {'name': name, 'mimeType': 'image/png', 'buffer': image}}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Delete review').click()
+    expect(page.locator('#title')).to_have_text('Delete review')
+    expect(page.locator('#wsTxt')).to_have_text('Live')
+    page.locator('#suggestionToggle').click()
+    expect(page.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
+    row = page.locator('#own .doc').filter(has=page.locator('.t', has_text=re.compile('^' + re.escape(name) + '$')))
+    row.hover()
+    row.locator('button[title="Menu"]').click()
+    page.locator('#modal button.pk').filter(has_text='Move to Trash' if kind == 'document' else re.compile('^Delete$')).click()
+    expect(row).to_have_class(re.compile('package-deleted'))
+    assert '−' in row.locator('.t').evaluate('n => getComputedStyle(n, "::before").content')
+    assert page.request.get(f'/api/docs/{target_doc}').ok
+    if kind == 'file':
+        assert page.request.get(f'/api/docs/{target_doc}/files/{name}').ok
+    elif kind == 'module':
+        assert any(r['name'] == name for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'])
+    row.locator('.t').click()
+    expect(page.locator('#title')).to_have_text(name)
+    expect(page.locator('#tabs .tabw.on')).to_have_class(re.compile('package-deleted'))
+    if kind == 'file':
+        expect(page.locator('#imageFile img')).to_be_visible()
+        page.wait_for_function('document.querySelector("#imageFile img")?.naturalWidth > 0')
+        page.locator('#tabs .tabw.on').hover()
+        page.locator('#tabs .tabw.on button[title="Discard file changes"]').click()
+    else:
+        row.hover()
+        row.locator('button[title="Menu"]').click()
+        page.locator('#modal button.pk').filter(has_text='Discard file changes').click()
+    expect(row).not_to_have_class(re.compile('package-deleted'))
+    expect(page.locator('#tabs .tabw.on')).not_to_have_class(re.compile('package-deleted'))
+    if kind == 'document':
+        page.locator('#tabs .tabw.on').hover()
+        page.locator('#tabs .tabw.on button.tx').click()
+    else:
+        page.locator('#menubar [data-menu="file"]').click()
+        page.locator('#menu button').filter(has_text='Move to Trash').click()
+    expect(row).to_have_class(re.compile('package-deleted'))
+    page.locator('.package-tools button[title="Back to editing"]').click()
+    page.locator('#modal button.pk').filter(has_text='Send suggestions').click()
+    page.click('#mYes')
+    page.wait_for_function('!window.changeSession')
+    packages = page.request.get(f'/api/projects/{project}/proposals').json()['packages']
+    proposal = page.request.get(f'/api/projects/{project}/proposals/{packages[0]["id"]}').json()
+    assert proposal['files'][0]['action'] == 'delete'
+    assert page.request.get(f'/api/docs/{target_doc}').ok
+    page.wait_for_function('synced')
+    page.evaluate('entry => window.openTopPackage(entry)', {'project': project, 'id': proposal['id']})
+    page.wait_for_function('id => window.changeSession?.package?.id === id', arg=proposal['id'])
+    page.locator('.package-tools button[title="Menu"]').click()
+    page.locator('#modal button.pk').filter(has_text='Accept file').click()
+    page.wait_for_function('!window.changeSession')
+    expect(page.locator('#title')).to_have_text('Delete review')
+    if kind == 'document':
+        assert page.request.get(f'/api/docs/{target_doc}').status == 410
+    elif kind == 'file':
+        assert page.request.get(f'/api/docs/{target_doc}/files/{name}').status == 404
+    else:
+        assert all(r['name'] != name for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'])
+
+
+def test_reviewer_can_stage_project_document_and_module_deletions_immediately(page, browser, base_url):
+    register(page, 'delete_owner')
+    create_doc(page, 'Shared delete')
+    expect(page.locator('#wsTxt')).to_have_text('Live')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Shared delete')
+    project = document['project_id']
+    target = page.request.post(f'/api/projects/{project}/docs', data={'title': 'Target', 'content': 'Target source'}).json()['id']
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'layout.typ', 'content': 'Module source'}).ok
+    other = browser.new_context(base_url=base_url, locale="en-US")
+    try:
+        peer = other.new_page()
+        register(peer, 'delete_reviewer')
+        assert page.request.post(f'/api/projects/{project}/members', data={'username': 'delete_reviewer', 'role': 'reviewer'}).ok
+        peer.reload()
+        peer.locator('#shared .doc .t').filter(has_text='Shared delete').click()
+        expect(peer.locator('#title')).to_have_text('Shared delete')
+        expect(peer.locator('#wsTxt')).to_have_text('Live')
+        peer.locator('#suggestionToggle').click()
+        expect(peer.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
+        for name in ('Target', 'layout.typ'):
+            row = peer.locator('#shared .doc').filter(has=peer.locator('.t', has_text=re.compile('^' + re.escape(name) + '$')))
+            row.hover()
+            row.locator('button[title="Menu"]').click()
+            peer.locator('#modal button.pk').filter(has_text='Move to Trash' if name == 'Target' else re.compile('^Delete$')).click()
+            expect(row).to_have_class(re.compile('package-deleted'))
+        assert page.request.get(f'/api/docs/{target}').ok
+        assert any(r['name'] == 'layout.typ' for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'])
+    finally:
+        other.close()
 
 
 def test_icon_toolbar_font_size_and_document_draft_label(page):
@@ -256,6 +372,7 @@ def test_review_across_empty_document_and_resource_toggle_preserve_view(page):
     page.locator('#own .doc .t').filter(has_text='Empty').click()
     expect(page.locator('#title')).to_have_text('Empty')
     expect(page.locator('#wsTxt')).to_have_text('Live')
+    page.wait_for_function('synced')
     page.evaluate('entry => window.openTopPackage(entry)', {'project': project, 'id': package})
     page.wait_for_function('id => window.changeSession?.package?.id === id', arg=package)
     page.locator(f'#tabs button[data-k="@doc/{document}"]').click()
@@ -324,6 +441,7 @@ def test_own_repetitive_csv_proposal_can_be_viewed_and_withdrawn(page):
     page.locator('#own .doc .t').filter(has_text='CSV review').click()
     expect(page.locator('#title')).to_have_text('CSV review')
     expect(page.locator('#wsTxt')).to_have_text('Live')
+    page.wait_for_function('synced')
     page.evaluate('entry => window.openTopPackage(entry)', {'project': project, 'id': package})
     page.wait_for_function('id => window.changeSession?.package?.id === id', arg=package)
     page.locator('#own .doc .t').filter(has_text='data.csv').click()

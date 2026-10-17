@@ -660,6 +660,10 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 .csvEditor td.csv-proposed, .bibField.bib-proposed input, .bibField.bib-proposed textarea, .bibField.bib-proposed select { background: rgba(145,90,225,.18); }
 .proposalFieldAction { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; align-self: flex-start; }
 .proposalFieldAction:hover, .proposalFieldAction:focus-visible { color: var(--acc); }
+.package-deleted .t { text-decoration: line-through; }
+.package-deleted .t::before { content: '− '; }
+#tabs .package-deleted .tn { text-decoration: line-through; }
+#tabs .package-deleted .tn::before { content: '− '; }
 .package-caption { display: block; padding: 8px 14px; font-size: 12px; color: #9560d5; overflow-wrap: anywhere; }
 .package-file .t, .package-modified .t { color: #9560d5; }
 .package-tools button.on { background: rgba(145,90,225,.2); color: #9560d5; }
@@ -878,7 +882,7 @@ body.present-switch .pvPage { transition: none !important; }
 .suggestionCard pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; padding: 8px; border-radius: var(--r-sm); font: 12px/1.5 var(--mono); }
 .suggestionCard .before { background: var(--danger-soft); }
 .suggestionCard .after { background: rgba(145, 90, 225, .14); }
-.proposalCells { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.proposalCells { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; }
 .proposalCells th { width: 42px; text-align: left; color: var(--sub); font: 12px var(--mono); }
 #pop .proposalCells td { display: table-cell; width: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px; border-bottom: 1px solid var(--line); border-radius: 0; cursor: default; }
 #pop .proposalCells .tx { background: var(--acc-soft); }
@@ -2304,8 +2308,13 @@ function pvCall(job, id) { // one compile round-trip (rejects into the render er
       if (id !== renderN) { done(); ok({ skip: true }); return } // stale: newer render queued, spare the worker
       const w = pvEnsureWorker()
       if (!w || pvWorkerFail || !pvWorkerOk) { done(); bad(new Error(t('preview.compileFailed'))); return }
-      pvJobs.set(job.id, { ok: m => { done(); ok(m) }, bad: e => { done(); bad(e) } })
-      try { w.postMessage(job) } catch (e) { pvJobs.delete(job.id); done(); bad(e) }
+      const message = { ...job, full: job.sig !== pvSentSig || !pvMapped }
+      if (!message.full) { delete message.files; delete message.tpl }
+      pvJobs.set(job.id, {
+        ok: m => { pvSentSig = job.sig; pvMapped = true; done(); ok(m) },
+        bad: e => { pvMapped = false; done(); bad(e) }
+      })
+      try { w.postMessage(message) } catch (e) { pvJobs.delete(job.id); pvMapped = false; done(); bad(e) }
     }))
   })
 }
@@ -2429,17 +2438,13 @@ async function render() {
     const main = window.changeSession ? sessionMainText() : activeFile ? shadow : getT() // file tab: preview still compiles main.typ
     const pf = await pvFiles()
     if (!pf || pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
-    const job = { cmd: 'work', id: ++pvJobN, main }
-    if (pf.sig !== pvSentSig || !pvMapped) { // worker shadow: full set once, then only main.typ
-      job.full = true
-      job.files = [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes }))
-      job.tpl = (pf.tpl || []).map(x => ({ name: x.name, content: x.content }))
-    }
+    const job = { cmd: 'work', id: ++pvJobN, main, sig: pf.sig,
+      files: [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes })),
+      tpl: (pf.tpl || []).map(x => ({ name: x.name, content: x.content })) }
     const m = await pvCall(job, id) // compile off the main thread: typing stays fluid
     if (!m || m.skip || pvStale(id, myDoc, myTplName)) return
     wDiags = m.diags
     if (pvStale(id, myDoc, myTplName)) return
-    pvSentSig = pf.sig; pvMapped = true
     const doc = await pdfjsLib.getDocument({ data: m.pdf }).promise
     if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
     oldPdf?.destroy(); oldPdf = doc
@@ -3044,10 +3049,11 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
       api('POST', `/api/docs/${x.id}/duplicate`).then(r => openDoc(r.id)).catch(e => toast(e.message)).finally(() => dup.disabled = false) } // openDoc repaints list itself
     div.appendChild(dup)
   }
-  if (!shared || (x.project_id && x.role === 'editor')) {
+  if (!shared || (x.project_id && (x.role === 'editor' || canStageProjectDelete(x.project_id)))) {
     const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title)
     del.onclick = async e => {
       e.stopPropagation()
+      if (await stageDocumentDelete(x.id)) return
       if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('common.ok') })) return
       try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
       if (x.id === docId) closeView()
@@ -4191,7 +4197,8 @@ function paintTabs() {
   if (activeFile && !items.includes(activeFile)) { activeFile = ''; tabDirty = false; setT(shadow); gutter(); refreshHl(); paintOutline(); items = tabItems() } // deleted/removed: back to main, editor must show main again (else file text leaks into main)
   const canEdit = docRole !== 'reviewer'
   const labels = typeof projects !== 'undefined' ? projects.find(p => p.id === docProject)?.documents?.map(d => d.id + ':' + d.title).join('|') : ''
-  const sig = [docRole, activeFile, $('title').textContent, labels, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
+  const proposalState = [...(window.changeSession?.files.values() || [])].map(f => [f.kind, f.doc_id, f.path, f.action].join(':')).join('|')
+  const sig = [docRole, activeFile, $('title').textContent, labels, proposalState, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
   if (sig === tabSig && bar.firstChild) { bar.style.display = ''; paintSuggestionControls(); return }
   tabSig = sig
   const fk = bar.contains(document.activeElement) && document.activeElement.dataset ? (document.activeElement.dataset.k ?? null) : null // repaint drops focus: give it back below
@@ -4203,7 +4210,10 @@ function paintTabs() {
     const document = typeof projects !== 'undefined' && projects.find(p => p.id === docProject)?.documents?.find(d => d.id === entry.document)
     const title = document?.title || (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
     const on = k === activeFile, nm = main ? title.replace(/\.typ$/i, '') + '.typ' : entry.name
+    const staged = window.changeSession?.files.get([main ? 'document' : entry.resource ? 'resource' : 'file', entry.resource ? '' : entry.document, main ? 'main.typ' : entry.name].join(':'))
+    const deleted = staged?.action === 'delete'
     const w = el('span', 'tabw' + (on ? ' on' : ''))
+    w.classList.toggle('package-deleted', deleted)
     const b = el('button', 'tab')
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.dataset.k = k
     const ic = el('span', 'ti'); ic.dataset.kind = tabKind(k); ic.setAttribute('aria-hidden', 'true')
@@ -4215,9 +4225,9 @@ function paintTabs() {
     b.onclick = () => switchTab(k)
     b.ondblclick = () => { if (canEdit) { const p = projects.find(p => p.id === docProject); if (main) renameProjectDocument({ id: entry.document, title }); else if (p) renameProjectEntry(p, entry.name, entry.document, entry.resource); else toast(t('projects.contextGone')) } }
     w.appendChild(b)
-    if (canEdit) {
-      const x = icoBtn('tx', ICO_X); x.title = t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
-      x.onclick = async e => { e.stopPropagation(); try { if (main) { if (!await ask(t('docs.moveTrashConfirm', { title }), { noInput: true })) return; await api('DELETE', `/api/docs/${entry.document}`); if (entry.document === docId) closeView(); await sidebar() } else await deleteProjectEntry(projects.find(p => p.id === docProject), entry.name, entry.document, entry.resource) } catch (error) { toast(error.message) } }
+    if (canEdit || canStageProjectDelete(docProject)) {
+      const x = icoBtn('tx', deleted ? ICO_UNDO : ICO_X); x.title = deleted ? t('packages.discardFile') : t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
+      x.onclick = async e => { e.stopPropagation(); try { if (deleted) { await discardSessionFile(staged); return } if (main) { if (await stageDocumentDelete(entry.document)) return; if (!await ask(t('docs.moveTrashConfirm', { title }), { noInput: true })) return; await api('DELETE', `/api/docs/${entry.document}`); if (entry.document === docId) closeView(); await sidebar() } else await deleteProjectEntry(projects.find(p => p.id === docProject), entry.name, entry.document, entry.resource) } catch (error) { toast(error.message) } }
       w.appendChild(x)
     }
     bar.appendChild(w)
@@ -6154,6 +6164,11 @@ $('docPick').onchange = async () => {
 }
 $('del').onclick = async () => {
   const doc = docId, resource = tplName, epoch = openN
+  if (window.changeSession || window.suggestionDraft) {
+    if (activeFile) await deleteProjectEntry({ id: docProject }, tabName(activeFile), docId, isTplKey(activeFile))
+    else await stageDocumentDelete(doc)
+    return
+  }
   if (tplName) { // delete open template
     if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('common.delete'), danger: true })) return
     if (resource !== tplName || epoch !== openN) return
@@ -6528,7 +6543,7 @@ const bibPanel = el('div', 'bibEditor'); bibPanel.hidden = true; $('editWrap').a
 const emptyFileLanguage = []
 let bibEditing = false
 let bibQuery = ''
-let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, validationTimer = 0
+let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, bibProposal = null, bibOriginal = false, validationTimer = 0
 function parseBib(text) {
   const entries = [], re = /@(\w+)\s*([{(])/g; let match
   while ((match = re.exec(text))) {
@@ -6603,9 +6618,10 @@ function paintBib() {
   const source = getT(), editable = cm.state.facet(EditorView.editable)
   const emptyYears = editable ? emptyBibYearChanges(source) : []
   if (emptyYears.length) { queueMicrotask(() => { if (identity === bibIdentity && source === getT() && cm.state.facet(EditorView.editable)) cm.dispatch({ changes: emptyYears, userEvent: 'input' }) }); return }
-  if (source === bibSource && editable === bibEditable) return
+  const proposal = window.changeSession?.files.get(sessionKey(sessionCurrent())) || null, original = !!window.changeSession?.original
+  if (source === bibSource && editable === bibEditable && proposal === bibProposal && original === bibOriginal) return
   const listScroll = bibPanel.querySelector('.bibList')?.scrollTop || 0
-  bibSource = source; bibEditable = editable; bibPanel.replaceChildren()
+  bibSource = source; bibEditable = editable; bibProposal = proposal; bibOriginal = original; bibPanel.replaceChildren()
   const bar = el('div', 'bibBar'), raw = el('button', 'btn', t(bibRaw ? 'editor.entries' : 'editor.source'))
   raw.onclick = () => { bibRaw = !bibRaw; bibSource = null; paintBib() }
   const add = el('button', 'btn', t('editor.newEntry')); add.disabled = !editable
@@ -6648,9 +6664,9 @@ function paintBib() {
       const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
       const originals = parseBib(original?.base || ''), before = originals.find(e => e.key === entry.key) || originals[bibSelected]
       const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
-      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo } : e.fields.find(f => f.name === fieldName)
+      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo, value: e.key } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === fieldName)
       const current = range(parseBib(getT())[bibSelected]), old = range(before)
-      const proposed = !!original && sessionFieldIndex(current?.from, current?.to, old) >= 0
+      const proposed = !!original && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
       row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
       caption.onclick = input.onclick = caption.onkeydown = null
       caption.removeAttribute('role'); caption.removeAttribute('tabindex'); caption.removeAttribute('title')
@@ -6659,7 +6675,8 @@ function paintBib() {
         caption.onclick = input.onclick = e => {
           if (e.currentTarget === caption) e.preventDefault()
           const latest = range(parseBib(getT())[bibSelected])
-          openSessionField(latest?.from, latest?.to, row, old)
+          const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
+          openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name })
         }
         caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }
       }
@@ -6964,7 +6981,7 @@ async function paintImageFile(name) {
   else view.alt = name
   view.onerror = () => { if (imageFile.dataset.key === key) { imageFile.dataset.failed = '1'; imageFile.hidden = true; $('cmWrap').hidden = false } }
   try {
-    const staged = proposed ? sessionBytes(proposed, session.original) : null
+    const staged = proposed ? sessionBytes(proposed, session.original || proposed.action === 'delete') : null
     if (proposed && staged == null) { toast(t('packages.fileAbsent')); view.onerror(); return }
     const response = staged ? new Response(staged) : await fetch(`/api/docs/${docId}/files/${encodeURIComponent(name)}`)
     if (!response.ok) throw Error(response.status)
@@ -7158,6 +7175,10 @@ async function paintImageFile(name) {
 })()
 // Projects own documents and their copied resource library.
 function projectEditable(p) { return p.can_edit_library ?? ['owner', 'editor'].includes(p.role) }
+function canStageProjectDelete(project) {
+  const s = window.changeSession
+  return !!s && s.project === project && !s.original && !s.busy && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole))
+}
 function projectEntries(p) {
   const documents = p.documents || [...lastOwn, ...lastShared].filter(d => d.project_id === p.id)
   return { documents, resources: p.resources || [], files: p.files || [] }
@@ -7172,6 +7193,13 @@ function compactSidebarActions(host, keep = 0) {
   if (actions.length < 2) return
   actions.forEach(button => button.remove())
   projectAction(host, ICO_MORE, t('shell.menuMore'), async () => {
+    const s = window.changeSession
+    const staged = s && host.closest('.project-group')?.dataset.projectId === s.project ? s.files.get(host.dataset.packageKey) : null
+    if (staged?.action === 'delete') {
+      const choice = await askPick(host.title || host.querySelector('.t')?.textContent || '', [[t('packages.discardFile'), '']])
+      if (choice === 0) await discardSessionFile(staged)
+      return
+    }
     const choice = await askPick(host.title || host.querySelector('.t, b')?.textContent || '', actions.map(button => [button.title, '']))
     if (choice != null && !actions[choice]?.disabled) actions[choice]?.click()
   })
@@ -7236,6 +7264,8 @@ function paintProjects(box, shared) {
       projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name })
       if (projectEditable(p)) {
         projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource))
+      }
+      if (projectEditable(p) || canStageProjectDelete(p.id)) {
         projectAction(row, ICO_TRASH, t('common.delete'), () => deleteProjectEntry(p, name, document, resource))
       }
       compactSidebarActions(row)
@@ -8330,6 +8360,7 @@ async function startChangeSession(proposal = null) {
     if (project !== docProject || docId !== current || openN !== epoch || window.changeSession || window.suggestionDraft) return
     window.changeSession = s
     await sessionActivate()
+    paintOwn(); paintShared(lastShared); paintTabs()
     return window.changeSession === s
   } finally {
     sessionStarting = false
@@ -8432,14 +8463,16 @@ async function openTopPackage(entry) {
   } catch (e) { toast(e.message) }
 }
 window.openTopPackage = openTopPackage
-async function acceptSessionSelection(fileId = '', changeId = '', cell = null) {
+async function acceptSessionSelection(fileId = '', changeId = '', cell = null, fieldEdit = null) {
   const s = window.changeSession
   if (!s?.package || s.busy || !await saveSessionCorrections() || window.changeSession !== s) return
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
   try {
-    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell })
+    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell, field_edit: fieldEdit })
     if (window.changeSession !== s) return
-    const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const deletedCurrent = [...s.files.values()].some(f => f.kind === 'document' && f.doc_id === docId && f.action === 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const deletedActive = [...s.files.values()].some(f => f.kind !== 'document' && sessionKey(f) === sessionKey(sessionCurrent()) && f.action === 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && f.action !== 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
     s.package = proposal; s.files = new Map(proposal.files.map(f => [sessionKey(f), sessionRuntime(f)]))
     if (proposal.files.length) for (const old of acceptedDocuments) {
       const current = await api('GET', '/api/docs/' + old.doc_id)
@@ -8449,7 +8482,18 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null) {
     s.commentRanges.clear(); s.dirty = false; s.previewRevision++; s.original = false; filesDirty = true; fileCache.clear(); pvSentSig = ''; closePop(true)
     for (const th of threads) { th.a = null; th.b = null } // accepted text replaced the base: rebuild comment ranges on the fresh shadow
     initRanges(); invalidateCommentCache() // the accepted text reaches shadow via WS: the stale-ordered re-anchor must not stick behind the poll dedupe
-    if (!proposal.files.length) { s.busy = false; await endChangeSession(true) }
+    if (deletedActive) {
+      if (isTplKey(activeFile)) await loadDocResources(true)
+      else lastFiles = lastFiles.filter(f => f.name !== activeFile)
+      activeFile = ''; tabDirty = false; setT(shadow); tabSig = ''
+    }
+    if (deletedCurrent) {
+      const deletedId = docId
+      s.busy = false; await endChangeSession(true); closeView()
+      const fallback = projects.find(p => p.id === s.project)?.documents?.find(d => d.id !== deletedId)
+      if (fallback) { await openDoc(fallback.id); if (proposal.files.length) await startChangeSession(proposal) }
+    }
+    else if (!proposal.files.length) { s.busy = false; await endChangeSession(true) }
     else { s.busy = false; await loadDocResources(true); await sessionActivate(); await sidebar() }
   } catch (e) { toast(e.message) }
   finally { s.busy = false; if (window.changeSession === s) await sessionActivate(); paintSuggestionControls() }
@@ -8507,36 +8551,44 @@ function sessionFieldIndex(from, to, before = null) {
     from != null && (r.a === r.b ? r.a >= from && r.a <= to : r.a < to && r.b > from) ||
     before && r.from < before.to && r.to > before.from)
 }
-function openSessionField(from, to, node, before = null, cell = null) {
+function openSessionField(from, to, node, before = null, cell = null, bibField = null) {
   const index = sessionFieldIndex(from, to, before)
-  if (index >= 0) openSessionChange(index, [node], cell)
+  if (index >= 0) openSessionChange(index, [node], cell, bibField)
 }
-function openSessionChange(index, anchors = null, cell = null) {
+function openSessionChange(index, anchors = null, cell = null, bibField = null) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[index]
   if (!range || s.original) return
   const nodes = anchors || [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
   const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
-  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bib: !!anchors?.[0].classList.contains('bibField') })
+  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bibField })
 }
-function sessionBibChanges(file, index) {
-  const before = parseBib(file.base || ''), after = parseBib(file.content || ''), changes = []
-  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
-  for (let i = 0; i < Math.max(before.length, after.length); i++) {
-    const next = after[i], old = before.find(e => e.key === next?.key) || before[i]
-    const fields = e => !e ? [] : [
-      { name: 'key', value: e.key, from: e.keyFrom, to: e.keyTo },
-      { name: 'type', value: e.type, from: e.typeFrom, to: e.typeTo }, ...e.fields
-    ]
-    const previous = fields(old), current = fields(next)
-    for (const name of new Set([...previous, ...current].map(f => f.name))) {
-      const a = previous.find(f => f.name === name), b = current.find(f => f.name === name)
-      if ((a?.value || '') !== (b?.value || '') && sessionFieldIndex(b?.from, b?.to, a) === index) {
-        const label = name === 'key' ? t('editor.entryKey') : name === 'type' ? t('editor.entryType') : labels[name] || name
-        changes.push({ label: before.length > 1 || after.length > 1 ? (next?.key || old?.key || '') + ' · ' + label : label, old: a?.value || '', next: b?.value || '' })
-      }
-    }
+function sessionBibField(file, selector) {
+  const before = parseBib(file.base || ''), after = parseBib(file.content || '')
+  const next = after[selector.entry], old = before.find(e => e.key === next?.key) || before[selector.entry]
+  const field = e => !e ? null : selector.name === '$key' ? { from: e.keyFrom, to: e.keyTo, value: e.key } : selector.name === '$type' ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === selector.name)
+  return { old, next, before: field(old), after: field(next) }
+}
+function sessionBibPatch(file, selector, accept) {
+  const field = sessionBibField(file, selector), text = accept ? file.base || '' : file.content
+  const target = accept ? field.old : field.next, source = accept ? field.next : field.old
+  const previous = accept ? field.before : field.after, value = accept ? field.after : field.before
+  const sourceText = accept ? file.content : file.base || ''
+  if (!target) {
+    if (!source) return null
+    const body = value && !selector.name.startsWith('$') ? selector.name + ' = ' + sourceText.slice(value.from, value.to) + ',\n' : ''
+    return { from: text.length, to: text.length, insert: '\n@' + source.type + '{' + source.key + ',\n' + body + '}\n' }
   }
-  return changes
+  if (selector.name.startsWith('$')) {
+    if (!value) return { from: target.from, to: target.to, insert: '' }
+    return { from: previous.from, to: previous.to, insert: value.value }
+  }
+  if (!value) return previous ? { from: previous.statementFrom, to: previous.statementTo, insert: '' } : null
+  const raw = sourceText.slice(value.from, value.to)
+  if (previous) return { from: previous.from, to: previous.to, insert: raw }
+  const following = source.fields.slice(source.fields.indexOf(value) + 1).map(f => target.fields.find(t => t.name === f.name)).find(Boolean)
+  const at = following ? following.statementFrom : target.end
+  const prefix = text.slice(target.from, at).trimEnd().endsWith(',') ? '' : ','
+  return { from: at, to: at, insert: prefix + sourceText.slice(value.statementFrom, value.statementTo) }
 }
 function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
@@ -8549,6 +8601,14 @@ function sessionCard(box) {
       if (!await saveSessionCorrections()) return
       const actual = s.files.get(sessionKey(sessionCurrent()))
       if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
+      if (box.bibField) {
+        const patch = sessionBibPatch(actual, box.bibField, true)
+        if (!patch) return
+        const state = EditorState.create({ doc: actual.base || '' }), delta = state.changes(patch)
+        const edits = suggestionChanges(actual.base || '', delta.apply(state.doc).toString(), delta)
+        if (edits.length === 1) await acceptSessionSelection(actual.id, '', null, edits[0])
+        return
+      }
       const match = actual?.changes?.find(c => { const start = actual.base.indexOf(c.old_string); return start >= 0 && range.from >= start && range.to <= start + c.old_string.length })
       if (match) await acceptSessionSelection(actual.id, match.id)
       else toast(t('comments.suggestionConflict'))
@@ -8562,6 +8622,9 @@ function sessionCard(box) {
     if (box.cell) {
       const { row, column } = box.cell, before = parseCsv(file.base || '', csvDelimiter)
       csvPut(row, column, before[row]?.[column] || ''); csvSave(); csvWindow = ''; csvRender()
+    } else if (box.bibField) {
+      const patch = sessionBibPatch(file, box.bibField, false)
+      if (patch) cm.dispatch({ changes: patch })
     } else cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } })
   }
   if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) header.append(remove)
@@ -8576,14 +8639,11 @@ function sessionCard(box) {
     if (next) { const after = el('td', 'tx', next); if (!old) after.colSpan = 2; tr.append(after) }
     table.append(tr)
     card.append(table)
-  } else if (box.bib) {
-    for (const field of sessionBibChanges(file, box.index)) {
-      const item = el('div', 'proposalBibField')
-      item.append(el('b', null, field.label))
-      if (field.old) item.append(el('div', 'qt suggestionDeleted', field.old))
-      if (field.next) item.append(el('div', 'tx', field.next))
-      card.append(item)
-    }
+  } else if (box.bibField) {
+    const field = sessionBibField(file, box.bibField), item = el('div', 'proposalBibField')
+    if (field.before?.value) item.append(el('div', 'qt suggestionDeleted', field.before.value))
+    if (field.after?.value) item.append(el('div', 'tx', field.after.value))
+    card.append(item)
   } else {
     if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
     if (range.next) card.append(el('div', 'tx', range.next))
@@ -8594,13 +8654,13 @@ function sessionCard(box) {
 function paintSessionSidebar() {
   const s = window.changeSession
   document.querySelectorAll('.package-files').forEach(node => node.remove())
-  document.querySelectorAll('.package-modified').forEach(node => node.classList.remove('package-modified'))
+  document.querySelectorAll('#own .package-modified, #own .package-deleted, #shared .package-modified, #shared .package-deleted').forEach(node => node.classList.remove('package-modified', 'package-deleted'))
   if (!s) return
   const group = el('div', 'package-files')
   group.append(el('b', 'package-caption', s.package?.title || t('packages.draft')))
   sessionFiles(s).forEach(file => {
     const existing = [...document.querySelectorAll('[data-package-key]')].find(row => row.closest('.project-group')?.dataset.projectId === s.project && row.dataset.packageKey === sessionKey(file))
-    if (existing) { existing.classList.add('package-modified'); return }
+    if (existing) { existing.classList.add('package-modified'); existing.classList.toggle('package-deleted', file.action === 'delete'); return }
     const documentTitle = file.kind === 'document' && (projects.find(p => p.id === s.project)?.documents?.find(d => d.id === file.doc_id)?.title || (file.doc_id === docId ? docTitle : ''))
     const name = documentTitle ? documentTitle.replace(/\.typ$/i, '') + '.typ' : file.path
     const row = el('div', 'doc sub package-file'), label = el('span', 't', (file.action === 'add' ? '+ ' : file.action === 'delete' ? '− ' : '') + name)
@@ -8629,6 +8689,7 @@ async function discardSessionFile(file) {
   s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar()
   if (file.action === 'add' && sessionKey(file) === sessionKey(sessionCurrent())) await switchTab('')
   else await sessionActivate()
+  paintTabs()
 }
 async function sessionOpenFile(file) {
   if (file.doc_id && file.doc_id !== docId) { await openDoc(file.doc_id); if (docId !== file.doc_id) return }
@@ -8803,15 +8864,31 @@ upText = async file => {
   return (await stageToPackage(file)) ? '' : sessionOriginalUpText(file)
 }
 const sessionOriginalDeleteEntry = deleteProjectEntry, sessionOriginalRenameEntry = renameProjectEntry
+async function stageSessionDelete(identity) {
+  const s = window.changeSession
+  if (!s || !canStageProjectDelete(s.project)) return
+  const f = await sessionEnsure(identity)
+  if (!f || window.changeSession !== s || !canStageProjectDelete(s.project)) return
+  if (f.action === 'add') s.files.delete(sessionKey(f))
+  else { f.action = 'delete'; f.content = null; f.changes = [] }
+  s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); await sessionActivate(); paintTabs()
+}
+async function stageDocumentDelete(document) {
+  if (!window.changeSession && window.suggestionDraft) {
+    try {
+      if (!await leaveSuggestionDraft() || window.suggestionDraft || !await startChangeSession()) return true
+    } catch (e) { toast(e.message); return true }
+  }
+  const s = window.changeSession
+  if (!s) return false
+  if (!projects.find(p => p.id === s.project)?.documents?.some(d => d.id === document)) { toast(t('packages.sourceBlocked')); return true }
+  try { await stageSessionDelete({ kind: 'document', doc_id: document, path: 'main.typ' }) } catch (e) { toast(e.message) }
+  return true
+}
 const originalDeleteProjectEntry = async (project, name, document, resource) => {
   const s = window.changeSession
   if (!s || s.project !== project?.id) return sessionOriginalDeleteEntry(project, name, document, resource)
-  if (s.original || s.busy) return
-  const f = await sessionEnsure({ kind: resource ? 'resource' : 'file', doc_id: resource ? '' : document, path: name })
-  if (!f || window.changeSession !== s) return
-  if (f.action === 'add') s.files.delete(sessionKey(f))
-  else { f.action = 'delete'; f.content = null; f.changes = [] }
-  s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); await sessionActivate()
+  await stageSessionDelete({ kind: resource ? 'resource' : 'file', doc_id: resource ? '' : document, path: name })
 }
 deleteProjectEntry = async (project, name, document, resource) => { // Round5 #4: suggest-mode deletes stage into a package too - the suggester's trash is never touched (accept archives it in the project owner's trash)
   if (!window.changeSession && window.suggestionDraft) {
