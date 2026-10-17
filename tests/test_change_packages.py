@@ -8,6 +8,58 @@ from pycrdt import Text
 
 from backend import sync
 from backend.services import quota
+from backend.services.change_packages import csv_cell_content
+
+
+@pytest.mark.parametrize('base,proposed,row,column,expected', [
+    ('a,b\r\n"keep",old\r\nx,y\r\n', 'a,b\r\nkeep,new\r\nx,other\r\n', 1, 1, 'a,b\r\n"keep",new\r\nx,y\r\n'),
+    ('a,b\n', 'a,b,new\nx,y,last\n', 0, 2, 'a,b,new\n'),
+    ('a,b\n', 'a,b\n\n,,new\n,,,last\n', 2, 2, 'a,b\n\n,,new\n'),
+    ('a,b\nx,y\n', 'a,b\n', 1, 0, 'a,b\n,y\n'),
+    ('a,b\n,y\n', 'a,b\n', 1, 1, 'a,b\n'),
+    ('a,b\nold,z\n', 'a,b\n"new,\nvalue",other\n', 1, 0, 'a,b\n"new,\nvalue",z\n'),
+])
+def test_csv_cell_accept_preserves_other_values_and_raw_format(base, proposed, row, column, expected):
+    assert csv_cell_content(base, proposed, row, column, ',') == expected
+
+
+def test_csv_cell_accept_keeps_other_proposals_pending(c):
+    project, _ = setup(c)
+    base, proposed = 'a,b\nold,keep\n', 'a,b\nnew,changed\n'
+    assert c.post(f'/api/projects/{project}/resources', json={'name': 'data.csv', 'content': base}).status_code == 200
+    package = submit(c, project, [{'kind': 'resource', 'path': 'data.csv', 'action': 'modify', 'base': base, 'content': proposed,
+                                  'changes': [{'old_string': base, 'new_string': proposed}]}])
+    file = package['files'][0]
+    response = accept(c, project, package, file_id=file['id'], cell={'row': 1, 'column': 0})
+    assert response.status_code == 200, response.text
+    partial = response.json()
+    assert partial['files'][0]['base'] == 'a,b\nnew,keep\n'
+    assert partial['files'][0]['content'] == proposed
+    resources = c.get(f'/api/projects/{project}/resources').json()['resources']
+    assert next(r for r in resources if r['name'] == 'data.csv')['content'] == 'a,b\nnew,keep\n'
+    assert accept(c, project, package, file_id=file['id'], cell={'row': 1, 'column': 1}).status_code == 409
+    assert accept(c, project, partial, file_id=file['id'], cell={'row': 1, 'column': 0}).status_code == 409
+    assert accept(c, project, partial, file_id=file['id'], cell={'row': 1, 'column': 1}).json()['files'] == []
+
+
+def test_csv_added_file_cell_accept_and_permission_validation(c):
+    project, _ = setup(c)
+    package = submit(c, project, [{'kind': 'resource', 'path': 'new.tsv', 'action': 'add', 'content': 'first\tsecond\n'}])
+    file = package['files'][0]
+    assert accept(c, project, package, cell={'row': 0, 'column': 0}).status_code == 400
+    assert accept(c, project, package, file_id=file['id'], cell={'row': -1, 'column': 0}).status_code == 400
+    register_user(c, 'bob')
+    login(c, 'alice')
+    c.post(f'/api/projects/{project}/members', json={'username': 'bob', 'role': 'reviewer'})
+    login(c, 'bob')
+    assert accept(c, project, package, file_id=file['id'], cell={'row': 0, 'column': 0}).status_code == 403
+    login(c, 'alice')
+    response = accept(c, project, package, file_id=file['id'], cell={'row': 0, 'column': 0})
+    assert response.status_code == 200, response.text
+    partial = response.json()
+    assert partial['files'][0]['action'] == 'modify'
+    assert partial['files'][0]['base'] == 'first'
+    assert accept(c, project, partial, file_id=file['id'], cell={'row': 0, 'column': 1}).json()['files'] == []
 
 
 def setup(c, content="first old\nlast old\n"):

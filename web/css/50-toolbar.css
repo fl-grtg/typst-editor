@@ -9,7 +9,7 @@
 #tools button { min-width: 28px; height: 30px; padding: 0 5px; font-size: 13px; }
 #tools button:disabled { opacity: .35; }
 #tools .fmt { display: inline-flex; gap: 1px; padding-right: 4px; margin-right: 4px; border-right: 1px solid var(--line); }
-#tools .fmt.last { border-right: 0; }
+#tools .fmt.last { border-right: 0; padding-right: 0; margin-right: 0; }
 #tools .fmt button { color: var(--text); }
 #tools .fmt .glyph { font: 700 13px/1 var(--ui); }
 #tools .fmt .glyph.i { font-style: italic; font-family: Georgia, "Times New Roman", serif; font-size: 14px; }

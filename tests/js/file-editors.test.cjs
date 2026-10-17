@@ -49,6 +49,17 @@ test('CSV and TSV preserve quoted tabs, line breaks and empty fields', () => {
   }
 })
 
+test('CSV cell review offsets include quoted multiline fields and CRLF correctly', () => {
+  const csv = fs.readFileSync(path.join(root, 'web/js/features/csv.js'), 'utf8')
+  const ctx = vm.createContext({})
+  vm.runInContext(csv.slice(0, csv.indexOf('const csvGrid')), ctx)
+  const text = 'a,"two,""quotes""\nand lines",\r\nb,c,d\r\n'
+  const spans = plain(ctx.parseCsv(text, ',', true))
+  assert.deepEqual(spans.map(row => row.map(r => text.slice(r.from, r.to))), [
+    ['a', '"two,""quotes""\nand lines"', ''], ['b', 'c', 'd']
+  ])
+})
+
 test('bundled data parsers reject invalid JSON, YAML and TOML', async () => {
   const { pathToFileURL } = require('node:url')
   const bundle = await import(pathToFileURL(path.join(root, 'vendor-cm.js')).href)

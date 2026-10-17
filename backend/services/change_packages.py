@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import json
 import logging
 import posixpath
@@ -267,8 +269,69 @@ def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict
                     raise HTTPException(409, "Accept the referenced file and its text changes together: " + ref)
 
 
+def csv_cell_content(base: str, proposed: str, row: int, column: int, delimiter: str) -> str:
+    def values(text):
+        return list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
+
+    old, new = values(base), values(proposed)
+    def value(rows):
+        return rows[row][column] if row < len(rows) and column < len(rows[row]) else ""
+
+    target = value(new)
+    if value(old) == target:
+        raise HTTPException(409, "Cell is no longer pending")
+    encoded = io.StringIO(newline="")
+    csv.writer(encoded, delimiter=delimiter, lineterminator="\r\n").writerow([target])
+    replacement = encoded.getvalue()[:-2] if target else ""
+    # Locate the raw cell without reserializing unrelated quoting/line endings.
+    r = c = start = i = 0
+    quoted = False
+    bounds = None
+    row_end = None
+    while i <= len(base):
+        ch = base[i] if i < len(base) else ""
+        if ch == '"':
+            if quoted and i + 1 < len(base) and base[i + 1] == '"':
+                i += 2
+                continue
+            quoted = not quoted
+        if i == len(base) or not quoted and ch in (delimiter, "\r", "\n"):
+            if (r, c) == (row, column):
+                bounds = (start, i)
+                break
+            if ch != delimiter:
+                if r == row:
+                    row_end = (i, c)
+                    break
+                r += 1
+                c = 0
+                if ch == "\r" and i + 1 < len(base) and base[i + 1] == "\n":
+                    i += 1
+            else:
+                c += 1
+            start = i + 1
+        i += 1
+    if bounds:
+        content = base[:bounds[0]] + replacement + base[bounds[1]:]
+    elif row_end:
+        at, last = row_end
+        content = base[:at] + delimiter * (column - last) + replacement + base[at:]
+    else:
+        content = base + ("" if not base or base.endswith(("\n", "\r")) else "\n")
+        content += "\n" * max(0, row - len(old)) + delimiter * column + replacement + "\n"
+    def compact(rows):
+        for cells in rows:
+            while cells and not cells[-1]:
+                cells.pop()
+        while rows and not rows[-1]:
+            rows.pop()
+        return rows
+
+    return proposed if compact(values(content)) == compact(new) else content
+
+
 def accept(
-    user: str, project: str, package: str, revision: int, file_id: str = "", change_id: str = ""
+    user: str, project: str, package: str, revision: int, file_id: str = "", change_id: str = "", cell: dict | None = None
 ) -> tuple[dict, list]:
     updates = []
     backups: dict[tuple[str, str], bytes | None] = {}
@@ -306,7 +369,16 @@ def accept(
                     if change_id and (file["action"] != "modify" or file.get("binary")):
                         raise HTTPException(400, "Single-change acceptance requires a text modification")
                     current = snapshot(con, project, file)
-                    if file["action"] == "modify" and not file.get("binary"):
+                    if cell is not None:
+                        if file["action"] not in ("modify", "add") or file.get("binary") or not file["path"].lower().endswith((".csv", ".tsv")):
+                            raise HTTPException(400, "Cell acceptance requires a CSV or TSV modification")
+                        if current != file.get("base"):
+                            raise HTTPException(409, "Original file changed")
+                        content = csv_cell_content(current or "", file["content"], cell["row"], cell["column"], "\t" if file["path"].lower().endswith(".tsv") else ",")
+                        if content != file["content"]:
+                            remaining.append({**file, "action": "modify", "base": content, "changes": [{"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}]})
+                        accepted += 1
+                    elif file["action"] == "modify" and not file.get("binary"):
                         selected = [c for c in file["changes"] if not change_id or c["id"] == change_id]
                         if not selected:
                             raise HTTPException(409, "Change is no longer pending")

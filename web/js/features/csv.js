@@ -1,14 +1,15 @@
-function parseCsv(text, delimiter = ',') {
-  const rows = [], row = []; let value = '', quoted = false, pending = false
+function parseCsv(text, delimiter = ',', ranges = false) {
+  const rows = [], row = []; let value = '', quoted = false, pending = false, start = 0
   for (let i = 0; i < text.length; i++) {
     const c = text[i]; pending = true
     if (c === '"') { if (quoted && text[i + 1] === '"') { value += '"'; i++ } else quoted = !quoted }
     else if (!quoted && (c === delimiter || c === '\n' || c === '\r')) {
-      row.push(value); value = ''
+      row.push(ranges ? { from: start, to: i } : value); value = ''
       if (c !== delimiter) { rows.push(row.splice(0)); pending = false; if (c === '\r' && text[i + 1] === '\n') i++ }
+      start = i + 1
     } else value += c
   }
-  if (pending || value || row.length) { row.push(value); rows.push(row) }
+  if (pending || value || row.length) { row.push(ranges ? { from: start, to: text.length } : value); rows.push(row) }
   return rows.length ? rows : [['']]
 }
 function writeCsv(rows, delimiter = ',') {
@@ -142,7 +143,20 @@ function csvEndPointer(commit) {
   }
   csvPaintSelection()
 }
-csvGrid.addEventListener('pointerup', () => csvEndPointer(true))
+function csvReviewCell() {
+  const [r, c] = csvSelection
+  if (!window.changeSession || !sessionCellChanged(r, c)) return
+  const range = parseCsv(getT(), csvDelimiter, true)[r]?.[c]
+  const file = window.changeSession.files.get(sessionKey(sessionCurrent()))
+  const before = parseCsv(file.base || '', csvDelimiter, true)[r]?.[c]
+  const node = csvGrid.querySelector('[data-row="' + r + '"][data-col="' + c + '"]')
+  if (node) openSessionField(range?.from, range?.to, node, before, { row: r, column: c })
+}
+csvGrid.addEventListener('pointerup', () => {
+  const review = csvPointer && !csvPointer.changed && !csvEditing
+  csvEndPointer(true)
+  if (review) csvReviewCell()
+})
 csvGrid.addEventListener('pointercancel', () => csvEndPointer(false))
 csvGrid.addEventListener('dblclick', e => {
   const input = e.target.closest('input[data-row]')
@@ -153,6 +167,7 @@ csvGrid.addEventListener('dblclick', e => {
 })
 csvGrid.addEventListener('keydown', e => {
   const [r, c] = csvSelection, key = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey
+  if (e.altKey && e.key === 'Enter' && !csvEditing) { e.preventDefault(); csvReviewCell(); return }
   if (csvEditing && !['Enter', 'Tab', 'Escape'].includes(e.key)) return
   if (mod && ['c', 'x', 'v'].includes(key)) return
   if (mod && ['z', 'y'].includes(key)) {
@@ -196,7 +211,8 @@ function paintCsv() {
   const on = /\.(csv|tsv)$/i.test(tplName || tabName(activeFile)) && !!(docId || tplName)
   const identity = [docId, tplName, activeFile].join('/')
   if (identity !== csvIdentity) { csvIdentity = identity; csvRaw = false; csvSelection = [0, 0]; csvAnchor = [0, 0]; csvSelected = false; csvEditing = null }
-  csvGrid.hidden = !on || csvRaw; $('cmWrap').hidden = on && !csvRaw
+  csvGrid.hidden = !on || csvRaw
+  if (!/\.bib$/i.test(tplName || tabName(activeFile))) $('cmWrap').hidden = on && !csvRaw
   if (!on) { csvSource = null; return }
   const source = getT(), editable = cm.state.facet(EditorView.editable)
   if (source === csvSource && csvEditable === editable) { csvPaintSelection(); return }

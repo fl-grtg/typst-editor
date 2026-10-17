@@ -302,6 +302,14 @@ function movePop() {
   const r = $('editWrap').getBoundingClientRect(), editor = cm.scrollDOM.getBoundingClientRect()
   const first = cm.coordsAtPos(Math.min(from, text.length)), last = cm.coordsAtPos(Math.min(to, text.length))
   const boxes = (window.suggestionPopup?.nodes || []).filter(node => node.isConnected).map(node => node.getBoundingClientRect())
+  if ($('cmWrap').hidden && boxes.length) {
+    const anchor = boxes[0], above = Math.max(0, anchor.top - r.top - 8), below = Math.max(0, r.bottom - anchor.bottom - 8)
+    const up = above > below, available = Math.max(above, below), height = Math.min(pop.scrollHeight, 360, available)
+    pop.style.visibility = ''; pop.style.maxHeight = Math.max(40, Math.min(360, available)) + 'px'
+    pop.style.top = Math.max(0, up ? anchor.top - r.top - height - 8 : anchor.bottom - r.top + 8) + 'px'
+    pop.style.left = Math.max(8, Math.min(anchor.left - r.left, r.width - pop.offsetWidth - 8)) + 'px'
+    return
+  }
   const bounds = boxes.length ? { top: Math.min(...boxes.map(r => r.top)), bottom: Math.max(...boxes.map(r => r.bottom)) } : null
   const top = Math.min(first ? first.top : editor.top, bounds ? bounds.top : Infinity)
   const bottom = Math.max(last ? last.bottom : editor.bottom, bounds ? bounds.bottom : -Infinity)
@@ -335,7 +343,7 @@ function renderPop() {
   const pop = $('pop'); pop.replaceChildren()
   if (popAnchor != null) popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, popAnchor)) // doc shrank while open: never address a dead line
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
-  bar.append(el('b', null, t('comments.lineHead', { n: popAnchor })))
+  bar.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
   const x = icoBtn('ib', ICO_X); x.title = t('common.close'); x.setAttribute('aria-label', x.title); x.onclick = closePop
   bar.appendChild(x); pop.appendChild(bar)
   requestAnimationFrame(movePop)

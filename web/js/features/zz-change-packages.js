@@ -288,12 +288,12 @@ async function openTopPackage(entry) {
   } catch (e) { toast(e.message) }
 }
 window.openTopPackage = openTopPackage
-async function acceptSessionSelection(fileId = '', changeId = '') {
+async function acceptSessionSelection(fileId = '', changeId = '', cell = null) {
   const s = window.changeSession
   if (!s?.package || s.busy || !await saveSessionCorrections() || window.changeSession !== s) return
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
   try {
-    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId })
+    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell })
     if (window.changeSession !== s) return
     const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
     s.package = proposal; s.files = new Map(proposal.files.map(f => [sessionKey(f), sessionRuntime(f)]))
@@ -356,11 +356,43 @@ function sessionCellChanged(r, c) {
   const before = f.csvBefore ||= parseCsv(f.base || '', csvDelimiter)
   return (before[r]?.[c] || '') !== (csvRows[r]?.[c] || '')
 }
-function openSessionChange(index) {
+function sessionFieldIndex(from, to, before = null) {
+  const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent()))
+  if (!file || s.original || getT() !== file.content) return -1
+  return sessionChangeRanges(file).findIndex(r =>
+    from != null && (r.a === r.b ? r.a >= from && r.a <= to : r.a < to && r.b > from) ||
+    before && r.from < before.to && r.to > before.from)
+}
+function openSessionField(from, to, node, before = null, cell = null) {
+  const index = sessionFieldIndex(from, to, before)
+  if (index >= 0) openSessionChange(index, [node], cell)
+}
+function openSessionChange(index, anchors = null, cell = null) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[index]
   if (!range || s.original) return
-  const nodes = [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
-  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes })
+  const nodes = anchors || [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
+  const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
+  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bib: !!anchors?.[0].classList.contains('bibField') })
+}
+function sessionBibChanges(file, index) {
+  const before = parseBib(file.base || ''), after = parseBib(file.content || ''), changes = []
+  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
+  for (let i = 0; i < Math.max(before.length, after.length); i++) {
+    const next = after[i], old = before.find(e => e.key === next?.key) || before[i]
+    const fields = e => !e ? [] : [
+      { name: 'key', value: e.key, from: e.keyFrom, to: e.keyTo },
+      { name: 'type', value: e.type, from: e.typeFrom, to: e.typeTo }, ...e.fields
+    ]
+    const previous = fields(old), current = fields(next)
+    for (const name of new Set([...previous, ...current].map(f => f.name))) {
+      const a = previous.find(f => f.name === name), b = current.find(f => f.name === name)
+      if ((a?.value || '') !== (b?.value || '') && sessionFieldIndex(b?.from, b?.to, a) === index) {
+        const label = name === 'key' ? t('editor.entryKey') : name === 'type' ? t('editor.entryType') : labels[name] || name
+        changes.push({ label: before.length > 1 || after.length > 1 ? (next?.key || old?.key || '') + ' · ' + label : label, old: a?.value || '', next: b?.value || '' })
+      }
+    }
+  }
+  return changes
 }
 function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
@@ -372,6 +404,7 @@ function sessionCard(box) {
     accept.onclick = async () => {
       if (!await saveSessionCorrections()) return
       const actual = s.files.get(sessionKey(sessionCurrent()))
+      if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
       const match = actual?.changes?.find(c => { const start = actual.base.indexOf(c.old_string); return start >= 0 && range.from >= start && range.to <= start + c.old_string.length })
       if (match) await acceptSessionSelection(actual.id, match.id)
       else toast(t('comments.suggestionConflict'))
@@ -379,11 +412,38 @@ function sessionCard(box) {
     header.append(accept)
   }
   const remove = icoBtn('ib', ICO_TRASH); remove.title = t('comments.draftDiscard')
-  remove.onclick = () => { if (!s.busy) { closePop(true); cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } }) } }
+  remove.onclick = () => {
+    if (s.busy) return
+    closePop(true)
+    if (box.cell) {
+      const { row, column } = box.cell, before = parseCsv(file.base || '', csvDelimiter)
+      csvPut(row, column, before[row]?.[column] || ''); csvSave(); csvWindow = ''; csvRender()
+    } else cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } })
+  }
   if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) header.append(remove)
   card.append(header)
-  if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
-  if (range.next) card.append(el('div', 'tx', range.next))
+  if (box.cell) {
+    const { row, column } = box.cell
+    const old = parseCsv(file.base || '', csvDelimiter)[row]?.[column] || '', next = csvRows[row]?.[column] || ''
+    const table = el('table', 'proposalCells')
+    const tr = el('tr')
+    tr.append(el('th', null, csvColumn(column) + (row + 1)))
+    if (old) { const before = el('td', 'qt suggestionDeleted', old); if (!next) before.colSpan = 2; tr.append(before) }
+    if (next) { const after = el('td', 'tx', next); if (!old) after.colSpan = 2; tr.append(after) }
+    table.append(tr)
+    card.append(table)
+  } else if (box.bib) {
+    for (const field of sessionBibChanges(file, box.index)) {
+      const item = el('div', 'proposalBibField')
+      item.append(el('b', null, field.label))
+      if (field.old) item.append(el('div', 'qt suggestionDeleted', field.old))
+      if (field.next) item.append(el('div', 'tx', field.next))
+      card.append(item)
+    }
+  } else {
+    if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
+    if (range.next) card.append(el('div', 'tx', range.next))
+  }
   $('pop').append(card)
   if (!activeFile) threads.filter(th => { const r = threadEditorRange(th); return r.from <= range.b && r.to >= range.a }).forEach(th => $('pop').append(threadCard(th)))
 }

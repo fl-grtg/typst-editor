@@ -428,7 +428,7 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #tools button { min-width: 28px; height: 30px; padding: 0 5px; font-size: 13px; }
 #tools button:disabled { opacity: .35; }
 #tools .fmt { display: inline-flex; gap: 1px; padding-right: 4px; margin-right: 4px; border-right: 1px solid var(--line); }
-#tools .fmt.last { border-right: 0; }
+#tools .fmt.last { border-right: 0; padding-right: 0; margin-right: 0; }
 #tools .fmt button { color: var(--text); }
 #tools .fmt .glyph { font: 700 13px/1 var(--ui); }
 #tools .fmt .glyph.i { font-style: italic; font-family: Georgia, "Times New Roman", serif; font-size: 14px; }
@@ -658,6 +658,8 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 .csvEditor td.csv-target { box-shadow: inset 0 0 0 2px var(--acc); background: var(--acc-soft); }
 .csvEditor td.csv-selected input[readonly] { cursor: grab; }
 .csvEditor td.csv-proposed, .bibField.bib-proposed input, .bibField.bib-proposed textarea, .bibField.bib-proposed select { background: rgba(145,90,225,.18); }
+.proposalFieldAction { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; align-self: flex-start; }
+.proposalFieldAction:hover, .proposalFieldAction:focus-visible { color: var(--acc); }
 .package-caption { display: block; padding: 8px 14px; font-size: 12px; color: #9560d5; overflow-wrap: anywhere; }
 .package-file .t, .package-modified .t { color: #9560d5; }
 .package-tools button.on { background: rgba(145,90,225,.2); color: #9560d5; }
@@ -876,6 +878,12 @@ body.present-switch .pvPage { transition: none !important; }
 .suggestionCard pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; padding: 8px; border-radius: var(--r-sm); font: 12px/1.5 var(--mono); }
 .suggestionCard .before { background: var(--danger-soft); }
 .suggestionCard .after { background: rgba(145, 90, 225, .14); }
+.proposalCells { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.proposalCells th { width: 42px; text-align: left; color: var(--sub); font: 12px var(--mono); }
+#pop .proposalCells td { display: table-cell; width: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px; border-bottom: 1px solid var(--line); border-radius: 0; cursor: default; }
+#pop .proposalCells .tx { background: var(--acc-soft); }
+.proposalBibField { margin-top: 10px; white-space: pre-wrap; }
+.proposalBibField > b { font-size: 12px; color: var(--sub); }
 /* ==========================================================================
    Modal
    ========================================================================== */
@@ -1126,7 +1134,7 @@ document.addEventListener('submit', function (e) { // form is parsed below: capt
             <button data-fmt="link" aria-label="Link" data-i18n-aria="shell.fmtLink" title="Link" data-i18n-title="shell.fmtLink"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 9.2a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-.7.7"/><path d="M9.2 6.8a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l.7-.7"/></svg></button>
           </span>
           <span class="fmt last" role="group" aria-label="Insert" data-i18n-aria="shell.fmtIns">
-            <button id="insertMore" data-menu="insert" aria-haspopup="menu" aria-expanded="false" data-i18n-aria="shell.fmtIns" data-i18n-title="shell.fmtIns" aria-label="Insert" title="Insert"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M8 5v6M5 8h6"/></svg></button>
+            <button id="insertMore" data-menu="insert" aria-haspopup="menu" aria-expanded="false" data-i18n-aria="shell.fmtIns" data-i18n-title="shell.fmtIns" aria-label="Insert" title="Insert"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M8 5v6M5 8h6"/></svg></button>
             <button id="cNew" aria-label="Comment on selected text" data-i18n-aria="comments.tipYes" aria-expanded="false" title="Comment on selected text" data-i18n-title="comments.tipYes"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3h11v7h-5.5L4.5 13v-3H2.5z"/></svg></button>
             <button id="imgBtn" aria-label="Add a picture or file" data-i18n-aria="shell.imgAdd" title="Add a picture or file to your document" data-i18n-title="shell.imgAddT" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="M2.5 11.5l3.5-3.5 2.5 2.5 2-2 3 3"/></svg></button><input type="file" id="imgPick" style="display:none">
             <button id="tplBtn" aria-label="Insert Typst template" data-i18n-aria="shell.tplAdd" title="Insert Typst template" data-i18n-title="shell.tplAdd" style="display:none"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M2.5 6.5h11M6.5 6.5v7"/></svg></button>
@@ -3817,6 +3825,14 @@ function movePop() {
   const r = $('editWrap').getBoundingClientRect(), editor = cm.scrollDOM.getBoundingClientRect()
   const first = cm.coordsAtPos(Math.min(from, text.length)), last = cm.coordsAtPos(Math.min(to, text.length))
   const boxes = (window.suggestionPopup?.nodes || []).filter(node => node.isConnected).map(node => node.getBoundingClientRect())
+  if ($('cmWrap').hidden && boxes.length) {
+    const anchor = boxes[0], above = Math.max(0, anchor.top - r.top - 8), below = Math.max(0, r.bottom - anchor.bottom - 8)
+    const up = above > below, available = Math.max(above, below), height = Math.min(pop.scrollHeight, 360, available)
+    pop.style.visibility = ''; pop.style.maxHeight = Math.max(40, Math.min(360, available)) + 'px'
+    pop.style.top = Math.max(0, up ? anchor.top - r.top - height - 8 : anchor.bottom - r.top + 8) + 'px'
+    pop.style.left = Math.max(8, Math.min(anchor.left - r.left, r.width - pop.offsetWidth - 8)) + 'px'
+    return
+  }
   const bounds = boxes.length ? { top: Math.min(...boxes.map(r => r.top)), bottom: Math.max(...boxes.map(r => r.bottom)) } : null
   const top = Math.min(first ? first.top : editor.top, bounds ? bounds.top : Infinity)
   const bottom = Math.max(last ? last.bottom : editor.bottom, bounds ? bounds.bottom : -Infinity)
@@ -3850,7 +3866,7 @@ function renderPop() {
   const pop = $('pop'); pop.replaceChildren()
   if (popAnchor != null) popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, popAnchor)) // doc shrank while open: never address a dead line
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
-  bar.append(el('b', null, t('comments.lineHead', { n: popAnchor })))
+  bar.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
   const x = icoBtn('ib', ICO_X); x.title = t('common.close'); x.setAttribute('aria-label', x.title); x.onclick = closePop
   bar.appendChild(x); pop.appendChild(bar)
   requestAnimationFrame(movePop)
@@ -6278,17 +6294,18 @@ cm.contentDOM.addEventListener('keydown', e => {
 const fmtSync = () => { const on = cm.contentDOM.getAttribute('contenteditable') === 'true'; document.querySelectorAll('[data-fmt]').forEach(b => { b.disabled = !on }) }
 new MutationObserver(fmtSync).observe(cm.contentDOM, { attributes: true, attributeFilter: ['contenteditable'] })
 fmtSync()
-function parseCsv(text, delimiter = ',') {
-  const rows = [], row = []; let value = '', quoted = false, pending = false
+function parseCsv(text, delimiter = ',', ranges = false) {
+  const rows = [], row = []; let value = '', quoted = false, pending = false, start = 0
   for (let i = 0; i < text.length; i++) {
     const c = text[i]; pending = true
     if (c === '"') { if (quoted && text[i + 1] === '"') { value += '"'; i++ } else quoted = !quoted }
     else if (!quoted && (c === delimiter || c === '\n' || c === '\r')) {
-      row.push(value); value = ''
+      row.push(ranges ? { from: start, to: i } : value); value = ''
       if (c !== delimiter) { rows.push(row.splice(0)); pending = false; if (c === '\r' && text[i + 1] === '\n') i++ }
+      start = i + 1
     } else value += c
   }
-  if (pending || value || row.length) { row.push(value); rows.push(row) }
+  if (pending || value || row.length) { row.push(ranges ? { from: start, to: text.length } : value); rows.push(row) }
   return rows.length ? rows : [['']]
 }
 function writeCsv(rows, delimiter = ',') {
@@ -6422,7 +6439,20 @@ function csvEndPointer(commit) {
   }
   csvPaintSelection()
 }
-csvGrid.addEventListener('pointerup', () => csvEndPointer(true))
+function csvReviewCell() {
+  const [r, c] = csvSelection
+  if (!window.changeSession || !sessionCellChanged(r, c)) return
+  const range = parseCsv(getT(), csvDelimiter, true)[r]?.[c]
+  const file = window.changeSession.files.get(sessionKey(sessionCurrent()))
+  const before = parseCsv(file.base || '', csvDelimiter, true)[r]?.[c]
+  const node = csvGrid.querySelector('[data-row="' + r + '"][data-col="' + c + '"]')
+  if (node) openSessionField(range?.from, range?.to, node, before, { row: r, column: c })
+}
+csvGrid.addEventListener('pointerup', () => {
+  const review = csvPointer && !csvPointer.changed && !csvEditing
+  csvEndPointer(true)
+  if (review) csvReviewCell()
+})
 csvGrid.addEventListener('pointercancel', () => csvEndPointer(false))
 csvGrid.addEventListener('dblclick', e => {
   const input = e.target.closest('input[data-row]')
@@ -6433,6 +6463,7 @@ csvGrid.addEventListener('dblclick', e => {
 })
 csvGrid.addEventListener('keydown', e => {
   const [r, c] = csvSelection, key = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey
+  if (e.altKey && e.key === 'Enter' && !csvEditing) { e.preventDefault(); csvReviewCell(); return }
   if (csvEditing && !['Enter', 'Tab', 'Escape'].includes(e.key)) return
   if (mod && ['c', 'x', 'v'].includes(key)) return
   if (mod && ['z', 'y'].includes(key)) {
@@ -6476,7 +6507,8 @@ function paintCsv() {
   const on = /\.(csv|tsv)$/i.test(tplName || tabName(activeFile)) && !!(docId || tplName)
   const identity = [docId, tplName, activeFile].join('/')
   if (identity !== csvIdentity) { csvIdentity = identity; csvRaw = false; csvSelection = [0, 0]; csvAnchor = [0, 0]; csvSelected = false; csvEditing = null }
-  csvGrid.hidden = !on || csvRaw; $('cmWrap').hidden = on && !csvRaw
+  csvGrid.hidden = !on || csvRaw
+  if (!/\.bib$/i.test(tplName || tabName(activeFile))) $('cmWrap').hidden = on && !csvRaw
   if (!on) { csvSource = null; return }
   const source = getT(), editable = cm.state.facet(EditorView.editable)
   if (source === csvSource && csvEditable === editable) { csvPaintSelection(); return }
@@ -6555,6 +6587,7 @@ function emptyBibYearChanges(text) {
 }
 function replaceBib(from, to, text) {
   if (!cm.state.facet(EditorView.editable)) return
+  if (getT().slice(from, to) === text) return
   if (bibEditing) bibSource = getT().slice(0, from) + text + getT().slice(to)
   cm.dispatch({ changes: { from, to, insert: text }, userEvent: 'input' })
 }
@@ -6604,19 +6637,35 @@ function paintBib() {
   if (!entry) { form.append(el('p', null, t('editor.emptyEntries'))); return }
   if (entry.invalid) { form.append(el('p', null, t('editor.bibInvalid'))); return }
   let target = form
+  const proposalPainters = []
   const metadata = el('div', 'bibMetadata'); form.append(metadata); target = metadata
   function field(label, value, save, multiline, disabled) {
     const row = el('label', 'bibField'), input = el(label === t('editor.entryType') ? 'select' : multiline ? 'textarea' : 'input')
     if (input.tagName === 'SELECT') for (const type of [...new Set([value, 'book', 'article', 'inproceedings', 'incollection', 'thesis', 'report', 'online', 'misc'])]) { const option = el('option', null, type); option.value = type; input.append(option) }
     if (multiline) input.rows = 1
-    if (window.changeSession) {
-      const original = window.changeSession.files.get(sessionKey(sessionCurrent()))
-      const before = original && !window.changeSession.original ? parseBib(original.base || '').find(e => e.key === entry.key) : null
+    const caption = el('span', null, label)
+    function paintProposal() {
+      const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
+      const originals = parseBib(original?.base || ''), before = originals.find(e => e.key === entry.key) || originals[bibSelected]
       const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
-      const old = label === t('editor.entryKey') ? before?.key : label === t('editor.entryType') ? before?.type : before?.fields.find(f => f.name === fieldName)?.value || ''
-      row.classList.toggle('bib-proposed', !!original && !window.changeSession.original && old !== value)
+      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo } : e.fields.find(f => f.name === fieldName)
+      const current = range(parseBib(getT())[bibSelected]), old = range(before)
+      const proposed = !!original && sessionFieldIndex(current?.from, current?.to, old) >= 0
+      row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
+      caption.onclick = input.onclick = caption.onkeydown = null
+      caption.removeAttribute('role'); caption.removeAttribute('tabindex'); caption.removeAttribute('title')
+      if (proposed) {
+        caption.tabIndex = 0; caption.setAttribute('role', 'button'); caption.title = t('comments.suggestMode')
+        caption.onclick = input.onclick = e => {
+          if (e.currentTarget === caption) e.preventDefault()
+          const latest = range(parseBib(getT())[bibSelected])
+          openSessionField(latest?.from, latest?.to, row, old)
+        }
+        caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }
+      }
     }
-    row.append(el('span', null, label)); input.value = value; input.spellcheck = false
+    proposalPainters.push(paintProposal); paintProposal()
+    row.append(caption); input.value = value; input.spellcheck = false
     if (multiline) input.style.height = Math.min(134, 38 + 18 * (value.split('\n').length - 1)) + 'px'
     input.readOnly = !editable || !!disabled
     if (input.tagName === 'SELECT') input.disabled = !editable || !!disabled
@@ -6629,6 +6678,7 @@ function paintBib() {
       bibEditing = true
       try { save(latest, input.value) } finally { bibEditing = false }
       bibSource = getT()
+      proposalPainters.forEach(paint => paint())
       const button = bibPanel.querySelectorAll('.bibList button')[bibSelected], current = parseBib(bibSource)[bibSelected]
       if (button && current) { button.querySelector('.bibEntryKey').textContent = current.key || '@' + current.type; button.querySelector('.bibEntryTitle').textContent = current.fields.find(f => f.name === 'title')?.value || current.type }
     }
@@ -8382,12 +8432,12 @@ async function openTopPackage(entry) {
   } catch (e) { toast(e.message) }
 }
 window.openTopPackage = openTopPackage
-async function acceptSessionSelection(fileId = '', changeId = '') {
+async function acceptSessionSelection(fileId = '', changeId = '', cell = null) {
   const s = window.changeSession
   if (!s?.package || s.busy || !await saveSessionCorrections() || window.changeSession !== s) return
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
   try {
-    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId })
+    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell })
     if (window.changeSession !== s) return
     const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
     s.package = proposal; s.files = new Map(proposal.files.map(f => [sessionKey(f), sessionRuntime(f)]))
@@ -8450,11 +8500,43 @@ function sessionCellChanged(r, c) {
   const before = f.csvBefore ||= parseCsv(f.base || '', csvDelimiter)
   return (before[r]?.[c] || '') !== (csvRows[r]?.[c] || '')
 }
-function openSessionChange(index) {
+function sessionFieldIndex(from, to, before = null) {
+  const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent()))
+  if (!file || s.original || getT() !== file.content) return -1
+  return sessionChangeRanges(file).findIndex(r =>
+    from != null && (r.a === r.b ? r.a >= from && r.a <= to : r.a < to && r.b > from) ||
+    before && r.from < before.to && r.to > before.from)
+}
+function openSessionField(from, to, node, before = null, cell = null) {
+  const index = sessionFieldIndex(from, to, before)
+  if (index >= 0) openSessionChange(index, [node], cell)
+}
+function openSessionChange(index, anchors = null, cell = null) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[index]
   if (!range || s.original) return
-  const nodes = [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
-  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes })
+  const nodes = anchors || [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
+  const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
+  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bib: !!anchors?.[0].classList.contains('bibField') })
+}
+function sessionBibChanges(file, index) {
+  const before = parseBib(file.base || ''), after = parseBib(file.content || ''), changes = []
+  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
+  for (let i = 0; i < Math.max(before.length, after.length); i++) {
+    const next = after[i], old = before.find(e => e.key === next?.key) || before[i]
+    const fields = e => !e ? [] : [
+      { name: 'key', value: e.key, from: e.keyFrom, to: e.keyTo },
+      { name: 'type', value: e.type, from: e.typeFrom, to: e.typeTo }, ...e.fields
+    ]
+    const previous = fields(old), current = fields(next)
+    for (const name of new Set([...previous, ...current].map(f => f.name))) {
+      const a = previous.find(f => f.name === name), b = current.find(f => f.name === name)
+      if ((a?.value || '') !== (b?.value || '') && sessionFieldIndex(b?.from, b?.to, a) === index) {
+        const label = name === 'key' ? t('editor.entryKey') : name === 'type' ? t('editor.entryType') : labels[name] || name
+        changes.push({ label: before.length > 1 || after.length > 1 ? (next?.key || old?.key || '') + ' · ' + label : label, old: a?.value || '', next: b?.value || '' })
+      }
+    }
+  }
+  return changes
 }
 function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
@@ -8466,6 +8548,7 @@ function sessionCard(box) {
     accept.onclick = async () => {
       if (!await saveSessionCorrections()) return
       const actual = s.files.get(sessionKey(sessionCurrent()))
+      if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
       const match = actual?.changes?.find(c => { const start = actual.base.indexOf(c.old_string); return start >= 0 && range.from >= start && range.to <= start + c.old_string.length })
       if (match) await acceptSessionSelection(actual.id, match.id)
       else toast(t('comments.suggestionConflict'))
@@ -8473,11 +8556,38 @@ function sessionCard(box) {
     header.append(accept)
   }
   const remove = icoBtn('ib', ICO_TRASH); remove.title = t('comments.draftDiscard')
-  remove.onclick = () => { if (!s.busy) { closePop(true); cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } }) } }
+  remove.onclick = () => {
+    if (s.busy) return
+    closePop(true)
+    if (box.cell) {
+      const { row, column } = box.cell, before = parseCsv(file.base || '', csvDelimiter)
+      csvPut(row, column, before[row]?.[column] || ''); csvSave(); csvWindow = ''; csvRender()
+    } else cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } })
+  }
   if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) header.append(remove)
   card.append(header)
-  if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
-  if (range.next) card.append(el('div', 'tx', range.next))
+  if (box.cell) {
+    const { row, column } = box.cell
+    const old = parseCsv(file.base || '', csvDelimiter)[row]?.[column] || '', next = csvRows[row]?.[column] || ''
+    const table = el('table', 'proposalCells')
+    const tr = el('tr')
+    tr.append(el('th', null, csvColumn(column) + (row + 1)))
+    if (old) { const before = el('td', 'qt suggestionDeleted', old); if (!next) before.colSpan = 2; tr.append(before) }
+    if (next) { const after = el('td', 'tx', next); if (!old) after.colSpan = 2; tr.append(after) }
+    table.append(tr)
+    card.append(table)
+  } else if (box.bib) {
+    for (const field of sessionBibChanges(file, box.index)) {
+      const item = el('div', 'proposalBibField')
+      item.append(el('b', null, field.label))
+      if (field.old) item.append(el('div', 'qt suggestionDeleted', field.old))
+      if (field.next) item.append(el('div', 'tx', field.next))
+      card.append(item)
+    }
+  } else {
+    if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
+    if (range.next) card.append(el('div', 'tx', range.next))
+  }
   $('pop').append(card)
   if (!activeFile) threads.filter(th => { const r = threadEditorRange(th); return r.from <= range.b && r.to >= range.a }).forEach(th => $('pop').append(threadCard(th)))
 }
@@ -8964,7 +9074,8 @@ openLinePop = line => {
       b.disabled = !d.on
       var c = document.createElement('span'); c.className = 'chk'; c.textContent = d.checked ? '\u2713' : ''; c.setAttribute('aria-hidden', 'true')
       var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
-      b.append(c, l)
+      if (d.checked !== undefined) b.appendChild(c)
+      b.appendChild(l)
       if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
       b.onclick = function () { close(false); setTimeout(d.run, 0) }
       menu.appendChild(b)

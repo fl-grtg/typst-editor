@@ -44,10 +44,16 @@ class PackageSave(BaseModel):
     revision: int = 0
 
 
+class Cell(BaseModel):
+    row: int = Field(ge=0)
+    column: int = Field(ge=0)
+
+
 class Selection(BaseModel):
     revision: int
     file_id: str = ""
     change_id: str = ""
+    cell: Cell | None = None
 
 
 @router.get("/api/projects/{project_id}/proposals")
@@ -115,10 +121,13 @@ async def accept_package(
     project_id: str, package_id: str, body: Selection, req: Request, user: str = Depends(deps.me)
 ) -> dict:
     deps.limited(req, "comments")
-    if body.change_id and not body.file_id:
+    if (body.change_id or body.cell) and not body.file_id:
         raise HTTPException(400, "Select the file containing the change")
+    if body.change_id and body.cell:
+        raise HTTPException(400, "Select either a text change or a cell")
     result, updates = await asyncio.to_thread(
-        packages.accept, user, project_id, package_id, body.revision, body.file_id, body.change_id
+        packages.accept, user, project_id, package_id, body.revision, body.file_id, body.change_id,
+        body.cell.model_dump() if body.cell else None
     )
     try:
         for room, update, _ in updates:

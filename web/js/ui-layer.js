@@ -146,7 +146,8 @@
       b.disabled = !d.on
       var c = document.createElement('span'); c.className = 'chk'; c.textContent = d.checked ? '\u2713' : ''; c.setAttribute('aria-hidden', 'true')
       var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
-      b.append(c, l)
+      if (d.checked !== undefined) b.appendChild(c)
+      b.appendChild(l)
       if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
       b.onclick = function () { close(false); setTimeout(d.run, 0) }
       menu.appendChild(b)
