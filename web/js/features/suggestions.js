@@ -223,7 +223,7 @@ function stashSuggestionDraft() {
   }
 }
 async function startSuggestionDraft() {
-  if (window.suggestionDraft || !docId || activeFile || tplName || openedTrashed) return
+  if (sessionStarting || window.changeSession || window.suggestionDraft || !docId || activeFile || tplName || openedTrashed) return
   if (!synced) { toast(t('docs.offlineRetry')); return }
   closePop(true)
   const sourceDoc = docId, epoch = openN
@@ -238,7 +238,7 @@ async function startSuggestionDraft() {
       else { localStorage.removeItem(draftStashKey()); try { delete window.suggestionDraftMemory[draftStashKey()] } catch (e) {} }
     }
   } catch (e) {}
-  if (sourceDoc !== docId || epoch !== openN || activeFile || tplName || openedTrashed || window.suggestionDraft) return
+  if (sessionStarting || window.changeSession || sourceDoc !== docId || epoch !== openN || activeFile || tplName || openedTrashed || window.suggestionDraft) return
   const originState = cm.state, scroll = cm.scrollDOM.scrollTop
   const baseState = EditorState.create({ doc: base })
   const draft = { base, baseState, originState, scroll, changed: false, busy: false, editable: editableComp, view: cm, commentRanges: new Map(), changes: baseState.changes([]) }

@@ -156,8 +156,8 @@ async function startChangeSession(proposal = null) {
   if (!synced) { toast(t('docs.offlineRetry')); return }
   const current = docId, epoch = openN, editable = cm.state.facet(EditorView.editable)
   sessionStarting = true
-  cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintSuggestionControls()
   try {
+    cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintSuggestionControls()
     if (window.suggestionDraft && !await leaveSuggestionDraft()) return
     if (window.suggestionDraft || window.changeSession) return
     if (!await flushTab() || !await flushTpl()) return
@@ -181,9 +181,9 @@ async function startChangeSession(proposal = null) {
         }
       } catch (e) {}
     }
-    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession) return
+    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession || window.suggestionDraft) return
     s.libraryBase = (await api('GET', '/api/projects/' + project + '/resources')).resources
-    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession) return
+    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession || window.suggestionDraft) return
     window.changeSession = s
     await sessionActivate()
     return window.changeSession === s

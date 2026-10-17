@@ -83,6 +83,10 @@ The historical counts in `prerelease-validation.md` describe earlier candidates.
   other changes; deleted-file previews retain their original text. Validation:
   140 JavaScript tests, the actual rename/delete/undo browser flow, Ruff, full
   Mypy, 702-key translation parity and generated build checks passed.
+- Project and comment suggestion modes exclude each other at entry and after
+  asynchronous restoration. The proposal-start paint is inside its cleanup
+  guard. The follow-up passed 141 JavaScript tests and both delayed-start and
+  document-only guest browser regressions (13.90 seconds).
 
 ## User acceptance
 

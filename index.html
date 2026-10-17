@@ -8003,7 +8003,7 @@ function stashSuggestionDraft() {
   }
 }
 async function startSuggestionDraft() {
-  if (window.suggestionDraft || !docId || activeFile || tplName || openedTrashed) return
+  if (sessionStarting || window.changeSession || window.suggestionDraft || !docId || activeFile || tplName || openedTrashed) return
   if (!synced) { toast(t('docs.offlineRetry')); return }
   closePop(true)
   const sourceDoc = docId, epoch = openN
@@ -8018,7 +8018,7 @@ async function startSuggestionDraft() {
       else { localStorage.removeItem(draftStashKey()); try { delete window.suggestionDraftMemory[draftStashKey()] } catch (e) {} }
     }
   } catch (e) {}
-  if (sourceDoc !== docId || epoch !== openN || activeFile || tplName || openedTrashed || window.suggestionDraft) return
+  if (sessionStarting || window.changeSession || sourceDoc !== docId || epoch !== openN || activeFile || tplName || openedTrashed || window.suggestionDraft) return
   const originState = cm.state, scroll = cm.scrollDOM.scrollTop
   const baseState = EditorState.create({ doc: base })
   const draft = { base, baseState, originState, scroll, changed: false, busy: false, editable: editableComp, view: cm, commentRanges: new Map(), changes: baseState.changes([]) }
@@ -8252,8 +8252,8 @@ async function startChangeSession(proposal = null) {
   if (!synced) { toast(t('docs.offlineRetry')); return }
   const current = docId, epoch = openN, editable = cm.state.facet(EditorView.editable)
   sessionStarting = true
-  cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintSuggestionControls()
   try {
+    cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintSuggestionControls()
     if (window.suggestionDraft && !await leaveSuggestionDraft()) return
     if (window.suggestionDraft || window.changeSession) return
     if (!await flushTab() || !await flushTpl()) return
@@ -8277,9 +8277,9 @@ async function startChangeSession(proposal = null) {
         }
       } catch (e) {}
     }
-    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession) return
+    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession || window.suggestionDraft) return
     s.libraryBase = (await api('GET', '/api/projects/' + project + '/resources')).resources
-    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession) return
+    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession || window.suggestionDraft) return
     window.changeSession = s
     await sessionActivate()
     return window.changeSession === s

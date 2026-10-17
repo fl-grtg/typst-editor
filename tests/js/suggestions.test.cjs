@@ -9,6 +9,15 @@ const code = fs.readFileSync('web/js/features/suggestions.js', 'utf8')
 const context = vm.createContext({})
 vm.runInContext(code.slice(code.indexOf('function suggestionChanges'), code.indexOf('function draftStashKey')), context)
 const plain = v => JSON.parse(JSON.stringify(v))
+test('comment suggestion mode cannot enter a starting or active project proposal', async () => {
+  const source = code.slice(code.indexOf('async function startSuggestionDraft'), code.indexOf('function stopSuggestionDraft'))
+  for (const values of [{ sessionStarting: true, window: {} }, { sessionStarting: false, window: { changeSession: {} } }]) {
+    const c = vm.createContext(values)
+    vm.runInContext(source, c)
+    await c.startSuggestionDraft()
+    assert.equal(c.window.suggestionDraft, undefined)
+  }
+})
 async function propose(base, changes) {
   const { EditorState } = await import(pathToFileURL(path.resolve('vendor-cm.js')).href)
   const state = EditorState.create({ doc: base })
