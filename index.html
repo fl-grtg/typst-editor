@@ -8096,7 +8096,7 @@ function paintSuggestionControls() {
 addEventListener('pagehide', stashSuggestionDraft)
 // One working copy for all files in a project; source writes stay on the normal path outside it.
 window.changeSession = null
-let packageList = [], packageLoad = 0, sessionSequence = 0
+let packageList = [], packageLoad = 0, sessionSequence = 0, sessionStarting = false
 const sessionKey = f => [f.kind, f.doc_id || '', f.path].join(':')
 const sessionCurrent = () => ({ kind: !activeFile ? 'document' : isTplKey(activeFile) ? 'resource' : 'file', doc_id: !activeFile || !isTplKey(activeFile) ? docId : '', path: activeFile ? tabName(activeFile) : 'main.typ' })
 const sessionUrl = s => '/api/projects/' + s.project + '/proposals' + (s.package ? '/' + s.package.id : '')
@@ -8248,37 +8248,46 @@ async function sessionActivate() {
   paintFileExtras(); paintCsv(); fmtSync(); sessionPaint(); paintSuggestionControls(); paintSessionSidebar(); queueRender()
 }
 async function startChangeSession(proposal = null) {
-  if (!docProject || openedTrashed || window.changeSession) return
+  if (!docProject || openedTrashed || window.changeSession || sessionStarting) return
   if (!synced) { toast(t('docs.offlineRetry')); return }
-  if (window.suggestionDraft && !await leaveSuggestionDraft()) return
-  if (window.suggestionDraft || window.changeSession) return
-  if (!await flushTab() || !await flushTpl()) return
-  const project = docProject
-  await api('GET', '/api/projects/' + project + '/proposals') // membership, not document-only guest access
-  const s = { project, files: new Map(), commentRanges: new Map(), package: proposal, title: proposal?.title || '', original: false, dirty: false, busy: false, previewRevision: ++sessionSequence }
-  if (proposal) {
-    proposal.files.forEach(f => s.files.set(sessionKey(f), sessionRuntime(f)))
-    try {
-      const saved = await readSessionDraft(s)
-      if (saved?.package?.id === proposal.id && saved.package.revision === proposal.revision && saved.files?.length && await ask(t('comments.draftRestore'), { noInput: true })) {
-        s.files = new Map(saved.files.map(f => [sessionKey(f), sessionRuntime(f)])); s.dirty = true
-      }
-    } catch (e) {}
+  const current = docId, epoch = openN, editable = cm.state.facet(EditorView.editable)
+  sessionStarting = true
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintSuggestionControls()
+  try {
+    if (window.suggestionDraft && !await leaveSuggestionDraft()) return
+    if (window.suggestionDraft || window.changeSession) return
+    if (!await flushTab() || !await flushTpl()) return
+    const project = docProject
+    await api('GET', '/api/projects/' + project + '/proposals') // membership, not document-only guest access
+    const s = { project, files: new Map(), commentRanges: new Map(), package: proposal, title: proposal?.title || '', original: false, dirty: false, busy: false, previewRevision: ++sessionSequence }
+    if (proposal) {
+      proposal.files.forEach(f => s.files.set(sessionKey(f), sessionRuntime(f)))
+      try {
+        const saved = await readSessionDraft(s)
+        if (saved?.package?.id === proposal.id && saved.package.revision === proposal.revision && saved.files?.length && await ask(t('comments.draftRestore'), { noInput: true })) {
+          s.files = new Map(saved.files.map(f => [sessionKey(f), sessionRuntime(f)])); s.dirty = true
+        }
+      } catch (e) {}
+    }
+    else {
+      try {
+        const saved = await readSessionDraft(s)
+        if (saved?.files?.length && !saved.package && await ask(t('comments.draftRestore'), { noInput: true })) {
+          saved.files.forEach(f => s.files.set(sessionKey(f), sessionRuntime(f))); s.title = saved.title || ''; s.dirty = true
+        }
+      } catch (e) {}
+    }
+    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession) return
+    s.libraryBase = (await api('GET', '/api/projects/' + project + '/resources')).resources
+    if (project !== docProject || docId !== current || openN !== epoch || window.changeSession) return
+    window.changeSession = s
+    await sessionActivate()
+    return window.changeSession === s
+  } finally {
+    sessionStarting = false
+    if (!window.changeSession && docId === current && openN === epoch) cm.dispatch({ effects: editableComp.reconfigure(editMode(editable)) })
+    paintSuggestionControls()
   }
-  else {
-    try {
-      const saved = await readSessionDraft(s)
-      if (saved?.files?.length && !saved.package && await ask(t('comments.draftRestore'), { noInput: true })) {
-        saved.files.forEach(f => s.files.set(sessionKey(f), sessionRuntime(f))); s.title = saved.title || ''; s.dirty = true
-      }
-    } catch (e) {}
-  }
-  if (project !== docProject || window.changeSession) return
-  s.libraryBase = (await api('GET', '/api/projects/' + project + '/resources')).resources
-  if (project !== docProject || window.changeSession) return
-  window.changeSession = s
-  await sessionActivate()
-  return window.changeSession === s
 }
 async function saveSessionCorrections() {
   const s = window.changeSession
@@ -8590,6 +8599,8 @@ paintSuggestionControls = () => {
   exitPackageButton.hidden = !s
   if (available) {
     $('suggestionToggle').hidden = !!s?.package
+    $('suggestionToggle').disabled = sessionStarting || !!s?.busy || !synced
+    $('suggestionToggle').setAttribute('aria-busy', String(sessionStarting))
     $('suggestionToggle').classList.toggle('on', !!s); $('suggestionToggle').setAttribute('aria-pressed', String(!!s))
     $('suggestionToggle').onclick = () => s ? endChangeSession() : startChangeSession().catch(e => toast(e.message))
   }

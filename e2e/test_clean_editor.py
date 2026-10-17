@@ -15,6 +15,7 @@ def test_icon_toolbar_font_size_and_document_draft_label(page):
     page.locator('#fPlus').click()
     assert page.locator('#cmWrap').evaluate("node => parseInt(node.style.getPropertyValue('--ed'))") == size + 1
     page.locator('#suggestionToggle').click()
+    expect(page.locator('#cm .cm-content')).to_have_attribute('contenteditable', 'true')
     page.locator('#cm .cm-content').click()
     page.keyboard.press('ControlOrMeta+End')
     page.keyboard.insert_text('\nDraft addition')
@@ -38,6 +39,33 @@ def test_insert_menu_opens_symbols_and_returns_focus(page):
     page.keyboard.press('Escape')
     expect(page.locator('#symPop')).not_to_be_visible()
     expect(page.locator('#insertMore')).to_be_focused()
+
+
+def test_starting_proposal_blocks_source_edits_until_ready(page):
+    register(page, 'starting_proposal')
+    create_doc(page, 'Slow proposal')
+    expect(page.locator('#wsTxt')).to_have_text('Live')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Slow proposal')
+    source = page.request.get(f'/api/docs/{document["id"]}').json()['content']
+    pending = []
+    pattern = '**/api/projects/*/proposals'
+    page.route(pattern, lambda route: pending.append(route))
+    with page.expect_request(re.compile(r'/api/projects/[^/]+/proposals$')):
+        page.locator('#suggestionToggle').click()
+    expect(page.locator('#cm .cm-content')).to_have_attribute('contenteditable', 'false')
+    expect(page.locator('#suggestionToggle')).to_be_disabled()
+    page.locator('#cm .cm-content').click()
+    page.keyboard.insert_text('Must not enter the source')
+    assert page.request.get(f'/api/docs/{document["id"]}').json()['content'] == source
+    for route in pending:
+        route.continue_()
+    page.unroute(pattern)
+    expect(page.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
+    expect(page.locator('#cm .cm-content')).to_have_attribute('contenteditable', 'true')
+    page.locator('#cm .cm-content').click()
+    page.keyboard.insert_text('Draft only')
+    expect(page.locator('.package-modified .t').filter(has_text='Slow proposal')).to_be_visible()
+    assert page.request.get(f'/api/docs/{document["id"]}').json()['content'] == source
 
 
 def test_review_across_empty_document_and_resource_toggle_preserve_view(page):
@@ -91,6 +119,7 @@ def test_conflicting_source_keeps_draft_and_explains_problem(page):
     page.locator('#own .doc .t').filter(has_text='Conflict draft').click()
     expect(page.locator('#wsTxt')).to_have_text('Live')
     page.locator('#suggestionToggle').click()
+    expect(page.locator('#cm .cm-content')).to_have_attribute('contenteditable', 'true')
     page.locator('#cm .cm-content').click()
     page.keyboard.press('ControlOrMeta+A')
     page.keyboard.insert_text('alpha BETA gamma\n')

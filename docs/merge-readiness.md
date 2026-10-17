@@ -69,6 +69,12 @@ The historical counts in `prerelease-validation.md` describe earlier candidates.
   fixed. The final sidebar/CSV and storage durability checks remain in progress.
 - CI and container validation will run on the PR. Earlier local Docker checks
   could not use an available engine; no container success is claimed locally.
+- PR CI exposed a proposal-start timing race: typing before the async mode
+  transition completed could edit the source. Startup now holds the editor
+  read-only and disables the toggle until ready, with document/epoch checks.
+  A deliberately delayed membership response verifies source isolation. This
+  regression and the original failing CI test passed locally (2 tests, 10.54 s);
+  all 139 JavaScript tests, Ruff and full Mypy passed after the correction.
 
 ## User acceptance
 
