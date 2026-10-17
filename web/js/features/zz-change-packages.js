@@ -145,7 +145,7 @@ async function sessionActivate() {
     return
   }
   if (!item || window.changeSession !== s) return
-  const text = s.original ? item.base : item.content
+  const text = s.original || item.action === 'delete' ? item.base : item.content
   if (!item.binary) setT(text || '')
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
   tabDirty = false; marks = new Set(); markStyle = ''
@@ -404,14 +404,7 @@ function paintSessionSidebar() {
     row.append(label); row.title = file.action === 'rename' ? file.path + ' → ' + file.target : name
     row.onclick = () => sessionOpenFile(file)
     if (s.package && ['owner', 'editor'].includes(docRole)) projectAction(row, ICO_CHECK, t('packages.acceptFile'), () => acceptSessionSelection(file.id))
-    if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) projectAction(row, ICO_TRASH, t('comments.draftDiscard'), async () => {
-      if (s.busy || s.original || window.changeSession !== s) return
-      if (file.action === 'add') s.files.delete(sessionKey(file))
-      else s.files.set(sessionKey(file), sessionRuntime({ ...file, action: 'modify', content: file.base, changes: [], target: undefined }))
-      s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar()
-      if (file.action === 'add' && sessionKey(file) === sessionKey(sessionCurrent())) await switchTab('')
-      else await sessionActivate()
-    })
+    if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) projectAction(row, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
     group.append(row)
   })
   // kept drafts belong to the project they were made in (never the top root): attach under that project's group, own or shared
@@ -423,6 +416,15 @@ function paintSessionSidebar() {
   }
   group.prepend(el('span', 'package-caption origin-gone', t('packages.originGone'))) // project list lagging (e.g. left)/project gone: keep the draft reachable, say where it came from
   $('own').prepend(group)
+}
+async function discardSessionFile(file) {
+  const s = window.changeSession
+  if (!s || s.busy || s.original) return
+  if (file.action === 'add') s.files.delete(sessionKey(file))
+  else s.files.set(sessionKey(file), sessionRuntime({ ...file, action: 'modify', content: file.base, changes: [], target: undefined }))
+  s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar()
+  if (file.action === 'add' && sessionKey(file) === sessionKey(sessionCurrent())) await switchTab('')
+  else await sessionActivate()
 }
 async function sessionOpenFile(file) {
   if (file.doc_id && file.doc_id !== docId) { await openDoc(file.doc_id); if (docId !== file.doc_id) return }
@@ -465,12 +467,13 @@ const originalButton = icoBtn('ib', svgI('<path d="M1 8s2-4 7-4 7 4 7 4-2 4-7 4-
 const acceptPackageButton = icoBtn('ib', ICO_CHECK), acceptFileButton = icoBtn('ib', svgI('<path d="M3 1h7l3 3v10H3zM5 9l2 2 4-4"/>'))
 const exitPackageButton = icoBtn('ib', ICO_X), deletePackageButton = icoBtn('ib', ICO_TRASH)
 const packageActions = icoBtn('ib', ICO_MORE)
+const discardFileButton = icoBtn('ib', ICO_TRASH)
 const packageMode = el('span', 'package-mode sr-only')
 reviewTools.append(packageMode, reviewButton, originalButton, packageActions, exitPackageButton)
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
-  const actions = [acceptFileButton, acceptPackageButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
+  const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
   const choice = await askPick(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']))
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }
@@ -481,6 +484,7 @@ acceptPackageButton.onclick = () => acceptSessionSelection()
 acceptFileButton.onclick = () => { const f = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (f) acceptSessionSelection(f.id) }
 exitPackageButton.onclick = () => endChangeSession()
 deletePackageButton.onclick = deleteSelectedPackage
+discardFileButton.onclick = () => { const file = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (file) discardSessionFile(file) }
 const oldSuggestionControls = paintSuggestionControls
 paintSuggestionControls = () => {
   oldSuggestionControls()
@@ -493,13 +497,16 @@ paintSuggestionControls = () => {
   const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptPackage'), t('packages.acceptFile'), t('packages.delete'), t('packages.exit')]
   ;[reviewButton, originalButton, acceptPackageButton, acceptFileButton, deletePackageButton, exitPackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
   packageActions.title = t('shell.menuMore'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.disabled = !!s?.busy
-  packageActions.hidden = !s?.package || !['owner', 'editor'].includes(docRole) && s.package.author !== user
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
   originalButton.hidden = !s?.package; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
   acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || !['owner', 'editor'].includes(docRole)
   const currentFile = s?.files.get(sessionKey(sessionCurrent()))
   acceptFileButton.disabled = !!s?.busy || !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id)
   deletePackageButton.hidden = !s?.package || s.package.author !== user && docRole !== 'owner'
+  discardFileButton.title = t('packages.discardFile'); discardFileButton.setAttribute('aria-label', discardFileButton.title)
+  discardFileButton.hidden = !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id) || !!s?.package && s.package.author !== user && !['owner', 'editor'].includes(docRole)
+  discardFileButton.disabled = !!s?.busy || !!s?.original
+  packageActions.hidden = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
   exitPackageButton.hidden = !s
   if (available) {
     $('suggestionToggle').hidden = !!s?.package

@@ -66,7 +66,9 @@ The historical counts in `prerelease-validation.md` describe earlier candidates.
 - GLM 5.3 Flash Free (OpenCode, max) reviewed the full frontend/backend and the
   correction rounds. All concrete earlier findings were corrected. Transition,
   font and rebase corrections were approved; its minor offline-exit finding is
-  fixed. The final sidebar/CSV and storage durability checks remain in progress.
+  fixed. Storage durability was independently approved. Sidebar/CSV review found
+  a blank-line context loop and missing per-file undo after row deduplication;
+  both are corrected and undergoing focused re-review.
 - CI and container validation will run on the PR. Earlier local Docker checks
   could not use an available engine; no container success is claimed locally.
 - PR CI exposed a proposal-start timing race: typing before the async mode
@@ -75,6 +77,12 @@ The historical counts in `prerelease-validation.md` describe earlier candidates.
   A deliberately delayed membership response verifies source isolation. This
   regression and the original failing CI test passed locally (2 tests, 10.54 s);
   all 139 JavaScript tests, Ruff and full Mypy passed after the correction.
+- Blank-line-only proposal generation now makes strict progress. Its regression
+  runs in a bounded child process so a future loop fails instead of freezing CI.
+  The existing review menu offers per-file discard for staged rename/delete and
+  other changes; deleted-file previews retain their original text. Validation:
+  140 JavaScript tests, the actual rename/delete/undo browser flow, Ruff, full
+  Mypy, 702-key translation parity and generated build checks passed.
 
 ## User acceptance
 

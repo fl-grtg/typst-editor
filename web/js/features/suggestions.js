@@ -199,7 +199,7 @@ function suggestionChanges(base, current, changes) {
     let a = from ? Math.max(0, base.lastIndexOf('\n', from - 1) + 1) : 0
     let b = base.indexOf('\n', to); b = b < 0 ? base.length : b + 1
     while (base.slice(a, b) && base.indexOf(base.slice(a, b)) !== base.lastIndexOf(base.slice(a, b)) && (a || b < base.length)) {
-      a = a ? Math.max(0, base.lastIndexOf('\n', a - 2) + 1) : 0
+      a = a > 1 ? Math.max(0, base.lastIndexOf('\n', a - 2) + 1) : 0
       const next = base.indexOf('\n', b); b = next < 0 ? base.length : next + 1
     }
     const previous = ranges[ranges.length - 1]

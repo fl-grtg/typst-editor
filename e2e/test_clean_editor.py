@@ -41,6 +41,40 @@ def test_insert_menu_opens_symbols_and_returns_focus(page):
     expect(page.locator('#insertMore')).to_be_focused()
 
 
+def test_staged_delete_and_rename_can_be_discarded_per_file(page):
+    register(page, 'undo_staged_file')
+    create_doc(page, 'File undo')
+    expect(page.locator('#wsTxt')).to_have_text('Live')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'File undo')
+    project = document['project_id']
+    source = 'Original resource text'
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'notes.typ', 'content': source}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='File undo').click()
+    expect(page.locator('#title')).to_have_text('File undo')
+    expect(page.locator('#wsTxt')).to_have_text('Live')
+    page.locator('#own .doc .t').filter(has_text='notes.typ').click()
+    expect(page.locator('#title')).to_have_text('notes.typ')
+    page.locator('#suggestionToggle').click()
+    expect(page.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
+    for action in ('Rename', 'Delete'):
+        page.locator('#own .doc').filter(has_text='notes.typ').locator('button[title="Menu"]').click()
+        page.locator('#modal button.pk').filter(has_text=action).click()
+        if action == 'Rename':
+            page.fill('#mInp', 'renamed.typ')
+            page.click('#mYes')
+        page.wait_for_function('action => [...window.changeSession.files.values()].some(f => f.action === action)', arg=action.lower())
+        expect(page.locator('#cm .cm-content')).to_have_text(source)
+        page.locator('.package-tools button[title="Menu"]').click()
+        page.locator('#modal button.pk').filter(has_text='Discard file changes').click()
+        page.wait_for_function("[...window.changeSession.files.values()].every(f => f.action === 'modify' && f.content === f.base)")
+        expect(page.locator('#cm .cm-content')).to_have_attribute('contenteditable', 'true')
+        expect(page.locator('#title')).to_have_text('notes.typ')
+    resources = page.request.get(f'/api/projects/{project}/resources').json()['resources']
+    assert next(r for r in resources if r['name'] == 'notes.typ')['content'] == source
+    assert all(r['name'] != 'renamed.typ' for r in resources)
+
+
 def test_starting_proposal_blocks_source_edits_until_ready(page):
     register(page, 'starting_proposal')
     create_doc(page, 'Slow proposal')

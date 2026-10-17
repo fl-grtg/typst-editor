@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const { pathToFileURL } = require('node:url')
 const path = require('node:path')
+const { spawnSync } = require('node:child_process')
 const code = fs.readFileSync('web/js/features/suggestions.js', 'utf8')
 const context = vm.createContext({})
 vm.runInContext(code.slice(code.indexOf('function suggestionChanges'), code.indexOf('function draftStashKey')), context)
@@ -14,6 +15,28 @@ async function propose(base, changes) {
   const changeSet = state.changes(changes)
   return plain(context.suggestionChanges(base, changeSet.apply(state.doc).toString(), changeSet))
 }
+
+test('blank-line suggestion context terminates and preserves the edit', () => {
+  const source = code.slice(code.indexOf('function suggestionChanges'), code.indexOf('function draftStashKey'))
+  const script = `
+    import vm from 'node:vm';
+    import assert from 'node:assert/strict';
+    import { EditorState } from ${JSON.stringify(pathToFileURL(path.resolve('vendor-cm.js')).href)};
+    const context = {};
+    vm.runInNewContext(${JSON.stringify(source)}, context);
+    for (const base of ['\\n\\n', '\\n\\n\\n']) {
+      const state = EditorState.create({doc: base}), delta = state.changes({from: 1, insert: 'x'});
+      const current = delta.apply(state.doc).toString();
+      const proposals = context.suggestionChanges(base, current, delta);
+      let result = base;
+      for (const proposal of proposals) result = result.replace(proposal.old_string, proposal.new_string);
+      assert.equal(result, current);
+    }
+  `
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 5000, encoding: 'utf8' })
+  assert.ifError(result.error)
+  assert.equal(result.status, 0, result.stderr)
+})
 test('separate edits become context anchored proposals', async () => {
   const base = 'First line\nMiddle line\nLast line\n'
   const changes = await propose(base, [{ from: 0, to: 5, insert: 'Changed' }, { from: 23, to: 27, insert: 'Final' }])
