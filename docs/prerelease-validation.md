@@ -1,5 +1,13 @@
 # Prerelease validation: 0.2.0rc1
 
+Current local candidate: [merge-readiness.md](merge-readiness.md).
+
+Historical baseline report below. The later local suggestion/editor/upload/spelling
+changes (migrations 20/21) are not covered by the pinned commit or baseline test
+counts below. Their current checks and blocking Muse review are recorded in the
+local-change verification appendix; browser acceptance remains with the user.
+
+
 Local working-tree candidate based on `8c8bf45`, checked on 16 October 2026.
 No commit, tag, publication or candidate image digest has been created.
 
@@ -98,3 +106,28 @@ default `data/app.db` at schema 19. The automatic pre-migration backup is
 `data/app-migrate-20261016-040614.db`. `data-dev-projects` remains at schema 18.
 The test harness now defaults to a temporary data directory before importing
 the application. No local database was automatically rolled back.
+
+
+## Local-change verification appendix (16 October 2026)
+
+The local candidate adds migrations 20/21, suggestion REST/MCP tools and tracked
+editor drafts, floating comment placement, account-wide spelling, generic
+attachment upload and image viewing. Earlier baseline counts above do not
+certify these additions.
+
+- Python full suite: **505 passed** (`python -m pytest -q`, 499 seconds).
+- Nine subsequently added cases passed separately: 3 atomic/empty-document
+  suggestion-batch tests, 1 normalized Unicode resource-name API test and
+  5 real MCP edit/upload/render/export protocol tests. This covers the current
+  514-test collection without claiming a second complete run of all 514.
+- Node: **71 passed**, including proposal diff/context, complete-mark comment
+  placement, stale image loads, autocomplete and sync regressions.
+- Muse Spark 1.3 (OpenCode, xhigh) tested all eleven MCP tools over actual
+  `POST /mcp` calls: **17 protocol tests passed**, including real Typst 0.15.1
+  PNG/PDF/ZIP output and reviewer permissions. Core proposal tests: **26 passed**.
+- Ruff, Mypy, frontend JavaScript syntax, translation parity and generated
+  `index.html` freshness checks passed.
+- Blocking Muse review covers the entire local diff against main, including
+  untracked files, in frontend/backend/integration partitions. Final signoff is
+  recorded in the development thread. No browser acceptance, release, commit,
+  push, tag or image publication is claimed.

@@ -62,6 +62,53 @@ def create(con, owner: str, title: str, archived: bool = False) -> str:
     return pid
 
 
+def assert_file_name_free(
+    con: sqlite3.Connection, project_id: str, name: str, *,
+    exempt_files: set[tuple[str, str]] | None = None,
+) -> None:
+    """#7: one project must never show two entries with the same name in the
+    merged attachment namespace - a name may exist in exactly one sibling
+    doc (case-insensitive). Rows the write replaces or frees (upload over
+    its own row, rename of its own row) are exempt; routes list them.
+    Standalone docs (no project) keep the old account-wide freedom; trash
+    restore has its own collision flow. A doc-local file shadowing a module
+    of the same name stays legal by design ("local wins")."""
+    if not project_id:
+        return
+    own = sorted(exempt_files or set())
+    clauses: list[str] = []
+    row_params: list[str] = []
+    for doc_id, path in own:
+        clauses.append("(f.doc_id = ? AND f.path = ?)")
+        row_params.extend((doc_id, path))
+    sql = (
+        "SELECT 1 FROM files f JOIN docs d ON d.id=f.doc_id"
+        " WHERE d.project_id=? AND d.trashed=0 AND f.path=? COLLATE NOCASE"
+        + (" AND NOT (" + " OR ".join(clauses) + ")" if clauses else "")
+        + " LIMIT 1"
+    )
+    if con.execute(sql, (project_id, name, *row_params)).fetchone():
+        raise HTTPException(409, "Name already exists in this project")
+
+
+def assert_resource_name_free(
+    con: sqlite3.Connection, project_id: str, name: str, *, exempt_name: str = "",
+) -> None:
+    """#7 resource namespace: the project_modules PK is case-sensitive, so
+    'Layout.typ' vs 'layout.typ' would still render two rows. The row being
+    renamed/replaced (exempt_name) is free."""
+    if not project_id:
+        return
+    sql = "SELECT 1 FROM project_resources WHERE project_id=? AND name=? COLLATE NOCASE"
+    args: list[object] = [project_id, name]
+    if exempt_name:
+        sql += " AND name <> ?"
+        args.append(exempt_name)
+    sql += " LIMIT 1"
+    if con.execute(sql, args).fetchone():
+        raise HTTPException(409, "Name already exists in this project")
+
+
 def local_texts(doc_id: str) -> dict[str, str]:
     from backend.services import resources
     from backend.services.docfiles import store

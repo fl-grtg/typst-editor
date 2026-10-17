@@ -2,6 +2,13 @@
 MAX_TXT = 200_000
 SNAP_MAX = 50
 SNAP_EVERY = 900
+# Project checkpoints re-embed every attachment (base64 inside the JSON
+# blob), so each checkpoint roughly duplicates the project size. Automatic
+# (system-created, kind='auto') checkpoints are therefore pruned
+# aggressively on every checkpoint write: the newest few verbatim plus one
+# per older week. kind='manual' rows are never auto-pruned.
+AUTO_SNAP_KEEP = 10       # newest automatic checkpoints kept verbatim
+AUTO_SNAP_KEEP_WEEKS = 5  # extra weekly-decay checkpoints (auto total <= 15)
 SAVE_EVERY = 1.0
 AWARE_MAX = 64 * 1024
 CACHE_TTL = 10.0
@@ -10,6 +17,9 @@ FOLDER_MAX = 40
 INVITE_SECONDS = 7 * 86400
 EXPORT_MAX = 100 * 1024 * 1024
 UPLOAD_MAX = 10 * 1024 * 1024
+# Request-body ceiling for /api + /mcp: Content-Length gate in main + chunked
+# read cap for the heaviest endpoints (read_capped_body).
+MAX_REQUEST_BYTES = 32 * 1024 * 1024
 # Per-doc export formats (REST POST /api/docs/{id}/export + MCP export tool).
 EXPORT_FORMATS = ("pdf", "svg", "png", "zip")
 PBKDF2_ROUNDS = 300_000

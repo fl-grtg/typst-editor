@@ -1,10 +1,7 @@
-"""Browser smoke tests (Playwright). Opt-in: skipped unless Playwright + a browser are installed.
+"""Browser regression fixtures using a temporary database and self-hosted assets.
 
-    pip install -r requirements-e2e.txt && playwright install chromium
-    pytest e2e -q
-
-The live preview loads the Typst compiler from a CDN (until assets are self-hosted),
-so these tests need outbound internet access.
+Playwright and Chromium must be installed; missing browser dependencies fail
+instead of silently skipping CI coverage. No production or dev-project data is used.
 """
 import os
 import re
@@ -69,7 +66,7 @@ def base_url(tmp_path_factory):
            # All smoke tests share one egress IP, hence one per-IP rate-limit bucket
            # (production clients have distinct IPs). Raise the chatty list/poll
            # budget so the suite can't 429 itself; app limits stay untouched.
-           "RATE_FILES_LIST_PER_MIN": "1000", "RATE_REGISTER_PER_HOUR": "1000"}
+           "RATE_FILES_LIST_PER_MIN": "1000", "RATE_SIDEBAR_PER_MIN": "1000", "RATE_REGISTER_PER_HOUR": "1000"}
     _SERVER_LOG_PATH = data / "server.log"
     # NOTE: never stdout=PIPE here without a reader: once the pipe buffer
     # (64KB on GH runners) fills, uvicorn blocks on its next access-log

@@ -20,11 +20,11 @@ body.read #preview { padding-top: 24px; }
 }
 #pvTools button { min-width: 30px; height: 28px; padding: 0 6px; font-size: 15px; line-height: 1; }
 #pvTools button.on { background: var(--sel); color: var(--text); }
+#pvTools button.on:hover { background: var(--sel); color: var(--text); filter: brightness(.97); }
 #pvTools .grp { display: flex; align-items: center; gap: 1px; font-size: 0; color: var(--sub); }
 #pvTools #zoomV { min-width: 46px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
 #pvTools #syncBtn { margin-right: 3px; }
 #pvTools #syncBtn + .grp { padding-left: 4px; border-left: 1px solid var(--line); }
-#pvTools #fitPageBtn.on { background: var(--sel); color: var(--text); }
 
 /* Virtual pages: one slot per page, only visible ones rasterized */
 .pvPage { margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); overflow: hidden; }
@@ -54,6 +54,7 @@ body.read #pvTools #syncBtn + .grp { border-left: 0; padding-left: 0; }
 body.present #preview { display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #presentBar button { display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--text); border: 0; border-radius: var(--r-sm); }
 #presentBar button:hover { background: var(--hover); }
+#presentBar button:not(:disabled):active { background: var(--press); }
 
 body.present #preview canvas { max-width: none !important; }
 

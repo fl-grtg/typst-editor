@@ -97,6 +97,14 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                         raise HTTPException(409, 'Choose another target name')
                     if store.stat(target_doc, target_name):
                         raise HTTPException(409, 'Name already exists in target project')
+                    # #7: the sidebar shows every doc's local files as one
+                    # list, so a copied file must stay unique among them.
+                    # A move inside this project frees the source row, copies
+                    # do not.
+                    exempt = {(target_doc, target_name)}
+                    if move and source == target:
+                        exempt.add((doc_id, name))
+                    projects.assert_file_name_free(con, target, target_name, exempt_files=exempt)
                     try:
                         data = store.get(doc_id, name)
                     except FileNotFoundError:

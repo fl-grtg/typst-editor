@@ -181,7 +181,7 @@ function renderSettings() {
   const nok = el('button', null, t('common.ok'))
   nok.onclick = () => { if (nok.disabled) return; if (!nn.value.trim() || !npw.value) { setMsg = t('settings.needNamePw'); renderSettings(); return } nok.disabled = true; api('POST', '/api/me/name',
     { name: nn.value.trim(), password: npw.value })
-    .then(d => { user = d.user; paintMe(); sidebar(); renderSettings() })
+    .then(d => { const spelling = spellStored(); user = d.user; loadSpell(spelling); paintMe(); sidebar(); renderSettings() })
     .catch(e => { setMsg = e.message; renderSettings() }).finally(() => nok.disabled = false) }
   nr.append(nn, npw, nok); colL.appendChild(grp(t('settings.nameGroup'), sec(nr)))
   const pr = el('div', 'row')
@@ -453,11 +453,22 @@ function applyEd() {
   $('cmWrap').style.setProperty('--ed', edSize + 'px')
   $('cmWrap').style.setProperty('--lh', lh + 'px')
   $('editWrap').style.setProperty('--lh', lh + 'px')
+  paintSteps()
   if (popAnchor != null) movePop()
 }
 function applyPv() {
   const z = $('zoomV'); if (z) z.textContent = pvZoom + '%'
   document.querySelectorAll('#preview canvas').forEach(sizeCanvas)
+  paintSteps()
+}
+function paintSteps() { // dead clicks give no feedback: disable at the bounds (settings popover shows the value, toolbar has no readout)
+  try {
+    const fM = $('fMinus'), fP = $('fPlus'), zM = $('zMinus'), zP = $('zPlus')
+    if (fM) fM.disabled = edSize <= ED_MIN
+    if (fP) fP.disabled = edSize >= ED_MAX
+    if (zM) zM.disabled = pvZoom <= PV_MIN
+    if (zP) zP.disabled = pvZoom >= PV_MAX
+  } catch (e) {}
 }
 let syncOn = true, syncT = 0, syncPage = 0, pvT = 0 // click sync editor<->preview, last hit page
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
@@ -478,10 +489,26 @@ function pvVerify(t, at, s) { // context must contain the click word: longest to
   const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
   return w.length < 4 || um.includes(w) || um.includes(s.trim())
 }
-async function pvJumpBest(s, hint, pi) { // honest cross-file jump: current tab, else the unique owner, else stay
+async function pvJumpBest(s, hint, pi, anchor) { // honest cross-file jump: current tab, else the unique owner, else stay
   const needle = (s || '').trim()
   if (needle.length < 2) return false
   const cur = activeFile || ''
+  if (!cur && anchor) {
+    const lines = getT().split('\n'), matches = []
+    let pos = 0
+    lines.forEach((text, i) => {
+      if (/^\s*=+\s/.test(text) && syncText(text).includes(syncText(needle))) {
+        const hit = syncAnchor(lines, i + 1, pvTexts)
+        if (hit && hit.pi === pi && hit.items.includes(anchor)) matches.push({ pos, distance: Math.abs(hit.it.y - anchor.y) })
+      }
+      pos += text.length + 1
+    })
+    matches.sort((a, b) => a.distance - b.distance)
+    if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) {
+      syncPage = pi; jumpPos(matches[0].pos); return true
+    }
+    if (matches.length > 1) return false
+  }
   const total = cm.state.doc.lines || 1
   const atCur = locateNear(getT(), needle, hint)
   if (atCur >= 0 && pvVerify(getT(), atCur, needle)) { syncPage = pi; jumpPos(atCur); return true }
@@ -511,47 +538,50 @@ async function pvJumpBest(s, hint, pi) { // honest cross-file jump: current tab,
   }
   return false
 }
-function syncToPv() { // editor -> preview: page with most line words, hit centered
-  if (!syncOn || !docId || tplName || Date.now() - pvT < 1000) return // preview click: paper stays put
+function syncText(text) {
+  return text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+function syncAnchor(lines, line, pages) {
+  const needle = syncText(lines[line - 1] || '')
+  if (needle.length < 4 || /^[#]/.test((lines[line - 1] || '').trim())) return null
+  const headings = lines.slice(0, line - 1).filter(s => /^\s*=+\s/.test(s)).map(syncText).reverse()
+  const parts = [], spans = []
+  let offset = 0
+  pages.forEach((items, pi) => items.forEach(it => {
+    const text = syncText(it.s || '')
+    if (!text) return
+    parts.push(text); spans.push({ from: offset, to: offset + text.length, pi, it })
+    offset += text.length + 1
+  }))
+  const text = parts.join(' '), hits = []
+  let at = -1
+  while ((at = text.indexOf(needle, at + 1)) >= 0) {
+    if ((at && text[at - 1] !== ' ') || (at + needle.length < text.length && text[at + needle.length] !== ' ')) continue
+    const span = spans.find(s => s.to > at)
+    if (span) hits.push({ ...span, at, items: spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) })
+  }
+  if (hits.length === 1) return hits[0]
+  // Repeated headings belong to the nearest preceding section title.
+  for (const heading of headings) {
+    if (text.indexOf(heading) !== text.lastIndexOf(heading)) continue
+    const scored = hits.map(hit => ({ hit, distance: text.lastIndexOf(heading, hit.at - 1) }))
+      .filter(s => s.distance >= 0).sort((a, b) => (a.hit.at - a.distance) - (b.hit.at - b.distance))
+    if (scored.length && (scored.length === 1 || scored[0].hit.at - scored[0].distance < scored[1].hit.at - scored[1].distance)) return scored[0].hit
+  }
+  return null
+}
+function syncToPv() {
+  if (!syncOn || !docId || tplName || Date.now() - pvT < 1000) return
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
-  const key = activeFile || ''
-  const total = cm.state.doc.lines || 1
   const line = cm.state.doc.lineAt(cm.state.selection.main.head).number
-  // normalize line: trim, strip markup roughly, count long words only
-  const ank = cm.state.doc.line(line).text.trim().replace(/^[=+\-*#>]+/, '').replace(/[#*`_$[\](){}<>\/\\|=]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
-  const words = [...new Set(ank.split(' ').filter(w => w.length >= 4))].slice(0, 6)
-  const n = pvTexts.length
-  if (words.length && n) {
-    const exp = (line - 1) / total * n // tie-break: page nearest the cursor ratio, not the sticky click page
-    let bi = -1, bs = 0, bd = Infinity
-    for (let pi = 0; pi < n; pi++) {
-      const items = pvTexts[pi] || []
-      let s = 0
-      for (const w of words) for (const it of items) {
-        if (it.s && it.s.toLowerCase().includes(w)) { s++; break }
-      }
-      if (s > bs || (s === bs && s > 0 && Math.abs(pi - exp) < bd)) { bs = s; bi = pi; bd = Math.abs(pi - exp) }
-    }
-    if (bi >= 0 && bs > 0) { // min one word: else fallback (no random jump)
-      const items = pvTexts[bi] || []
-      const long = words.slice().sort((a, b) => b.length - a.length)[0]
-      for (const it of items) {
-        if (it.s && it.s.toLowerCase().includes(long)) {
-          const list = pvCanvasList(), cv = list[bi]
-          if (!cv) break
-          const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
-          const ky = cr.height / (it.vh || cv.height || 1) // indexed page size survives raster eviction
-          const want = pv.scrollTop + (cr.top - pr.top) + it.y * ky - pv.clientHeight / 2
-          syncPage = bi
-          if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want // quiet: no flicker
-          return
-        }
-      }
-    }
-  }
-  if (key) return // file tab with no hit: stay put, ratio maps main lines onto file text
-  const want = (line - 1) / total * (pv.scrollHeight - pv.clientHeight) // fallback: main tab only
+  const hit = syncAnchor(getT().split('\n'), line, pvTexts)
+  if (!hit) return // incomplete code or ambiguous text: keep the paper where the user left it
+  const cv = pvCanvasList()[hit.pi]
+  if (!cv) return
+  const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
+  const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
+  syncPage = hit.pi
   if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
 }
 function locateNear(t, s, hint) { // shortest hit near hint line (short cell texts too)
@@ -590,7 +620,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     if (best) {
       const total = cm.state.doc.lines || 1
       const hint = pvPageHint(pi, items.indexOf(best), items.length, total, pvTexts.length)
-      if (await pvJumpBest(best.s, hint, pi)) return
+      if (await pvJumpBest(best.s, hint, pi, best)) return
       syncPage = pi >= 0 ? pi : syncPage
       return // ambiguous text is not a source location
     } else {

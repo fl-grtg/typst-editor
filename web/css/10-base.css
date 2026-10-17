@@ -56,6 +56,14 @@ select option { background: var(--card); color: var(--text); }
 }
 #setPop .btnDanger { color: var(--danger); background: var(--danger-soft); border-color: transparent; box-shadow: none; }
 #setPop .btnDanger:not(:disabled):hover { background: var(--danger-soft); filter: brightness(.96); }
+#setPop .btnDanger:not(:disabled):active { background: var(--danger-soft); filter: brightness(.92); }
+.btn:not(:disabled):active, #preview .empty button:not(:disabled):active, .row button.ghost:not(:disabled):active, #mNo:not(:disabled):active, .mTop button:not(:disabled):active, .save:not(.primary):not(:disabled):active, #emptyCard button.ghost:not(:disabled):active,
+#setPop .step:not(:disabled):active, #setPop .btnSecondary:not(:disabled):active, #media > button:not(:disabled):active, #find button:not(:disabled):active,
+#histPop .srow button:not(:disabled):active, aside .empty button:not(:disabled):active, aside #upDoc:not(:disabled):active, #userBox button:not(:disabled):active { background: var(--press); }
+.row button:not(.ghost):not(:disabled):active, #mYes:not(:disabled):active, .save.primary:not(:disabled):active, #emptyCard button:not(.ghost):not(:disabled):active, #login #go:not(:disabled):active, aside #new:not(:disabled):active, #pop .rr .ib:not(:disabled):active {
+  filter: opacity(.78);
+}
+#pop .rr .ib:not(:disabled):active { background: var(--ink); color: var(--on-ink); }
 
 /* Icon buttons */
 .ibtn, header button, #tools button, #pvTools button, .sTop button, #pop .ib, aside .mini, .sbRail button, .sbHead button {
@@ -63,8 +71,8 @@ select option { background: var(--card); color: var(--text); }
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border-radius: var(--r-sm);
 }
-.ibtn:not(:disabled):hover, header button:not(:disabled):hover, #tools button:not(:disabled):hover, #pvTools button:not(:disabled):hover, .sTop button:not(:disabled):hover, aside .mini:not(:disabled):hover, .sbRail button:not(:disabled):hover, .sbHead button:not(:disabled):hover, #userBox .ibtn:not(:disabled):hover { background: var(--hover); color: var(--text); }
-header button:active, #tools button:active, #pvTools button:active, .sbRail button:active, .sbHead button:active { background: var(--press); }
+.ibtn:not(:disabled):hover, header button:not(:disabled):hover, #tools button:not(:disabled):hover, #pvTools button:not(:disabled):hover, .sTop button:not(:disabled):hover, #pop .ib:not(:disabled):hover, aside .mini:not(:disabled):hover, .sbRail button:not(:disabled):hover, .sbHead button:not(:disabled):hover, #userBox .ibtn:not(:disabled):hover { background: var(--hover); color: var(--text); }
+.ibtn:not(:disabled):active, header button:not(:disabled):active, #tools button:not(:disabled):active, #pvTools button:not(:disabled):active, .sTop button:not(:disabled):active, #pop .ib:not(:disabled):active, aside .mini:not(:disabled):active, .sbRail button:not(:disabled):active, .sbHead button:not(:disabled):active { background: var(--press); color: var(--text); }
 /* Keyboard rows: same focus frame as buttons (kb() makes div/h3 focusable) */
 aside .doc:focus-visible, aside h3:focus-visible, #userMain:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 

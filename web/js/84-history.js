@@ -43,7 +43,8 @@ async function renderHist() {
       doRestore()
     }
     const xx = icoBtn(null, ICO_X); xx.title = t('history.delSnap'); xx.setAttribute('aria-label', xx.title); xx.hidden = docRole !== 'owner'
-    xx.onclick = async () => {
+    xx.onclick = async e => {
+      e.stopPropagation()
       if (!await ask(t('history.delSnapConfirm'), { noInput: true, ok: t('common.delete'), danger: true })) return
       if (doc !== docId || epoch !== openN) return
       try { await api('DELETE', `${historyUrl(doc)}/${s.id}`); if (doc === docId && epoch === openN) renderHist() }

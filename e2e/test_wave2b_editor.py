@@ -61,8 +61,8 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
         page.locator("#who").click()
     pop.locator("#spellSel").select_option("de")  # spellcheck language per document
     expect(pop.locator("#spellSel")).to_have_value("de")
-    assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('lang')") == "de"
+    expect(page.locator('#cm .cm-content')).to_have_attribute('lang', 'de')
     assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('spellcheck')") == "true"
     pop.locator("#spellSel").select_option("off")
-    assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('spellcheck')") == "false"
+    expect(page.locator('#cm .cm-content')).to_have_attribute('spellcheck', 'false')
     assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('lang')") is None

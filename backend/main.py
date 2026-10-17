@@ -15,11 +15,12 @@ from backend import config, db, deps, sync
 
 # Backwards-compatible names: older tests and tooling import these from
 # backend.main. New code should import from the owning module.
-from backend.constants import EXPORT_MAX  # noqa: F401
+from backend.constants import EXPORT_MAX, MAX_REQUEST_BYTES  # noqa: F401
 from backend.deps import check_quota, get_files_dir, user_bytes  # noqa: F401
 from backend.mcp_server import mcp_http_app as _mcp_app
 from backend.routers import (
     auth,
+    change_packages,
     comments,
     docs,
     events,
@@ -27,6 +28,7 @@ from backend.routers import (
     files,
     frontend,
     library_copy,
+    notifications,
     projects,
     readmode,
     share,
@@ -188,6 +190,23 @@ async def no_cache_html(req: Request, call: Any):
     return res
 
 
+@app.middleware("http")
+async def request_size_guard(req: Request, call: Any):
+    # Early 413 before any route or schema parses the body: proposal payloads
+    # accept ~14 MB fields, so an unbounded body could be buffered fully into
+    # RAM per request. Chunked bodies (no header) are capped by
+    # deps.read_capped_body() in the heaviest endpoints instead.
+    if req.url.path.startswith(("/api/",)) or req.url.path == "/mcp" or req.url.path.startswith("/mcp/"):
+        try:
+            declared = int(req.headers.get("content-length") or 0)
+        except ValueError:
+            declared = 0
+        if declared > MAX_REQUEST_BYTES:
+            log.warning("request-size 413 %s", req.url.path)
+            return JSONResponse({"detail": "Request body too large"}, status_code=413)
+    return await call(req)
+
+
 @app.exception_handler(sqlite3.OperationalError)
 async def sqlite_busy_handler(req: Request, exc: sqlite3.OperationalError) -> JSONResponse:
     # single place instead of 20 try-blocks: locked/busy -> 503, rest -> 500
@@ -206,11 +225,13 @@ app.include_router(auth.router)
 app.include_router(docs.router)
 app.include_router(templates.router)
 app.include_router(projects.router)
+app.include_router(change_packages.router)
 app.include_router(library_copy.router)
 app.include_router(share.router)
 app.include_router(comments.router)
 app.include_router(files.router)
 app.include_router(snapshots.router)
+app.include_router(notifications.router)
 app.include_router(export.router)
 app.include_router(events.router)
 app.include_router(readmode.router)

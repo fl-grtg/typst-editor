@@ -11,9 +11,9 @@ from fastapi.responses import FileResponse
 from backend import db, deps
 from backend.schemas import FileText
 from backend.services import quota as quota_svc
+from backend.services import trash
 from backend.services.docfiles import (
     _upload_locked,
-    drop_file,
     need_text,
     safe_name,
     save_text_file,
@@ -23,7 +23,7 @@ from backend.services.docfiles import (
 )
 from backend.services.locks import _named_lock
 from backend.services.project_history import auto_document
-from backend.services.sidebar import emit_doc
+from backend.services.sidebar import emit_doc, notify_sidebar
 
 log = logging.getLogger("typst.main")
 
@@ -36,7 +36,10 @@ def list_files(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.check_doc_id(doc_id)
     deps.need_access(user, doc_id)
     try:
-        sync_doc_files(doc_id)  # external writers (duplicate, MCP) heal here
+        # A restore/rename may have published bytes before committing its
+        # metadata. Reconciliation must not publish that intermediate state.
+        with _named_lock(f"upload:{doc_id}"):
+            sync_doc_files(doc_id)
     except HTTPException as e:
         if e.status_code == 503:
             raise
@@ -141,14 +144,60 @@ def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(deps.m
     n = safe_name(name)
     with _named_lock(f"upload:{doc_id}"):
         try:
+            content = store.get(doc_id, n)
+        except FileNotFoundError:
+            try:
+                with db.tx() as con:
+                    if deps._tx_role(con, user, doc_id) not in ("owner", "editor"):
+                        raise HTTPException(403, "Reviewer can only comment")
+                    con.execute("DELETE FROM files WHERE doc_id=? AND path=?", (doc_id, n))
+            except sqlite3.OperationalError as e:
+                raise deps.busy_503("delete_file", e) from e
+            # Same epilogue as a successful delete: the files-row the UI
+            # was showing just disappeared.
+            touch_doc(doc_id)
+            quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
+            emit_doc(doc_id, "file")
+            notify_sidebar(user)
+            return {"ok": True}
+        except OSError as e:
+            log.error("delete_file %s unreadable: %s", n, e)
+            raise HTTPException(500, "Delete failed") from e
+        with db.tx() as con:
+            if deps._tx_role(con, user, doc_id) not in ("owner", "editor"):
+                raise HTTPException(403, "Reviewer can only comment")
+            owner_row = con.execute("SELECT owner,project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
+            if not owner_row:
+                raise HTTPException(404, "Doc gone")
+            # Trash is charged to the doc owner (files/quota count toward
+            # the owner too): archiving under the deleter would move the
+            # quota charge to the wrong account and hide the entry from
+            # the owner's trash list.
+            entry_id = trash.archive(con, owner_row["owner"], "file", n, content,
+                                     project_id=owner_row["project_id"] or "", doc_id=doc_id)
+            con.execute("DELETE FROM files WHERE doc_id=? AND path=?", (doc_id, n))
+        try:
             gone = store.delete(doc_id, n)
         except OSError as e:
             log.warning("delete_file %s gone: %s", n, e)
             gone = False
-        if gone:
-            drop_file(doc_id, n)
-            touch_doc(doc_id)
-            quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
-            auto_document(doc_id)
-            emit_doc(doc_id, "file")
+        if not gone:
+            # Undo the FS-delete attempt: only the trash row created above
+            # may go (older same-name entries keep their copy), and
+            # sync_doc_files runs OUTSIDE the tx — it opens its own
+            # connection and would self-block inside BEGIN IMMEDIATE.
+            try:
+                sync_doc_files(doc_id)
+            except HTTPException:
+                pass
+            with db.tx() as con:
+                con.execute("DELETE FROM trash_entries WHERE id=?", (entry_id,))
+            raise HTTPException(500, "Delete failed")
+        touch_doc(doc_id)
+        quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
+        auto_document(doc_id)
+        emit_doc(doc_id, "file")
+        notify_sidebar(user)
+        if owner_row["owner"] != user:
+            notify_sidebar(owner_row["owner"])
     return {"ok": True}

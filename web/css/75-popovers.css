@@ -105,7 +105,7 @@
 #setPop .row label:has(#fmtSave) { display: inline-flex; align-items: center; gap: 8px; line-height: 1.5; }
 #setPop #fmtSave { flex: none; margin: 0 !important; align-self: center; }
 
-#setPop { position: fixed; left: var(--settings-left, 8px) !important; width: var(--settings-width, min(1040px, calc(100vw - 16px))); top: calc(var(--bar) + 6px) !important; transform: none; max-height: calc(100dvh - var(--bar) - 22px); }
+#setPop { position: fixed; left: var(--settings-left, 8px) !important; width: var(--settings-width, min(1040px, calc(100vw - 16px))); top: calc(var(--bar) + 14px) !important; transform: none; max-height: calc(100dvh - var(--bar) - 22px); }
 #setPop h4 { padding-top: 10px; }
 #setPop .sec { padding-bottom: 8px; }
 #setPop .row input { min-width: 0; }
@@ -116,3 +116,7 @@
 #pop .er { align-items: flex-start; }
 #pop .er .ln { padding-top: 2px; }
 #pop .er .em { white-space: normal; }
+
+.suggestionCard pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; padding: 8px; border-radius: var(--r-sm); font: 12px/1.5 var(--mono); }
+.suggestionCard .before { background: var(--danger-soft); }
+.suggestionCard .after { background: rgba(145, 90, 225, .14); }

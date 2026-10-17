@@ -9,6 +9,15 @@ function projectAction(host, icon, label, run) {
   b.onclick = e => { e.stopPropagation(); Promise.resolve().then(run).catch(e => toast(e.message)) }
   host.appendChild(b); return b
 }
+function compactSidebarActions(host, keep = 0) {
+  const actions = [...host.children].filter(node => node.matches('button.mini')).slice(keep)
+  if (actions.length < 2) return
+  actions.forEach(button => button.remove())
+  projectAction(host, ICO_MORE, t('shell.menuMore'), async () => {
+    const choice = await askPick(host.title || host.querySelector('.t, b')?.textContent || '', actions.map(button => [button.title, '']))
+    if (choice != null && !actions[choice]?.disabled) actions[choice]?.click()
+  })
+}
 async function openProjectEntry(p, document, name, resource) {
   if (!document) {
     toast(t('projects.needsDocument'))
@@ -29,6 +38,7 @@ async function openProjectEntry(p, document, name, resource) {
 function paintProjects(box, shared) {
   projects.filter(p => (p.role !== 'owner') === shared).forEach(p => {
     const entries = projectEntries(p), group = el('div', 'project-group')
+    group.dataset.projectId = p.id // anchor for session draft placement (paintSessionSidebar)
     projectDropTarget(group, p); box.appendChild(group)
     const h = el('div', 'fhd project'), key = 'project:' + p.id
     const title = el('b', null, p.title)
@@ -45,17 +55,21 @@ function paintProjects(box, shared) {
       projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p))
       projectAction(h, ICO_TRASH, t('common.delete'), () => deleteProject(p))
     }
+    compactSidebarActions(h, 1)
     group.appendChild(h)
     if (shut.has(key)) return
     entries.documents.forEach(d => {
       const row = docRow({ ...d, project_id: p.id, role: d.role || p.role }, shared, true)
+      row.dataset.packageKey = ['document', d.id, 'main.typ'].join(':')
       row.classList.add('sub'); row.classList.toggle('cur', d.id === docId && !activeFile);
       if (projectEditable(p)) projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d))
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title }))
+      compactSidebarActions(row)
       projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title }); group.appendChild(row)
     })
     const entryRow = (name, document, resource) => {
       const row = el('div', 'doc sub' + ((resource ? docProject === p.id && activeFile === TPLK + name : docId === document && activeFile === name) ? ' cur' : '')); row.appendChild(el('span', 't', name)); row.title = name
+      row.dataset.packageKey = [resource ? 'resource' : 'file', resource ? '' : document, name].join(':')
       const open = () => {
         return openProjectEntry(p, document, name, resource)
       }
@@ -66,6 +80,7 @@ function paintProjects(box, shared) {
         projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource))
         projectAction(row, ICO_TRASH, t('common.delete'), () => deleteProjectEntry(p, name, document, resource))
       }
+      compactSidebarActions(row)
       group.appendChild(row)
     }
     entries.resources.forEach(r => entryRow(r.name, entries.documents.find(d => d.id === docId)?.id || entries.documents[0]?.id, true))
@@ -115,8 +130,9 @@ async function pullLibrary(source, target) {
       }
       continue
     }
-    const details = [t('projects.copyConfirm'), JSON.stringify(preview.dependencies || []), ...(preview.warnings || [])].join('\n')
-    if (!await ask(details, { noInput: true }) || !current()) return null
+    const dependencies = preview.dependencies || []
+    if (dependencies.length && !await ask(t('projects.copyWithDependencies') + '\n' + dependencies.join('\n'), { noInput: true })) return null
+    if (!current()) return null
     const result = await api('POST', '/api/library/pull', { ...body, preview: preview.preview })
     await loadTpl(); if (current()) await loadDocResources(true); await sidebar()
     return result.name || body.name
@@ -158,13 +174,67 @@ async function copyToLibrary(source, sourceDocId = docId, targetOverride = null)
       if (!current()) return
       const collisions = preview.collisions || []
       if (collisions.length || Object.keys(collisions).length) { toast(t('common.nameExists')); continue }
-      const info = [t('projects.copyConfirm'), JSON.stringify(preview.dependencies || preview.deps || []), ...(preview.warnings || [])].join('\n')
-      if (!await ask(info, { noInput: true }) || !current()) return
+      const dependencies = preview.dependencies || preview.deps || []
+      if (dependencies.length && !await ask(t('projects.copyWithoutDependencies') + '\n' + dependencies.join('\n'), { noInput: true })) return
+      if (!current()) return
       await api('POST', url, { ...body, preview: preview.preview })
       await loadTpl(); if (current()) { await loadDocResources(true); tabSig = ''; queueRender() }
       toast(t('projects.copied')); return
     }
   } catch (e) { toast(e.message) }
+}
+
+async function uploadProjectFiles(p, files) {
+  if (!projectEditable(p)) return
+  let attachmentDoc = projectEntries(p).documents.find(d => d.id === docId)?.id || projectEntries(p).documents[0]?.id
+  try {
+    for (const file of files) {
+      if (/\.zip$/i.test(file.name)) {
+        const title = await ask(t('docs.newDocTitle'), { value: file.name.replace(/\.zip$/i, '') })
+        if (!title?.trim()) continue
+        const body = new FormData(); body.append('f', file); body.append('title', title.trim())
+        const response = await fetch(`/api/projects/${p.id}/import-zip`, { method: 'POST', body })
+        if (!response.ok) throw new Error(expMsg(await response.text()))
+        attachmentDoc ||= (await response.json()).id
+      } else if (/\.typ$/i.test(file.name)) {
+        const choice = await askPick(file.name, [[t('docs.pickDoc'), ''], [t('projects.newResource'), t('projects.newResourceHint')]])
+        if (choice === 0) {
+          const created = await api('POST', `/api/projects/${p.id}/docs`, { title: file.name, content: await file.text() })
+          attachmentDoc ||= created.id
+        } else if (choice === 1) await api('POST', `/api/projects/${p.id}/resources`, { name: file.name, content: await file.text() })
+      } else if (TEXT_EXT.test(file.name)) await api('POST', `/api/projects/${p.id}/resources`, { name: file.name, content: await file.text() })
+      else {
+        if (!attachmentDoc) attachmentDoc = (await api('POST', `/api/projects/${p.id}/docs`, { title: t('projects.attachments'), content: '' })).id
+        const existing = (await api('GET', `/api/docs/${attachmentDoc}/files`)).files
+        const name = file.name.replace(/^[.]+/, '').replace(/[^A-Za-z0-9._ ()-]/g, '_').slice(0, 100)
+        if (existing.some(f => f.name === name)) throw new Error(t('common.nameExists'))
+        const body = new FormData(); body.append('f', file, name)
+        const response = await fetch(`/api/docs/${attachmentDoc}/files`, { method: 'POST', body })
+        if (!response.ok) throw new Error(expMsg(await response.text()))
+      }
+    }
+  } finally {
+    shut.delete('project:' + p.id); saveShut(); await sidebar()
+    if (docProject === p.id && docId) {
+      filesDirty = true
+      lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files
+      mediaNames = lastFiles.map(f => f.name); renderMediaChips(lastFiles)
+      await loadDocResources(true); queueRender()
+    }
+  }
+}
+async function uploadToProject(files) {
+  const choices = projects.filter(projectEditable).slice().sort((a, b) => Number(b.id === docProject) - Number(a.id === docProject))
+  const i = await askPick(t('files.uploadTarget'), [...choices.map(p => [p.title, '']), [t('projects.new'), '']])
+  if (i == null || i < 0) return
+  let project = choices[i]
+  if (!project) {
+    const title = await ask(t('projects.new'), { value: files[0].name.replace(/\.[^.]*$/, '') })
+    if (!title?.trim()) return
+    const created = await api('POST', '/api/projects', { title: title.trim() })
+    await sidebar(); project = projects.find(p => p.id === created.id)
+  }
+  if (project) await uploadProjectFiles(project, files)
 }
 
 async function projectMenu(p) {
@@ -174,39 +244,7 @@ async function projectMenu(p) {
   if (i === 1) return newProjectResource(p.id)
   if (i === 2) {
     const picker = document.createElement('input'); picker.type = 'file'; picker.multiple = true
-    picker.onchange = async () => {
-      try {
-        for (const file of picker.files) {
-          if (/\.zip$/i.test(file.name)) {
-            const title = await ask(t('docs.newDocTitle'), { value: file.name.replace(/\.zip$/i, '') })
-            if (!title?.trim()) continue
-            const body = new FormData(); body.append('f', file); body.append('title', title.trim())
-            const response = await fetch(`/api/projects/${p.id}/import-zip`, { method: 'POST', body })
-            if (!response.ok) throw new Error(expMsg(await response.text()))
-          } else if (/\.typ$/i.test(file.name)) {
-            const choice = await askPick(file.name, [[t('docs.pickDoc'), ''], [t('projects.newResource'), t('projects.newResourceHint')]])
-            if (choice === 0) await api('POST', `/api/projects/${p.id}/docs`, { title: file.name, content: await file.text() })
-            else if (choice === 1) await api('POST', `/api/projects/${p.id}/resources`, { name: file.name, content: await file.text() })
-          } else if (TEXT_EXT.test(file.name)) await api('POST', `/api/projects/${p.id}/resources`, { name: file.name, content: await file.text() })
-          else {
-            let doc = projectEntries(p).documents[0]?.id
-            if (!doc) {
-              toast(t('projects.uploadNeedsDoc'))
-              await newProjectDoc(p.id)
-              if (docProject !== p.id || !docId) return
-              doc = docId
-            }
-            const existing = (await api('GET', `/api/docs/${doc}/files`)).files
-            if (existing.some(f => f.name === file.name)) throw new Error(t('common.nameExists'))
-            const body = new FormData(); body.append('f', file)
-            const response = await fetch(`/api/docs/${doc}/files`, { method: 'POST', body })
-            if (!response.ok) throw new Error(expMsg(await response.text()))
-          }
-        }
-        shut.delete('project:' + p.id); saveShut(); await sidebar()
-        if (docProject === p.id) { filesDirty = true; await loadDocResources(true); queueRender() }
-      } catch (e) { toast(e.message) }
-    }
+    picker.onchange = () => uploadProjectFiles(p, [...picker.files]).catch(e => toast(e.message))
     picker.click(); return
   }
   if (i === 3) {
@@ -328,18 +366,20 @@ async function transferProjectEntry(p, entry, move, selectedTarget, direct = fal
   }
 }
 function projectDrag(row, p, entry) {
-  row.draggable = true
-  row.ondragstart = e => { e.stopPropagation(); e.dataTransfer.setData('application/x-typst-project-entry', JSON.stringify({ project: p.id, entry })); e.dataTransfer.effectAllowed = projectEditable(p) ? 'copyMove' : 'copy' }
+  sidebarDrag(row, { project: p.id, entry }, projectEditable(p) ? 'copyMove' : 'copy')
 }
 function projectDropTarget(row, target) {
   if (!projectEditable(target)) return
-  row.ondragover = e => { if (e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); row.classList.add('drop-target'); e.dataTransfer.dropEffect = e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
+  row.ondragover = e => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); row.classList.add('drop-target'); e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
   row.ondragleave = e => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop-target') }
   row.ondrop = async e => {
-    if (!e.dataTransfer.types.includes('application/x-typst-project-entry')) return
+    if (!e.dataTransfer.files.length && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
     e.preventDefault(); e.stopPropagation(); row.classList.remove('drop-target')
     try {
+      if (e.dataTransfer.files.length) { await uploadProjectFiles(target, [...e.dataTransfer.files]); return }
       const data = JSON.parse(e.dataTransfer.getData('application/x-typst-project-entry'))
+      if (data.trashed) { await restoreSidebarDocument(data, target); return }
+      if (data.personal) { await pullLibrary({ source_scope: 'personal', source: data.entry.name }, { scope: 'project', project_id: target.id }); return }
       const source = projects.find(p => p.id === data.project)
       if (source) await transferProjectEntry(source, data.entry, projectEditable(source) && !e.ctrlKey && !e.metaKey, target, true)
     } catch (error) { toast(error.message) }
@@ -351,12 +391,14 @@ async function renamePersonalResource(name) {
   if (editing && !await flushTpl()) return
   const target = await ask(t('templates.renameTpl'), { value: name, maxLen: 100 })
   if (!target?.trim() || target.trim() === name) return
+  try {
   await loadTpl()
   const source = myTpl.find(r => r.name === name)
   if (!source) return
   const result = await api('POST', '/api/templates/' + encodeURIComponent(name) + '/rename', { name: target.trim(), version: source.updated_at })
   if (editing && tplName === name) { tplName = result.name; tplVer = result.version; $('title').textContent = result.name }
   await loadTpl(); await sidebar()
+  } catch (e) { toast(e.message) }
 }
 async function duplicatePersonalResource(name) {
   if (tplName === name && !await flushTpl()) return

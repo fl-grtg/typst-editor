@@ -56,4 +56,10 @@ def auto_snap(doc_id: str, content: str, label: str = "") -> None:
     finally:
         con.close()
     from backend.services.project_history import auto_document
-    auto_document(doc_id)
+
+    try:
+        auto_document(doc_id)
+    except (HTTPException, sqlite3.Error, OSError) as e:
+        # Same warning pattern as auto_snap above: the snapshot already
+        # succeeded (or was skipped), the checkpoint is best-effort.
+        log.warning("auto_document %s skipped: %s", doc_id, e)

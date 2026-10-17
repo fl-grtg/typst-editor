@@ -366,7 +366,7 @@ def _migrate_v16(con: sqlite3.Connection) -> None:
 
 
 def _migrate_v17(con: sqlite3.Connection) -> None:
-    con.execute("CREATE TABLE IF NOT EXISTS project_snapshots (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+    con.execute("CREATE TABLE IF NOT EXISTS project_snapshots (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'manual')")
 
 
 def _migrate_v18(con: sqlite3.Connection) -> None:
@@ -398,10 +398,52 @@ def _migrate_v19(con: sqlite3.Connection) -> None:
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_owner_title_nocase ON projects(owner,title COLLATE NOCASE)")
 
 
+def _migrate_v20(con: sqlite3.Connection) -> None:
+    for name, definition in (("suggestion_old", "TEXT"), ("replacement", "TEXT"),
+                             ("suggestion_status", "TEXT NOT NULL DEFAULT ''")):
+        if name not in _cols(con, "comments"):
+            con.execute(f"ALTER TABLE comments ADD COLUMN {name} {definition}")
+
+
+def _migrate_v21(con: sqlite3.Connection) -> None:
+    if "spell_language" not in _cols(con, "users"):
+        con.execute("ALTER TABLE users ADD COLUMN spell_language TEXT NOT NULL DEFAULT 'auto'")
+
+
+def _migrate_v22(con: sqlite3.Connection) -> None:
+    con.execute("""CREATE TABLE IF NOT EXISTS trash_entries (
+ id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+ kind TEXT NOT NULL, project_id TEXT NOT NULL DEFAULT '', doc_id TEXT NOT NULL DEFAULT '',
+ name TEXT NOT NULL, content BLOB NOT NULL, line TEXT NOT NULL DEFAULT '',
+ folder TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+);""")
+
+
+def _migrate_v23(con: sqlite3.Connection) -> None:
+    con.execute("""CREATE TABLE IF NOT EXISTS suggestion_packages (
+ id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ author TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, title TEXT NOT NULL,
+ files TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, accepted INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+)""")
+
+
+def _migrate_v24(con: sqlite3.Connection) -> None:
+    # Hot query: the trash sidebar reads one owner's entries by recency.
+    con.execute("CREATE INDEX IF NOT EXISTS idx_trash_owner ON trash_entries(owner, created_at)")
+
+
+def _migrate_v25(con: sqlite3.Connection) -> None:
+    # Legacy unlabeled checkpoints can be manual too. Preserve them;
+    # retention applies only to explicitly classified automatic saves.
+    if "kind" not in _cols(con, "project_snapshots"):
+        con.execute("ALTER TABLE project_snapshots ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual'")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19,
+    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19, _migrate_v20, _migrate_v21, _migrate_v22, _migrate_v23, _migrate_v24, _migrate_v25,
 )
 
 

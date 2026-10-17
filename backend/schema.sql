@@ -3,7 +3,9 @@
 CREATE TABLE IF NOT EXISTS users (
     name TEXT PRIMARY KEY,
     hash TEXT NOT NULL,
-    avatar TEXT NOT NULL DEFAULT '' -- base64 PNG (64px, scaled by frontend)
+    avatar TEXT NOT NULL DEFAULT '', -- base64 PNG (64px, scaled by frontend)
+    migration_bytes INTEGER NOT NULL DEFAULT 0,
+    spell_language TEXT NOT NULL DEFAULT 'auto'
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -46,6 +48,9 @@ CREATE TABLE IF NOT EXISTS comments (
     parent_id TEXT NULL REFERENCES comments(id) ON DELETE CASCADE,
     resolved INTEGER NOT NULL DEFAULT 0, -- done flag (db.py migrates legacy rows)
     author TEXT NOT NULL DEFAULT '', -- display name override (MCP: API key name, else '')
+    suggestion_old TEXT,
+    replacement TEXT,
+    suggestion_status TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_doc ON comments(doc_id);
@@ -162,7 +167,7 @@ CREATE INDEX IF NOT EXISTS idx_read_tokens_doc ON read_tokens(doc_id);
 CREATE TABLE IF NOT EXISTS projects (
  id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
  title TEXT NOT NULL, created_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
- UNIQUE(owner, title)
+ UNIQUE(owner, title) -- legacy constraint; migration v19 adds idx_projects_owner_title_nocase
 );
 CREATE TABLE IF NOT EXISTS project_members (
  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -178,5 +183,21 @@ CREATE TABLE IF NOT EXISTS project_resources (
 
 CREATE TABLE IF NOT EXISTS project_snapshots (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
- content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+ content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+ kind TEXT NOT NULL DEFAULT 'manual' -- 'auto' (system, pruned by retention) vs 'manual' (never auto-pruned)
+);
+
+CREATE TABLE IF NOT EXISTS trash_entries (
+ id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+ kind TEXT NOT NULL, project_id TEXT NOT NULL DEFAULT '', doc_id TEXT NOT NULL DEFAULT '',
+ name TEXT NOT NULL, content BLOB NOT NULL, line TEXT NOT NULL DEFAULT '',
+ folder TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trash_owner ON trash_entries(owner, created_at);
+
+CREATE TABLE IF NOT EXISTS suggestion_packages (
+ id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ author TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, title TEXT NOT NULL,
+ files TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, accepted INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );

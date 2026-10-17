@@ -116,7 +116,10 @@ def test_create_400_on_exists_and_paths(c):
     assert e.value.status_code == 400
     with pytest.raises(HTTPException) as e:
         t.op_create("u1", "owner", "/docs/a/b/title", "x")
-    assert e.value.status_code == 400  # title with / rejected
+    assert e.value.status_code == 404  # nested attachment path; parent document a does not exist
+    with pytest.raises(HTTPException) as e:
+        t.op_create("u1", "owner", "/docs/a%2Fb", "x")
+    assert e.value.status_code == 400  # encoded slash is still an invalid document title
     with pytest.raises(HTTPException) as e:
         t.op_read("u1", "owner", "/nope/X")
     assert e.value.status_code == 400
