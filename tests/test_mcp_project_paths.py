@@ -66,6 +66,21 @@ async def test_project_resources_permissions_conflicts_and_search(c, project, mo
 
 
 @pytest.mark.anyio
+async def test_project_path_trashed_doc_answers_410_and_active_namesake_wins(c, project):
+    tools.op_create('project_editor', 'editor', project + '/docs/Shelf', 'old text')
+    with db.tx() as con:
+        did = con.execute("SELECT id FROM docs WHERE project_id='p_test' AND title='Shelf'").fetchone()["id"]
+        con.execute("UPDATE docs SET trashed=1, updated_at=? WHERE id=?", (db.now_iso(), did))
+    with pytest.raises(HTTPException) as e:
+        tools.op_read('project_editor', 'editor', project + '/docs/Shelf')
+    assert e.value.status_code == 410 and 'trash' in e.value.detail.lower()
+    # A fresh doc may reuse the trashed title (the partial unique index only
+    # covers trashed=0): the project path then serves the active namesake.
+    tools.op_create('project_editor', 'editor', project + '/docs/Shelf', 'fresh text')
+    assert tools.op_read('project_owner', 'editor', project + '/docs/Shelf')['content'] == 'fresh text'
+
+
+@pytest.mark.anyio
 async def test_mcp_can_read_and_edit_copy_names_with_spaces(c):
     register_user(c, 'alice')
     c.post('/api/templates', json={'name': 'module.typ', 'content': 'original'})

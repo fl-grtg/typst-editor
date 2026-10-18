@@ -66,23 +66,27 @@ async def _awrap(coro):
         raise ToolError(f"{e.status_code}: {e.detail}") from None
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
 def ls(path: str = "/") -> dict:
-    """List docs/shared/templates, or files inside a document. Start here."""
+    """List docs/shared/templates/projects, or files inside a document. Start here."""
     user, cap, _ = _auth()
     return _wrap(t.op_ls, user, cap, path)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
 def read(path: str, offset: int = 1, limit: int = 0) -> dict:
-    """Read a doc, text file or template. Line window: offset 1-based, limit 0 = all. Returns content + total_lines + last_seen (pass it to edit)."""
+    """Read a doc, text file, template or project resource. Line window: offset 1-based, limit 0 = all. Returns content + total_lines + last_seen (pass it to edit)."""
     user, cap, _ = _auth()
     return _wrap(t.op_read, user, cap, path, offset, limit)
 
 
 @mcp.tool()
 def create(path: str, content: str = "") -> dict:
-    """Create a doc (/docs/{Title}), text file (/docs/{Title}/{File}) or template. 400 if it exists."""
+    """Create a doc (/docs/{Title}), text file (/docs/{Title}/{File}), template or project doc/resource. 400 if it exists (409 for project collisions)."""
     user, cap, _ = _auth()
     return _wrap(t.op_create, user, cap, path, content)
 
@@ -96,7 +100,9 @@ async def edit(path: str, old_string: str, new_string: str,
     return await _awrap(t.op_edit(user, cap, path, old_string, new_string, replace_all, last_seen))
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
 def search(query: str) -> dict:
     """Search titles + content of accessible docs (min 2 chars, max 20 hits)."""
     user, cap, _ = _auth()
@@ -129,9 +135,11 @@ def suggest(path: str, old_string: str, new_string: str, text: str = "") -> dict
     return _wrap(t.op_suggest, user, cap, path, old_string, new_string, text, author)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
 def suggestions(path: str) -> dict:
-    """List document suggestions with their original/replacement text and pending/accepted/rejected status."""
+    """List a document's suggestions, 200 latest + total: id, author, anchor, quote (original, <=500 chars), explanation text, pending/accepted/rejected status. Full original/replacement text is not returned."""
     user, cap, _ = _auth()
     return _wrap(t.op_suggestions, user, cap, path)
 
@@ -162,7 +170,7 @@ async def view(path: str, pages: str = "1-5", scale: float = 1.0) -> ToolResult:
     annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
 )
 async def export(path: str, format: str = "pdf", pdf_standard: str = "none", pages: str = "", ppi: int = 0) -> dict:
-    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + files/). Options: pdf_standard (pdf only), pages like 1-3,5 (pdf/svg/png), ppi 72-300 (png only). Returns base64 payload + mime + filename (decode and save)."""
+    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + sources at their original relative paths). Options: pdf_standard (pdf only), pages like 1-3,5 (pdf/svg/png), ppi 72-300 (png only). Returns base64 payload + mime + filename (decode and save)."""
     user, cap, _ = _auth()
     return await _awrap(t.op_export(user, cap, path, format, pdf_standard, pages, ppi))
 

@@ -277,7 +277,10 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
             if segs[2] == "docs":
                 if len(segs) == 3:
                     return {**res, "kind": "project_docs"}
-                row = con.execute("SELECT id,owner,title,trashed FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0",
+                # ORDER BY trashed picks the active doc over trashed namesakes
+                # (the partial unique index only covers trashed=0); a
+                # trashed-only match answers 410 like the legacy paths.
+                row = con.execute("SELECT id,owner,title,trashed FROM docs WHERE project_id=? AND title=? COLLATE NOCASE ORDER BY trashed LIMIT 1",
                                   (segs[1], _title(segs[3]))).fetchone()
                 if not row:
                     raise _bad("Document not found", 404)
@@ -337,7 +340,7 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
 
 def _need_edit(res: dict) -> None:
     if res.get("role") not in ("owner", "editor"):
-        raise _bad("Reviewer can only comment", 403)
+        raise _bad("Reviewer can only comment or propose", 403)
 
 
 def _files_dir() -> Path:
@@ -484,7 +487,7 @@ def op_create(user: str, cap: str, path: str, content: str = "") -> dict:
     from backend.services import sidebar
 
     if cap == "reviewer":
-        raise _bad("Reviewer can only comment", 403)
+        raise _bad("Reviewer can only comment or propose", 403)
     if len(content.encode("utf-8")) > MAX_TXT:
         raise _bad("Doc too large (max 200 KB)")
     if path in ("", "/"):
@@ -615,7 +618,7 @@ def _recheck_edit(user: str, cap: str, doc_id: str) -> None:
     if row["trashed"]:
         raise _bad("In trash - restore first", 410)
     if apikeys.cap_min(cap, db.doc_role(user, doc_id) or "") not in ("owner", "editor"):
-        raise _bad("Reviewer can only comment", 403)
+        raise _bad("Reviewer can only comment or propose", 403)
 
 
 def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: str, must_create: bool) -> None:
@@ -813,7 +816,7 @@ async def op_edit(user: str, cap: str, path: str, old_string: str,
                         # opens its own connection and can go stale in the gap).
                         _role = db.role_on(con, user, doc_id) or ""
                         if apikeys.cap_min(cap, _role) not in ("owner", "editor"):
-                            raise _bad("Reviewer can only comment", 403)
+                            raise _bad("Reviewer can only comment or propose", 403)
                         con.execute("UPDATE docs SET content=?, updated_at=? WHERE id=?",
                                     (new_text, db.now_iso(), doc_id))
                 except sqlite3.OperationalError as e:
