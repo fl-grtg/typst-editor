@@ -94,6 +94,9 @@ def test_7_mobile_viewport_login_and_open_doc(browser, base_url):
         bounds = settings.bounding_box()
         assert bounds is not None and bounds["y"] + bounds["height"] <= 844
         assert settings.locator(".setContent").evaluate("n => getComputedStyle(n).overflowY") == "auto"  # modal scrolls in the content area now
+        rail_item = settings.locator(".setNavItem").first
+        expect(rail_item).to_be_visible()
+        assert (rail_item.bounding_box() or {}).get("width", 0) > 40  # nav rail must not be collapsed by app-shell aside rules
     finally:
         mctx.close()
 

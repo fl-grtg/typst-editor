@@ -868,6 +868,13 @@ body.settings-open #modal { z-index: 302; }
 #setPop .sTop b { font-size: 16px; }
 #setPop .setLayout { display: grid; grid-template-columns: 204px minmax(0, 1fr); flex: 1; min-height: 0; }
 #setPop .setRail { width: auto; min-width: 0; flex: none; display: flex; flex-direction: column; padding: 16px 10px; border-right: 1px solid var(--line); background: var(--panel); }
+/* The rail is an <aside> only for semantics: app-shell drawer rules (30-shell, 90-responsive)
+   target bare asides and must not resize/collapse the settings nav rail (mobile drawer, noside) */
+#setPop .setLayout .setRail {
+  width: auto !important; min-width: 0; position: static; left: auto; top: auto; bottom: auto; z-index: auto;
+  padding: 16px 10px; border-right: 1px solid var(--line); border-radius: 0; box-shadow: none; transition: none;
+  background: var(--panel); pointer-events: auto;
+}
 #setPop .setNav { display: flex; flex-direction: column; gap: 2px; }
 #setPop .setNavItem { width: 100%; min-height: 34px; justify-content: flex-start; text-align: left; padding: 6px 8px; border: 0; border-radius: var(--r-sm); outline: none; background: transparent; box-shadow: none; color: var(--sub); font-size: 13px; font-weight: 500; }
 #setPop .setNavItem:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
@@ -927,6 +934,7 @@ body.settings-open #modal { z-index: 302; }
   #setPop .sTop { padding: 12px 16px; }
   #setPop .setLayout { grid-template-columns: 132px minmax(0, 1fr); }
   #setPop .setRail { padding: 12px 8px; }
+  #setPop .setLayout .setRail { padding: 12px 8px; }
   #setPop .setNavItem { padding: 8px; font-size: 12px; }
   #setPop .setContent { padding: 16px 12px 22px; }
   #setPop .keyCreateRow { grid-template-columns: minmax(95px, 1.1fr) minmax(85px, .9fr) minmax(75px, .8fr) auto; gap: 4px; }
