@@ -27,7 +27,7 @@ def _auth() -> tuple[str, str, str]:
     """(user, cap, author) from Bearer API key. Raises ToolError 401/429.
 
     Bearer-only on purpose: no cookie fallback, so the /mcp CSRF bypass
-    carries no ambient auth. author is the key name (comment display),
+    carries no ambient auth. author is the key name (comment/proposal display),
     else the username. Every call counts against RATE_MCP_PER_MIN
     (IP + per-key buckets, same helper as the REST routes)."""
     from fastmcp.server.dependencies import get_http_headers, get_http_request
@@ -131,8 +131,8 @@ def suggest(path: str, old_string: str, new_string: str, text: str = "") -> dict
     old_string must match exactly once (empty only for an empty document).
     text names the package (max 100 chars). For multiple files, uploads, additions, deletions or
     renames use propose instead. Source stays unchanged until UI acceptance."""
-    user, cap, _ = _auth()
-    return _wrap(t.op_suggest_package, user, cap, path, old_string, new_string, text)
+    user, cap, author = _auth()
+    return _wrap(t.op_suggest_package, user, cap, path, old_string, new_string, text, author)
 
 
 @mcp.tool(
@@ -160,9 +160,9 @@ def propose(path: str, title: str, files: list[ProposalFile], package_id: str = 
     To correct a package read it first, retain file/change ids, and pass its
     package_id and revision. Owner/editor reviews and accepts in the existing
     proposal mode, by change, file or whole package. Reviewer keys work."""
-    user, cap, _ = _auth()
+    user, cap, author = _auth()
     return _wrap(t.op_propose, user, cap, path, title,
-                 [f.model_dump(exclude_defaults=True) for f in files], package_id, revision)
+                 [f.model_dump(exclude_defaults=True) for f in files], package_id, revision, author)
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True))

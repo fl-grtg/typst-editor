@@ -264,3 +264,47 @@ test('session tab wrapper forwards view preservation through both loaders', asyn
   await c.switchTab('scrolling.typ', true, true)
   assert.deepEqual(calls, [['scrolling.typ', true, true], true])
 })
+
+test('unmodified project documents load their text before websocket sync instead of caching an empty buffer', async () => {
+  const c = context(), reads = []
+  c.activeFile = ''; c.synced = false; c.shadow = ''
+  Object.assign(c, { sessionRuntime: file => file, api: async (_method, url) => { reads.push(url); return { content: 'Existing chapter text' } } })
+  vm.runInContext(packages.slice(packages.indexOf('async function sessionEnsure'), packages.indexOf('function bytesToBase64')), c)
+  const item = await c.sessionEnsure()
+  assert.equal(item.base, 'Existing chapter text')
+  assert.equal(item.content, 'Existing chapter text')
+  assert.deepEqual(reads, ['/api/docs/d_existing'])
+  assert.equal((await c.sessionEnsure()).content, 'Existing chapter text')
+  assert.equal(reads.length, 1)
+})
+
+test('document loading prefers live text if websocket sync completes during the read', async () => {
+  const c = context()
+  c.activeFile = ''; c.synced = false; c.shadow = ''
+  Object.assign(c, { sessionRuntime: file => file, api: async () => { c.synced = true; c.shadow = 'Latest live text'; return { content: 'Older saved text' } } })
+  vm.runInContext(packages.slice(packages.indexOf('async function sessionEnsure'), packages.indexOf('function bytesToBase64')), c)
+  assert.equal((await c.sessionEnsure()).content, 'Latest live text')
+})
+
+test('late proposal activation cannot blank a newly selected document', async () => {
+  const c = context()
+  let release, resets = 0
+  Object.assign(c, { docProject: 'p_test', activeFile: '', sessionEnsure: () => new Promise(resolve => { release = resolve }), setT: () => resets++ })
+  vm.runInContext(packages.slice(packages.indexOf('async function sessionActivate'), packages.indexOf('async function startChangeSession')), c)
+  const pending = c.sessionActivate()
+  c.docId = 'd_another'
+  release({ content: 'Previous document' })
+  await pending
+  assert.equal(resets, 0)
+})
+
+test('proposal picker displays the key name with an account-name fallback', async () => {
+  const labels = []
+  const c = vm.createContext({ docProject: 'p', packageLoad: 0, window: {},
+    api: async () => ({ packages: [{ author: 'alice', author_name: 'Review Bot' }, { author: 'bob', author_name: '' }] }),
+    t: (_key, args) => { if (args) labels.push(args.author); return '' }, askPick: async () => null,
+    toast: message => { throw Error(message) } })
+  vm.runInContext(packages.slice(packages.indexOf('async function choosePackage'), packages.indexOf('// #6: topbar chip')), c)
+  await c.choosePackage()
+  assert.deepEqual(labels, ['Review Bot', 'bob'])
+})

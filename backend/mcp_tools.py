@@ -962,7 +962,7 @@ def _proposal_project(user: str, cap: str, path: str) -> str:
 
 
 def op_propose(user: str, cap: str, path: str, title: str, files: list[dict],
-               package_id: str = "", revision: int = 0) -> dict:
+               package_id: str = "", revision: int = 0, author_name: str = "") -> dict:
     from pydantic import ValidationError
 
     from backend.routers.change_packages import PackageSave
@@ -977,7 +977,7 @@ def op_propose(user: str, cap: str, path: str, title: str, files: list[dict],
         raise _bad("An empty package cannot be submitted")
     deps.limited(_write_request(user), "comments")
     return change_packages.save(user, project, body.title,
-                                [f.model_dump(exclude_defaults=True) for f in body.files], package_id, body.revision)
+                                [f.model_dump(exclude_defaults=True) for f in body.files], package_id, body.revision, author_name)
 
 
 def op_proposals(user: str, cap: str, path: str, package_id: str = "") -> dict:
@@ -987,7 +987,7 @@ def op_proposals(user: str, cap: str, path: str, package_id: str = "") -> dict:
     return read_package(project, package_id, user) if package_id else list_packages(project, user)
 
 
-def op_suggest_package(user: str, cap: str, path: str, old_string: str, new_string: str, text: str = "") -> dict:
+def op_suggest_package(user: str, cap: str, path: str, old_string: str, new_string: str, text: str = "", author_name: str = "") -> dict:
     from backend.services import change_packages
 
     title = text.strip() or "Suggested changes"
@@ -1006,7 +1006,7 @@ def op_suggest_package(user: str, cap: str, path: str, old_string: str, new_stri
     changes = [{"old_string": old_string, "new_string": new_string}]
     content = change_packages.apply_changes(base or "", changes)
     return op_propose(user, cap, path, title,
-                      [{**file, "base": base, "content": content, "changes": changes}])
+                      [{**file, "base": base, "content": content, "changes": changes}], author_name=author_name)
 
 
 def op_suggest(user: str, cap: str, path: str, old_string: str, new_string: str,

@@ -145,7 +145,7 @@ def get(con, project: str, package: str) -> dict:
     return result
 
 
-def save(user: str, project: str, title: str, files: list[dict], package: str = "", revision: int = 0) -> dict:
+def save(user: str, project: str, title: str, files: list[dict], package: str = "", revision: int = 0, author_name: str = "") -> dict:
     with _named_lock("packages:" + project):
         # Phase 1 (no write tx): snapshots, validation and serialization run
         # OUTSIDE BEGIN IMMEDIATE so a big draft cannot stall other writers;
@@ -230,8 +230,8 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
             else:
                 package = db.new_id("sp_")
                 con2.execute(
-                    "INSERT INTO suggestion_packages(id,project_id,author,title,files,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                    (package, project, user, title, payload, now, now),
+                    "INSERT INTO suggestion_packages(id,project_id,author,author_name,title,files,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (package, project, user, author_name.strip()[:40], title, payload, now, now),
                 )
             result = get(con2, project, package)
     quota.invalidate_quota_cache(owner)

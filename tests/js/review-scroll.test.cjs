@@ -12,6 +12,7 @@ test('acceptance refreshes do not rebuild an unchanged review buffer', async () 
   let text = 'unchanged'
   const s = { project: 'p' }
   const c = vm.createContext({ window: { changeSession: s }, docProject: 'p',
+    sessionCurrent: () => 'document', sessionKey: value => value,
     sessionEnsure: async () => ({ content: text, action: 'modify' }), getT: () => 'unchanged',
     setT: (...args) => { resets++; replacements.push(args) }, cm: { dispatch() {} }, editableComp: { reconfigure() {} }, editMode() {},
     user: 'owner', docRole: 'owner', paintFileExtras() {}, paintCsv() {}, fmtSync() {}, sessionPaint() {},

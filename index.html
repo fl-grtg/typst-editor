@@ -8434,7 +8434,10 @@ async function sessionEnsure(identity = sessionCurrent()) {
   if (!s) return null
   if (s.files.has(key)) return s.files.get(key)
   let content
-  if (identity.kind === 'document') content = identity.doc_id === docId ? shadow : (await api('GET', '/api/docs/' + identity.doc_id)).content
+  if (identity.kind === 'document') {
+    content = identity.doc_id === docId && synced ? shadow : (await api('GET', '/api/docs/' + identity.doc_id)).content
+    if (identity.doc_id === docId && synced) content = shadow // live sync may have completed during the read
+  }
   else if (identity.kind === 'resource') {
     const items = (await api('GET', '/api/projects/' + s.project + '/resources')).resources
     const item = items.find(f => f.name === identity.path)
@@ -8480,16 +8483,17 @@ function sessionRecord(changes, oldLen) {
 async function sessionActivate(preserveView = false) {
   const s = window.changeSession
   if (!s || s.project !== docProject) return
+  const identity = sessionCurrent(), key = sessionKey(identity)
   let item
-  try { item = await sessionEnsure() }
+  try { item = await sessionEnsure(identity) }
   catch (e) { // Round5 High #2: a package file deleted/failed since the proposal must degrade, never crash the open
+    if (window.changeSession !== s || key !== sessionKey(sessionCurrent())) return
     toast(e.message)
-    const identity = sessionCurrent(), key = sessionKey(identity)
     if (window.changeSession === s && identity.kind !== 'document' && s.files.has(key)) { s.files.delete(key); s.dirty = true; sessionStash(); return sessionActivate() } // drop the broken file/resource entry once, keep the rest of the session
     if (window.changeSession === s) await endChangeSession(true) // document entry unreadable: close the session without prompts and reopen the plain doc
     return
   }
-  if (!item || window.changeSession !== s) return
+  if (!item || window.changeSession !== s || key !== sessionKey(sessionCurrent())) return
   const text = s.original || item.action === 'delete' ? item.base : item.content
   if (!item.binary && (!preserveView || getT() !== (text || ''))) setT(text || '', preserveView)
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
@@ -8603,7 +8607,7 @@ async function choosePackage() {
     if (project !== docProject || epoch !== packageLoad) return
     packageList = response.packages
     const choice = await askPick(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
-      t('packages.summary', { author: p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])])
+      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])])
     if (choice == null || project !== docProject || window.changeSession !== previous) return
     if (choice === 0) {
       if (previous?.package) { previous.original = true; await sessionActivate() }
@@ -8818,7 +8822,7 @@ function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
   if (!range) { closePop(true); return }
   const card = el('div', 'th'), header = el('div', 'hd')
-  header.append(el('b', 'nm', s.package?.author || user), el('span', 'tm', t('comments.suggestionpending')))
+  header.append(el('b', 'nm', s.package?.author_name || s.package?.author || user), el('span', 'tm', t('comments.suggestionpending')))
   if (s.package && ['owner', 'editor'].includes(docRole)) {
     const accept = icoBtn('ib', ICO_CHECK); accept.title = t('comments.accept')
     accept.onclick = async () => {
