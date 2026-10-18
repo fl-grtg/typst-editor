@@ -81,7 +81,7 @@ candidate digest yet.
   `/projects/{id}/docs/{Title}`. Doc titles are NOCASE-unique per project;
   project titles are NOCASE-unique per owner.
 - No private fallback at compile/export time; document ZIP
-  (`main.typ` + `files/…`) and project ZIP
+  (`main.typ` + sources at their original relative paths) and project ZIP
   (`project.json` + `modules/…` + `documents/<id>/main.typ`) are different
   layouts with no full project round-trip promise.
 - New writes over quota fail with `413`; over-quota accounts stay
