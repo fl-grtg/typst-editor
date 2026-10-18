@@ -25,10 +25,10 @@ function renderPeers() { // bar only when editor active, dot for all online in d
   dots.replaceChildren()
   const mkDot = (n, c, me) => {
     const s = document.createElement('span'); s.className = 'dot'; s.setAttribute('role', 'listitem')
-    s.style.background = avBg(n, c); s.title = me ? t('comments.peerSelf', { name: n }) : n; s.setAttribute('aria-label', me ? t('comments.peerSelf', { name: n }) : n)
+    s.title = me ? t('comments.peerSelf', { name: n }) : n; s.setAttribute('aria-label', me ? t('comments.peerSelf', { name: n }) : n)
     s.style.display = 'inline-flex'; s.style.alignItems = 'center'; s.style.justifyContent = 'center'
     s.style.fontSize = '9px'; s.style.fontWeight = '700'; s.style.color = '#fff'
-    s.textContent = (n || '?').slice(0, 2).toUpperCase()
+    paintAvatar(s, n, c)
     return s
   }
   dots.appendChild(mkDot(user || '?', colOf(user || '?'), true)) // own blob first
