@@ -622,16 +622,6 @@ def accept(
                 else:
                     store.put(*at, backup)
             raise
-        # Undo points for the document writes, after the commit so a failed
-        # accept leaves no stray snapshot; failures only warn (auto_snap
-        # opens its own connection and would self-block inside the tx).
-        from backend.services import snapshots as snapsvc
-
-        for doc_id, before in doc_before.items():
-            try:
-                snapsvc.auto_snap(doc_id, before, label="proposal-accept")
-            except (HTTPException, sqlite3.Error, OSError) as e:
-                log.warning("proposal accept snap %s: %s", doc_id, e)
         for room, update, content in updates:
             room["doc"].apply_update(update)
             room["text_len"] = len((content or "").encode())
@@ -639,6 +629,14 @@ def accept(
             sync._mark_quota_blocked(room, False)
             room["dirty_since"] = 0.0
             room["saved"] = time.monotonic()
+    # Snapshot only after commit and lock release: project checkpoints acquire upload locks themselves.
+    from backend.services import snapshots as snapsvc
+
+    for doc_id, before in doc_before.items():
+        try:
+            snapsvc.auto_snap(doc_id, before, label="proposal-accept")
+        except (HTTPException, sqlite3.Error, OSError) as e:
+            log.warning("proposal accept snap %s: %s", doc_id, e)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
     return result, updates, deleted_documents

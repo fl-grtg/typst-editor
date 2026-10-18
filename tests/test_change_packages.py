@@ -566,3 +566,27 @@ def test_failed_undo_snapshot_cannot_desync_a_committed_accept(c, monkeypatch):
     assert response.status_code == 200, response.text
     assert c.get(f"/api/docs/{document}").json()["content"] == "new"
     assert str(sync.room(document)["doc"].get("typst", type=Text)) == "new"
+
+
+def test_acceptance_releases_upload_and_package_locks_before_project_history(c, monkeypatch):
+    from backend.services import project_history
+    from backend.services.locks import _named_lock
+
+    project, document = setup(c, "Original")
+    package = submit(c, project, [document_change(document, "Original", [("Original", "Accepted")])])
+    checkpoints = []
+
+    def checkpoint(doc_id):
+        for name in ("upload:" + doc_id, "packages:" + project):
+            lock = _named_lock(name)
+            assert lock.acquire(blocking=False), "History would deadlock on acceptance lock: " + name
+            lock.release()
+        assert sync.room_text(doc_id) == "Accepted"
+        checkpoints.append(doc_id)
+
+    monkeypatch.setattr(project_history, "auto_document", checkpoint)
+    response = accept(c, project, package)
+    assert response.status_code == 200, response.text
+    assert checkpoints == [document]
+    assert response.json()["files"] == []
+    assert c.get(f"/api/docs/{document}").json()["content"] == "Accepted"
