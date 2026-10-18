@@ -1,7 +1,7 @@
 /* ==========================================================================
    Popovers
    ========================================================================== */
-#sharePop, #setPop, #tplPop, #histPop, #symPop {
+#sharePop, #tplPop, #histPop, #symPop {
   position: absolute; top: calc(100% + 6px); left: 8px; z-index: var(--z-pop);
   width: 340px; max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); max-height: 80vh; overflow: auto;
   padding: 14px; font-size: 13px; line-height: 1.5;
@@ -13,7 +13,7 @@
 .sTop button { min-width: 28px; height: 28px; padding: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .row input, .row select { flex: 1; min-width: 0; width: auto; }
-#sharePop b, #setPop h4 { font-size: 11.5px; }
+#sharePop b { font-size: 11.5px; }
 #sharePop #shares { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 #sharePop #shares > div { display: flex; align-items: center; gap: 6px; }
 #sharePop #shares .who { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
@@ -22,30 +22,15 @@
 #sharePop #shares button:hover { background: var(--hover); color: var(--text); }
 #sharePop .hintline { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 4px 0 8px; }
 #sharePop input[readonly] { background: transparent; border-style: dashed; color: var(--sub); }
-#setPop { width: min(1040px, calc(100vw - 32px)); max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); overflow: auto; padding: 14px 18px 18px; }
-#setPop .setGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 20px; align-items: start; }
-#setPop .setCol { display: flex; flex-direction: column; min-width: 0; }
-#setPop h4 { margin: 0; padding: 14px 0 4px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
-#setPop .sec .row { flex-wrap: nowrap; align-items: center; gap: 8px; margin-top: 8px; }
-#setPop .sec .row.wrap { flex-wrap: wrap; }
-#setPop .sec .row.wrap input { flex: 1 1 140px; }
-#setPop .sec .row.wrap select { flex: 0 1 auto; }
-#setPop .sec .row.wrap > span, #setPop .sec .row.wrap > code { overflow-wrap: anywhere; min-width: 0; }
-#setPop .sec .row:first-child { margin-top: 6px; }
-#setPop .row label { min-width: 44px; color: var(--sub); font-size: 12.5px; }
-#setPop .val { min-width: 52px; text-align: center; color: var(--sub); font-size: 12.5px; font-variant-numeric: tabular-nums; }
-#setPop .sec { background: var(--hover); border-radius: var(--r-md); padding: 4px 12px 12px; margin: 0 0 4px; }
-#setPop .serr { background: var(--danger-soft); color: var(--danger); border-radius: var(--r-sm); padding: 8px 10px; font-size: 12.5px; margin-bottom: 6px; }
+#setPop .val { color: var(--sub); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 #setPop .avatarRow { display: flex; align-items: center; gap: 10px; }
-#setPop .hint { font-size: 12px; color: var(--sub); line-height: 1.45; margin: 6px 0 4px; }
 #setPop .sessRow { flex-wrap: nowrap; align-items: center; }
 #setPop .sessLeft { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 #setPop .sessName { font-weight: 650; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #setPop .sessLeft .val { text-align: left; min-width: 0; }
 #setPop select:focus-visible, #setPop button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
-@media (max-width: 600px) { #setPop .setGrid { grid-template-columns: 1fr; } } /* popover < ~560px: single column */
 #setPop img.av, #setPop .avFallback { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--press); flex: none; }
-#setPop .avFallback { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--sub); }
+#setPop .avFallback { display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; }
 #tplPop .tip { margin: 2px 10px 6px; font-size: 12px; color: var(--sub); line-height: 1.45; }
 #tplPop button { display: block; width: 100%; height: auto; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 10px; color: var(--text); box-shadow: none; }
 #tplPop button:hover { background: var(--hover); }
@@ -102,15 +87,113 @@
 #pop .er .em { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 
 
-#setPop .row label:has(#fmtSave) { display: inline-flex; align-items: center; gap: 8px; line-height: 1.5; }
-#setPop #fmtSave { flex: none; margin: 0 !important; align-self: center; }
+body.settings-open::before {
+  content: ''; position: fixed; inset: 0; z-index: 299; background: rgba(9, 11, 15, .42);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  pointer-events: none; /* clicks pass through: outside-click closes via hidePops(), #who toggles closed */
+}
+/* ask() dialogs must sit above the settings panel (otherwise both are centered and the panel covers the dialog) */
+body.settings-open #modal { z-index: 302; }
+#setPop {
+  position: fixed; z-index: 301; left: 50% !important; right: auto !important; top: 50% !important;
+  transform: translate(-50%, -50%); width: min(800px, calc(100vw - 32px)) !important;
+  height: min(560px, calc(100dvh - 40px)); max-height: calc(100dvh - 40px);
+  overflow: hidden; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--card); box-shadow: var(--sh-modal); display: flex; flex-direction: column;
+  color: var(--text); font-size: 13px; line-height: 1.5;
+}
+#setPop .sTop { flex: none; margin: 0; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); }
+#setPop .sTop b { font-size: 16px; }
+#setPop .setLayout { display: grid; grid-template-columns: 204px minmax(0, 1fr); flex: 1; min-height: 0; }
+#setPop .setRail { width: auto; min-width: 0; flex: none; display: flex; flex-direction: column; padding: 16px 10px; border-right: 1px solid var(--line); background: var(--panel); }
+/* The rail is an <aside> only for semantics: app-shell drawer rules (30-shell, 90-responsive)
+   target bare asides and must not resize/collapse the settings nav rail (mobile drawer, noside) */
+#setPop .setLayout .setRail {
+  width: auto !important; min-width: 0; position: static; left: auto; top: auto; bottom: auto; z-index: auto;
+  padding: 16px 10px; border-right: 1px solid var(--line); border-radius: 0; box-shadow: none; transition: none;
+  background: var(--panel); pointer-events: auto;
+}
+#setPop .setNav { display: flex; flex-direction: column; gap: 2px; }
+#setPop .setNavItem { width: 100%; min-height: 34px; justify-content: flex-start; text-align: left; padding: 6px 8px; border: 0; border-radius: var(--r-sm); outline: none; background: transparent; box-shadow: none; color: var(--sub); font-size: 13px; font-weight: 500; }
+#setPop .setNavItem:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+#setPop .setNavItem:hover { background: var(--hover); color: var(--text); }
+#setPop .setNavItem.active { color: var(--text); background: var(--sel); font-weight: 600; }
+#setPop .setContent { position: relative; min-width: 0; overflow: auto; padding: 16px 22px 22px; background: var(--card); }
+#setPop .setView { display: none; max-width: 680px; }
+#setPop .setView.active { display: block; }
+#setPop .setView h4 { margin: 0; padding: 10px 0 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+#setPop .setView .grp { margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+#setPop .setView .grp:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+#setPop .setView .sec { margin: 0; padding: 4px 0 8px; background: transparent; border-radius: 0; }
+#setPop .storageUsage { display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; }
+#setPop .storageSummary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+#setPop .storageLabel { min-width: 0; font-size: 13px; font-weight: 550; }
+#setPop .storagePercent { flex: none; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+#setPop .storageMeter { height: 8px; overflow: hidden; border-radius: 999px; background: var(--hover); }
+#setPop .storageMeterFill { display: block; height: 100%; border-radius: inherit; background: var(--acc); transition: width .2s ease; }
+#setPop .storageMeterFill.over { background: var(--danger); }
+#setPop .storageMeta { color: var(--sub); font-size: 11.5px; line-height: 1.45; }
+#setPop .setView .row { flex-wrap: wrap; }
+#setPop .keyCreateSec { overflow-x: auto; }
+#setPop .keyCreateRow { display: grid; grid-template-columns: minmax(110px, 1.2fr) minmax(95px, .9fr) minmax(90px, .8fr) auto; align-items: center; gap: 6px; }
+#setPop .keyCreateRow > input, #setPop .keyCreateRow > select { box-sizing: border-box; width: 100%; min-width: 0; max-width: none; }
+#setPop .keyCreateRow > button { white-space: nowrap; }
+#setPop .setView .settingRow { flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 14px; }
+#setPop .setView .settingRow > label { flex: 1; min-width: 0; }
+#setPop .setView .settingRow > select { flex: 0 1 220px; width: 220px; max-width: 220px; }
+#setPop .setView .preferenceRow > select { flex: 0 1 190px; width: 190px; max-width: 190px; margin-left: auto; }
+#setPop .settingControlGroup { display: flex; flex: none; align-items: center; gap: 8px; }
+#setPop .settingControlGroup .val { min-width: 44px; }
+#setPop .settingStepper { gap: 6px; }
+#setPop .settingStepper .step { display: inline-flex; width: 32px; min-width: 32px; height: 32px; min-height: 32px; align-items: center; justify-content: center; padding: 0; border-radius: var(--r-sm); font-size: 16px; line-height: 1; }
+#setPop .settingStepper .val { min-width: 46px; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+#setPop .settingRow > select { margin-left: auto; }
+#setPop .setView .settingRow > input.settingSwitch { appearance: none; position: relative; flex: none; width: 36px; min-width: 36px; max-width: 36px; height: 20px; min-height: 20px; margin: 0 0 0 auto; border: 1px solid var(--line-2); border-radius: 999px; background: var(--press); box-shadow: none; cursor: pointer; transition: background .16s ease, border-color .16s ease; }
+#setPop .setView .settingRow > input.settingSwitch::before { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); box-shadow: var(--sh-1); transition: transform .16s ease; }
+#setPop .setView .settingRow > input.settingSwitch:checked { border-color: var(--ink); background: var(--ink); }
+#setPop .setView .settingRow > input.settingSwitch:checked::before { transform: translateX(16px); background: var(--on-ink); }
+#setPop .setView .settingRow > input.settingSwitch:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+#setPop .agentRow { flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 12px; }
+#setPop .agentRow > span { flex: 1; min-width: 0; }
+#setPop .agentCopyBtn { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 7px; min-height: 32px; padding: 5px 11px; white-space: nowrap; }
+#setPop .setView .row input { flex: 0 1 280px; width: auto; max-width: 280px; }
+#setPop .setView .row select { flex: 0 1 220px; width: auto; max-width: 220px; }
+#setPop .setView .avatarRow { flex-wrap: nowrap; }
+#setPop .accountForm { display: grid; grid-template-columns: repeat(2, minmax(0, 250px)); align-items: end; gap: 10px; }
+#setPop .accountField { display: flex; min-width: 0; flex-direction: column; gap: 5px; color: var(--sub); font-size: 12px; }
+#setPop .accountField input { box-sizing: border-box; width: 100%; max-width: 250px; min-width: 0; }
+#setPop .accountForm > button { justify-self: start; min-height: 30px; padding: 5px 12px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); box-shadow: none; font-size: 12.5px; font-weight: 600; }
+#setPop .accountForm > button:not(.btnDanger):not(:disabled):hover { background: var(--ink); color: var(--on-ink); filter: opacity(.86); }
+#setPop .accountForm > button.btnDanger { color: var(--danger); background: var(--danger-soft); }
+#setPop .accountForm > button.btnDanger:not(:disabled):hover { color: var(--danger); background: var(--danger-soft); filter: brightness(.96); }
+#setPop .accountDeleteForm { grid-template-columns: minmax(0, 250px) auto; }
+@media (max-width: 640px) {
+  #setPop { width: calc(100vw - 20px) !important; height: calc(100dvh - 24px); max-height: none; }
+  #setPop .sTop { padding: 12px 16px; }
+  #setPop .setLayout { grid-template-columns: 132px minmax(0, 1fr); }
+  #setPop .setRail { padding: 12px 8px; }
+  #setPop .setLayout .setRail { padding: 12px 8px; }
+  #setPop .setNavItem { padding: 8px; font-size: 12px; }
+  #setPop .setContent { padding: 16px 12px 22px; }
+  #setPop .keyCreateRow { grid-template-columns: minmax(95px, 1.1fr) minmax(85px, .9fr) minmax(75px, .8fr) auto; gap: 4px; }
+  #setPop .keyCreateRow > button { padding-right: 8px; padding-left: 8px; }
+  #setPop .accountForm { grid-template-columns: minmax(0, 1fr); }
+  #setPop .accountDeleteForm { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 380px) { #setPop .setLayout { grid-template-columns: 112px minmax(0, 1fr); } }
+@media (prefers-reduced-transparency: reduce) { body.settings-open::before { -webkit-backdrop-filter: none; backdrop-filter: none; } }
 
-#setPop { position: fixed; left: var(--settings-left, 8px) !important; width: var(--settings-width, min(1040px, calc(100vw - 16px))); top: calc(var(--bar) + 14px) !important; transform: none; max-height: calc(100dvh - var(--bar) - 22px); }
-#setPop h4 { padding-top: 10px; }
-#setPop .sec { padding-bottom: 8px; }
-#setPop .row input { min-width: 0; }
-@media (max-width: 900px) { #setPop .setGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 600px) { #setPop { left: 8px !important; right: 8px; top: 16px !important; transform: none; } #setPop .setGrid { grid-template-columns: 1fr; } }
+#keySecret.keySecretOverlay { position: fixed; inset: 0; z-index: 310; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(10, 12, 16, .32); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+#keySecret .keySecretCard { width: min(420px, 94vw); padding: 22px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
+#keySecret .keySecretTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#keySecret .keySecretTop b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+#keySecret .keySecretClose { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--sub); box-shadow: none; }
+#keySecret .keySecretClose:hover { background: var(--hover); color: var(--text); }
+#keySecret .keySecretHint { margin: 8px 0 14px; color: var(--sub); font-size: 13px; line-height: 1.5; }
+#keySecret .keySecretValue { width: 100%; min-height: 38px; margin-bottom: 12px; font: 12px var(--mono); }
+#keySecret .keySecretCopy { display: block; margin-left: auto; min-height: 32px; padding: 6px 14px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); box-shadow: none; font-size: 12.5px; font-weight: 600; }
+#keySecret .keySecretCopy:hover { filter: opacity(.86); }
+#keySecret :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
 #pop.errs { width: min(440px, calc(100vw - 32px)); }
 #pop .er { align-items: flex-start; }
