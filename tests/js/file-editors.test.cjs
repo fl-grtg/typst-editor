@@ -76,6 +76,29 @@ test('Bib field review patches only the selected field and preserves adjacent pr
   assert.equal(added.fields.find(f => f.name === 'custom').value, 'macro')
 })
 
+test('Bib field review never guesses an entry by its shifted position', () => {
+  const packages = fs.readFileSync(path.join(root, 'web/js/features/zz-change-packages.js'), 'utf8')
+  vm.runInContext(packages.slice(packages.indexOf('function sessionBibField('), packages.indexOf('function sessionCard(')), context)
+  const base = '@book{A, title={Title A}, author={Alice}}\n@book{B, title={Title B}, author={Bob}}'
+  const content = '@book{C, title={Title B}, author={Bobby}}'
+  const selector = { entry: 0, name: 'author' }
+  assert.equal(context.sessionBibField({ base, content }, selector).ambiguous, true)
+  assert.equal(context.sessionBibPatch({ base, content }, selector, true), null)
+  assert.equal(context.sessionBibPatch({ base, content }, selector, false), null)
+  const renamed = { base, content: base.replace('{B,', '{C,').replace('Bob', 'Bobby') }
+  assert.equal(context.sessionBibPatch(renamed, { entry: 1, name: 'author' }, true), null)
+  assert.equal(context.sessionBibPatch({ base: '@book{A, author={Alice}}', content }, selector, true), null)
+  const added = { base, content: base + '\n' + content }
+  const patch = context.sessionBibPatch(added, { entry: 2, name: 'author' }, true)
+  const result = base.slice(0, patch.from) + patch.insert + base.slice(patch.to)
+  assert.equal(parse(result)[0].fields.find(f => f.name === 'author').value, 'Alice')
+  assert.equal(parse(result)[1].fields.find(f => f.name === 'author').value, 'Bob')
+  assert.equal(parse(result)[2].fields.find(f => f.name === 'author').value, 'Bobby')
+  const shifted = context.sessionBibField({ base, content: content.replace('{C,', '{B,') }, selector)
+  assert.equal(shifted.old.key, 'B')
+  assert.equal(shifted.before.value, 'Bob')
+})
+
 test('bundled data parsers reject invalid JSON, YAML and TOML', async () => {
   const { pathToFileURL } = require('node:url')
   const bundle = await import(pathToFileURL(path.join(root, 'vendor-cm.js')).href)

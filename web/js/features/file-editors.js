@@ -123,11 +123,12 @@ function paintBib() {
     const caption = el('span', null, label)
     function paintProposal() {
       const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
-      const originals = parseBib(original?.base || ''), before = originals.find(e => e.key === entry.key) || originals[bibSelected]
       const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
+      const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
+      const field = original && sessionBibField(original, { entry: bibSelected, name })
       const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo, value: e.key } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === fieldName)
-      const current = range(parseBib(getT())[bibSelected]), old = range(before)
-      const proposed = !!original && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
+      const current = range(parseBib(getT())[bibSelected]), old = field?.before
+      const proposed = !!original && !field.ambiguous && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
       row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
       caption.onclick = input.onclick = caption.onkeydown = null
       caption.removeAttribute('role'); caption.removeAttribute('tabindex'); caption.removeAttribute('title')
@@ -136,7 +137,6 @@ function paintBib() {
         caption.onclick = input.onclick = e => {
           if (e.currentTarget === caption) e.preventDefault()
           const latest = range(parseBib(getT())[bibSelected])
-          const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
           openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name })
         }
         caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }

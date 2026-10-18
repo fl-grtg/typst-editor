@@ -390,12 +390,14 @@ function openSessionChange(index, anchors = null, cell = null, bibField = null) 
 }
 function sessionBibField(file, selector) {
   const before = parseBib(file.base || ''), after = parseBib(file.content || '')
-  const next = after[selector.entry], old = before.find(e => e.key === next?.key) || before[selector.entry]
+  const next = after[selector.entry], old = before.find(e => e.key === next?.key)
+  const removed = before.some(e => !after.some(n => n.key === e.key))
   const field = e => !e ? null : selector.name === '$key' ? { from: e.keyFrom, to: e.keyTo, value: e.key } : selector.name === '$type' ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === selector.name)
-  return { old, next, before: field(old), after: field(next) }
+  return { old, next, before: field(old), after: field(next), ambiguous: !old && removed }
 }
 function sessionBibPatch(file, selector, accept) {
   const field = sessionBibField(file, selector), text = accept ? file.base || '' : file.content
+  if (field.ambiguous) return null
   const target = accept ? field.old : field.next, source = accept ? field.next : field.old
   const previous = accept ? field.before : field.after, value = accept ? field.after : field.before
   const sourceText = accept ? file.content : file.base || ''

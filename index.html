@@ -6662,11 +6662,12 @@ function paintBib() {
     const caption = el('span', null, label)
     function paintProposal() {
       const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
-      const originals = parseBib(original?.base || ''), before = originals.find(e => e.key === entry.key) || originals[bibSelected]
       const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
+      const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
+      const field = original && sessionBibField(original, { entry: bibSelected, name })
       const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo, value: e.key } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === fieldName)
-      const current = range(parseBib(getT())[bibSelected]), old = range(before)
-      const proposed = !!original && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
+      const current = range(parseBib(getT())[bibSelected]), old = field?.before
+      const proposed = !!original && !field.ambiguous && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
       row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
       caption.onclick = input.onclick = caption.onkeydown = null
       caption.removeAttribute('role'); caption.removeAttribute('tabindex'); caption.removeAttribute('title')
@@ -6675,7 +6676,6 @@ function paintBib() {
         caption.onclick = input.onclick = e => {
           if (e.currentTarget === caption) e.preventDefault()
           const latest = range(parseBib(getT())[bibSelected])
-          const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
           openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name })
         }
         caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }
@@ -8564,12 +8564,14 @@ function openSessionChange(index, anchors = null, cell = null, bibField = null) 
 }
 function sessionBibField(file, selector) {
   const before = parseBib(file.base || ''), after = parseBib(file.content || '')
-  const next = after[selector.entry], old = before.find(e => e.key === next?.key) || before[selector.entry]
+  const next = after[selector.entry], old = before.find(e => e.key === next?.key)
+  const removed = before.some(e => !after.some(n => n.key === e.key))
   const field = e => !e ? null : selector.name === '$key' ? { from: e.keyFrom, to: e.keyTo, value: e.key } : selector.name === '$type' ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === selector.name)
-  return { old, next, before: field(old), after: field(next) }
+  return { old, next, before: field(old), after: field(next), ambiguous: !old && removed }
 }
 function sessionBibPatch(file, selector, accept) {
   const field = sessionBibField(file, selector), text = accept ? file.base || '' : file.content
+  if (field.ambiguous) return null
   const target = accept ? field.old : field.next, source = accept ? field.next : field.old
   const previous = accept ? field.before : field.after, value = accept ? field.after : field.before
   const sourceText = accept ? file.content : file.base || ''
