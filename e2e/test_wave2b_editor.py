@@ -47,6 +47,7 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     expect(pop).to_be_visible()
     expect(pop.locator("#scOpen")).to_have_count(0)
     expect(pop.locator("#spellSel")).to_have_count(1)
+    pop.locator('.setNavItem[data-category="editor"]').click()  # editor controls live in the Editor view
     pop.locator("#fmtSave").check()  # format on save on: Ctrl+S saves formatted
     expect(pop.locator("#fmtSave")).to_be_checked()
     page.locator("#who").click()  # settings overlays the editor: close before typing
@@ -59,6 +60,7 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     pop = page.locator("#setPop")
     if not pop.is_visible():
         page.locator("#who").click()
+    pop.locator('.setNavItem[data-category="editor"]').click()
     pop.locator("#spellSel").select_option("de")  # spellcheck language per document
     expect(pop.locator("#spellSel")).to_have_value("de")
     expect(page.locator('#cm .cm-content')).to_have_attribute('lang', 'de')

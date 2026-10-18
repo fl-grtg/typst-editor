@@ -27,7 +27,7 @@ function applySpell() { // the account preference applies to each text editor
 }
 function spellSettingsSec() { // account preference
   const sec = document.createElement('div'); sec.className = 'sec'
-  const row = document.createElement('div'); row.className = 'row'
+  const row = document.createElement('div'); row.className = 'row settingRow'
   const lab = document.createElement('label'); lab.textContent = t('editor.spell'); lab.setAttribute('for', 'spellSel')
   const sel = document.createElement('select')
   sel.id = 'spellSel'

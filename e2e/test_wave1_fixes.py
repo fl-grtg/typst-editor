@@ -88,6 +88,7 @@ def test_8_settings_steppers_keep_dialog_open(page):
     if not pop.is_visible():  # async openDoc hidePops() won the race: toggle back open (hidden -> click opens)
         page.click("#who")
     expect(pop).to_be_visible()
+    pop.locator('.setNavItem[data-category="editor"]').click()  # steppers live in the Editor view now
     steps = pop.locator("button.step")
     expect(steps).to_have_count(4)  # fm, fp, zm, zp
     font = pop.locator("span.val", has_text="px").first
