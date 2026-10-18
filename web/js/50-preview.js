@@ -686,7 +686,7 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   box.classList.add('errs')
   const hb = document.querySelector('header').getBoundingClientRect().bottom // always below the top bar, never over the title
   if (eb) { const rc = eb.getBoundingClientRect(); box.style.setProperty('--eTop', Math.round(hb + 8) + 'px'); box.style.setProperty('--eLeft', Math.round(Math.max(16, Math.min(rc.right - Math.min(440, innerWidth - 32), innerWidth - Math.min(440, innerWidth - 32) - 16))) + 'px') }
-  box.style.display = 'block'
+  box.style.display = 'block'; paintCardView()
 }
 document.addEventListener('pointerdown', e => { const p = $('pop'); if (p.classList.contains('errs') && p.style.display !== 'none' && !p.contains(e.target) && !e.target.closest('#eBadge')) closePop(true) }) // error list: x or outside click
 try { const m = localStorage.getItem('typst_pv_mode'); if (m === 'width' || m === 'page') pvZoomMode = m } catch (e) {} // persisted zoom mode (string compare like typst_sync)

@@ -25,6 +25,7 @@
 @media (hover: none) { #cmWrap .cm-foldGutter .foldMk { opacity: 1; } } /* touch: no hover-reveal, always show */
 #cmWrap .cm-foldPlaceholder { background: var(--hover); color: var(--sub); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; margin: 0 4px; font-size: 11px; }
 #cmWrap .cm-tooltip { border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: var(--sh-pop); overflow: hidden; background: var(--card); }
+#cmWrap.cardOpen .cm-tooltip-hover { display: none !important; } /* an open inline card wins: never two floating cards at once */
 #cmWrap .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--ink); color: var(--on-ink); }
 #cmWrap .cm-tooltip-autocomplete ul li { color: var(--text); }
 #cmWrap .cm-completionDetail { color: var(--sub); font-style: italic; margin-left: 8px; }
@@ -159,3 +160,5 @@ aside .doc .package-accept-action { visibility: visible; }
 /* #3 hover-claim: hovering ANY fragment of a comment/suggestion/patch claims all its tiles (sibling fragments light up together) */
 #cmWrap .cm-hl.cm-hl-claim { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
 #cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: color-mix(in srgb, var(--editor) 68%, #955ae1); cursor: pointer; }
+
+.bibList button.bibEntryPending { color: #9560d5; box-shadow: inset 3px 0 #9560d5; }

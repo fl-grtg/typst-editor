@@ -536,6 +536,7 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 @media (hover: none) { #cmWrap .cm-foldGutter .foldMk { opacity: 1; } } /* touch: no hover-reveal, always show */
 #cmWrap .cm-foldPlaceholder { background: var(--hover); color: var(--sub); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; margin: 0 4px; font-size: 11px; }
 #cmWrap .cm-tooltip { border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: var(--sh-pop); overflow: hidden; background: var(--card); }
+#cmWrap.cardOpen .cm-tooltip-hover { display: none !important; } /* an open inline card wins: never two floating cards at once */
 #cmWrap .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--ink); color: var(--on-ink); }
 #cmWrap .cm-tooltip-autocomplete ul li { color: var(--text); }
 #cmWrap .cm-completionDetail { color: var(--sub); font-style: italic; margin-left: 8px; }
@@ -670,6 +671,8 @@ aside .doc .package-accept-action { visibility: visible; }
 /* #3 hover-claim: hovering ANY fragment of a comment/suggestion/patch claims all its tiles (sibling fragments light up together) */
 #cmWrap .cm-hl.cm-hl-claim { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
 #cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: color-mix(in srgb, var(--editor) 68%, #955ae1); cursor: pointer; }
+
+.bibList button.bibEntryPending { color: #9560d5; box-shadow: inset 3px 0 #9560d5; }
 /* ==========================================================================
    Preview
    ========================================================================== */
@@ -1685,7 +1688,7 @@ let errTipEl = null // full-line error tooltip: manual div (no aim needed, works
 let errTipHover = null // message under the mouse, or null
 function errTipHide() { if (errTipEl) { errTipEl.remove(); errTipEl = null } }
 function errTipPlace(msg, x, yBottom) {
-  if ($('cmWrap').hidden || !cm.hasFocus || ($('pop').classList.contains('errs') && $('pop').style.display !== 'none')) { errTipHide(); return }
+  if ($('cmWrap').hidden || !cm.hasFocus || $('pop').style.display !== 'none') { errTipHide(); return }
   if (!errTipEl) {
     errTipEl = document.createElement('div')
     errTipEl.className = 'typ-hover err'
@@ -1702,7 +1705,7 @@ function errTipAnchor(lineEl) { // precise error spot on a red line: lint mark/w
   return lineEl.querySelector('.cm-lintRange-error, .cm-lintPoint-error') || lineEl.querySelector('.cm-errMark') || null
 }
 function errTipCursor() {
-  if ($('cmWrap').hidden || !cm.hasFocus || ($('pop').classList.contains('errs') && $('pop').style.display !== 'none')) { errTipHide(); return false } // cursor sits on an error line: keep the message visible without hovering
+  if ($('cmWrap').hidden || !cm.hasFocus || $('pop').style.display !== 'none') { errTipHide(); return false } // cursor sits on an error line: keep the message visible without hovering
   let ln = null
   try { ln = cm.state.doc.lineAt(cm.state.selection.main.head).number } catch (_) {}
   if (ln == null) return false
@@ -1728,7 +1731,7 @@ function errTipMove(ev) { // any spot on a red line shows the message anchored a
   const r = a.getBoundingClientRect() // anchored at the error, not at the mouse: trigger anywhere, tip stays put
   errTipPlace(errTipHover, r.left, r.bottom)
 }
-const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
+const hoverAll = (v, p) => $('pop').style.display !== 'none' ? null : commentHover(v, p) || typstHover(v, p) // an open card owns the view: no hover preview next to it (errors use the manual full-line tooltip errTipMove, not CM hover)
 const editableComp = new Compartment(), hlComp = new Compartment()
 const tabComp = new Compartment() // F25: tab width (settings, persisted)
 const setHl = StateEffect.define() // mark comment ranges, follow edits via mapping
@@ -2025,7 +2028,7 @@ function showLinkTip(url, x, y) {
   linkTip.style.top = Math.max(8, y - (linkTip.offsetHeight || 32) - 10) + 'px'
 }
 function linkHoverMove(e) { // preview after short delay, pinned above cursor until the link range is left
-  if (e.ctrlKey || e.metaKey) { hideLinkTip(); return }
+  if (e.ctrlKey || e.metaKey || $('pop').style.display !== 'none') { hideLinkTip(); return } // an open card owns the view
   const p = cm.posAtCoords({ x: e.clientX, y: e.clientY })
   const hit = p == null ? null : urlAt(cm.state.doc, p)
   if (!hit) { hideLinkTip(); return }
@@ -2893,7 +2896,7 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   box.classList.add('errs')
   const hb = document.querySelector('header').getBoundingClientRect().bottom // always below the top bar, never over the title
   if (eb) { const rc = eb.getBoundingClientRect(); box.style.setProperty('--eTop', Math.round(hb + 8) + 'px'); box.style.setProperty('--eLeft', Math.round(Math.max(16, Math.min(rc.right - Math.min(440, innerWidth - 32), innerWidth - Math.min(440, innerWidth - 32) - 16))) + 'px') }
-  box.style.display = 'block'
+  box.style.display = 'block'; paintCardView()
 }
 document.addEventListener('pointerdown', e => { const p = $('pop'); if (p.classList.contains('errs') && p.style.display !== 'none' && !p.contains(e.target) && !e.target.closest('#eBadge')) closePop(true) }) // error list: x or outside click
 try { const m = localStorage.getItem('typst_pv_mode'); if (m === 'width' || m === 'page') pvZoomMode = m } catch (e) {} // persisted zoom mode (string compare like typst_sync)
@@ -3831,6 +3834,7 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
   }
 }
 let popFresh = false, popQuote = '', popT = 0, popLayoutTries = 0
+function paintCardView() { $('cmWrap').classList.toggle('cardOpen', $('pop').style.display !== 'none') } // open card suppresses hover previews (CSS hides .cm-tooltip-hover)
 function openPop(anchor, fresh, quote = '', suggestion = null) {
   closePop(true)
   window.suggestionPopup = suggestion
@@ -3838,13 +3842,13 @@ function openPop(anchor, fresh, quote = '', suggestion = null) {
   popLayoutTries = 0
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
-  const pp = $('pop'); pp.classList.remove('errs'); pp.style.display = ''; pp.setAttribute('role', 'dialog')
+  const pp = $('pop'); pp.classList.remove('errs'); pp.style.display = ''; pp.setAttribute('role', 'dialog'); paintCardView()
   $('cNew').setAttribute('aria-expanded', 'true'); if (!$('cNew').getAttribute('aria-controls')) $('cNew').setAttribute('aria-controls', 'pop')
   renderPop()
   movePop()
 }
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
-  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false') }
+  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn) { btn.setAttribute('aria-expanded', 'false'); if (b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } } }
@@ -6779,6 +6783,8 @@ function paintBib() {
   list.append(search)
   entries.forEach((entry, i) => {
     const b = el('button', 'bibEntry' + (i === bibSelected ? ' on' : ''))
+    b.classList.toggle('bibEntryPending', !!proposal && sessionBibEntryPending(proposal, entry))
+    if (b.classList.contains('bibEntryPending')) b.title = t('comments.suggestionpending')
     b.append(el('span', 'bibEntryKey', entry.key || '@' + entry.type), el('span', 'bibEntryTitle', entry.fields.find(f => f.name === 'title')?.value || entry.type))
     b.onclick = () => { bibSelected = i; bibSource = null; paintBib() }; list.append(b)
   })
@@ -6832,7 +6838,7 @@ function paintBib() {
       bibSource = getT()
       proposalPainters.forEach(paint => paint())
       const button = bibPanel.querySelectorAll('.bibList button')[bibSelected], current = parseBib(bibSource)[bibSelected]
-      if (button && current) { button.querySelector('.bibEntryKey').textContent = current.key || '@' + current.type; button.querySelector('.bibEntryTitle').textContent = current.fields.find(f => f.name === 'title')?.value || current.type }
+      if (button && current) { button.classList.toggle('bibEntryPending', !!proposal && sessionBibEntryPending(proposal, current)); button.querySelector('.bibEntryKey').textContent = current.key || '@' + current.type; button.querySelector('.bibEntryTitle').textContent = current.fields.find(f => f.name === 'title')?.value || current.type }
     }
     input.onchange = input.oninput
     row.append(input); target.append(row)
@@ -7373,8 +7379,10 @@ function paintProjects(box, shared) {
     const title = el('b', null, p.title)
     title.title = p.title; title.setAttribute('role', 'button')
     title.setAttribute('aria-expanded', String(!shut.has(key)))
-    const toggle = () => {
-      shut.has(key) ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
+    const toggle = async () => {
+      const opening = shut.has(key)
+      opening ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
+      if (opening && !docId && !tplName && entries.documents[0]) await openDoc(entries.documents[0].id)
     }
     title.onclick = toggle; kb(title, toggle); h.appendChild(title)
     if (projectEditable(p)) {
@@ -8752,6 +8760,12 @@ function openSessionChange(index, anchors = null, cell = null, bibField = null) 
   const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
   openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bibField })
 }
+function sessionBibEntryPending(file, entry) {
+  if (!file || window.changeSession?.original) return false
+  const before = parseBib(file.base || '').find(old => old.key === entry.key)
+  return !before || before.type !== entry.type || before.fields.length !== entry.fields.length ||
+    entry.fields.some(field => before.fields.find(old => old.name === field.name)?.value !== field.value)
+}
 function sessionBibField(file, selector) {
   const before = parseBib(file.base || ''), after = parseBib(file.content || '')
   const next = after[selector.entry], old = before.find(e => e.key === next?.key)
@@ -8966,7 +8980,7 @@ reviewTools.append(packageMode, reviewButton, originalButton, packageActions, ex
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
-  const actions = [acceptPackageButton, acceptFileButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
+  const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
   const choice = await askPick(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']))
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }

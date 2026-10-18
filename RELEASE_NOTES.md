@@ -1,7 +1,8 @@
 # Release Notes — `0.2.0rc1` (Prerelease candidate DRAFT, not published)
 
 Additional local changes under review: floating comments avoid the entire marked
-source range; all collaborators can propose tracked source changes, including via
+source range and an open card suppresses hover previews; all collaborators can
+propose tracked source changes, including via
 MCP `propose`/`proposals` using the same project packages as the UI.
 `suggest` now creates a package and `suggestions` lists packages; existing
 clients must update their response handling. Packages include uploads, additions,

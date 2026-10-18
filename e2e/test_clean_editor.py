@@ -511,6 +511,35 @@ def test_document_only_guest_can_still_propose_text(page, browser, base_url):
         other.close()
 
 
+def test_hover_preview_never_stacks_with_an_open_comment_card(page):
+    register(page, 'hover_cards')
+    response = page.request.post('/api/docs/create', data={'title': 'Hover cards', 'content': 'Hover card line\n'})
+    document = response.json()['id']
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+    page.locator('#own .doc .t').filter(has_text='Hover cards').click()
+    expect(page.locator('#cm .cm-content')).to_contain_text('Hover card line')
+    posted = page.request.post(f'/api/docs/{document}/comments', data={'anchor': 1, 'text': 'Hover card note', 'quote': 'Hover card line'})
+    assert posted.ok, posted.text()
+    mark = page.locator('.cm-hl[data-comment-id]')
+    expect(mark).to_have_count(1)
+    page.hover('.cm-hl[data-comment-id]')
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(1)  # no card open: the hover preview shows
+    mark.click(position={'x': 5, 'y': 14})
+    expect(page.locator('#pop')).to_be_visible()
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(0)  # the open card suppresses the floating preview
+    expect(page.locator('#cmWrap')).to_have_class(re.compile('cardOpen'))
+    page.mouse.move(10, 10)
+    mark.hover(position={'x': 5, 'y': 14})
+    page.wait_for_timeout(700)  # longer than the hover delay: a preview would be visible by now
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(0)
+    expect(page.locator('#pop')).to_be_visible()  # hovering the mark does not close the card
+    page.locator('#preview').click(position={'x': 10, 'y': 400})  # outside click closes the card
+    expect(page.locator('#pop')).not_to_be_visible()
+    mark.hover(position={'x': 5, 'y': 14})
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(1)  # class cleared: the preview is back
+
+
 def test_large_binary_draft_survives_reload(page):
     register(page, 'large_proposal')
     create_doc(page, 'Large proposal')

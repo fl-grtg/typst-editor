@@ -256,7 +256,7 @@ let errTipEl = null // full-line error tooltip: manual div (no aim needed, works
 let errTipHover = null // message under the mouse, or null
 function errTipHide() { if (errTipEl) { errTipEl.remove(); errTipEl = null } }
 function errTipPlace(msg, x, yBottom) {
-  if ($('cmWrap').hidden || !cm.hasFocus || ($('pop').classList.contains('errs') && $('pop').style.display !== 'none')) { errTipHide(); return }
+  if ($('cmWrap').hidden || !cm.hasFocus || $('pop').style.display !== 'none') { errTipHide(); return }
   if (!errTipEl) {
     errTipEl = document.createElement('div')
     errTipEl.className = 'typ-hover err'
@@ -273,7 +273,7 @@ function errTipAnchor(lineEl) { // precise error spot on a red line: lint mark/w
   return lineEl.querySelector('.cm-lintRange-error, .cm-lintPoint-error') || lineEl.querySelector('.cm-errMark') || null
 }
 function errTipCursor() {
-  if ($('cmWrap').hidden || !cm.hasFocus || ($('pop').classList.contains('errs') && $('pop').style.display !== 'none')) { errTipHide(); return false } // cursor sits on an error line: keep the message visible without hovering
+  if ($('cmWrap').hidden || !cm.hasFocus || $('pop').style.display !== 'none') { errTipHide(); return false } // cursor sits on an error line: keep the message visible without hovering
   let ln = null
   try { ln = cm.state.doc.lineAt(cm.state.selection.main.head).number } catch (_) {}
   if (ln == null) return false
@@ -299,7 +299,7 @@ function errTipMove(ev) { // any spot on a red line shows the message anchored a
   const r = a.getBoundingClientRect() // anchored at the error, not at the mouse: trigger anywhere, tip stays put
   errTipPlace(errTipHover, r.left, r.bottom)
 }
-const hoverAll = (v, p) => commentHover(v, p) || typstHover(v, p) // errors use the manual full-line tooltip (errTipMove), not CM hover
+const hoverAll = (v, p) => $('pop').style.display !== 'none' ? null : commentHover(v, p) || typstHover(v, p) // an open card owns the view: no hover preview next to it (errors use the manual full-line tooltip errTipMove, not CM hover)
 const editableComp = new Compartment(), hlComp = new Compartment()
 const tabComp = new Compartment() // F25: tab width (settings, persisted)
 const setHl = StateEffect.define() // mark comment ranges, follow edits via mapping

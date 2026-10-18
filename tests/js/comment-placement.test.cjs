@@ -64,3 +64,16 @@ test('package accept can force comment re-derivation: the cache helper clears th
   c.invalidateCommentCache()
   assert.equal(c.lastC, '')
 })
+
+test('hover previews never stack with an open inline card', () => {
+  const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const line = comp.slice(comp.indexOf('const hoverAll'), comp.indexOf('\n', comp.indexOf('const hoverAll')))
+  const run = (display, comment, typst) => {
+    const c = vm.createContext({ commentHover: () => comment, typstHover: () => typst, $: () => ({ style: { display } }) })
+    return vm.runInContext(line + '\nhoverAll', c)(null, 0)
+  }
+  assert.equal(run('none', 'comment', 'typst'), 'comment') // no card open: the comment preview shows
+  assert.equal(run('none', null, 'typst'), 'typst') // … and command docs fill in below it
+  assert.equal(run('', 'comment', 'typst'), null) // open card: no hover preview at all
+  assert.equal(run('block', 'comment', 'typst'), null) // the error list card counts as an open card too
+})
