@@ -29,7 +29,15 @@ function compactSidebarActions(host, keep = 0) {
     if (choice != null && !actions[choice]?.disabled) actions[choice]?.click()
   })
 }
-async function openProjectEntry(p, document, name, resource) {
+const projectEntryFlights = new Map()
+function openProjectEntry(p, document, name, resource) {
+  const key = JSON.stringify([p.id, document, name, resource])
+  if (projectEntryFlights.has(key)) return projectEntryFlights.get(key)
+  const flight = openProjectEntryOnce(p, document, name, resource).finally(() => projectEntryFlights.delete(key))
+  projectEntryFlights.set(key, flight)
+  return flight
+}
+async function openProjectEntryOnce(p, document, name, resource) {
   if (!document) {
     toast(t('projects.needsDocument'))
     document = await newProjectDoc(p.id)
@@ -38,7 +46,8 @@ async function openProjectEntry(p, document, name, resource) {
   if (docId !== document) await openDoc(document)
   if (docId !== document || docProject !== p.id) return
   if (name) {
-    if (resource) {
+    if (activeFile === (resource ? TPLK + name : name)) return
+    if (resource && !window.changeSession) {
       const epoch = openN
       if (!await loadDocResources(true) || docId !== document || docProject !== p.id || openN !== epoch) return
       tabPins.add(name)
@@ -55,8 +64,10 @@ function paintProjects(box, shared) {
     const title = el('b', null, p.title)
     title.title = p.title; title.setAttribute('role', 'button')
     title.setAttribute('aria-expanded', String(!shut.has(key)))
-    const toggle = () => {
-      shut.has(key) ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
+    const toggle = async () => {
+      const opening = shut.has(key)
+      opening ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
+      if (opening && !docId && !tplName && entries.documents[0]) await openDoc(entries.documents[0].id)
     }
     title.onclick = toggle; kb(title, toggle); h.appendChild(title)
     if (projectEditable(p)) {

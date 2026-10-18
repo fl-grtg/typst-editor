@@ -27,7 +27,7 @@ function node(cls, text) {
   return n
 }
 function context(extra = {}) {
-  const c = vm.createContext({ t: key => key, window: {}, toast: () => { throw Error('unexpected toast') }, ...extra })
+  const c = vm.createContext({ t: key => key, window: {}, paintSessionSelection: () => {}, toast: () => { throw Error('unexpected toast') }, ...extra })
   return c
 }
 
@@ -163,51 +163,6 @@ test('claimSet claims all fragments sharing the id and clears on plain text or m
   c.claimSet(s1)
   dom.listeners.mouseleave()
   assert.equal(s1.claims.has('cm-hl-claim'), false) // leaving the editor clears the claim
-})
-
-// #6: topbar chip data flow
-test('collectPackages merges and dedupes project and docs payloads, newest first', () => {
-  const badge = node('pBadge')
-  badge.style = {}
-  const c = context({ $: name => badge, projects: [], askPick: async () => -1 })
-  vm.runInContext(docs.slice(docs.indexOf('let topPackages = []'), docs.indexOf('function refreshDocRole(d) {')), c)
-  const list = c.collectPackages(
-    { packages: [{ project: 'p1', title: 'A', updated_at: '2026-01-02T10:00:00Z' }] },
-    { packages: [{ project: 'p1', title: 'A', updated_at: '2026-01-02T10:00:00Z' }, { project: 'p2', id: '9', updated_at: '2026-01-03T10:00:00Z' }] },
-  )
-  assert.equal(list.length, 2)
-  assert.equal(list[0].project, 'p2') // newest first
-  assert.equal(list[1].title, 'A')
-  vm.runInContext(`topPackages = ${JSON.stringify(list)}`, c)
-  c.paintPackages()
-  assert.equal(badge.style.display, '')
-  assert.equal(badge.textContent, '2')
-  vm.runInContext('topPackages = []', c)
-  c.paintPackages()
-  assert.equal(badge.style.display, 'none')
-  assert.equal(badge.textContent, '')
-})
-
-test('pBadge click lists open review packages and opens the picked one', async () => {
-  const badge = node('pBadge')
-  let picked
-  const opened = []
-  const c = context({
-    $: name => badge,
-    projects: [{ id: 'p1', title: 'Projekt A' }],
-    askPick: async (head, opts) => { picked = { head, opts }; return 0 },
-  })
-  c.window.openTopPackage = entry => opened.push(entry)
-  vm.runInContext(docs.slice(docs.indexOf('let topPackages = []'), docs.indexOf('function refreshDocRole(d) {')), c)
-  vm.runInContext('topPackages = [{ project: "p1", title: "", id: "7", author: "ana", updated_at: "2026-01-02T10:00:00Z" }, { project: "p1", title: "Fix", id: "8" }]', c)
-  await badge.onclick()
-  assert.equal(picked.head, 'packages.topList')
-  assert.equal(picked.opts.length, 2)
-  assert.equal(picked.opts[0][0], 'packages.untitled') // no title yet
-  assert.equal(picked.opts[0][1].includes('Projekt A'), true)
-  assert.equal(picked.opts[0][1].includes('ana'), true)
-  assert.equal(picked.opts[1][0], 'Fix')
-  assert.equal(opened[0].id, '7')
 })
 
 // #8a: shared standalone docs get the duplicate button for editors too (guest_copy)

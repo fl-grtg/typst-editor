@@ -84,11 +84,8 @@ async function refreshSidebar() {
     if (id !== sideN) return
     const pr = await api('GET', '/api/projects')
     if (id !== sideN) return
-    const ns = await api('GET', '/api/notifications/summary').catch(() => null) // #6: real source; old/offline backend => no chip
-    if (id !== sideN) return
     projects = pr.projects
     paintSuggestionControls()
-    topPackages = collectPackages(d, pr, ns)
     if (id !== sideN) return
   }
   catch (e) {
@@ -102,37 +99,10 @@ async function refreshSidebar() {
   lastOwn = d.own; lastShared = d.shared
   if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
   refreshDocRole(d)
-  if (docProject) shut.delete('project:' + docProject)
-  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintPackages(); paintSecs(); paintTabs()
+  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
   paintTpls()
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
   if (!window.__navFadeArmed) { window.__navFadeArmed = true; addEventListener('resize', updNavFade) } // once: sidebar() runs per SSE push
-}
-let topPackages = [] // #6 topbar chip: open review packages (source: /api/notifications/summary; docs/projects payloads stay defensive)
-function collectPackages(d, pr, ns) {
-  const seen = new Set()
-  return [...(ns?.packages || []), ...(pr.packages || []), ...(d.packages || [])]
-    .filter(e => {
-      const k = e.project + '|' + (e.id ?? e.title ?? '')
-      if (!e.project || seen.has(k)) return false
-      seen.add(k)
-      return true
-    })
-    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
-}
-function paintPackages() { // Round5 #4c: only the count span changes - the pen SVG in the shell markup can never be wiped by a textContent write
-  const b = $('pBadge'), n = $('pBadgeN')
-  b.style.display = topPackages.length ? '' : 'none'
-  if (n) n.textContent = topPackages.length ? String(topPackages.length) : ''
-  else b.textContent = topPackages.length ? String(topPackages.length) : '' // markup without the count span: paint the whole badge as before
-}
-$('pBadge').onclick = async () => {
-  if (!topPackages.length) return
-  const i = await askPick(t('packages.topList'), topPackages.map(e => {
-    const p = projects.find(x => x.id === e.project)
-    return [e.title || t('packages.untitled'), [p?.title || e.project, e.author, e.updated_at ? new Date(e.updated_at).toLocaleString() : ''].filter(Boolean).join(' · ')]
-  }))
-  if (i >= 0 && typeof window.openTopPackage === 'function') window.openTopPackage(topPackages[i])
 }
 function refreshDocRole(d) {
   if (!docId) return
@@ -255,11 +225,14 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   empty.onclick = async e => {
     e.stopPropagation()
     if (!await ask(trash.length === 1 ? t('docs.emptyTrashConfirmOne') : t('docs.emptyTrashConfirmMany', { n: trash.length }), { noInput: true, ok: t('common.delete'), danger: true })) return
-    const errs = []
-    for (const x of trash) { try { await api('DELETE', trashEntryUrl(x)) } catch (e) { errs.push(x.title + ': ' + e.message) } } // no break: try all
-    if (errs.length) toast(errs.join('\n'))
-    if (trash.some(x => x.id === docId)) closeView()
-    sidebar()
+    if (empty.disabled) return
+    empty.disabled = true
+    try {
+      const result = await api('DELETE', '/api/trash')
+      if (result.documents.includes(docId)) closeView()
+      await sidebar()
+    } catch (e) { toast(e.message) }
+    finally { empty.disabled = false }
   }
   h.appendChild(empty)
   const box = $('trash'); box.replaceChildren()
@@ -529,6 +502,7 @@ async function openDoc(id) {
   hidePops()
   docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
   openedTrashed = !!d.trashed
+  if (docProject && !openedTrashed) shut.delete('project:' + docProject)
   const ro = d.role === 'reviewer' || openedTrashed // trash: read yes, write no
   $('title').textContent = d.title; $('title').classList.remove('is-empty'); docTitle = d.title
   $('tools').style.display = ''; $('pvTools').style.display = ''

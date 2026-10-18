@@ -16,6 +16,7 @@ from fastmcp.tools import ToolResult
 from mcp.types import ToolAnnotations
 
 from backend import mcp_tools as t
+from backend.routers.change_packages import ProposalFile
 
 log = logging.getLogger("typst.mcp")
 
@@ -66,23 +67,27 @@ async def _awrap(coro):
         raise ToolError(f"{e.status_code}: {e.detail}") from None
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
 def ls(path: str = "/") -> dict:
-    """List docs/shared/templates, or files inside a document. Start here."""
+    """List docs/shared/templates/projects, or files inside a document. Start here."""
     user, cap, _ = _auth()
     return _wrap(t.op_ls, user, cap, path)
 
 
-@mcp.tool()
-def read(path: str, offset: int = 1, limit: int = 0) -> dict:
-    """Read a doc, text file or template. Line window: offset 1-based, limit 0 = all. Returns content + total_lines + last_seen (pass it to edit)."""
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
+def read(path: str, offset: int = 1, limit: int = 0, binary: bool = False) -> dict:
+    """Read a doc, text file, template or project resource. Line window: offset 1-based, limit 0 = all. Returns content + total_lines + last_seen (pass it to edit). binary=true reads attachment bytes as content_base64 (max 10 MB), usable as the base for binary proposals."""
     user, cap, _ = _auth()
-    return _wrap(t.op_read, user, cap, path, offset, limit)
+    return _wrap(t.op_read, user, cap, path, offset, limit, binary)
 
 
 @mcp.tool()
 def create(path: str, content: str = "") -> dict:
-    """Create a doc (/docs/{Title}), text file (/docs/{Title}/{File}) or template. 400 if it exists."""
+    """Create a doc (/docs/{Title}), text file (/docs/{Title}/{File}), template or project doc/resource. 400 if it exists (409 for project collisions)."""
     user, cap, _ = _auth()
     return _wrap(t.op_create, user, cap, path, content)
 
@@ -96,7 +101,9 @@ async def edit(path: str, old_string: str, new_string: str,
     return await _awrap(t.op_edit(user, cap, path, old_string, new_string, replace_all, last_seen))
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
 def search(query: str) -> dict:
     """Search titles + content of accessible docs (min 2 chars, max 20 hits)."""
     user, cap, _ = _auth()
@@ -120,20 +127,49 @@ def comment(path: str, anchor: int, text: str, quote: str = "",
 
 @mcp.tool()
 def suggest(path: str, old_string: str, new_string: str, text: str = "") -> dict:
-    """Propose a document change without editing it (including with a reviewer key).
-    old_string must match exactly once; include context to disambiguate.
-    Use old_string="" only to propose the first text of an empty document. new_string
-    replaces that span, or use an empty string to propose deletion. An editor or
-    owner accepts/rejects it in the editor. text is an optional explanation."""
-    user, cap, author = _auth()
-    return _wrap(t.op_suggest, user, cap, path, old_string, new_string, text, author)
+    """Submit one document text change as a normal project proposal package.
+    old_string must match exactly once (empty only for an empty document).
+    text names the package (max 100 chars). For multiple files, uploads, additions, deletions or
+    renames use propose instead. Source stays unchanged until UI acceptance."""
+    user, cap, _ = _auth()
+    return _wrap(t.op_suggest_package, user, cap, path, old_string, new_string, text)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+)
+def suggestions(path: str) -> dict:
+    """List normal proposal packages for a project or its document. Use proposals with package_id to read full changes and revision."""
+    user, cap, _ = _auth()
+    return _wrap(t.op_proposals, user, cap, path)
 
 
 @mcp.tool()
-def suggestions(path: str) -> dict:
-    """List document suggestions with their original/replacement text and pending/accepted/rejected status."""
+def propose(path: str, title: str, files: list[ProposalFile], package_id: str = "", revision: int = 0) -> dict:
+    """Submit/correct a normal UI proposal package without changing source.
+    path: /projects/{id}. files use the same schema as human packages:
+    kind document/resource/file; doc_id from ls for documents/attachments;
+    path main.typ for documents, otherwise relative filename;
+    action modify/add/delete/rename; base original text or null for add;
+    content proposed text (omit for delete); target for rename;
+    binary=true means base/content are base64 attachment bytes.
+    For document add omit doc_id and set target to its title; document rename
+    uses target as new title and original_title for conflict detection.
+    Text modify needs changes=[{old_string,new_string}] matching base/content.
+    Include reference edits alongside renames/deletions. No automatic rewrite.
+    To correct a package read it first, retain file/change ids, and pass its
+    package_id and revision. Owner/editor reviews and accepts in the existing
+    proposal mode, by change, file or whole package. Reviewer keys work."""
     user, cap, _ = _auth()
-    return _wrap(t.op_suggestions, user, cap, path)
+    return _wrap(t.op_propose, user, cap, path, title,
+                 [f.model_dump(exclude_defaults=True) for f in files], package_id, revision)
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True))
+def proposals(path: str, package_id: str = "") -> dict:
+    """List project proposal packages, or read one including base/content, file/change ids and revision for correction. path is /projects/{id} or a document in that project. Project membership required."""
+    user, cap, _ = _auth()
+    return _wrap(t.op_proposals, user, cap, path, package_id)
 
 
 @mcp.tool(
@@ -162,7 +198,7 @@ async def view(path: str, pages: str = "1-5", scale: float = 1.0) -> ToolResult:
     annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
 )
 async def export(path: str, format: str = "pdf", pdf_standard: str = "none", pages: str = "", ppi: int = 0) -> dict:
-    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + files/). Options: pdf_standard (pdf only), pages like 1-3,5 (pdf/svg/png), ppi 72-300 (png only). Returns base64 payload + mime + filename (decode and save)."""
+    """Export a document via typst CLI (REST POST /api/docs/{id}/export parity). format pdf = full PDF; svg/png = single page directly, multi-page docs as ZIP of pages; zip = source bundle (main.typ + sources at their original relative paths). Options: pdf_standard (pdf only), pages like 1-3,5 (pdf/svg/png), ppi 72-300 (png only). Returns base64 payload + mime + filename (decode and save)."""
     user, cap, _ = _auth()
     return await _awrap(t.op_export(user, cap, path, format, pdf_standard, pages, ppi))
 

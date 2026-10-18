@@ -248,6 +248,7 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
   }
 }
 let popFresh = false, popQuote = '', popT = 0, popLayoutTries = 0
+function paintCardView() { $('cmWrap').classList.toggle('cardOpen', $('pop').style.display !== 'none') } // open card suppresses hover previews (CSS hides .cm-tooltip-hover)
 function openPop(anchor, fresh, quote = '', suggestion = null) {
   closePop(true)
   window.suggestionPopup = suggestion
@@ -255,13 +256,13 @@ function openPop(anchor, fresh, quote = '', suggestion = null) {
   popLayoutTries = 0
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
-  const pp = $('pop'); pp.classList.remove('errs'); pp.style.display = ''; pp.setAttribute('role', 'dialog')
+  const pp = $('pop'); pp.classList.remove('errs'); pp.style.display = ''; pp.setAttribute('role', 'dialog'); paintCardView()
   $('cNew').setAttribute('aria-expanded', 'true'); if (!$('cNew').getAttribute('aria-controls')) $('cNew').setAttribute('aria-controls', 'pop')
   renderPop()
   movePop()
 }
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
-  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false') }
+  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn) { btn.setAttribute('aria-expanded', 'false'); if (b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } } }

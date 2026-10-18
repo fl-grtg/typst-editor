@@ -30,7 +30,7 @@ I18N_MARK = re.compile(r"^@@i18n@@\n", re.M)
 
 
 def _read(p: Path) -> str:
-    with p.open(encoding="utf-8", newline="") as f:
+    with p.open(encoding="utf-8") as f:
         return f.read()
 
 

@@ -1,8 +1,13 @@
 # Release Notes — `0.2.0rc1` (Prerelease candidate DRAFT, not published)
 
 Additional local changes under review: floating comments avoid the entire marked
-source range; all collaborators can propose tracked source changes, including via
-MCP `suggest`/`suggestions`; owner/editor acceptance is explicit. Spelling is an
+source range and an open card suppresses hover previews; all collaborators can
+propose tracked source changes, including via
+MCP `propose`/`proposals` using the same project packages as the UI.
+`suggest` now creates a package and `suggestions` lists packages; existing
+clients must update their response handling. Packages include uploads, additions,
+deletions and renames, including new/renamed documents. Owner/editor acceptance
+is explicit in the existing review mode. Spelling is an
 account preference. Image viewing, project file drops, generic attachment upload,
 completion refresh, source/preview matching and checkpoint-menu deletion have
 been revised. Migrations 20-25 are required. These additions are not a published
@@ -81,7 +86,7 @@ candidate digest yet.
   `/projects/{id}/docs/{Title}`. Doc titles are NOCASE-unique per project;
   project titles are NOCASE-unique per owner.
 - No private fallback at compile/export time; document ZIP
-  (`main.typ` + `files/…`) and project ZIP
+  (`main.typ` + sources at their original relative paths) and project ZIP
   (`project.json` + `modules/…` + `documents/<id>/main.typ`) are different
   layouts with no full project round-trip promise.
 - New writes over quota fail with `413`; over-quota accounts stay

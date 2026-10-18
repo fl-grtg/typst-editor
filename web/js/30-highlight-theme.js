@@ -177,7 +177,7 @@ function showLinkTip(url, x, y) {
   linkTip.style.top = Math.max(8, y - (linkTip.offsetHeight || 32) - 10) + 'px'
 }
 function linkHoverMove(e) { // preview after short delay, pinned above cursor until the link range is left
-  if (e.ctrlKey || e.metaKey) { hideLinkTip(); return }
+  if (e.ctrlKey || e.metaKey || $('pop').style.display !== 'none') { hideLinkTip(); return } // an open card owns the view
   const p = cm.posAtCoords({ x: e.clientX, y: e.clientY })
   const hit = p == null ? null : urlAt(cm.state.doc, p)
   if (!hit) { hideLinkTip(); return }

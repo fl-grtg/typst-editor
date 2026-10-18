@@ -213,7 +213,7 @@ def test_project_deletions_stage_undo_and_accept_without_live_delete(page, kind)
     expect(page.locator('#suggestionToggle')).to_be_enabled()
     page.evaluate('entry => window.openTopPackage(entry)', {'project': project, 'id': proposal['id']})
     page.wait_for_function('id => window.changeSession?.package?.id === id', arg=proposal['id'])
-    page.locator('.package-tools button[title="Menu"]').click()
+    page.locator('.package-tools button[title="Proposal actions"]').click()
     page.locator('#modal button.pk').filter(has_text='Accept file').click()
     page.wait_for_function('!window.changeSession')
     expect(page.locator('#title')).to_have_text('Delete review')
@@ -315,7 +315,7 @@ def test_staged_delete_and_rename_can_be_discarded_per_file(page):
             page.click('#mYes')
         page.wait_for_function('action => [...window.changeSession.files.values()].some(f => f.action === action)', arg=action.lower())
         expect(page.locator('#cm .cm-content')).to_have_text(source)
-        page.locator('.package-tools button[title="Menu"]').click()
+        page.locator('.package-tools button[title="Proposal actions"]').click()
         page.locator('#modal button.pk').filter(has_text='Discard file changes').click()
         page.wait_for_function("[...window.changeSession.files.values()].every(f => f.action === 'modify' && f.content === f.base)")
         expect(page.locator('#cm .cm-content')).to_have_attribute('contenteditable', 'true')
@@ -448,7 +448,7 @@ def test_own_repetitive_csv_proposal_can_be_viewed_and_withdrawn(page):
     expect(page.locator('#title')).to_have_text('data.csv')
     assert page.evaluate("[...window.changeSession.files.values()].find(f => f.path === 'data.csv').content") == content
     expect(page.locator('.package-modified .t').filter(has_text='data.csv')).to_be_visible()
-    page.locator('.package-tools button[title="Menu"]').click()
+    page.locator('.package-tools button[title="Proposal actions"]').click()
     page.locator('#modal button.pk').filter(has_text='Delete package').click()
     page.click('#mYes')
     page.wait_for_function('!window.changeSession')
@@ -509,6 +509,35 @@ def test_document_only_guest_can_still_propose_text(page, browser, base_url):
         assert comments[0]['replacement'] == 'Suggested shared'
     finally:
         other.close()
+
+
+def test_hover_preview_never_stacks_with_an_open_comment_card(page):
+    register(page, 'hover_cards')
+    response = page.request.post('/api/docs/create', data={'title': 'Hover cards', 'content': 'Hover card line\n'})
+    document = response.json()['id']
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+    page.locator('#own .doc .t').filter(has_text='Hover cards').click()
+    expect(page.locator('#cm .cm-content')).to_contain_text('Hover card line')
+    posted = page.request.post(f'/api/docs/{document}/comments', data={'anchor': 1, 'text': 'Hover card note', 'quote': 'Hover card line'})
+    assert posted.ok, posted.text()
+    mark = page.locator('.cm-hl[data-comment-id]')
+    expect(mark).to_have_count(1)
+    page.hover('.cm-hl[data-comment-id]')
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(1)  # no card open: the hover preview shows
+    mark.click(position={'x': 5, 'y': 14})
+    expect(page.locator('#pop')).to_be_visible()
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(0)  # the open card suppresses the floating preview
+    expect(page.locator('#cmWrap')).to_have_class(re.compile('cardOpen'))
+    page.mouse.move(10, 10)
+    mark.hover(position={'x': 5, 'y': 14})
+    page.wait_for_timeout(700)  # longer than the hover delay: a preview would be visible by now
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(0)
+    expect(page.locator('#pop')).to_be_visible()  # hovering the mark does not close the card
+    page.locator('#preview').click(position={'x': 10, 'y': 400})  # outside click closes the card
+    expect(page.locator('#pop')).not_to_be_visible()
+    mark.hover(position={'x': 5, 'y': 14})
+    expect(page.locator('.cm-tooltip-hover:visible')).to_have_count(1)  # class cleared: the preview is back
 
 
 def test_large_binary_draft_survives_reload(page):

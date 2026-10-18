@@ -105,6 +105,8 @@ function paintBib() {
   list.append(search)
   entries.forEach((entry, i) => {
     const b = el('button', 'bibEntry' + (i === bibSelected ? ' on' : ''))
+    b.classList.toggle('bibEntryPending', !!proposal && sessionBibEntryPending(proposal, entry))
+    if (b.classList.contains('bibEntryPending')) b.title = t('comments.suggestionpending')
     b.append(el('span', 'bibEntryKey', entry.key || '@' + entry.type), el('span', 'bibEntryTitle', entry.fields.find(f => f.name === 'title')?.value || entry.type))
     b.onclick = () => { bibSelected = i; bibSource = null; paintBib() }; list.append(b)
   })
@@ -158,7 +160,7 @@ function paintBib() {
       bibSource = getT()
       proposalPainters.forEach(paint => paint())
       const button = bibPanel.querySelectorAll('.bibList button')[bibSelected], current = parseBib(bibSource)[bibSelected]
-      if (button && current) { button.querySelector('.bibEntryKey').textContent = current.key || '@' + current.type; button.querySelector('.bibEntryTitle').textContent = current.fields.find(f => f.name === 'title')?.value || current.type }
+      if (button && current) { button.classList.toggle('bibEntryPending', !!proposal && sessionBibEntryPending(proposal, current)); button.querySelector('.bibEntryKey').textContent = current.key || '@' + current.type; button.querySelector('.bibEntryTitle').textContent = current.fields.find(f => f.name === 'title')?.value || current.type }
     }
     input.onchange = input.oninput
     row.append(input); target.append(row)

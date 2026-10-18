@@ -32,8 +32,10 @@ class ProposalFile(BaseModel):
     path: str = Field(min_length=1, max_length=240)
     action: Literal["modify", "add", "delete", "rename"]
     target: str = Field(default="", max_length=240)
+    original_title: str = Field(default="", max_length=100)
     base: str | None = Field(default=None, max_length=14000000)
     content: str | None = Field(default=None, max_length=14000000)
+    initial_content: str | None = Field(default=None, max_length=14000000)
     binary: bool = False
     changes: list[Change] = Field(default_factory=list, max_length=500)
 
@@ -55,6 +57,7 @@ class Selection(BaseModel):
     change_id: str = ""
     cell: Cell | None = None
     field_edit: Change | None = None
+    include_dependencies: bool = False
 
 
 @router.get("/api/projects/{project_id}/proposals")
@@ -128,7 +131,8 @@ async def accept_package(
         raise HTTPException(400, "Select either a text change or a cell")
     result, updates, deleted_documents = await asyncio.to_thread(
         packages.accept, user, project_id, package_id, body.revision, body.file_id, body.change_id,
-        body.cell.model_dump() if body.cell else None, body.field_edit.model_dump() if body.field_edit else None
+        body.cell.model_dump() if body.cell else None, body.field_edit.model_dump() if body.field_edit else None,
+        body.include_dependencies
     )
     try:
         for room, update, _ in updates:

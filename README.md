@@ -215,12 +215,24 @@ Apache-2.0, see `LICENSE`. Third-party versions in `NOTICE` (pins match the vend
 
 Project modules, private modules and document-local text files support `.typ`, `.bib`, `.csv`, `.tsv`, `.json`, `.yaml`/`.yml`, `.toml`, `.xml`, `.csl`, and `.txt`. CSV/TSV use a cell editor; BibLaTeX offers a source list and form alongside the raw editor. Structured data editors highlight syntax and validate their content. At compile/export time there is no private fallback: project library + document-local files only, local files win; private modules enter a project only via explicit pull/copy as independent copies.
 
-Use **Export → Source ZIP** for a document bundle (`main.typ` + `files/…` + `SKIPPED.txt` when oversized files were left out). Upload that ZIP to create a new document in a project: every bundled module becomes a document-local file. Bundles must contain exactly one `main.typ`; nested paths are preserved. Import accepts at most 10 MB compressed and 100 MB unpacked, with the usual per-file limits (200 KB text, 10 MB binary) and configured file-count/quota limits.
+Use **Export → Source ZIP** for a document bundle (`main.typ` + sources at their original relative paths + `SKIPPED.txt` when oversized files were left out). Upload that ZIP to create a new document in a project: every bundled module becomes a document-local file. Bundles must contain exactly one `main.typ`; nested paths are preserved. Import accepts at most 10 MB compressed and 100 MB unpacked, with the usual per-file limits (200 KB text, 10 MB binary) and configured file-count/quota limits.
 
 Project ZIP (`GET /api/projects/{id}/export-zip`) is a different layout: `project.json` + `modules/…` + `documents/<doc-id>/main.typ` (+ `skipped.json` per doc when needed), limited to what the caller may see. It has no matching full-project importer, so no complete project round-trip is promised; use it for inspection/backup of sources, not as server backup.
 
 
 ### Local review and attachment changes
+
+MCP agents use `propose(path, title, files)` to submit the same project packages
+as humans, and `proposals(path, package_id)` to read/correct them. `suggest`
+is a shortcut for one document edit, takes an optional package title (`text`, max 100 characters), and now returns a package; `suggestions`
+lists project packages (the old comment-suggestion response is retired).
+Reviewer keys can propose without modifying source. Binary originals are
+available with `read(path, binary=true)`. Packages support text edits, new
+documents/modules/attachments, binary uploads/replacements, deletion and rename.
+Document add uses `target` as its title; document rename also carries
+`original_title`. File/module renames need explicit reference edits in the same
+package; known dependency conflicts block incomplete acceptance. Review uses
+the existing proposal mode, with no separate agent review interface.
 
 The editor's **Suggest** mode gives project members a tracked draft spanning
 documents, modules and attachments. `/api/projects/{id}/proposals` lists and

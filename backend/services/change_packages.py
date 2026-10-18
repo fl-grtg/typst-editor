@@ -16,8 +16,8 @@ from contextlib import ExitStack
 from fastapi import HTTPException
 from pycrdt import Doc, Text
 
-from backend import config, db, sync
-from backend.constants import MAX_TXT
+from backend import config, db, deps, sync
+from backend.constants import MAX_TXT, TITLE_MAX
 from backend.services import projects, quota, resources, trash
 from backend.services.docfiles import file_type, safe_name, store
 from backend.services.locks import _named_lock
@@ -46,6 +46,8 @@ def snapshot(con, project: str, file: dict) -> str | None:
             "SELECT content FROM docs WHERE id=? AND project_id=? AND trashed=0", (document, project)
         ).fetchone()
         if not row:
+            if file["action"] == "add" and not con.execute("SELECT 1 FROM docs WHERE id=?", (document,)).fetchone():
+                return None
             raise HTTPException(404, "Document gone")
         live = sync.room_text(document)
         return live if live is not None else row[0]
@@ -92,21 +94,27 @@ def apply_changes(text: str, changes: list[dict]) -> str:
 
 
 def validate_file(file: dict) -> None:
+    if file["kind"] in ("document", "file"):
+        deps.check_doc_id(file.get("doc_id", ""))
     if file["kind"] == "document" and file["path"] != "main.typ":
         raise HTTPException(400, "Document scope must use main.typ")
     if file["kind"] == "resource" and file.get("doc_id"):
         raise HTTPException(400, "Project resources have no document scope")
     if file["action"] not in ("modify", "add", "delete", "rename"):
         raise HTTPException(400, "Invalid file action")
-    if file["kind"] == "document" and file["action"] not in ("modify", "delete"):
-        raise HTTPException(400, "Document proposals may modify or delete documents")
+    if file["kind"] == "document" and file["action"] in ("add", "rename"):
+        title = file.get("target", "")
+        if not title.strip() or title != title.strip() or len(title) > TITLE_MAX or "/" in title:
+            raise HTTPException(400, "Invalid proposed document title")
+        if file["action"] == "rename" and not file.get("original_title"):
+            raise HTTPException(400, "Missing original document title")
     if file.get("binary") and file["kind"] != "file":
         raise HTTPException(400, "Only attachments may be binary")
     if file["action"] == "add" and file.get("base") is not None:
         raise HTTPException(400, "Added file already has a base")
     if file["action"] != "add" and file.get("base") is None:
         raise HTTPException(400, "Missing original file")
-    for field in ("base", "content"):
+    for field in ("base", "content", "initial_content"):
         value = file.get(field)
         if value is not None:
             try:
@@ -115,12 +123,12 @@ def validate_file(file: dict) -> None:
                 raise HTTPException(400, "Invalid binary attachment") from error
             if size > (10 * 1024 * 1024 if file.get("binary") else MAX_TXT):
                 raise HTTPException(413, "Proposal file too large")
-    if file["action"] == "modify" and not file.get("binary"):
+    if (file["action"] == "modify" or file["action"] == "rename" and file.get("changes")) and not file.get("binary"):
         if not file.get("changes") or apply_changes(file["base"], file["changes"]) != file.get("content"):
             raise HTTPException(400, "Changes do not match proposed content")
     if file["action"] != "delete" and file.get("content") is None:
         raise HTTPException(400, "Missing proposed content")
-    if file["action"] == "rename":
+    if file["action"] == "rename" and file["kind"] != "document":
         safe_name(file.get("target", ""))
         if file["kind"] == "resource":
             from backend.routers.projects import resource_name
@@ -154,11 +162,19 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
             identities = set()
             file_ids = set()
             for file in files:
+                if file["action"] == "add" and file.get("initial_content") is None:
+                    file["initial_content"] = file.get("content")
+                if file["kind"] == "document" and file["action"] == "add" and not file.get("doc_id"):
+                    file["doc_id"] = db.new_id("d_")
                 if key(file) in identities:
                     raise HTTPException(400, "Duplicate proposal file")
                 identities.add(key(file))
                 validate_file(file)
                 original = snapshot(con, project, file)
+                if file["kind"] == "document" and file["action"] == "rename":
+                    title_row = con.execute("SELECT title FROM docs WHERE id=?", (file["doc_id"],)).fetchone()
+                    if title_row[0] != file["original_title"]:
+                        raise HTTPException(409, "Original document title changed")
                 if file["action"] == "add" and original is not None:
                     raise HTTPException(409, "Added filename already exists")
                 if not previous and original != file.get("base"):
@@ -223,7 +239,8 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
     return result
 
 
-def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict, str | None]]) -> None:
+def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict, str | None]],
+                 include_related: bool = False) -> list[tuple[str, str]]:
     texts: dict[tuple[str, str, str], str] = {}
     available = set()
     deleting = {f['doc_id'] for f, _ in writes if f['kind'] == 'document' and f['action'] == 'delete'}
@@ -258,11 +275,12 @@ def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict
             available.discard(identity)
             texts.pop(identity, None)
         if content is not None:
-            target = (file["kind"], file.get("doc_id", ""), file.get("target", file["path"]))
+            target = (file["kind"], file.get("doc_id", ""), file["path"] if file["kind"] == "document" else file.get("target", file["path"]))
             available.add(target)
             if not file.get("binary"):
                 texts[target] = content
-    for (_kind, document, path), content in texts.items():
+    for identity, content in texts.items():
+        _kind, document, path = identity
         parent = posixpath.dirname(path)
         for ref in set(resources.refs_in_text(content)) | set(re.findall(r'"([^"\n]+)"', content)):
             for resolved in {ref, posixpath.normpath(posixpath.join(parent, ref))}:
@@ -271,7 +289,21 @@ def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict
                 if local in available or shared in available:
                     continue
                 if local in sensitive or shared in sensitive:
-                    raise HTTPException(409, "Accept the referenced file and its text changes together: " + ref)
+                    if include_related:
+                        for file in pending:
+                            target = (file["kind"], file.get("doc_id", ""), file.get("target", file["path"]))
+                            if file["action"] in ("add", "rename") and target in (local, shared):
+                                return [(file["id"], "@rename" if file["action"] == "rename" else "")]
+                        source = next((f for f in pending if key(f) == identity or
+                                       f["action"] == "rename" and (f["kind"], f.get("doc_id", ""), f.get("target")) == identity), None)
+                        if source and source["action"] in ("modify", "rename") and not source.get("binary"):
+                            quoted = '"' + ref + '"'
+                            changes = [(source["id"], c["id"]) for c in source["changes"]
+                                       if c["old_string"].count(quoted) > c["new_string"].count(quoted)]
+                            if changes:
+                                return changes
+                    raise HTTPException(409, {"code": "proposal_dependencies", "message": "Accept the referenced file and its text changes together: " + ref})
+    return []
 
 
 def csv_cell_content(base: str, proposed: str, row: int, column: int, delimiter: str) -> str:
@@ -337,7 +369,7 @@ def csv_cell_content(base: str, proposed: str, row: int, column: int, delimiter:
 
 def accept(
     user: str, project: str, package: str, revision: int, file_id: str = "", change_id: str = "", cell: dict | None = None,
-    field_edit: dict | None = None
+    field_edit: dict | None = None, include_dependencies: bool = False
 ) -> tuple[dict, list, list[str]]:
     updates = []
     deleted_documents: list[str] = []
@@ -354,7 +386,7 @@ def accept(
         for document in documents:
             locks.enter_context(_named_lock("upload:" + document))
         for document in documents:
-            if any(f["kind"] == "document" and f.get("doc_id") == document for f in preliminary["files"]):
+            if any(f["kind"] == "document" and f.get("doc_id") == document and f["action"] != "add" for f in preliminary["files"]):
                 locks.enter_context(sync._doc_lock(sync.room(document)))
         try:
             with db.tx() as con:
@@ -363,80 +395,128 @@ def accept(
                 proposal = get(con, project, package)
                 if proposal["revision"] != revision:
                     raise HTTPException(409, "Proposal changed; reopen the current version")
-                writes: list[tuple[dict, str | None]] = []
-                content: str | None
-                remaining = []
-                accepted = 0
-                stale_marked = False
-                doc_before: dict[str, str] = {}  # pre-write DB text, for undo snapshots after the commit
-                for file in proposal["files"]:
-                    if file_id and file["id"] != file_id:
-                        remaining.append(file)
-                        continue
-                    if change_id and (file["action"] != "modify" or file.get("binary")):
-                        raise HTTPException(400, "Single-change acceptance requires a text modification")
-                    current = snapshot(con, project, file)
-                    if cell is not None or field_edit is not None:
-                        extensions = (".bib",) if field_edit else (".csv", ".tsv")
-                        if file["action"] not in ("modify", "add") or file.get("binary") or not file["path"].lower().endswith(extensions):
-                            raise HTTPException(400, "Selection requires a supported structured text modification")
-                        if current != file.get("base"):
-                            raise HTTPException(409, "Original file changed")
-                        if field_edit is not None:
-                            content = apply_changes(current or "", [field_edit])
-                        else:
-                            assert cell is not None
-                            content = csv_cell_content(current or "", file["content"], cell["row"], cell["column"], "\t" if file["path"].lower().endswith(".tsv") else ",")
-                        if content != file["content"]:
-                            remaining.append({**file, "action": "modify", "base": content, "changes": [{"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}]})
-                        accepted += 1
-                    elif file["action"] == "modify" and not file.get("binary"):
-                        selected = [c for c in file["changes"] if not change_id or c["id"] == change_id]
-                        if not selected:
-                            raise HTTPException(409, "Change is no longer pending")
-                        if current == file.get("base") or not file_id:
-                            # Exact re-match or a whole-package accept that
-                            # still gives all-or-nothing: a drifted old_string
-                            # hard-fails instead of silently skipping text.
-                            content = apply_changes(current or "", selected)
-                        else:
-                            try:
-                                content = apply_changes(current or "", selected)
-                            except HTTPException:
-                                # Selected change drifted out of the live text.
-                                # Same graceful path as an unrebasable sibling:
-                                # skip the file, mark it stale for the UI; the
-                                # rest of the selection still applies.
-                                remaining.append({**file, "stale": True})
-                                stale_marked = True
-                                continue
-                        rest = [c for c in file["changes"] if c not in selected]
-                        if rest:
-                            try:
-                                rebased = apply_changes(content, rest)
-                            except HTTPException:
-                                # Unselected sibling no longer matches the
-                                # post-accept text: retain only pending edits
-                                # against their original base for correction.
-                                remaining.append({**file, "changes": rest,
-                                                  "content": apply_changes(file["base"], rest), "stale": True})
+                selection: dict[str, set[str] | None] = {
+                    f["id"]: ({change_id} if change_id else None)
+                    for f in proposal["files"] if not file_id or f["id"] == file_id
+                }
+                doc_before: dict[str, str] = {}
+                while True:
+                    writes: list[tuple[dict, str | None]] = []
+                    content: str | None
+                    remaining = []
+                    accepted = 0
+                    stale_marked = False
+                    for file in proposal["files"]:
+                        if file["id"] not in selection:
+                            remaining.append(file)
+                            continue
+                        selected_ids = selection[file["id"]]
+                        structural_only = file["action"] in ("rename", "add", "delete") and selected_ids == {"@action"}
+                        rename_ids = selected_ids if file["action"] == "rename" else None
+                        if rename_ids is not None and file.get("binary") and not rename_ids <= {"@action", "@rename"}:
+                            raise HTTPException(400, "Single-change acceptance requires a text modification")
+                        if selected_ids and rename_ids is None and not structural_only and (file["action"] != "modify" or file.get("binary")):
+                            raise HTTPException(400, "Single-change acceptance requires a text modification")
+                        current = snapshot(con, project, file)
+                        if rename_ids is not None:
+                            if current != file.get("base"):
+                                raise HTTPException(409, "Original file changed")
+                            selected = [c for c in file.get("changes", []) if c["id"] in rename_ids]
+                            if rename_ids - {"@action", "@rename"} - {c["id"] for c in selected}:
+                                raise HTTPException(409, "Change is no longer pending")
+                            content = apply_changes(current or "", selected) if selected else current
+                            if content != file["content"]:
+                                pending_content = {**file, "action": "modify", "path": file["path"] if file["kind"] == "document" else file["target"], "base": content}
+                                pending_content.pop("target", None)
+                                pending_content["changes"] = [c for c in file.get("changes", []) if c not in selected] or ([] if file.get("binary") else [
+                                    {"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}])
+                                remaining.append(pending_content)
+                            accepted += 1
+                        elif structural_only and file["action"] == "add":
+                            if current is not None:
+                                raise HTTPException(409, "Added filename already exists")
+                            content = file.get("initial_content", file["content"])
+                            if content != file["content"]:
+                                remaining.append({**file, "action": "modify", "base": content, "changes": [] if file.get("binary") else [
+                                    {"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}]})
+                            accepted += 1
+                        elif file["id"] == file_id and (cell is not None or field_edit is not None):
+                            extensions = (".bib",) if field_edit else (".csv", ".tsv")
+                            if file["action"] not in ("modify", "add") or file.get("binary") or not file["path"].lower().endswith(extensions):
+                                raise HTTPException(400, "Selection requires a supported structured text modification")
+                            if current != file.get("base"):
+                                raise HTTPException(409, "Original file changed")
+                            if field_edit is not None:
+                                content = apply_changes(current or "", [field_edit])
                             else:
-                                remaining.append(
-                                    {**file, "base": content, "content": rebased, "changes": rest}
-                                )
-                        accepted += len(selected)
-                    else:
-                        if current != file.get("base"):
-                            raise HTTPException(409, "Original file changed")
-                        content = None if file["action"] == "delete" else file["content"]
-                        accepted += 1
-                    writes.append((file, content))
-                if not writes and not stale_marked and not proposal["files"] and not file_id:
-                    return proposal, [], []
-                if not writes and not stale_marked:
-                    raise HTTPException(409, "No pending changes selected")
-                if writes:
-                    dependencies(con, project, proposal["files"], writes)
+                                assert cell is not None
+                                content = csv_cell_content(current or "", file["content"], cell["row"], cell["column"], "\t" if file["path"].lower().endswith(".tsv") else ",")
+                            if content != file["content"]:
+                                remaining.append({**file, "action": "modify", "base": content, "changes": [{"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}]})
+                            accepted += 1
+                        elif file["action"] == "modify" and not file.get("binary"):
+                            selected = [c for c in file["changes"] if selected_ids is None or c["id"] in selected_ids]
+                            if not selected:
+                                raise HTTPException(409, "Change is no longer pending")
+                            if current == file.get("base") or not file_id:
+                                # Exact re-match or a whole-package accept that
+                                # still gives all-or-nothing: a drifted old_string
+                                # hard-fails instead of silently skipping text.
+                                content = apply_changes(current or "", selected)
+                            else:
+                                try:
+                                    content = apply_changes(current or "", selected)
+                                except HTTPException:
+                                    # Selected change drifted out of the live text.
+                                    # Same graceful path as an unrebasable sibling:
+                                    # skip the file, mark it stale for the UI; the
+                                    # rest of the selection still applies.
+                                    remaining.append({**file, "stale": True})
+                                    stale_marked = True
+                                    continue
+                            rest = [c for c in file["changes"] if c not in selected]
+                            if rest:
+                                try:
+                                    rebased = apply_changes(content, rest)
+                                except HTTPException:
+                                    # Unselected sibling no longer matches the
+                                    # post-accept text: retain only pending edits
+                                    # against their original base for correction.
+                                    remaining.append({**file, "changes": rest,
+                                                      "content": apply_changes(file["base"], rest), "stale": True})
+                                else:
+                                    remaining.append(
+                                        {**file, "base": content, "content": rebased, "changes": rest}
+                                    )
+                            accepted += len(selected)
+                        else:
+                            if current != file.get("base"):
+                                raise HTTPException(409, "Original file changed")
+                            content = None if file["action"] == "delete" else file["content"]
+                            accepted += 1
+                        writes.append((file, content))
+                    if not writes and not stale_marked and not proposal["files"] and not file_id:
+                        return proposal, [], []
+                    if not writes and not stale_marked:
+                        raise HTTPException(409, "No pending changes selected")
+                    required = dependencies(con, project, proposal["files"], writes, include_dependencies) if writes else []
+                    if not required:
+                        break
+                    extended = False
+                    for related_file, related_change in required:
+                        if related_file not in selection:
+                            selection[related_file] = {related_change} if related_change else None
+                            extended = True
+                        elif not related_change and selection[related_file] is not None:
+                            selection[related_file] = None
+                            extended = True
+                        elif related_change:
+                            ids = selection[related_file]
+                            if ids is not None and related_change not in ids:
+                                ids.add(related_change)
+                                extended = True
+                    if not extended:
+                        raise HTTPException(409, "Dependent proposal changed; refresh the package")
                 deleting = {f['doc_id'] for f, _ in writes if f['kind'] == 'document' and f['action'] == 'delete'}
                 if any(f['kind'] == 'file' and f.get('doc_id') in deleting for f in remaining):
                     raise HTTPException(409, "Accept document deletion and its attachment changes together")
@@ -460,15 +540,29 @@ def accept(
                     if file["action"] == "delete" and file["kind"] != "document":
                         payload = base64.b64decode(original or "") if binary else (original or "").encode()
                         trash.archive(con, owner, file["kind"], file["path"], payload, project_id=project, doc_id=file.get("doc_id", ""))
-                    name = file.get("target", file["path"]) if file["action"] == "rename" else file["path"]
+                    name = file["target"] if file["action"] == "rename" or file["kind"] == "document" and file["action"] == "add" else file["path"]
                     if file["action"] in ("add", "rename"):
                         if file["kind"] == "resource":
                             projects.assert_resource_name_free(con, project, name, exempt_name=file["path"] if file["action"] == "rename" else "")
                         elif file["kind"] == "file":
                             projects.assert_file_name_free(con, project, name, exempt_files={(file["doc_id"], file["path"])} if file["action"] == "rename" else set())
-                    if file["action"] == "rename" and snapshot(con, project, {**file, "path": name}) is not None:
+                    if file["action"] == "rename" and file["kind"] != "document" and snapshot(con, project, {**file, "path": name}) is not None:
                         raise HTTPException(409, "Rename target exists")
                     if file["kind"] == "document":
+                        if file["action"] in ("add", "rename"):
+                            if con.execute("SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?",
+                                           (project, name, file["doc_id"])).fetchone():
+                                raise HTTPException(409, "Document title already exists")
+                            if file["action"] == "add":
+                                if con.execute("SELECT COUNT(*) FROM docs WHERE owner=?", (owner,)).fetchone()[0] >= config.load().MAX_DOCS_PER_USER:
+                                    raise HTTPException(400, "Too many docs")
+                                now = db.now_iso()
+                                con.execute("INSERT INTO docs(id,owner,title,content,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+                                            (file["doc_id"], owner, file["target"], content, project, now, now))
+                                continue
+                            if con.execute("SELECT title FROM docs WHERE id=?", (file["doc_id"],)).fetchone()[0] != file["original_title"]:
+                                raise HTTPException(409, "Original document title changed")
+                            con.execute("UPDATE docs SET title=? WHERE id=?", (name, file["doc_id"]))
                         if file["action"] == "delete":
                             con.execute("UPDATE docs SET content=?,yjs=?,trashed=1,updated_at=? WHERE id=?",
                                         (original or '', sync.room(file['doc_id'])['doc'].get_update(), db.now_iso(), file['doc_id']))
@@ -534,16 +628,6 @@ def accept(
                 else:
                     store.put(*at, backup)
             raise
-        # Undo points for the document writes, after the commit so a failed
-        # accept leaves no stray snapshot; failures only warn (auto_snap
-        # opens its own connection and would self-block inside the tx).
-        from backend.services import snapshots as snapsvc
-
-        for doc_id, before in doc_before.items():
-            try:
-                snapsvc.auto_snap(doc_id, before, label="proposal-accept")
-            except (HTTPException, sqlite3.Error, OSError) as e:
-                log.warning("proposal accept snap %s: %s", doc_id, e)
         for room, update, content in updates:
             room["doc"].apply_update(update)
             room["text_len"] = len((content or "").encode())
@@ -551,6 +635,14 @@ def accept(
             sync._mark_quota_blocked(room, False)
             room["dirty_since"] = 0.0
             room["saved"] = time.monotonic()
+    # Snapshot only after commit and lock release: project checkpoints acquire upload locks themselves.
+    from backend.services import snapshots as snapsvc
+
+    for doc_id, before in doc_before.items():
+        try:
+            snapsvc.auto_snap(doc_id, before, label="proposal-accept")
+        except (HTTPException, sqlite3.Error, OSError) as e:
+            log.warning("proposal accept snap %s: %s", doc_id, e)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
     return result, updates, deleted_documents

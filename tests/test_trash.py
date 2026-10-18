@@ -202,3 +202,43 @@ def test_project_hard_delete_purges_resource_trash(c):
     # so the archived resource copy could never land anywhere again
     assert c.delete(f"/api/projects/{pid}").json()["ok"] is True
     assert [t for t in c.get("/api/docs").json()["trash"] if t["title"] == "vals.typ"] == []
+
+
+def test_empty_trash_removes_twelve_documents_and_mixed_entries_in_one_request(c, monkeypatch):
+    from backend import deps
+    from backend.services import trash
+
+    register_user(c, "bob")
+    foreign = make_doc(c, "Bob trash")
+    register_user(c, "alice")
+    keep = make_doc(c, "Keep active")
+    documents = [make_doc(c, f"Trash {i}") for i in range(12)]
+    with db.tx() as con:
+        for document in documents + [foreign]:
+            con.execute("UPDATE docs SET trashed=1 WHERE id=?", (document,))
+        for i in range(12):
+            trash.archive(con, "alice", ["personal", "resource", "file"][i % 3], f"trash{i}.typ", b"old", doc_id=keep)
+        foreign_entry = trash.archive(con, "bob", "personal", "foreign.typ", b"keep")
+    folder = deps.get_files_dir() / documents[0]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "image.png").write_bytes(b"image")
+    scopes = []
+    limited = deps.limited
+
+    def counted(req, scope, key=""):
+        scopes.append(scope)
+        return limited(req, scope, key)
+
+    monkeypatch.setattr(deps, "limited", counted)
+    response = c.delete("/api/trash")
+    assert response.status_code == 200, response.text
+    assert set(response.json()["documents"]) == set(documents)
+    assert scopes == ["delete"]
+    assert not folder.exists()
+    with db.tx() as con:
+        assert con.execute("SELECT COUNT(*) FROM docs WHERE owner='alice' AND trashed=1").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM trash_entries WHERE owner='alice'").fetchone()[0] == 0
+        assert con.execute("SELECT trashed FROM docs WHERE id=?", (keep,)).fetchone()[0] == 0
+        assert con.execute("SELECT trashed FROM docs WHERE id=?", (foreign,)).fetchone()[0] == 1
+        assert con.execute("SELECT id FROM trash_entries WHERE id=?", (foreign_entry,)).fetchone()
+    assert c.delete("/api/trash").json() == {"documents": []}
