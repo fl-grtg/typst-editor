@@ -42,9 +42,11 @@ def test_2d_sessions_theme_and_focus(page):
     assert page.evaluate("() => document.documentElement.getAttribute('data-theme')") == "dark"
     assert page.evaluate("() => window.__noReload2d") == 7
     theme.select_option("system")
-    # sessions list shows this device (backend 1C endpoints)
+    # sessions list lives in its own category now: switch to it, check, switch back
+    pop.locator('.setNavItem[data-category="sessions"]').click()
     expect(pop.locator(".sessRow").first).to_be_visible(timeout=10_000)
     page.wait_for_timeout(800)  # keys fetch also re-renders: let both settle so focus sticks
+    pop.locator('.setNavItem[data-category="account"]').click()
     # keyboard: focus the language select, Tab moves on with a visible frame
     pop.locator("#langSel").focus()
     expect(pop.locator("#langSel")).to_be_focused()

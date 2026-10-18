@@ -90,6 +90,7 @@
 body.settings-open::before {
   content: ''; position: fixed; inset: 0; z-index: 299; background: rgba(9, 11, 15, .42);
   -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  pointer-events: none; /* clicks pass through: outside-click closes via hidePops(), #who toggles closed */
 }
 /* ask() dialogs must sit above the settings panel (otherwise both are centered and the panel covers the dialog) */
 body.settings-open #modal { z-index: 302; }

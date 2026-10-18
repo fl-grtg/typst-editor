@@ -93,7 +93,7 @@ def test_7_mobile_viewport_login_and_open_doc(browser, base_url):
         expect(settings).to_be_visible()
         bounds = settings.bounding_box()
         assert bounds is not None and bounds["y"] + bounds["height"] <= 844
-        assert settings.evaluate("n => getComputedStyle(n).overflowY") == "auto"
+        assert settings.locator(".setContent").evaluate("n => getComputedStyle(n).overflowY") == "auto"  # modal scrolls in the content area now
     finally:
         mctx.close()
 
