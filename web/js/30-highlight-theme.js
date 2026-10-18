@@ -200,12 +200,19 @@ addEventListener('keyup', e => { if (e.key === 'Control' || e.key === 'Meta') cm
 addEventListener('blur', () => { hideLinkTip(); cm.contentDOM.style.cursor = '' })
 const getT = () => cm.state.doc.toString()
 const editMode = on => [EditorView.editable.of(on), EditorState.readOnly.of(!on)]
-const setT = v => { // a new text buffer also needs a fresh undo stack
+const setT = (v, preserveView = false) => { // a new text buffer also needs a fresh undo stack
   const mode = cm.state.facet(EditorView.editable)
+  let selection, scroll
+  if (preserveView) {
+    const old = getT(), span = diffSpan(old, v)
+    const changes = cm.state.changes({ from: span.a, to: old.length - span.b, insert: v.slice(span.a, v.length - span.b) })
+    selection = cm.state.selection.map(changes)
+    scroll = cm.scrollSnapshot().map(changes)
+  }
   applying = true
   try {
-    cm.setState(EditorState.create({ doc: v, extensions: cmExtensions }))
-    cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))])] })
+    cm.setState(EditorState.create({ doc: v, selection, extensions: cmExtensions }))
+    cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }
   if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.() }

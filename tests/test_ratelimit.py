@@ -159,3 +159,30 @@ def test_templates_isolated_from_save(c):
         assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 200
     # templates have their own bucket: still works despite save exhaustion
     assert c.post("/api/templates", json={"name": "iso.typ", "content": "x"}).status_code == 200
+
+
+def test_preview_download_burst_does_not_exhaust_uploads(c):
+    from backend.services.docfiles import store
+
+    register_user(c, 'alice')
+    did = make_doc(c, 'Images')
+    for i in range(51):
+        store.put(did, f'image-{i}.png', b'image')
+    for i in range(51):
+        response = c.get(f'/api/docs/{did}/files/image-{i}.png')
+        assert response.status_code == 200
+        assert response.content == b'image'
+    assert c.post(f'/api/docs/{did}/files', files={'f': ('extra.png', b'new', 'image/png')}).status_code == 200
+
+
+def test_file_reads_have_a_configurable_separate_limit(c, monkeypatch):
+    from backend.services.docfiles import store
+
+    register_user(c, 'alice')
+    did = make_doc(c, 'Read limit')
+    store.put(did, 'image.png', b'image')
+    monkeypatch.setenv('RATE_FILE_READ_PER_MIN', '2')
+    for _ in range(2):
+        assert c.get(f'/api/docs/{did}/files/image.png').status_code == 200
+    assert c.get(f'/api/docs/{did}/files/image.png').status_code == 429
+    assert c.post(f'/api/docs/{did}/files', files={'f': ('extra.png', b'new', 'image/png')}).status_code == 200

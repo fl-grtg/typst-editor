@@ -225,18 +225,25 @@ async function pvFiles() { // file list + bytes + chips + bib keys (no compiler 
     seen.add(f.name)
     const c = fileCache.get(f.name)
     if (!c || c.mtime !== f.mtime || c.bytes.length !== f.size) {
-      const rr = await fetch(`/api/docs/${myDoc}/files/` + encodeURIComponent(f.name))
+      let rr
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          rr = await fetch(`/api/docs/${myDoc}/files/` + encodeURIComponent(f.name))
+          if (rr.ok || rr.status < 500 || attempt) break
+        } catch (e) { if (attempt) throw e }
+        await new Promise(resolve => setTimeout(resolve, 500)) // one retry for network/server failures, never loop on denied/missing files
+        if (myDoc !== docId || epoch !== openN) return
+      }
       if (myDoc !== docId) return // next doc: drop, never fill its cache
-      if (!rr.ok) return // gone or 403: keep old shadow, no error blob
+      if (!rr.ok) {
+        const message = t('preview.fileLoadFailed', { name: f.name, status: rr.status })
+        throw Object.assign(new Error(message), { diags: [{ severity: 'error', message }] }) // never compile with a missing or outdated input
+      }
       const bytes = new Uint8Array(await rr.arrayBuffer())
       if (myDoc !== docId || epoch !== openN) return
       if (f.name === activeFile && tabDirty) return // server bytes must not replace the live draft
       fileCache.set(f.name, { mtime: f.mtime, bytes })
-      while (fileCache.size > 50 || [...fileCache.values()].reduce((a, c) => a + (c.bytes ? c.bytes.length : 0), 0) > 100 * 1024 * 1024) {
-        const k = fileCache.keys().next().value
-        if (k === f.name) break // single huge file: keep it, cap the rest
-        fileCache.delete(k)
-      } // FIFO cap: 50 files or 100MB, oldest-inserted out (no recency on hit)
+      // All current inputs must survive until compilation; prune removed files below.
     }
   }))
   if (myDoc !== docId) return null // switched mid-fetch: no prune, no sig for the next doc
@@ -529,7 +536,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     clearErr() // running again: clear marks
     lastInfra = false
   } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
-    const diags = cmp ? (cmp.diagnostics || []).filter(d => d.severity === 'error') : await errDiags()
+    const diags = cmp ? (cmp.diagnostics || []).filter(d => d.severity === 'error') : e.diags || await errDiags()
     if (pvStale(id, myDoc, myTplName)) return
     cmpDiags = diags; paintErr()
     const firstMsg = (errLines[0] && errLines[0].msg || '').split('\n')[0].slice(0, 200)
