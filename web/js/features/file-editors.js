@@ -4,7 +4,7 @@ const bibPanel = el('div', 'bibEditor'); bibPanel.hidden = true; $('editWrap').a
 const emptyFileLanguage = []
 let bibEditing = false
 let bibQuery = ''
-let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, validationTimer = 0
+let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, bibProposal = null, bibOriginal = false, validationTimer = 0
 function parseBib(text) {
   const entries = [], re = /@(\w+)\s*([{(])/g; let match
   while ((match = re.exec(text))) {
@@ -63,6 +63,7 @@ function emptyBibYearChanges(text) {
 }
 function replaceBib(from, to, text) {
   if (!cm.state.facet(EditorView.editable)) return
+  if (getT().slice(from, to) === text) return
   if (bibEditing) bibSource = getT().slice(0, from) + text + getT().slice(to)
   cm.dispatch({ changes: { from, to, insert: text }, userEvent: 'input' })
 }
@@ -78,9 +79,10 @@ function paintBib() {
   const source = getT(), editable = cm.state.facet(EditorView.editable)
   const emptyYears = editable ? emptyBibYearChanges(source) : []
   if (emptyYears.length) { queueMicrotask(() => { if (identity === bibIdentity && source === getT() && cm.state.facet(EditorView.editable)) cm.dispatch({ changes: emptyYears, userEvent: 'input' }) }); return }
-  if (source === bibSource && editable === bibEditable) return
+  const proposal = window.changeSession?.files.get(sessionKey(sessionCurrent())) || null, original = !!window.changeSession?.original
+  if (source === bibSource && editable === bibEditable && proposal === bibProposal && original === bibOriginal) return
   const listScroll = bibPanel.querySelector('.bibList')?.scrollTop || 0
-  bibSource = source; bibEditable = editable; bibPanel.replaceChildren()
+  bibSource = source; bibEditable = editable; bibProposal = proposal; bibOriginal = original; bibPanel.replaceChildren()
   const bar = el('div', 'bibBar'), raw = el('button', 'btn', t(bibRaw ? 'editor.entries' : 'editor.source'))
   raw.onclick = () => { bibRaw = !bibRaw; bibSource = null; paintBib() }
   const add = el('button', 'btn', t('editor.newEntry')); add.disabled = !editable
@@ -112,12 +114,36 @@ function paintBib() {
   if (!entry) { form.append(el('p', null, t('editor.emptyEntries'))); return }
   if (entry.invalid) { form.append(el('p', null, t('editor.bibInvalid'))); return }
   let target = form
+  const proposalPainters = []
   const metadata = el('div', 'bibMetadata'); form.append(metadata); target = metadata
   function field(label, value, save, multiline, disabled) {
     const row = el('label', 'bibField'), input = el(label === t('editor.entryType') ? 'select' : multiline ? 'textarea' : 'input')
     if (input.tagName === 'SELECT') for (const type of [...new Set([value, 'book', 'article', 'inproceedings', 'incollection', 'thesis', 'report', 'online', 'misc'])]) { const option = el('option', null, type); option.value = type; input.append(option) }
     if (multiline) input.rows = 1
-    row.append(el('span', null, label)); input.value = value; input.spellcheck = false
+    const caption = el('span', null, label)
+    function paintProposal() {
+      const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
+      const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
+      const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
+      const field = original && sessionBibField(original, { entry: bibSelected, name })
+      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo, value: e.key } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === fieldName)
+      const current = range(parseBib(getT())[bibSelected]), old = field?.before
+      const proposed = !!original && !field.ambiguous && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
+      row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
+      caption.onclick = input.onclick = caption.onkeydown = null
+      caption.removeAttribute('role'); caption.removeAttribute('tabindex'); caption.removeAttribute('title')
+      if (proposed) {
+        caption.tabIndex = 0; caption.setAttribute('role', 'button'); caption.title = t('comments.suggestMode')
+        caption.onclick = input.onclick = e => {
+          if (e.currentTarget === caption) e.preventDefault()
+          const latest = range(parseBib(getT())[bibSelected])
+          openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name })
+        }
+        caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }
+      }
+    }
+    proposalPainters.push(paintProposal); paintProposal()
+    row.append(caption); input.value = value; input.spellcheck = false
     if (multiline) input.style.height = Math.min(134, 38 + 18 * (value.split('\n').length - 1)) + 'px'
     input.readOnly = !editable || !!disabled
     if (input.tagName === 'SELECT') input.disabled = !editable || !!disabled
@@ -130,6 +156,7 @@ function paintBib() {
       bibEditing = true
       try { save(latest, input.value) } finally { bibEditing = false }
       bibSource = getT()
+      proposalPainters.forEach(paint => paint())
       const button = bibPanel.querySelectorAll('.bibList button')[bibSelected], current = parseBib(bibSource)[bibSelected]
       if (button && current) { button.querySelector('.bibEntryKey').textContent = current.key || '@' + current.type; button.querySelector('.bibEntryTitle').textContent = current.fields.find(f => f.name === 'title')?.value || current.type }
     }
@@ -196,7 +223,7 @@ bibTools.append(bibSwitch, bibNew); $('tools').insertBefore(bibTools, $('tools')
 const gridTools = el('span', 'fmt fileTools gridTools'), gridSwitch = el('button'), gridClear = el('button')
 gridSwitch.onclick = () => { csvRaw = !csvRaw; csvSource = null; paintCsv(); if (!csvRaw) { csvWindow = ''; csvRender() } syncFileToolbar((tplName || tabName(activeFile)).split('.').pop()) }
 gridClear.onmousedown = e => e.preventDefault()
-gridClear.onclick = () => { if (!cm.state.facet(EditorView.editable)) return; csvPut(csvSelection[0], csvSelection[1], ''); csvSave(); csvWindow = ''; csvRender(); csvFocus(...csvSelection) }
+gridClear.onclick = () => { if (!cm.state.facet(EditorView.editable)) return; csvClearSelection() }
 gridTools.append(gridSwitch, gridClear); $('tools').insertBefore(gridTools, $('tools').querySelector('.tsp'))
 const TOOL_ICONS = {
   source: '<path d="M5 4L1 8l4 4M11 4l4 4-4 4M9 2L7 14"/>',
@@ -216,12 +243,11 @@ function syncFileToolbar(ext) {
     const formatting = group.querySelector('[data-fmt]')
     group.classList.toggle('type-hidden', !!formatting && !typst)
   }
-  for (const id of ['cNew', 'imgBtn', 'mediaBtn', 'tplBtn', 'symBtn', 'colWrap', 'citeLibrary']) $(id)?.classList.toggle('type-hidden', !typst)
+  for (const id of ['cNew', 'insertMore', 'imgBtn', 'mediaBtn', 'tplBtn', 'symBtn', 'colWrap', 'citeLibrary']) $(id)?.classList.toggle('type-hidden', !typst)
   $('histBtn').classList.toggle('type-hidden', !docId || !!tplName)
   if (docId && !openedTrashed) $('histBtn').style.display = ''
   updateFileView()
   $('fmtDoc')?.classList.toggle('type-hidden', !['typ', 'json'].includes(ext))
-  $('tools').querySelector('.grp')?.classList.toggle('type-hidden', (grid && !csvRaw) || (bib && !bibRaw))
   $('tools').dataset.format = ext
   toolIcon(gridSwitch, csvRaw ? 'editor.cells' : 'editor.source', csvRaw ? 'cells' : 'source')
   toolIcon(gridClear, 'editor.clearCell', 'clear'); gridClear.disabled = !editable; gridClear.hidden = csvRaw

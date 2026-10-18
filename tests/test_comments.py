@@ -62,3 +62,30 @@ def test_anchor_zero_clamped_to_one(c):
     assert c.post(f"/api/docs/{did}/comments/{cid0}/anchor", json={"anchor": 0}).status_code == 200
     got = c.get(f"/api/docs/{did}/comments").json()["comments"]
     assert [t["anchor"] for t in got if t["id"] == cid0] == [1]
+
+
+def test_suggestion_delete_resolve_guards(c):
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "Vorschlag", content="alpha beta gamma")
+    sid = c.post(f"/api/docs/{did}/suggestions", json={"old_string": "beta", "new_string": "BETA"}).json()["id"]
+    # pending: use accept/reject, not delete/resolve/move
+    assert c.delete(f"/api/docs/{did}/comments/{sid}").status_code == 400
+    assert c.post(f"/api/docs/{did}/comments/{sid}/resolve", json={"resolved": True}).status_code == 400
+    assert c.post(f"/api/docs/{did}/comments/{sid}/anchor", json={"anchor": 42}).status_code == 400
+    # foreign reviewer gets 403 (role before state), not 400
+    register_user(c, "bob")
+    login(c, "alice")
+    assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"}).status_code == 200
+    login(c, "bob")
+    assert c.delete(f"/api/docs/{did}/comments/{sid}").status_code == 403
+    assert c.post(f"/api/docs/{did}/comments/{sid}/resolve", json={"resolved": True}).status_code == 403
+    login(c, "alice")
+    # decided: deletable again, resolve stays frozen, anchor move allowed
+    assert c.post(f"/api/docs/{did}/suggestions/{sid}/accept").status_code == 200
+    assert c.post(f"/api/docs/{did}/comments/{sid}/resolve", json={"resolved": True}).status_code == 400
+    assert c.post(f"/api/docs/{did}/comments/{sid}/anchor", json={"anchor": 9}).status_code == 200
+    got = next(t for t in c.get(f"/api/docs/{did}/comments").json()["comments"] if t["id"] == sid)
+    assert got["anchor"] == 9
+    assert c.delete(f"/api/docs/{did}/comments/{sid}").status_code == 200
+    assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []

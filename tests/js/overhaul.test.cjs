@@ -19,6 +19,7 @@ function deferred() {
 function context(extra = {}) {
   const elements = new Map()
   const c = vm.createContext({
+    window: {},
     docId: 'document-a', docRole: 'owner', activeFile: 'chapter.typ', openN: 1,
     tplName: '', tplDirty: false, tabDirty: true, tabSaveFlight: null,
     tabVersions: new Map(), fileCache: new Map(), text: 'Draft', navigator: { onLine: true },
@@ -87,7 +88,7 @@ test('an old document save cannot clear a new document draft', async () => {
 
 test('a file read does not change the active buffer before it finishes', async () => {
   const pending = deferred()
-  const c = context({ activeFile: '', tabDirty: false, tabSeq: 0, TEXT_EXT: /\.(typ|bib|csv)$/i,
+  const c = context({ activeFile: '', tabDirty: false, tabSeq: 0, TEXT_EXT: /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i,
     lastFiles: [{ name: 'chapter.typ' }], api: () => pending.promise,
     flushTab: async () => true, tabSaveState: () => {}, setT: () => { throw new Error('must not replace dirty text') },
   })
@@ -116,7 +117,7 @@ test('a delayed formatter does not format a different document', async () => {
 })
 
 test('shared resources stay read-only even when the viewer owns a same-named template', () => {
-  const c = context({ docRole: 'editor', openedTrashed: false, TEXT_EXT: /\.(typ|bib|csv)$/i, myTpl: [{ name: 'shared.typ' }] })
+  const c = context({ docRole: 'editor', openedTrashed: false, TEXT_EXT: /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i, myTpl: [{ name: 'shared.typ' }] })
   const source = readFileSync(resolve(root, 'web/js/80-files-images.js'), 'utf8')
   const line = source.split('\n').find(s => s.startsWith('const tabCanEdit ='))
   vm.runInContext(line + '\nthis.canEdit = tabCanEdit', c)
@@ -171,7 +172,7 @@ test('nested includes resolve global dependencies while local names win', () => 
     fileCache: new Map([['sub/part.typ', { bytes: Buffer.from('#include "../library.typ"') }]]),
     effTpl: () => shelf,
   })
-  vm.runInContext(part('web/js/80-files-images.js', 'function usedTpls()', 'function tabItems()'), c)
+  vm.runInContext(part('web/js/80-files-images.js', 'function usedTpls(', 'function tabItems()'), c)
   assert.deepEqual(Array.from(c.usedTpls()), ['library.typ', 'base.typ'])
 })
 
@@ -179,7 +180,7 @@ test('CSV data is a resource leaf and cannot pull a phantom dependency', () => {
   const c = context({ activeFile: '', text: '#csv("data.csv")', TextDecoder,
     effTpl: () => [{ name: 'data.csv', content: '"hidden.typ",42' }, { name: 'hidden.typ', content: 'Hidden' }],
   })
-  vm.runInContext(part('web/js/80-files-images.js', 'function usedTpls()', 'function tabItems()'), c)
+  vm.runInContext(part('web/js/80-files-images.js', 'function usedTpls(', 'function tabItems()'), c)
   assert.deepEqual(Array.from(c.usedTpls()), ['data.csv'])
 })
 
@@ -272,7 +273,7 @@ test('sidebar role changes disable the main editor in place and preserve drafts 
   const ytext = { marker: 'original Yjs' }
   const c = context({ activeFile: '', docRole: 'editor', openedTrashed: false, ytext,
     cm: { dispatch: x => { editable = x.effects } }, editableComp: { reconfigure: x => x }, editMode: x => x,
-    updCNewTip: () => {}, hidePops: () => {}, queueTabs: () => {}, renderMediaChips: () => {}, lastFiles: [],
+    updCNewTip: () => {}, hidePops: () => {}, refreshHl: () => {}, queueTabs: () => {}, renderMediaChips: () => {}, lastFiles: [],
   })
   c.tabCanEdit = () => c.docRole !== 'reviewer'
   vm.runInContext(part('web/js/60-docs.js', 'function refreshDocRole(', 'function updNavFade('), c)

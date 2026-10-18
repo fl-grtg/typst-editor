@@ -12,12 +12,12 @@ One process: FastAPI serves the API, Yjs syncs edits, SQLite stores all. No Node
 
 - Live PDF preview, compiled in browser (Typst 0.15.1 via typst.ts 0.8.0-rc3 WASM, pdf.js render)
 - Realtime collab via Yjs over `WS /ws/{doc_id}`, presence included, cookie-only auth
-- Owner/editor/reviewer project roles (reviewer = read + comment); legacy single-doc shares remain doc-scoped — a doc guest sees only that document plus its reachable sources, never the project member list or other docs
+- Owner/editor/reviewer project roles (reviewer = read + comment + propose); legacy single-doc shares remain doc-scoped — a doc guest sees only that document plus its reachable sources, never the project member list or other docs
 - Comment threads with line anchors, @-mentions, one-level replies, resolve, edit
 - Outline from `=` headings, symbol picker, autocomplete (`#image`/`#include`), find/replace
-- Uploads (`.png/.jpg/.jpeg/.svg/.gif/.webp/.pdf/.typ/.bib/.csv`) via button, drag & drop, paste
+- Images and generic file attachments via upload button or project drag & drop; clipboard images can be pasted into the editor
 - Private module collection per account plus shared project library, reused via `#include`; no private fallback at compile time, local files win
-- Project checkpoints: manual + auto (at most every 15 min, up to 50 per project), per-file compare, restore saves `Before restore` first
+- Project checkpoints: protected manual saves plus retained automatic saves (at most every 15 min), per-file compare, restore saves `Before restore` first
 - Projects with multiple independently compilable docs, shared modules/attachments, two-stage trash (project archived until its last doc is hard-deleted), copy/move/duplicate, search over titles + content
 - Per-document export `.typ`, PDF, SVG, PNG; document source ZIP vs project ZIP (see below) with no full project round-trip promise
 - Yjs live sync with write-behind flush (nominal ~2 s interval + on last disconnect; no guaranteed loss bound — failed flushes, quota blocks or load can delay persistence), 24 h local stash with opt-in restore (no merge guarantee), plain HTTP cache without service worker, font/zoom/theme settings
@@ -81,7 +81,7 @@ Sync runs over `WS /ws/{doc_id}` (y-websocket). Browser auth is cookie-based (`t
 
 ### 🔑 API keys + MCP
 
-Keys look like `tpe_<8hex>_<32hex>` (only the sha256 hash is stored; the secret is shown once at creation in Settings). Roles: `reviewer` (read + comment, least privilege) or `editor` (default); `expires_in_days` optional (1–365, default never).
+Keys look like `tpe_<8hex>_<32hex>` (only the sha256 hash is stored; the secret is shown once at creation in Settings). Roles: `reviewer` (read + comment + propose, least privilege) or `editor` (default); `expires_in_days` optional (1–365, default never).
 
 ```bash
 curl -cj jar.txt -b jar.txt -X POST http://127.0.0.1:8978/api/keys \
@@ -157,7 +157,7 @@ One worker (`--workers 1`), one replica: rooms live in memory; multi-worker exit
 
 Project checkpoints need editor rights (read/compare for readers); restore saves a `Before restore` copy first. Removing a project member also deletes that member's doc shares in the project and — because invite links carry no username — wipes all pending invites of all project docs (broad revoke). The remove dialog states this broad effect explicitly before confirming (`projects.removeMemberWarning`, implemented in the share UI); per-invite attribution would need a migration and is out of prerelease scope. Project titles are unique per owner case-insensitive (v19 `idx_projects_owner_title_nocase`): create auto-suffixes (`Title (2)`…, truncated to 100 chars), rename rejects collisions with `409`, existing collisions were suffixed once during migration. File/resource rename is two-step: `POST /api/projects/{id}/rename-entry-preview` returns `{name, version, references}`, `POST /api/projects/{id}/rename-entry` requires that `version` (`409` on stale state); the UI shows the static references + dynamic-path hint and asks for confirmation before renaming (no automatic reference rewrite). Over-quota migration state stays readable/exportable/deletable; v19 grants a one-time permanent `migration_bytes` allowance (size of the existing project library in bytes at migration time, `user_cap` = cap + allowance, no recurring grant for new copies): new writes fail with `413` until space is freed.
 
-Limits: 200000 UTF-8 bytes per doc (`MAX_TXT` in `backend/constants.py`); doc titles unique per project NOCASE + project titles unique per owner NOCASE, each 100 chars (project create auto-suffixes, document-create/project-rename collisions → `409`; v19 suffixed existing project collisions once); file/resource rename needs the `version` from `rename-entry-preview` (`409` on stale state); uploads 10 MB per file; up to 50 checkpoints per project (legacy per-doc snapshots: same 50-cap), auto at most every 15 min; invites valid 7 days, max 20 per doc, multi-use (token shown once); search needs 2 chars, max 20 hits, docs + reachable project resources; default quotas 100 docs + 500 MB per user, 200 files per doc (see Configuration); avatars 200 KB; exports capped at 100 MB, files over 10 MB go to `SKIPPED.txt`; old folder routes answer `410`, ambiguous legacy MCP titles answer `409`; reads share `files_list` bucket (120/min); MCP calls share the `mcp` bucket (60/min).
+Limits: 200000 UTF-8 bytes per doc (`MAX_TXT` in `backend/constants.py`); doc titles unique per project NOCASE + project titles unique per owner NOCASE, each 100 chars (project create auto-suffixes, document-create/project-rename collisions → `409`; v19 suffixed existing project collisions once); file/resource rename needs the `version` from `rename-entry-preview` (`409` on stale state); uploads 10 MB per file; manual project checkpoints stay protected, automatic checkpoints retain the newest 10 plus one per week within 5 weeks and the creation checkpoint (legacy per-doc snapshots keep their 50-cap), auto at most every 15 min; invites valid 7 days, max 20 per doc, multi-use (token shown once); search needs 2 chars, max 20 hits, docs + reachable project resources; default quotas 100 docs + 500 MB per user, 200 files per doc (see Configuration); avatars 200 KB; exports capped at 100 MB, files over 10 MB go to `SKIPPED.txt`; old folder routes answer `410`, ambiguous legacy MCP titles answer `409`; reads share `files_list` bucket (120/min); MCP calls share the `mcp` bucket (60/min).
 
 ### 🔒 Security Contact
 
@@ -218,3 +218,32 @@ Project modules, private modules and document-local text files support `.typ`, `
 Use **Export → Source ZIP** for a document bundle (`main.typ` + `files/…` + `SKIPPED.txt` when oversized files were left out). Upload that ZIP to create a new document in a project: every bundled module becomes a document-local file. Bundles must contain exactly one `main.typ`; nested paths are preserved. Import accepts at most 10 MB compressed and 100 MB unpacked, with the usual per-file limits (200 KB text, 10 MB binary) and configured file-count/quota limits.
 
 Project ZIP (`GET /api/projects/{id}/export-zip`) is a different layout: `project.json` + `modules/…` + `documents/<doc-id>/main.typ` (+ `skipped.json` per doc when needed), limited to what the caller may see. It has no matching full-project importer, so no complete project round-trip is promised; use it for inspection/backup of sources, not as server backup.
+
+
+### Local review and attachment changes
+
+The editor's **Suggest** mode gives project members a tracked draft spanning
+documents, modules and attachments. `/api/projects/{id}/proposals` lists and
+creates packages; `PATCH /{package_id}` corrects a versioned package and
+`POST /{package_id}/accept` accepts all changes, a file, or a passage. Reviewers
+can propose; owners/editors decide. Large local drafts are stored in IndexedDB.
+
+Document-only guests keep the separate tracked text draft. Sending creates up
+to 50 non-overlapping proposals atomically;
+`POST /api/docs/{id}/suggestions/batch` accepts a `changes` list with `old_string`,
+`new_string`, and optional `text`. Owner/editor decisions use
+`POST /api/docs/{id}/suggestions/{suggestion_id}/accept` or `/reject`.
+Acceptance checks the current original text and applies a Yjs edit; proposals
+never grant source-write permission to reviewers. Stale originals return `409`.
+
+Spelling language is account-wide (`auto`, `de`, `en`, `off`), saved by
+`POST /api/me/preferences` with `spell_language` and returned by `GET /api/me`.
+Migration 20 adds suggestion metadata; migration 21 adds the account preference.
+Migrations 22–25 add recoverable file/module trash, project proposal packages,
+the trash index and explicit checkpoint retention kinds. Ambiguous legacy
+checkpoints remain protected from automatic pruning.
+
+Project drag-and-drop and the main upload control accept arbitrary attachment
+extensions (10 MB per binary attachment). Text-source limits remain 200 KB.
+Downloads use attachment disposition and `nosniff`; generic files are not text
+editors. Images open in the image viewer. Path traversal remains rejected.

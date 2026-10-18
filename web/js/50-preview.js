@@ -88,7 +88,7 @@ const pvFileSig = (n, c) => n + ':' + c.mtime + ':' + c.bytes.length + (c.bytes.
 function pvResTpl() { // resolved templates this doc reaches (see .update-review/resource-contract.md)
   try {
     if (typeof usedTpls === 'function') {
-      const names = usedTpls() || []
+      const names = usedTpls(true) || []
       const set = new Set(names)
       if (typeof activeFile !== 'undefined' && activeFile && isTplKey(activeFile)) set.add(tabName(activeFile))
       return projectResources().filter(x => set.has(x.name))
@@ -181,8 +181,13 @@ function pvCall(job, id) { // one compile round-trip (rejects into the render er
       if (id !== renderN) { done(); ok({ skip: true }); return } // stale: newer render queued, spare the worker
       const w = pvEnsureWorker()
       if (!w || pvWorkerFail || !pvWorkerOk) { done(); bad(new Error(t('preview.compileFailed'))); return }
-      pvJobs.set(job.id, { ok: m => { done(); ok(m) }, bad: e => { done(); bad(e) } })
-      try { w.postMessage(job) } catch (e) { pvJobs.delete(job.id); done(); bad(e) }
+      const message = { ...job, full: job.sig !== pvSentSig || !pvMapped }
+      if (!message.full) { delete message.files; delete message.tpl }
+      pvJobs.set(job.id, {
+        ok: m => { pvSentSig = job.sig; pvMapped = true; done(); ok(m) },
+        bad: e => { pvMapped = false; done(); bad(e) }
+      })
+      try { w.postMessage(message) } catch (e) { pvJobs.delete(job.id); pvMapped = false; done(); bad(e) }
     }))
   })
 }
@@ -273,7 +278,7 @@ async function shadowAll(main) { // files + templates as shadow: main-thread fal
   await $typst.addSource('/main.typ', main)
   return current()
 }
-const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName || !!activeFile // render epoch/doc/file guard
+const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName || (!!activeFile && !window.changeSession) // render epoch/doc/file guard
 function pvSrcList() { // live source texts for honest cross-file anchors: [{key, text}]
   const out = []
   try {
@@ -295,7 +300,7 @@ function pvSrcList() { // live source texts for honest cross-file anchors: [{key
 }
 async function render() {
   const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName || activeFile) return
+  if (!myDoc || myTplName || (activeFile && !window.changeSession)) return
   pvBar() // zoom pill extras once (needs consts from later files)
   if (pvWorkerFail || !pvEnsureWorker()) { await renderDirect(id, preview); return } // no worker: main-thread compile
   if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
@@ -303,20 +308,16 @@ async function render() {
   cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
   let wDiags = null // worker diags of this render: empty-pdf failures tag along (compile resolves, pdf.js throws)
   try {
-    const main = activeFile ? shadow : getT() // file tab: preview still compiles main.typ
+    const main = window.changeSession ? sessionMainText() : activeFile ? shadow : getT() // file tab: preview still compiles main.typ
     const pf = await pvFiles()
     if (!pf || pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
-    const job = { cmd: 'work', id: ++pvJobN, main }
-    if (pf.sig !== pvSentSig || !pvMapped) { // worker shadow: full set once, then only main.typ
-      job.full = true
-      job.files = [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes }))
-      job.tpl = (pf.tpl || []).map(x => ({ name: x.name, content: x.content }))
-    }
+    const job = { cmd: 'work', id: ++pvJobN, main, sig: pf.sig,
+      files: [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes })),
+      tpl: (pf.tpl || []).map(x => ({ name: x.name, content: x.content })) }
     const m = await pvCall(job, id) // compile off the main thread: typing stays fluid
     if (!m || m.skip || pvStale(id, myDoc, myTplName)) return
     wDiags = m.diags
     if (pvStale(id, myDoc, myTplName)) return
-    pvSentSig = pf.sig; pvMapped = true
     const doc = await pdfjsLib.getDocument({ data: m.pdf }).promise
     if (pvStale(id, myDoc, myTplName)) { try { doc.destroy() } catch (e) {} return }
     oldPdf?.destroy(); oldPdf = doc
@@ -481,14 +482,14 @@ function pvAnchorBack(pv, a) {
 async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   const myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName || activeFile) return
+  if (!myDoc || myTplName || (activeFile && !window.changeSession)) return
   if (pvObs) pvObs.disconnect()
   pvSlots = []; pvPageSize = null // bare canvases below: drop slot state (zoom clicks size them directly)
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; ensureTypst().then(() => { if (docId) render() }).catch(() => {}); return } // loads in background, renders after
   if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
   cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
   try {
-    await shadowAll(activeFile ? shadow : getT()) // file tab: preview still compiles main.typ
+    await shadowAll(window.changeSession ? sessionMainText() : activeFile ? shadow : getT()) // file tab: preview still compiles main.typ
     if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted full compile
     const compiler = await $typst.getCompiler()
     await compiler.reset() // same reset $typst.pdf() did before compiling

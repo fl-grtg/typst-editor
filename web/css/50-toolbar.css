@@ -9,16 +9,19 @@
 #tools button { min-width: 28px; height: 30px; padding: 0 5px; font-size: 13px; }
 #tools button:disabled { opacity: .35; }
 #tools .fmt { display: inline-flex; gap: 1px; padding-right: 4px; margin-right: 4px; border-right: 1px solid var(--line); }
-#tools .fmt.last { border-right: 0; }
+#tools .fmt.last { border-right: 0; padding-right: 0; margin-right: 0; }
 #tools .fmt button { color: var(--text); }
 #tools .fmt .glyph { font: 700 13px/1 var(--ui); }
 #tools .fmt .glyph.i { font-style: italic; font-family: Georgia, "Times New Roman", serif; font-size: 14px; }
 #tools .fmt .glyph.u { text-decoration: underline; text-underline-offset: 2px; }
 #tools .fmt .glyph.m { font: 500 13px/1 var(--mono); }
 #tools .tsp { flex: 1; }
-#tools .grp { display: inline-flex; align-items: center; gap: 2px; } /* font size group, always visible */
+#tools .grp { display: inline-flex; align-items: center; gap: 2px; }
+#tools #imgBtn, #tools #tplBtn, #tools #symBtn, #tools #citeLibrary, #tools #colWrap { display: none !important; }
+#tools #fmtDoc { display: none; }
 #tools .colBtn { position: relative; width: 30px; height: 30px; flex: none; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; border-radius: var(--r-sm); color: var(--text); cursor: pointer; transition: background-color .12s ease; }
 #tools .colBtn:hover { background: var(--hover); }
+#tools .colBtn:active { background: var(--press); }
 #tools .colBtn:has(input:focus-visible) { outline: 2px solid var(--acc); outline-offset: 1px; }
 #tools .colBtn .glyph { font: 700 14px/1 var(--ui); }
 #tools .colBtn .bar { width: 14px; height: 3px; margin-top: 3px; border-radius: 2px; background: var(--c, #d92d20); }
@@ -32,7 +35,7 @@
 #media .chip button:not(.name) { background: none; border: 0; box-shadow: none; min-height: 22px; min-width: 22px; padding: 0 5px; color: var(--sub); border-radius: 11px; }
 #media .chip button:not(.name):hover { background: var(--hover); color: var(--text); }
 #tabs { overflow-x: auto; font-size: 12.5px; gap: 2px; }
-#tabs button { background: none; border: 0; border-radius: var(--r-xs); padding: 3px 11px; min-height: 26px; white-space: nowrap; color: var(--sub); font-weight: 500; }
+#tabs button { background: none; border: 0; padding: 3px 11px; min-height: 26px; white-space: nowrap; color: var(--sub); font-weight: 500; }
 #tabs button:hover { background: var(--hover); color: var(--text); }
 #tabs button.on { background: var(--sel); color: var(--text); font-weight: 600; }
 #find { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 10px; min-height: 44px; font-size: 12.5px; background: var(--panel); border-top: 1px solid var(--line); }
@@ -41,6 +44,8 @@
 #find .fgroup { display: flex; gap: 2px; }
 #find button { min-height: 28px; padding: 2px 10px; }
 #find button.on { background: var(--ink); color: var(--on-ink); border-color: transparent; }
+#find button.on:hover { background: var(--ink); color: var(--on-ink); filter: opacity(.86); }
+#find button.on:not(:disabled):active { background: var(--ink); color: var(--on-ink); filter: opacity(.78); }
 #find .x { margin-left: auto; border: 0; background: none; box-shadow: none; color: var(--sub); }
 /* Wave 2B: format button only; format-on-save + spellcheck live in Settings (toolbar stays one line) */
 
@@ -69,6 +74,7 @@
 #tabs .tsp { flex: 1; }
 #tabs button.tadd { align-self: center; min-width: 28px; min-height: 28px; padding: 0 5px; border-radius: var(--r-sm); color: var(--sub); background: none; border: 0; box-shadow: none; flex: none; }
 #tabs button.tadd:hover { background: var(--hover); color: var(--text); }
+#tabs button.tadd:not(:disabled):active { background: var(--press); color: var(--text); }
 #tabs button.tab:focus-visible, #tabs button.tadd:focus-visible, #tabs button.tx:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 @media (max-width: 720px) { #tabs button.tab { min-height: 40px; } #tabs button.tx { display: inline-flex; align-items: center; } }
 #tabs .ti { width: auto; min-width: 17px; padding: 0 3px; height: 15px; font-size: 8.5px; }

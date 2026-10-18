@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from backend import config, db, deps, sync
 from backend.constants import MAX_TXT
 from backend.schemas import Share
-from backend.services import projects, quota, resources
+from backend.services import projects, quota, resources, trash
 from backend.services.docfiles import safe_name, store
 from backend.services.sidebar import notify_sidebar
 
@@ -196,6 +196,11 @@ def save_resource(project_id: str, b: ResourceSave, req: Request, user: str = De
             raise HTTPException(409, "Name exists or resource changed; reload or choose another name")
         if not old and b.version is not None:
             raise HTTPException(409, "Resource removed; keep your draft")
+        # Only a NEW module row can introduce a duplicate name; updating an
+        # existing row keeps its own names (legacy duplicates stay editable,
+        # users clean them up by renaming instead of being locked out).
+        if old is None:
+            projects.assert_resource_name_free(con, project_id, name)
         quota.check_quota(owner, size - (len(old["content"].encode("utf-8")) if old else 0), con)
         now = db.now_iso()
         con.execute("INSERT INTO project_resources VALUES (?,?,?,?) ON CONFLICT(project_id,name) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at", (project_id, name, b.content, now))
@@ -210,15 +215,22 @@ def delete_resource(project_id: str, name: str, version: str, req: Request, user
     name = resource_name(name)
     with db.tx() as con:
         projects.require(con, project_id, user, edit=True)
-        row = con.execute("SELECT updated_at FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
+        row = con.execute("SELECT updated_at,content FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
         if not row:
             raise HTTPException(404, "Resource not found")
         if not version or row["updated_at"] != version:
             raise HTTPException(409, "Resource changed; reload before deleting")
         owner = con.execute("SELECT owner FROM projects WHERE id=?", (project_id,)).fetchone()[0]
+        # Trash is charged to the project owner (library quota counts
+        # toward the owner too), never to the deleting editor.
+        trash.archive(con, owner, "resource", name, (row["content"] or "").encode(), project_id=project_id)
         con.execute("DELETE FROM project_resources WHERE project_id=? AND name=?", (project_id, name))
     quota.invalidate_quota_cache(owner)
+    quota.invalidate_quota_cache(user)
     projects.notify(project_id)
+    notify_sidebar(user)
+    if owner != user:
+        notify_sidebar(owner)
     return {"ok": True}
 
 
@@ -258,6 +270,9 @@ async def trash_project_documents(project_id: str, req: Request, user: str = Dep
         con.execute("UPDATE projects SET archived=1 WHERE id=?", (project_id,))
         # Keep the library and membership while trashed documents can be restored.
         if not con.execute("SELECT 1 FROM docs WHERE project_id=?", (project_id,)).fetchone():
+            # Hard-deleted project: no document can pull its trash back, so
+            # archived resource copies could never be restored again.
+            con.execute("DELETE FROM trash_entries WHERE project_id=?", (project_id,))
             con.execute("DELETE FROM projects WHERE id=?", (project_id,))
     for did in ids:
         await sync.drop(did)
@@ -319,7 +334,7 @@ def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: st
                 raise HTTPException(404, "File not found") from None
         else:
             target = resource_name(target)
-            row = con.execute("SELECT updated_at FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
+            row = con.execute("SELECT updated_at,content FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
             if not row:
                 raise HTTPException(404, "Resource not found")
             version = row[0]
@@ -355,6 +370,41 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
     old, target = safe_name(b.name), safe_name(b.target)
     with _named_lock(f"upload:{b.doc_id}"):
         renamed = False
+        source = destination = None
+        stat = None
+        version = b.version
+        if b.doc_id:
+            # FS work stays outside the write tx: holding BEGIN IMMEDIATE
+            # across disk I/O stalls every other writer. Permission is
+            # pre-checked here (fail fast) and re-checked inside the tx
+            # below; a lost race rolls the rename back there.
+            pre = db.connect()
+            try:
+                projects.require(pre, project_id, user, edit=True)
+                if not pre.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0",
+                                   (b.doc_id, project_id)).fetchone():
+                    raise HTTPException(404, "Document not found")
+                # #7: the new path must not collide with a sibling doc's local
+                # file (the source row is freed by the rename).
+                row = pre.execute("SELECT project_id FROM docs WHERE id=?", (b.doc_id,)).fetchone()
+                if row and row[0]:
+                    projects.assert_file_name_free(pre, row[0], target, exempt_files={(b.doc_id, old)})
+            finally:
+                pre.close()
+            source, destination = store.doc_path(b.doc_id, old), store.doc_path(b.doc_id, target)
+            if destination.exists():
+                raise HTTPException(409, "Name already exists")
+            if not source.is_file():
+                raise HTTPException(404, "File not found")
+            if b.version != hashlib.sha256(store.get(b.doc_id, old)).hexdigest():
+                raise HTTPException(409, "File changed; review rename again")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                source.rename(destination)
+            except OSError as e:
+                raise HTTPException(409, "File changed or could not be renamed; retry rename preview") from e
+            renamed = True
+            stat = destination.stat()
         try:
             with db.tx() as con:
                 projects.require(con, project_id, user, edit=True)
@@ -362,7 +412,10 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
                     target = resource_name(target)
                     if con.execute("SELECT 1 FROM project_resources WHERE project_id=? AND name=?", (project_id, target)).fetchone():
                         raise HTTPException(409, "Name already exists")
-                    row = con.execute("SELECT updated_at FROM project_resources WHERE project_id=? AND name=?", (project_id, old)).fetchone()
+                    # #7: also no case-variant duplicate inside the module
+                    # namespace; the row being renamed is exempt.
+                    projects.assert_resource_name_free(con, project_id, target, exempt_name=old)
+                    row = con.execute("SELECT updated_at,content FROM project_resources WHERE project_id=? AND name=?", (project_id, old)).fetchone()
                     if not row:
                         raise HTTPException(404, "Resource not found")
                     if b.version != row[0]:
@@ -372,27 +425,19 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
                 else:
                     if not con.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (b.doc_id, project_id)).fetchone():
                         raise HTTPException(404, "Document not found")
-                    source, destination = store.doc_path(b.doc_id, old), store.doc_path(b.doc_id, target)
-                    if destination.exists():
-                        raise HTTPException(409, "Name already exists")
-                    if not source.is_file():
-                        raise HTTPException(404, "File not found")
-                    if b.version != hashlib.sha256(store.get(b.doc_id, old)).hexdigest():
-                        raise HTTPException(409, "File changed; review rename again")
-                    version = b.version
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    source.rename(destination)
-                    renamed = True
-                    try:
-                        stat = destination.stat()
-                        con.execute("DELETE FROM files WHERE doc_id=? AND path=?", (b.doc_id, old))
-                        con.execute("INSERT INTO files(doc_id,path,size,mtime,type) VALUES (?,?,?,?,?)", (b.doc_id, target, stat.st_size, stat.st_mtime, file_type(target)))
-                    except Exception:
-                        destination.rename(source)
-                        raise
+                    assert stat is not None
+                    con.execute("DELETE FROM files WHERE doc_id=? AND path=?", (b.doc_id, old))
+                    con.execute("INSERT INTO files(doc_id,path,size,mtime,type) VALUES (?,?,?,?,?)", (b.doc_id, target, stat.st_size, stat.st_mtime, file_type(target)))
         except Exception as e:
-            if renamed and destination.exists() and not source.exists():
-                destination.rename(source)
+            if renamed and destination is not None and source is not None:
+                try:
+                    if destination.exists() and not source.exists():
+                        destination.rename(source)
+                except OSError:
+                    pass
+                renamed = False
+            if isinstance(e, sqlite3.IntegrityError):
+                raise HTTPException(409, "Name already exists") from e
             if isinstance(e, OSError):
                 raise HTTPException(409, "File changed or could not be renamed; retry rename preview") from e
             raise

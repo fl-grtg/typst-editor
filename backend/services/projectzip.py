@@ -112,6 +112,11 @@ def import_project_zip(user: str, title: str, folder: str, data: bytes, project_
                 if project_id:
                     projects.require(con, project_id, user, edit=True)
                 pid = projects.attach_doc(con, did, project_id)
+                if pid:
+                    # #7: importing into an existing project must not add an
+                    # attachment name another sibling doc already shows.
+                    for name, _content in files:
+                        projects.assert_file_name_free(con, pid, name, exempt_files={(did, name)})
                 if not prior and not project_id:
                     created_project_id = pid
     except sqlite3.IntegrityError as e:

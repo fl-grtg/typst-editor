@@ -105,7 +105,7 @@
 #setPop .row label:has(#fmtSave) { display: inline-flex; align-items: center; gap: 8px; line-height: 1.5; }
 #setPop #fmtSave { flex: none; margin: 0 !important; align-self: center; }
 
-#setPop { position: fixed; left: var(--settings-left, 8px) !important; width: var(--settings-width, min(1040px, calc(100vw - 16px))); top: calc(var(--bar) + 6px) !important; transform: none; max-height: calc(100dvh - var(--bar) - 22px); }
+#setPop { position: fixed; left: var(--settings-left, 8px) !important; width: var(--settings-width, min(1040px, calc(100vw - 16px))); top: calc(var(--bar) + 14px) !important; transform: none; max-height: calc(100dvh - var(--bar) - 22px); }
 #setPop h4 { padding-top: 10px; }
 #setPop .sec { padding-bottom: 8px; }
 #setPop .row input { min-width: 0; }
@@ -116,3 +116,13 @@
 #pop .er { align-items: flex-start; }
 #pop .er .ln { padding-top: 2px; }
 #pop .er .em { white-space: normal; }
+
+.suggestionCard pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; padding: 8px; border-radius: var(--r-sm); font: 12px/1.5 var(--mono); }
+.suggestionCard .before { background: var(--danger-soft); }
+.suggestionCard .after { background: rgba(145, 90, 225, .14); }
+.proposalCells { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; }
+.proposalCells th { width: 42px; text-align: left; color: var(--sub); font: 12px var(--mono); }
+#pop .proposalCells td { display: table-cell; width: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px; border-bottom: 1px solid var(--line); border-radius: 0; cursor: default; }
+#pop .proposalCells .tx { background: var(--acc-soft); }
+.proposalBibField { margin-top: 10px; white-space: pre-wrap; }
+.proposalBibField > b { font-size: 12px; color: var(--sub); }

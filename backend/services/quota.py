@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +16,22 @@ from pathlib import Path
 from fastapi import HTTPException
 
 log = logging.getLogger(__name__)
+
+# Per-owner quota mutexes (created under the guard, naming follows
+# services/locks.py). Kills the in-flight window: parallel writers of one
+# owner serialize across pre-check -> write -> post-check.
+_QUOTA_LOCKS: dict[str, threading.Lock] = {}
+
+_QUOTA_LOCKS_GUARD = threading.Lock()
+
+
+def _quota_lock_for(owner: str) -> threading.Lock:
+    with _QUOTA_LOCKS_GUARD:
+        lock = _QUOTA_LOCKS.get(owner)
+        if lock is None:
+            lock = threading.Lock()
+            _QUOTA_LOCKS[owner] = lock
+        return lock
 
 
 def files_dir() -> Path:
@@ -91,6 +108,8 @@ def user_bytes(user: str, con: sqlite3.Connection | None = None) -> int:
         total += int(pr["n"] or 0)
         ps = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(s.content AS BLOB))),0) AS n FROM project_snapshots s JOIN projects p ON p.id=s.project_id WHERE p.owner=?", (user,)).fetchone()
         total += int(ps["n"] or 0)
+        total += int(con.execute("SELECT COALESCE(SUM(LENGTH(content)),0) FROM trash_entries WHERE owner=?", (user,)).fetchone()[0])
+        total += int(con.execute("SELECT COALESCE(SUM(LENGTH(CAST(s.files AS BLOB))),0) FROM suggestion_packages s JOIN projects p ON p.id=s.project_id WHERE p.owner=?", (user,)).fetchone()[0])
         a = con.execute("SELECT avatar FROM users WHERE name=?", (user,)).fetchone()
         if a and a["avatar"]:
             total += len(a["avatar"].encode("utf-8"))
@@ -100,6 +119,10 @@ def user_bytes(user: str, con: sqlite3.Connection | None = None) -> int:
             (user,),
         ).fetchone()
         total += int(f["n"] or 0)
+        c = con.execute("SELECT COALESCE(SUM(LENGTH(CAST(c.suggestion_old AS BLOB)) + "
+                        "LENGTH(CAST(c.replacement AS BLOB))),0) AS n FROM comments c "
+                        "JOIN docs d ON d.id=c.doc_id WHERE d.owner=?", (user,)).fetchone()
+        total += int(c["n"] or 0)
     finally:
         if owns_connection:
             con.close()
@@ -173,18 +196,23 @@ def quota_guard(
     Use around a write: pre-check fails fast before work, post-check catches
     races (second walk) and calls rollback() before raising 413.
     OperationalError passes through so callers map it to 503.
+    The per-owner mutex spans pre-check -> FS write -> post-check/record so
+    concurrency cannot overshoot the cap in-flight. It is the LAST lock a
+    caller takes (doc/upload locks are held first) and nothing under it
+    acquires other locks, so the order stays deadlock-free.
     """
-    if user_bytes(owner) + extra > user_cap(owner):
-        raise HTTPException(413, "Quota exceeded")
-    yield
-    try:
-        over = user_bytes(owner) > user_cap(owner)
-    except sqlite3.OperationalError:
-        raise
-    if over:
-        if rollback is not None:
-            try:
-                rollback()
-            except Exception as e:
-                log.warning("quota_guard rollback failed: %s", e)
-        raise HTTPException(413, "Quota exceeded")
+    with _quota_lock_for(owner):
+        if user_bytes(owner) + extra > user_cap(owner):
+            raise HTTPException(413, "Quota exceeded")
+        yield
+        try:
+            over = user_bytes(owner) > user_cap(owner)
+        except sqlite3.OperationalError:
+            raise
+        if over:
+            if rollback is not None:
+                try:
+                    rollback()
+                except Exception as e:
+                    log.warning("quota_guard rollback failed: %s", e)
+            raise HTTPException(413, "Quota exceeded")

@@ -27,6 +27,8 @@ function paintSecs() { // all sections collapsible, + creates folder directly
     }
     B.style.display = secShut.has(h) ? 'none' : ''
     H.setAttribute('aria-expanded', String(!secShut.has(h)))
+    if (h === 'tplH') sidebarDropTarget($('moduleDrop'), 'modules')
+    if (h === 'ownH') { sidebarDropTarget(H, 'documents'); sidebarDropTarget(B, 'documents') }
   }
   updNavFade() // content height changed
 }
@@ -82,7 +84,11 @@ async function refreshSidebar() {
     if (id !== sideN) return
     const pr = await api('GET', '/api/projects')
     if (id !== sideN) return
+    const ns = await api('GET', '/api/notifications/summary').catch(() => null) // #6: real source; old/offline backend => no chip
+    if (id !== sideN) return
     projects = pr.projects
+    paintSuggestionControls()
+    topPackages = collectPackages(d, pr, ns)
     if (id !== sideN) return
   }
   catch (e) {
@@ -97,10 +103,36 @@ async function refreshSidebar() {
   if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
   refreshDocRole(d)
   if (docProject) shut.delete('project:' + docProject)
-  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
+  paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintPackages(); paintSecs(); paintTabs()
   paintTpls()
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
   if (!window.__navFadeArmed) { window.__navFadeArmed = true; addEventListener('resize', updNavFade) } // once: sidebar() runs per SSE push
+}
+let topPackages = [] // #6 topbar chip: open review packages (source: /api/notifications/summary; docs/projects payloads stay defensive)
+function collectPackages(d, pr, ns) {
+  const seen = new Set()
+  return [...(ns?.packages || []), ...(pr.packages || []), ...(d.packages || [])]
+    .filter(e => {
+      const k = e.project + '|' + (e.id ?? e.title ?? '')
+      if (!e.project || seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+}
+function paintPackages() { // Round5 #4c: only the count span changes - the pen SVG in the shell markup can never be wiped by a textContent write
+  const b = $('pBadge'), n = $('pBadgeN')
+  b.style.display = topPackages.length ? '' : 'none'
+  if (n) n.textContent = topPackages.length ? String(topPackages.length) : ''
+  else b.textContent = topPackages.length ? String(topPackages.length) : '' // markup without the count span: paint the whole badge as before
+}
+$('pBadge').onclick = async () => {
+  if (!topPackages.length) return
+  const i = await askPick(t('packages.topList'), topPackages.map(e => {
+    const p = projects.find(x => x.id === e.project)
+    return [e.title || t('packages.untitled'), [p?.title || e.project, e.author, e.updated_at ? new Date(e.updated_at).toLocaleString() : ''].filter(Boolean).join(' · ')]
+  }))
+  if (i >= 0 && typeof window.openTopPackage === 'function') window.openTopPackage(topPackages[i])
 }
 function refreshDocRole(d) {
   if (!docId) return
@@ -110,15 +142,16 @@ function refreshDocRole(d) {
   if (!role || role === docRole) return
   docRole = role
   const ro = openedTrashed || role === 'reviewer'
-  cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(window.changeSession ? !window.changeSession.original && !window.changeSession.busy && !window.changeSession.files.get(sessionKey(sessionCurrent()))?.binary && window.changeSession.files.get(sessionKey(sessionCurrent()))?.action !== 'delete' && (!window.changeSession.package || window.changeSession.package.author === user || ['owner', 'editor'].includes(role)) && !openedTrashed : window.suggestionDraft ? !window.suggestionDraft.busy && !openedTrashed : tabCanEdit(activeFile))) })
   $('role').textContent = openedTrashed ? t('docs.trashBadge') : t(({ owner: 'common.roleOwner', editor: 'common.roleEditor', reviewer: 'common.roleReader' })[role])
   $('roBanner').style.display = ro ? '' : 'none'
   for (const id of ['renBtn', 'shareBtn', 'del']) $(id).style.display = role === 'owner' && !openedTrashed ? '' : 'none'
-  for (const id of ['imgBtn', 'mediaBtn', 'tplBtn', 'symBtn']) $(id).style.display = ro ? 'none' : ''
+  for (const id of ['imgBtn', 'mediaBtn', 'tplBtn', 'symBtn']) $(id).style.display = openedTrashed ? 'none' : '' // #8: reviewer keeps the media manager (read-only, copy chips only)
+  if (openedTrashed) $('mediaBtn').style.display = 'none'
   $('histBtn').style.display = openedTrashed ? 'none' : ''
-  $('cNew').style.display = !activeFile && !ro ? '' : 'none'
+  $('cNew').style.display = !activeFile && !openedTrashed ? '' : 'none'
   $('colWrap').hidden = ro
-  updCNewTip(); hidePops()
+  updCNewTip(); hidePops(); refreshHl()
   tabSig = ''; queueTabs(); renderMediaChips(lastFiles)
   if (tabDirty && !tabCanEdit(activeFile)) { $('save').textContent = t('projects.localDraft'); $('save').title = t('projects.readonlyDraft') }
 }
@@ -135,18 +168,19 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
   div.onclick = () => openDoc(x.id)
   kb(div, () => openDoc(x.id)) // keyboard: Enter/Space opens
   if (!shared) {
-    div.draggable = false
+    sidebarDrag(div, { project: x.project_id || '', entry: { kind: 'document', doc_id: x.id, name: x.title } }, 'move')
   }
-  if (!bare && (!shared || (x.project_id && x.role === 'editor'))) {
+  if (!bare && (shared ? x.role === 'editor' : true)) { // #8: shared standalone docs can be duplicated by editors too (backend guest_copy)
     const dup = icoBtn('mini', ICO_DUP); dup.title = t('docs.duplicate'); dup.setAttribute('aria-label', dup.title)
     dup.onclick = e => { e.stopPropagation(); if (dup.disabled) return; dup.disabled = true // upBusy pattern: no double doc
       api('POST', `/api/docs/${x.id}/duplicate`).then(r => openDoc(r.id)).catch(e => toast(e.message)).finally(() => dup.disabled = false) } // openDoc repaints list itself
     div.appendChild(dup)
   }
-  if (!shared || (x.project_id && x.role === 'editor')) {
+  if (!shared || (x.project_id && (x.role === 'editor' || canStageProjectDelete(x.project_id)))) {
     const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title)
     del.onclick = async e => {
       e.stopPropagation()
+      if (await stageDocumentDelete(x.id)) return
       if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('common.ok') })) return
       try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
       if (x.id === docId) closeView()
@@ -214,6 +248,7 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   kb(h, togTrash)
   h.setAttribute('aria-expanded', String(!secShut.has('trashH')))
   h.appendChild(l)
+  sidebarDropTarget($('trashDrop'), 'trash')
   $('trash').style.display = secShut.has('trashH') ? 'none' : ''
   if (!trash.length) { $('trash').replaceChildren(); $('trash').appendChild(el('div', 'empty', t('docs.trashEmpty'))); return }
   const empty = el('button', 'mini trashClear', t('docs.emptyTrashBtn')); empty.title = t('docs.emptyTrashTitle'); empty.setAttribute('aria-label', empty.title)
@@ -221,7 +256,7 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
     e.stopPropagation()
     if (!await ask(trash.length === 1 ? t('docs.emptyTrashConfirmOne') : t('docs.emptyTrashConfirmMany', { n: trash.length }), { noInput: true, ok: t('common.delete'), danger: true })) return
     const errs = []
-    for (const x of trash) { try { await api('DELETE', `/api/docs/${x.id}`) } catch (e) { errs.push(x.title + ': ' + e.message) } } // no break: try all
+    for (const x of trash) { try { await api('DELETE', trashEntryUrl(x)) } catch (e) { errs.push(x.title + ': ' + e.message) } } // no break: try all
     if (errs.length) toast(errs.join('\n'))
     if (trash.some(x => x.id === docId)) closeView()
     sidebar()
@@ -230,19 +265,20 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   const box = $('trash'); box.replaceChildren()
   box.style.display = secShut.has('trashH') ? 'none' : ''
   trash.forEach(x => {
-    const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
+    const div = el('div', 'doc sub' + (x.id === docId && !activeFile ? ' cur' : ''))
     div.setAttribute('role', 'button')
     div.appendChild(el('span', 't', x.title))
     div.title = x.title + t('docs.trashViewSuffix')
-    div.onclick = () => openDoc(x.id)
-    kb(div, () => openDoc(x.id))
+    const isEntry = x.kind === 'personal' || x.kind === 'resource' || x.kind === 'file'
+    sidebarDrag(div, { trashed: true, trashId: isEntry ? x.id : '', project: x.project_id || '', entry: { kind: x.kind || 'document', doc_id: x.doc_id || x.id, name: x.title } }, 'move')
+    if (!isEntry) { div.onclick = () => openDoc(x.id); kb(div, () => openDoc(x.id)) }
     const back = icoBtn('mini', ICO_UNDO); back.title = t('docs.restore'); back.setAttribute('aria-label', back.title)
-    back.onclick = e => { e.stopPropagation(); api('POST', `/api/docs/${x.id}/restore`).then(sidebar).catch(e => toast(e.message)) }
+    back.onclick = e => { e.stopPropagation(); api('POST', trashEntryUrl(x) + '/restore').then(() => { sidebar(); if (!isEntry && x.id === docId) openDoc(x.id) }).catch(e => toast(e.message)) }
     const kill = icoBtn('mini', ICO_X); kill.title = t('docs.delPermBtn'); kill.setAttribute('aria-label', kill.title)
     kill.onclick = async e => {
       e.stopPropagation()
       if (!await ask(t('docs.delPermConfirm', { title: x.title }), { noInput: true, ok: t('common.delete'), danger: true })) return
-      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
+      try { await api('DELETE', trashEntryUrl(x)) } catch (err) { toast(err.message); return }
       if (x.id === docId) closeView()
       sidebar()
     }
@@ -267,6 +303,7 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   div.appendChild(el('span', 't', tpl.name)); div.title = tpl.name
   div.onclick = () => openTpl(tpl.name)
   kb(div, () => openTpl(tpl.name))
+  sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name } }, 'copyMove')
   projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
   projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name))
   projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
@@ -279,6 +316,7 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
     await loadTpl(); sidebar()
   }
   div.appendChild(del)
+  compactSidebarActions(div)
   return div
 }
 function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.bib/.csv) from the shared myTpl shelf
@@ -296,7 +334,8 @@ let tplName = '' // resource in editor (no doc): preview n/a, no read mode
 let tplDirty = false, tplVer = '', tplOpenN = 0, tplSaving = null // dirty text, base version and save in flight
 const tplCached = name => myTpl.find(x => x.name === name)
 const resourceStashKey = name => 'typst-resource-draft-' + user + '-' + encodeURIComponent(name)
-async function flushTpl() { // persist a dirty resource before a view switch; false = stay put, edits preserved
+async function flushTpl() {
+  if (window.changeSession) return true // persist a dirty resource before a view switch; false = stay put, edits preserved
   if (tplSaving) { const ok = await tplSaving; if (!ok) return false }
   if (!tplName || !tplDirty) { clearTimeout(tplT); return true }
   clearTimeout(tplT)
@@ -344,6 +383,8 @@ async function resSync() { // SSE follow-up: fresh list first, open resource fol
   }
 }
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
+  try { if (docId && ytext && docRole !== 'reviewer' && !openedTrashed && (!wsLive() || !synced)) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline/unsynced main: Yjs dies with the provider, stash offers restore on reopen (openDoc drops it silently if converged)
+  if (window.suggestionDraft && !stopSuggestionDraft(false)) stopSuggestionDraft()
   ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT)
   pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null
   if (window.Present?.isOn()) window.Present.exit()
@@ -373,6 +414,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   const eb = $('eBadge'); if (eb) eb.style.display = 'none'
 }
 async function openTpl(name) {
+  if (window.suggestionDraft && !await leaveSuggestionDraft()) return
   const n = ++openN
   if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
   if (n !== openN || !await flushTab(true) || n !== openN) return
@@ -395,6 +437,7 @@ async function openTpl(name) {
   $('del').style.display = ''; $('dlPdf').style.display = 'none'; $('dlPng').style.display = 'none'; $('dlSvg').style.display = 'none'; $('dlZip').style.display = 'none' // template: delete yes, export no
   $('dlTyp').style.display = ''; $('tplBtn').style.display = ''
   $('histBtn').style.display = 'none'; $('symBtn').style.display = ''; $('colWrap').hidden = false
+  paintSuggestionControls()
   cm.dispatch({ effects: editableComp.reconfigure(editMode(true)) })
   gutter()
   setT(tpl.content)
@@ -436,6 +479,7 @@ function paintConn() { // one status: Live / Offline (browser) / Getrennt (WS do
   if (sv && live && (!sv.textContent || sv.textContent === t('docs.offlineRetry'))) sv.textContent = t('docs.saved') + wc() // back from offline: Yjs already converged, drop the stale retry note quietly
 }
 function updConn() { // calm: live/offline paint at once, getrennt after 1200ms grace (reconnect inside cancels it)
+  paintSuggestionControls()
   clearTimeout(connT); connT = 0
   if (wsLive() || navigator.onLine === false) { paintConn(); return }
   connT = setTimeout(paintConn, 1200)
@@ -457,7 +501,7 @@ function closeView() { // no doc open: buttons off, empty view in
     } catch (e) { toast(t('docs.offlineRetry')) }
   }
   leaveDoc()
-  docId = ''; tplName = ''; lastC = ''; docTitle = ''
+  docId = ''; tplName = ''; lastC = ''; docTitle = ''; paintSuggestionControls()
   for (const b of ['shareBtn', 'histBtn', 'symBtn', 'imgBtn', 'mediaBtn', 'tplBtn', 'del', 'renBtn', 'dlTyp', 'dlPdf', 'dlPng', 'dlSvg', 'dlZip', 'cNew']) $(b).style.display = 'none'; $('colWrap').hidden = true
   for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = 'none' // no doc: no status blobs
   cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }) // no doc: read-only
@@ -469,6 +513,7 @@ function closeView() { // no doc open: buttons off, empty view in
   setT(''); gutter(); paintOutline()
 }
 async function openDoc(id) {
+  if (window.suggestionDraft && !await leaveSuggestionDraft()) return
   const n = ++openN, wp = wantPos // keep search jump across leaveDoc (see docRow search)
   if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
   if (n !== openN || !await flushTab(true) || n !== openN) return
@@ -488,7 +533,7 @@ async function openDoc(id) {
   $('title').textContent = d.title; $('title').classList.remove('is-empty'); docTitle = d.title
   $('tools').style.display = ''; $('pvTools').style.display = ''
   $('renBtn').style.display = d.role === 'owner' && !openedTrashed ? '' : 'none'
-  $('viewSeg').style.display = ''; $('cNew').style.display = ro ? 'none' : ''
+  $('viewSeg').style.display = ''; $('cNew').style.display = openedTrashed ? 'none' : ''
   const rl = $('role')
   rl.textContent = openedTrashed ? t('docs.trashBadge') : ({ owner: t('common.roleOwner'), editor: t('common.roleEditor'), reviewer: t('common.roleReader') })[d.role] || d.role
   rl.title = openedTrashed ? t('docs.clickRestore') : ''
@@ -505,10 +550,11 @@ async function openDoc(id) {
   for (const s of ['wsDot', 'wsTxt', 'save']) $(s).style.display = '' // doc open: status back
   $('histBtn').style.display = openedTrashed ? 'none' : '' // project history is readable from every file
   $('imgBtn').style.display = ro ? 'none' : ''
-  $('mediaBtn').style.display = ro ? 'none' : ''
+  $('mediaBtn').style.display = openedTrashed ? 'none' : '' // #8: reviewer keeps the media manager (read-only, copy chips only)
   $('tplBtn').style.display = ro ? 'none' : ''
   $('symBtn').style.display = ro ? 'none' : ''
   $('colWrap').hidden = ro
+  paintSuggestionControls()
   $('dlTyp').style.display = ''; $('dlPdf').style.display = ''; $('dlPng').style.display = ''; $('dlSvg').style.display = ''; $('dlZip').style.display = ''
   hidePops()
   $('leftCol').style.width = clampSplit(parseFloat($('leftCol').style.width) || 50) + '%'
@@ -523,7 +569,7 @@ async function openDoc(id) {
     ytext.observe((e, tx) => { if (tx.origin !== 'local') pullRemote(e) }) // only real remote updates touch editor (delta = exact changes)
     prov.awareness.on('change', renderPeers)
     pp.on('status', () => { if (prov === pp) updConn() }); pp.on('connection-close', () => { if (prov === pp) updConn() }); pp.on('connection-error', () => { if (prov === pp) updConn() })
-    pp.on('synced', () => { synced = true; if (prov === pp) updConn() }) // handshake done: save may persist, status flips to Live at once
+    pp.on('synced', s => { if (s !== true || prov !== pp) return; synced = true; if (prov === pp) { updConn(); if (threads.length && threads.some(x => x.a == null)) { reanchor(); loadComments().catch(() => {}) } } }) // re-hoist (Round5 High #1): WS sync can beat the comments GET, so an already-synced doc must re-run the range pass; loadComments skips the dedupe-render but still repaints missing ranges (only a real sync opens the gates; the vendor emits synced [false] on disconnect, and a destroyed old provider must not)
     updConn()
     pushPresence()
   } else {
@@ -575,6 +621,7 @@ function noteSharedRes(id) {
   }).catch(() => {})
 }
 function queueSave() { // main.typ: Yjs carries every keystroke (offline too: syncs on reconnect); REST would 409 or fork the text, so never autosave main
+  if (window.suggestionDraft) return // draft: an unsent suggestion is no saved doc — no autosave status while editing one
   clearTimeout(saveT)
   if (!tplName && !activeFile) {
     if (wsLive() && navigator.onLine !== false) return // live: nothing to do, status stays Live
@@ -584,7 +631,9 @@ function queueSave() { // main.typ: Yjs carries every keystroke (offline too: sy
   $('save').textContent = t('docs.saving')
   saveT = setTimeout(() => saveNow(false, true), SAVE_MS)
 }
-async function saveNow(force, auto) { // explicit (Ctrl+S/menu) saves at once; autosave passes auto=true and stays quiet on failure
+async function saveNow(force, auto) {
+  if (window.changeSession) { if (!auto) await submitChangeSession(); return } // explicit (Ctrl+S/menu) saves at once; autosave passes auto=true and stays quiet on failure
+  if (window.suggestionDraft && !auto) { await sendSuggestionDraft(); return }
   clearTimeout(saveT); clearTimeout(tplT)
   if (docId && !tplName && !activeFile && !synced) { saveT = setTimeout(() => saveNow(false, true), SAVE_MS); return } // sync running: retry later instead of '' (Fix #2)
   const saveErr = e => navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
@@ -595,7 +644,7 @@ async function saveNow(force, auto) { // explicit (Ctrl+S/menu) saves at once; a
   }
   if (!docId || docRole === 'reviewer' || !ytext) return
   if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns main.typ: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
-  if (auto) { $('save').textContent = t('docs.saved') + wc(); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E)
+  if (auto) { if (!window.suggestionDraft) $('save').textContent = t('docs.saved') + wc(); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E); draft must not claim 'saved'
   try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') + wc() }
   catch (e) {
     if (e.status === 409 && !force && prov && prov.wsconnected && synced) return saveNow(true, auto) // live: Y state already merges everyone's edits, safe to overwrite

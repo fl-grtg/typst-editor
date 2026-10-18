@@ -26,6 +26,7 @@ function setYText(v) { // replace Y content with minimal edit (never delete+rein
   }, 'local')
 }
 function pushLocal(changes, oldLen) {
+  if (window.suggestionDraft || window.changeSession) return
   if (changes && ytext.length === oldLen && shadow.length === oldLen) { // in sync: apply CM changes 1:1
     ydoc.transact(() => {
       let adj = 0 // later changes shift by earlier ones (iterChanges reports old-doc positions)
@@ -45,12 +46,17 @@ function pushLocal(changes, oldLen) {
 function pullRemote(ev) {
   const v = ytext.toString()
   synced = true // server text arrived: saves now write real content
-  if (v === shadow) { jumpWant(); return }
+  if (v === shadow) { if (!window.suggestionDraft && !window.changeSession) jumpWant(); return }
   const old = shadow, delta = ev && ev.delta
   const map = delta ? deltaMap(delta) : diffMap(old, v)
   shadow = v
+  if (window.suggestionDraft || window.changeSession) {
+    if (threads.length) mapThreads(map, false, old.length) // old length: anchors sit in the pre-sync text
+    if (window.changeSession) { window.changeSession.commentRanges.clear(); refreshHl(); queueRender() }
+    return
+  }
   if (activeFile) { // file tab open: buffer main only, editor shows file
-    if (threads.length) mapThreads(map, false) // values yes (main-relative), paint no (Fix #5)
+    if (threads.length) mapThreads(map, false, old.length) // values yes (main-relative), paint no (Fix #5)
     queueRender()
     return
   }
@@ -72,7 +78,7 @@ function pullRemote(ev) {
     }
   } finally { applying = false }
   jumpWant() // jump to search hit after open
-  if (threads.length) mapThreads(map)
+  if (threads.length) mapThreads(map, true, old.length)
   reanchor()
   paintOutline()
   queueRender()

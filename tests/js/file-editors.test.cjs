@@ -49,6 +49,56 @@ test('CSV and TSV preserve quoted tabs, line breaks and empty fields', () => {
   }
 })
 
+test('CSV cell review offsets include quoted multiline fields and CRLF correctly', () => {
+  const csv = fs.readFileSync(path.join(root, 'web/js/features/csv.js'), 'utf8')
+  const ctx = vm.createContext({})
+  vm.runInContext(csv.slice(0, csv.indexOf('const csvGrid')), ctx)
+  const text = 'a,"two,""quotes""\nand lines",\r\nb,c,d\r\n'
+  const spans = plain(ctx.parseCsv(text, ',', true))
+  assert.deepEqual(spans.map(row => row.map(r => text.slice(r.from, r.to))), [
+    ['a', '"two,""quotes""\nand lines"', ''], ['b', 'c', 'd']
+  ])
+})
+
+test('Bib field review patches only the selected field and preserves adjacent proposals', () => {
+  const packages = fs.readFileSync(path.join(root, 'web/js/features/zz-change-packages.js'), 'utf8')
+  vm.runInContext(packages.slice(packages.indexOf('function sessionBibField('), packages.indexOf('function sessionCard(')), context)
+  const base = '@book{key, title={Old {nested} title}, author={Jane}, custom=macro}\n'
+  const content = base.replace('Jane', 'Joan').replace('custom=macro', 'custom=macro, doi={new}')
+  const file = { base, content }
+  const apply = (text, patch) => text.slice(0, patch.from) + patch.insert + text.slice(patch.to)
+  assert.equal(apply(base, context.sessionBibPatch(file, { entry: 0, name: 'author' }, true)), base.replace('Jane', 'Joan'))
+  assert.equal(apply(content, context.sessionBibPatch(file, { entry: 0, name: 'author' }, false)), content.replace('Joan', 'Jane'))
+  assert.equal(parse(apply(content, context.sessionBibPatch(file, { entry: 0, name: 'doi' }, false)))[0].fields.some(f => f.name === 'doi'), false)
+  const added = parse(apply(base, context.sessionBibPatch(file, { entry: 0, name: 'doi' }, true)))[0]
+  assert.equal(added.fields.find(f => f.name === 'doi').value, 'new')
+  assert.equal(added.fields.find(f => f.name === 'author').value, 'Jane')
+  assert.equal(added.fields.find(f => f.name === 'custom').value, 'macro')
+})
+
+test('Bib field review never guesses an entry by its shifted position', () => {
+  const packages = fs.readFileSync(path.join(root, 'web/js/features/zz-change-packages.js'), 'utf8')
+  vm.runInContext(packages.slice(packages.indexOf('function sessionBibField('), packages.indexOf('function sessionCard(')), context)
+  const base = '@book{A, title={Title A}, author={Alice}}\n@book{B, title={Title B}, author={Bob}}'
+  const content = '@book{C, title={Title B}, author={Bobby}}'
+  const selector = { entry: 0, name: 'author' }
+  assert.equal(context.sessionBibField({ base, content }, selector).ambiguous, true)
+  assert.equal(context.sessionBibPatch({ base, content }, selector, true), null)
+  assert.equal(context.sessionBibPatch({ base, content }, selector, false), null)
+  const renamed = { base, content: base.replace('{B,', '{C,').replace('Bob', 'Bobby') }
+  assert.equal(context.sessionBibPatch(renamed, { entry: 1, name: 'author' }, true), null)
+  assert.equal(context.sessionBibPatch({ base: '@book{A, author={Alice}}', content }, selector, true), null)
+  const added = { base, content: base + '\n' + content }
+  const patch = context.sessionBibPatch(added, { entry: 2, name: 'author' }, true)
+  const result = base.slice(0, patch.from) + patch.insert + base.slice(patch.to)
+  assert.equal(parse(result)[0].fields.find(f => f.name === 'author').value, 'Alice')
+  assert.equal(parse(result)[1].fields.find(f => f.name === 'author').value, 'Bob')
+  assert.equal(parse(result)[2].fields.find(f => f.name === 'author').value, 'Bobby')
+  const shifted = context.sessionBibField({ base, content: content.replace('{C,', '{B,') }, selector)
+  assert.equal(shifted.old.key, 'B')
+  assert.equal(shifted.before.value, 'Bob')
+})
+
 test('bundled data parsers reject invalid JSON, YAML and TOML', async () => {
   const { pathToFileURL } = require('node:url')
   const bundle = await import(pathToFileURL(path.join(root, 'vendor-cm.js')).href)
@@ -90,6 +140,61 @@ test('Typst text formatting cannot corrupt data or bibliography buffers', () => 
   assert.equal(formatted, 1)
 })
 
+
+test('empty cursor between its own markers toggles formatting off instead of growing markers', () => {
+  const code = fs.readFileSync(path.join(root, 'web/js/98-format-toolbar.js'), 'utf8')
+  const lib = code.slice(code.indexOf('function fmtWrap'), code.indexOf('document.querySelectorAll'))
+  const ctx = vm.createContext({})
+  ctx.cm = null
+  vm.runInContext(lib + '\nthis.fmtWrap = fmtWrap;', ctx)
+  const press = (text, from, to, a, b) => {
+    let sel = { from, to }
+    ctx.cm = {
+      state: {
+        doc: {
+          get length() { return text.length },
+          sliceString: (x, y) => text.slice(x, y),
+        },
+        get selection() { return { main: { ...sel } } },
+        facet: () => true,
+      },
+      focus: () => {},
+      dispatch(spec) {
+        // CodeMirror-like: every change refers to the pre-dispatch document.
+        const list = [].concat(spec.changes).map((c, i) => ({ from: c.from, to: c.to ?? c.from, insert: c.insert ?? '', i }))
+        list.sort((x, y) => x.from - y.from || x.i - y.i)
+        let out = '', pos = 0
+        for (const c of list) {
+          assert.ok(c.from >= pos, 'changes must be sorted and non-overlapping')
+          out += text.slice(pos, c.from) + c.insert
+          pos = c.to
+        }
+        text = out + text.slice(pos)
+        if (spec.selection) sel = { from: spec.selection.anchor, to: spec.selection.head ?? spec.selection.anchor }
+      },
+    }
+    ctx.fmtWrap(a, b)
+    return { text, sel }
+  }
+  // Bold on empty doc, then toggle off from between the inserted markers.
+  let r = press('', 0, 0, '*')
+  assert.equal(r.text, '**')
+  assert.deepEqual(r.sel, { from: 1, to: 1 })
+  r = press(r.text, r.sel.from, r.sel.to, '*')
+  assert.equal(r.text, '')
+  assert.deepEqual(r.sel, { from: 0, to: 0 })
+  // Asymmetric markers (underline) toggle off the same way.
+  r = press('#underline[]', '#underline['.length, '#underline['.length, '#underline[', ']')
+  assert.equal(r.text, '')
+  assert.deepEqual(r.sel, { from: 0, to: 0 })
+  // Range wrap/unwrap still works: selection stays on the text, behind the left marker.
+  r = press('hello', 1, 4, '*')
+  assert.equal(r.text, 'h*ell*o')
+  assert.deepEqual(r.sel, { from: 2, to: 5 })
+  r = press(r.text, r.sel.from, r.sel.to, '*')
+  assert.equal(r.text, 'hello')
+  assert.deepEqual(r.sel, { from: 1, to: 4 })
+})
 
 test('empty years created by the bibliography form are removed without changing other fields', () => {
   const original = '@book{a, title={Keep}, year={}, custom={Unchanged}}\n@book{b, year={2020}}'

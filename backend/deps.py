@@ -128,6 +128,22 @@ def busy_503(what: str, e: Exception) -> HTTPException:
     return HTTPException(503, "Database busy, try again")
 
 
+async def read_capped_body(request: Request, cap: int) -> bytes:
+    """Raw body up to cap bytes, 413 once exceeded (chunked bodies).
+
+    The request-size guard in main covers declared Content-Length; bodies
+    without the header reach the endpoints chunk by chunk, so the heaviest
+    JSON routes read through this helper instead of trusting the framework
+    to buffer everything first.
+    """
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > cap:
+            raise HTTPException(413, "Request body too large")
+    return bytes(buf)
+
+
 def user_bytes(user: str) -> int:
     # Backwards-compat wrapper (tests use main.user_bytes); logic lives in
     # backend.services.quota so sync can use it without importing main.

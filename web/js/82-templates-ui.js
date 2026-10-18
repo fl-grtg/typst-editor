@@ -88,7 +88,7 @@ async function newTemplate() { // one dialog: name + folder (like askNewDoc, not
   } catch (e) { toast(e.message) }
 }
 function addTpl(line) { // line at cursor only: compiler knows content as shadow (see render)
-  if (!cm.state.facet(EditorView.editable)) return
+  if (!cm.state.facet(EditorView.editable)) { toast(t('projects.readonly')); return }
   const m = cm.state.selection.main
   cm.dispatch({ changes: { from: m.from, to: m.to, insert: line + '\n' }, selection: { anchor: m.from + line.length + 1 } })
   cm.focus(); hidePops(); queueRender()

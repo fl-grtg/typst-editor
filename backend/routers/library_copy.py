@@ -114,7 +114,13 @@ def inspect_pull(con, user: str, b: Pull) -> dict:
         copies[names[old]] = resources.REF_RE.sub(rewrite, content) if old.lower().endswith(".typ") else content
         if len(copies[names[old]].encode("utf-8")) > MAX_TXT:
             raise HTTPException(413, "Text resource exceeds 200 KB")
-    collisions = sorted((set(copies) & existing.keys()) | duplicate_names)
+    # #7: case-variant module names ('Layout.typ' vs 'layout.typ') would show
+    # as two rows, so the collision set folds case.
+    existing_lower = {n.lower() for n in existing}
+    collisions = sorted(
+        (set(copies) & existing.keys()) | duplicate_names
+        | {n for n in copies if n.lower() in existing_lower}
+    )
     fingerprint = [b.model_dump(exclude={"preview"}), copies, {n: existing.get(n) for n in copies}]
     return {"owner": owner, "content": copies, "name": root,
             "files": [{"source": n, "name": names[n]} for n in found],
@@ -186,6 +192,7 @@ def inspect_copy(con, user: str, doc_id: str, b: Copy) -> dict:
     name = resource_name(b.name)
     if PurePosixPath(name).suffix.lower() != PurePosixPath(source).suffix.lower():
         raise HTTPException(400, "Keep the source file extension")
+    resource_clash = False  # case-variant module names would render as two rows (#7)
     if b.scope == "personal":
         if "/" in name or len(name) > 100 or resources.res_name(name) != name:
             raise HTTPException(400, "Personal library: choose a filename and a separate library folder")
@@ -197,6 +204,10 @@ def inspect_copy(con, user: str, doc_id: str, b: Copy) -> dict:
         projects.require(con, b.project_id, user, edit=True)
         target = con.execute("SELECT updated_at FROM project_resources WHERE project_id=? AND name=?", (b.project_id, name)).fetchone()
         owner = con.execute("SELECT owner FROM projects WHERE id=?", (b.project_id,)).fetchone()[0]
+        resource_clash = name.lower() in {r["name"].lower() for r in con.execute(
+            "SELECT name FROM project_resources WHERE project_id=?",
+            (b.project_id,),
+        ).fetchall()}
     else:
         raise HTTPException(400, "Choose personal or project library")
     dependencies = resources.refs_in_text(content) if source.lower().endswith(".typ") else []
@@ -206,8 +217,11 @@ def inspect_copy(con, user: str, doc_id: str, b: Copy) -> dict:
     if source.lower().endswith(".typ"):
         warnings.append("Dynamic references and binary dependencies cannot be completely detected.")
     fingerprint = [source, content, b.scope, b.project_id, name, b.folder, list(target) if target else None]
+    collisions: list[str] = []
+    if target or resource_clash:
+        collisions.append(name)
     return {"name": name, "content": content, "owner": owner, "dependencies": dependencies,
-            "warnings": warnings, "collisions": [name] if target else [],
+            "warnings": warnings, "collisions": collisions,
             "preview": hashlib.sha256(json.dumps(fingerprint).encode()).hexdigest()}
 
 

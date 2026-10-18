@@ -14,16 +14,21 @@ function renderMediaChips(files) {
   lastFiles = files
   paintTabs() // tabs follow file list (only on change, see shadowAll)
   const bar = $('media'); bar.replaceChildren()
-  if (docRole === 'reviewer' || openedTrashed) { bar.style.display = 'none'; return } // reviewer/trash: no manager
+  if (openedTrashed) { bar.style.display = 'none'; return } // trash: no manager at all
   bar.style.display = mediaOpen ? '' : 'none'
   if (!mediaOpen) return
-  const add = el('button', null, t('files.upload'))
-  add.onclick = () => $('imgPick').click()
-  bar.appendChild(add)
+  const reviewer = docRole === 'reviewer' // #8: reviewers browse + copy to library (backend allows any reader role), no upload/delete/insert
+  if (!reviewer) {
+    const add = el('button', null, t('files.upload'))
+    add.onclick = () => $('imgPick').click()
+    bar.appendChild(add)
+  }
   files.forEach(f => {
     const c = el('span', 'chip')
-    const n = el('button', 'name', f.name); n.title = t('files.insertAt'); n.setAttribute('aria-label', t('files.insertName', { name: f.name }))
-    n.onclick = () => {
+    const n = el(reviewer ? 'span' : 'button', 'name', f.name)
+    if (!reviewer) { n.title = t('files.insertAt'); n.setAttribute('aria-label', t('files.insertName', { name: f.name })) }
+    if (!reviewer) n.onclick = () => {
+      if (!cm.state.facet(EditorView.editable)) { toast(t('projects.readonly')); return }
       const m = cm.state.selection.main
       const ins = mediaInsert(f.name)
       cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
@@ -31,9 +36,16 @@ function renderMediaChips(files) {
     }
     c.appendChild(n)
     c.appendChild(el('span', 'sz', t('files.sizeKb', { kb: Math.round(f.size / 1024) })))
-    const x = icoBtn(null, ICO_X); x.title = t('files.del'); x.setAttribute('aria-label', t('files.delName', { name: f.name }))
-    x.onclick = () => deleteFile(f.name)
-    c.appendChild(x)
+    if (!reviewer) {
+      const x = icoBtn(null, ICO_X); x.title = t('files.del'); x.setAttribute('aria-label', t('files.delName', { name: f.name }))
+      x.onclick = () => deleteFile(f.name)
+      c.appendChild(x)
+      if (window.changeSession && !window.changeSession.original && !TEXT_EXT.test(f.name)) { // Round5 #4: swap an existing image's content inside the package (add would stumble over nameExists)
+        const r = icoBtn(null, ICO_DUP); r.title = t('files.replaceName', { name: f.name }); r.setAttribute('aria-label', r.title)
+        r.onclick = () => { pendingReplace = f.name; $('imgPick').click() }
+        c.appendChild(r)
+      }
+    }
     if (TEXT_EXT.test(f.name)) { const copy = icoBtn(null, ICO_DUP); copy.title = t('projects.copy'); copy.setAttribute('aria-label', copy.title); copy.onclick = () => copyToLibrary(f.name); c.appendChild(copy) }
     bar.appendChild(c)
   })
@@ -54,13 +66,13 @@ const tabVersions = new Map()
 let tabSaveFlight = null
 let tabPins = new Set(), tabSig = '', tabT = 0, tabDirty = false // pins: templates opened by hand stay even when unreferenced
 const tabState = new Map() // key -> {a, h, top}: cursor + scroll per tab
-function usedTpls() { // templates this document reaches: quoted names in main.typ + text files, followed through templates
+function usedTpls(preview = false) { // templates this document reaches: quoted names in main.typ + text files, followed through templates
   const src = effTpl()
   if (!src.length) return []
   const byName = new Map(src.map(x => [x.name, x])), out = [], seen = new Set(), dec = new TextDecoder()
   const local = new Map([...fileCache].map(([name, c]) => [name, /\.typ$/i.test(name) && c.bytes ? dec.decode(c.bytes) : '']))
   if (activeFile && !isTplKey(activeFile)) local.set(activeFile, getT())
-  const texts = [{ path: 'main.typ', text: activeFile ? shadow : getT() }, ...[...local].filter(([n]) => /\.typ$/i.test(n)).map(([path, text]) => ({ path, text }))]
+  const texts = [{ path: 'main.typ', text: activeFile || (window.suggestionDraft && !preview) ? shadow : getT() }, ...[...local].filter(([n]) => /\.typ$/i.test(n)).map(([path, text]) => ({ path, text }))]
   const normalize = p => { const parts = []; for (const s of p.split('/')) { if (s === '..') parts.pop(); else if (s && s !== '.') parts.push(s) } return parts.join('/') }
   for (let i = 0; i < texts.length && i < 500; i++) {
     const { path, text } = texts[i], parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
@@ -107,8 +119,9 @@ function paintTabs() {
   if (activeFile && !items.includes(activeFile)) { activeFile = ''; tabDirty = false; setT(shadow); gutter(); refreshHl(); paintOutline(); items = tabItems() } // deleted/removed: back to main, editor must show main again (else file text leaks into main)
   const canEdit = docRole !== 'reviewer'
   const labels = typeof projects !== 'undefined' ? projects.find(p => p.id === docProject)?.documents?.map(d => d.id + ':' + d.title).join('|') : ''
-  const sig = [docRole, activeFile, $('title').textContent, labels, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
-  if (sig === tabSig && bar.firstChild) { bar.style.display = ''; return }
+  const proposalState = [...(window.changeSession?.files.values() || [])].map(f => [f.kind, f.doc_id, f.path, f.action].join(':')).join('|')
+  const sig = [docRole, activeFile, $('title').textContent, labels, proposalState, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
+  if (sig === tabSig && bar.firstChild) { bar.style.display = ''; paintSuggestionControls(); return }
   tabSig = sig
   const fk = bar.contains(document.activeElement) && document.activeElement.dataset ? (document.activeElement.dataset.k ?? null) : null // repaint drops focus: give it back below
   bar.style.display = ''
@@ -119,7 +132,10 @@ function paintTabs() {
     const document = typeof projects !== 'undefined' && projects.find(p => p.id === docProject)?.documents?.find(d => d.id === entry.document)
     const title = document?.title || (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
     const on = k === activeFile, nm = main ? title.replace(/\.typ$/i, '') + '.typ' : entry.name
+    const staged = window.changeSession?.files.get([main ? 'document' : entry.resource ? 'resource' : 'file', entry.resource ? '' : entry.document, main ? 'main.typ' : entry.name].join(':'))
+    const deleted = staged?.action === 'delete'
     const w = el('span', 'tabw' + (on ? ' on' : ''))
+    w.classList.toggle('package-deleted', deleted)
     const b = el('button', 'tab')
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.dataset.k = k
     const ic = el('span', 'ti'); ic.dataset.kind = tabKind(k); ic.setAttribute('aria-hidden', 'true')
@@ -131,9 +147,9 @@ function paintTabs() {
     b.onclick = () => switchTab(k)
     b.ondblclick = () => { if (canEdit) { const p = projects.find(p => p.id === docProject); if (main) renameProjectDocument({ id: entry.document, title }); else if (p) renameProjectEntry(p, entry.name, entry.document, entry.resource); else toast(t('projects.contextGone')) } }
     w.appendChild(b)
-    if (canEdit) {
-      const x = icoBtn('tx', ICO_X); x.title = t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
-      x.onclick = async e => { e.stopPropagation(); try { if (main) { if (!await ask(t('docs.moveTrashConfirm', { title }), { noInput: true })) return; await api('DELETE', `/api/docs/${entry.document}`); if (entry.document === docId) closeView(); await sidebar() } else await deleteProjectEntry(projects.find(p => p.id === docProject), entry.name, entry.document, entry.resource) } catch (error) { toast(error.message) } }
+    if (canEdit || canStageProjectDelete(docProject)) {
+      const x = icoBtn('tx', deleted ? ICO_UNDO : ICO_X); x.title = deleted ? t('packages.discardFile') : t('files.delName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
+      x.onclick = async e => { e.stopPropagation(); try { if (deleted) { await discardSessionFile(staged); return } if (main) { if (await stageDocumentDelete(entry.document)) return; if (!await ask(t('docs.moveTrashConfirm', { title }), { noInput: true })) return; await api('DELETE', `/api/docs/${entry.document}`); if (entry.document === docId) closeView(); await sidebar() } else await deleteProjectEntry(projects.find(p => p.id === docProject), entry.name, entry.document, entry.resource) } catch (error) { toast(error.message) } }
       w.appendChild(x)
     }
     bar.appendChild(w)
@@ -143,6 +159,7 @@ function paintTabs() {
     const add = icoBtn('tadd', ICO_PLUS); add.title = t('files.tabAddTitle'); add.setAttribute('aria-label', t('files.tabAdd'))
     add.onclick = tabAdd; bar.appendChild(add)
   }
+  paintSuggestionControls()
   if (fk !== null) for (const b of bar.querySelectorAll('button.tab')) if (b.dataset.k === fk) { b.focus(); break } // focus was inside: same tab keeps it
 }
 function focusTab(k) { // after keyboard/proxy switches: selection and focus move together
@@ -179,6 +196,7 @@ function tabRestoreState(k) {
   requestAnimationFrame(() => { cm.scrollDOM.scrollTop = s.top })
 }
 async function switchTab(name, nosave) { // true = switched, false = blocked/stale (caller keeps focus where it is)
+  if (window.suggestionDraft && !await leaveSuggestionDraft()) return false
   if (name?.startsWith('@doc/') || name?.startsWith('@file/')) {
     const entry = projectTabEntry(name), p = docProject
     if (entry.document !== docId) await openDoc(entry.document)
@@ -194,7 +212,7 @@ async function switchTab(name, nosave) { // true = switched, false = blocked/sta
   tabSaveState(activeFile)
   if (name && !isTplKey(name) && !lastFiles.some(f => f.name === name)) { try { lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files } catch (e) {} } // fresh list: new upload must not be dropped as 'deleted'
   if (my !== tabSeq || dk !== docId) return false
-  if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = tabCanEdit('') ? '' : 'none'; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); paintErr(); queueRender(); return true }
+  if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); paintErr(); queueRender(); return true }
   let text
   if (isTplKey(name)) {
     const tp = effTpl().find(x => x.name === tabName(name))
@@ -244,7 +262,8 @@ function offerFileStash(dk, name) { // unsent pagehide copy vs fresh server text
     if (activeFile === name && docId === dk) { setT(o.c); tabDirty = true; queueFileSave(); queueRender() }
   }, t('docs.restore'), 15000)
 }
-async function flushTab(allowStash = false) { // silent save on tab switch; true = clean/saved, false = failed (caller must block the switch, edits stay)
+async function flushTab(allowStash = false) {
+  if (window.changeSession) return true // silent save on tab switch; true = clean/saved, false = failed (caller must block the switch, edits stay)
   if (tabSaveFlight) { const ok = await tabSaveFlight; if (!ok) return false }
   if (!activeFile || !docId || !tabDirty) return true
   if (!tabCanEdit(activeFile)) {
@@ -283,12 +302,35 @@ async function flushTab(allowStash = false) { // silent save on tab switch; true
   } catch (e) {
     if (docId === dk && activeFile === key) { // same tab: error stays visible, dirty stays set (no silent discard)
       $('save').textContent = navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
-      if (navigator.onLine !== false) toast(t('presentation.saveBlocked', { name: tabName(key), msg: e.message }), () => { flushTab().then(ok => { if (ok) queueRender() }) }, t('common.retry'))
+      if (navigator.onLine !== false) {
+        if (e.status === 409) toast(t('templates.saveConflict'), () => loadTabTheirs(dk, key), t('templates.loadTheirs'))
+        else toast(t('presentation.saveBlocked', { name: tabName(key), msg: e.message }), () => { flushTab().then(ok => { if (ok) queueRender() }) }, t('common.retry'))
+      }
     }
     return false
   }
   })()
   try { return await tabSaveFlight } finally { tabSaveFlight = null }
+}
+async function loadTabTheirs(dk, key) { // 409 escape: take the server text into the editor (mirror of loadTheirs)
+  try {
+    if (isTplKey(key)) {
+      await loadTpl(); await loadDocResources(true)
+      if (docId !== dk || activeFile !== key) return
+      const tp = effTpl().find(x => x.name === tabName(key))
+      if (!tp) { toast(t('files.tplGone')); return }
+      if (tp.updated_at) tabVersions.set(key, tp.updated_at)
+      tabDirty = false; setT(tp.content || '')
+    } else {
+      const txt = await api('GET', `/api/docs/${dk}/files/${encodeURIComponent(key)}/text`)
+      if (docId !== dk || activeFile !== key) return
+      if (txt.version) tabVersions.set(key, txt.version)
+      tabDirty = false; setT(txt.content)
+    }
+    try { localStorage.removeItem(fileStashKey(dk, key)) } catch (e) {}
+    $('save').textContent = t('docs.saved') + wc()
+    gutter(); paintOutline(); paintErr(); queueRender()
+  } catch (e) { toast(e.message) }
 }
 function tabLive() { // compiler copy follows typing: the preview updates before the save lands
   const txt = getT()
@@ -315,6 +357,11 @@ const fileNameOk = (raw, ext) => { // clean name, forced text extension; '' = un
 }
 async function refreshFiles() { try { lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files; filesAt = Date.now(); filesDirty = false } catch (e) {} }
 function mainAppend(line) { // add a line at the end of main.typ through Yjs (editor, preview and peers follow)
+  if (window.suggestionDraft) {
+    const s = getT()
+    cm.dispatch({ changes: { from: s.length, insert: (s && !s.endsWith('\n') ? '\n' : '') + line + '\n' } })
+    return
+  }
   if (!ytext || docRole === 'reviewer') return
   const s = ytext.toString()
   ydoc.transact(() => ytext.insert(s.length, (s && !s.endsWith('\n') ? '\n' : '') + line + '\n'), 'tabs')
@@ -359,7 +406,9 @@ async function askDeleteFile(name) {
   if (await ask(t('files.delConfirm', { name }), { noInput: true, ok: t('common.delete'), danger: true })) deleteFile(name)
 }
 let imgIns = false // only via image button, not via manager upload
+let pendingReplace = '' // Round5 #4: one-shot chip target - the next picked file replaces this file's content inside the change session
 function insImage(name) { // #image() at cursor
+  if (!cm.state.facet(EditorView.editable)) { toast(t('projects.readonly')); return }
   const m = cm.state.selection.main, ins = `#image("${name}", width: 80%)`
   cm.dispatch({ changes: { from: m.from, to: m.to, insert: ins }, selection: { anchor: m.from + ins.length } })
   cm.focus()
@@ -380,10 +429,15 @@ async function upText(f) { // .typ/.bib/.csv as file text (backend creates, max 
   return name
 }
 $('imgBtn').onclick = () => { imgIns = true; $('imgPick').click() }
+$('imgPick').addEventListener('cancel', () => { pendingReplace = '' }) // picker dismissed: the one-shot swap must not leak into the next upload
 $('imgPick').onchange = async () => {
   const f = $('imgPick').files[0]; $('imgPick').value = ''
   if (!f || !docId) return
+  const swap = pendingReplace; pendingReplace = '' // one-shot: never leaks into the next pick
   try {
+    if (swap && window.changeSession) { // Round5 #4: chip replace swaps the content inside the package
+      if (await sessionReplaceFile(swap, f)) { imgIns = false; queueRender(); return }
+    }
     if (TEXT_UP.test(f.name)) { const n = await upText(f); if (n) switchTab(n) }
     else { const name = await upFile(f); if (name && imgIns) insImage(name) }
   } catch (e) { toast(e.message) }
@@ -398,7 +452,7 @@ $('editWrap').addEventListener('drop', async e => {
     try {
       if (TEXT_UP.test(f.name)) { last = await upText(f) || last; continue }
       const name = await upFile(f)
-      if (name && /\.(png|jpe?g|svg|gif|webp|pdf)$/i.test(name)) insImage(name)
+      if (name && /\.(png|jpe?g|svg|gif|webp|avif|bmp|ico|pdf)$/i.test(name)) insImage(name)
     } catch (err) { toast(err.message) }
   }
   if (last) switchTab(last) // text drop: show file at once
@@ -442,6 +496,7 @@ function updateFileView() {
   $('pvTools').style.display = file || !docId ? 'none' : ''
   const filename = tplName || (activeFile ? tabName(activeFile) : 'main.typ')
   const extension = filename.split('.').pop().toLowerCase()
+  paintImageFile(filename)
   $('dlTyp').dataset.extension = extension
   $('dlTyp').dataset.kind = file ? 'file' : 'document'
   $('dlTyp').textContent = '.' + extension

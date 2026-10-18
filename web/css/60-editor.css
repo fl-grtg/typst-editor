@@ -48,8 +48,8 @@
 #cmWrap .cm-errMark { position: relative; }
 #cmWrap .cm-errMark::after { content: ''; position: absolute; left: 100%; top: 0; bottom: 0; width: 100vw; }
 #cmWrap .cm-scroller { overflow-x: clip; } /* carrier extension must never cause a horizontal scrollbar (lineWrapping is always on) */
-#cmWrap .cm-hl { background: rgba(255, 196, 0, .28); border-radius: 3px; }
-#cmWrap .cm-hl:hover { background: rgba(255, 196, 0, .46); cursor: pointer; }
+#cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
+#cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
 #cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
 #cmWrap .cm-find-cur { background: rgba(255, 159, 10, .40); outline: 1px solid #ff9f0a; border-radius: 3px; }
 /* Lint (F1): compiler errors via @codemirror/lint. Var-driven so light/dark follow the theme (typstTheme untouched). */
@@ -66,6 +66,8 @@
 #scCard .scHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 #scCard .scHead b { font-size: 16px; font-weight: 650; }
 #scCard .scHead button { min-width: 30px; min-height: 30px; border: 0; background: none; box-shadow: none; color: var(--sub); }
+#scCard .scHead button:not(:disabled):hover { background: var(--hover); color: var(--text); }
+#scCard .scHead button:not(:disabled):active { background: var(--press); color: var(--text); }
 #scCard .scTable { width: 100%; border-collapse: collapse; font-size: 13px; }
 #scCard .scTable td { padding: 4px 6px; vertical-align: top; }
 #scCard .scTable td:first-child { width: 42%; }
@@ -116,6 +118,8 @@
 .bibMoreFields summary { padding: 12px 0; cursor: pointer; color: var(--sub); font-size: 12px; }
 .bibFooter { border-top: 1px solid var(--line); padding-top: 12px; }
 .bibFooter button { background: transparent; color: var(--danger); border-color: var(--line-2); box-shadow: none; }
+.bibFooter button:not(:disabled):hover { background: var(--danger-soft); color: var(--danger); }
+.bibFooter button:not(:disabled):active { background: var(--danger-soft); color: var(--danger); filter: brightness(.94); }
 @media (max-width: 600px) { .bibList { flex-basis: 130px; } .bibForm { padding: 12px; } .bibMetadata, .bibMainFields { grid-template-columns: 1fr; } }
 
 .bibMetadata { border-bottom: 0; padding-bottom: 0; margin-bottom: 8px; }
@@ -123,3 +127,34 @@
 .bibFooter { border-top: 0; }
 .bibField textarea { min-height: 38px; height: 38px; resize: none; }
 .bibField input:invalid { border-color: var(--danger); }
+
+#cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); }
+#cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: color-mix(in srgb, var(--editor) 68%, #955ae1); }
+#suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
+#tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }
+#tools #suggestionToggle.on:active { color: #9560d5; background: rgba(145, 90, 225, .36); }
+#pop pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+#cmWrap .cm-draft-change { cursor: text; }
+.suggestionDeleted { text-decoration: line-through; text-decoration-color: #9560d5; text-decoration-thickness: 1.5px; color: var(--text); }
+#cmWrap .suggestionDeleted[contenteditable="false"] { white-space: pre-wrap; cursor: pointer; }
+#cmWrap [data-suggestion-id][contenteditable="false"] { white-space: pre-wrap; cursor: pointer; }
+
+.csvEditor td.csv-selected { background: var(--acc-soft); }
+.csvEditor td.csv-target { box-shadow: inset 0 0 0 2px var(--acc); background: var(--acc-soft); }
+.csvEditor td.csv-selected input[readonly] { cursor: grab; }
+.csvEditor td.csv-proposed, .bibField.bib-proposed input, .bibField.bib-proposed textarea, .bibField.bib-proposed select { background: rgba(145,90,225,.18); }
+.proposalFieldAction { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; align-self: flex-start; }
+.proposalFieldAction:hover, .proposalFieldAction:focus-visible { color: var(--acc); }
+.package-deleted .t { text-decoration: line-through; }
+.package-deleted .t::before { content: '− '; }
+#tabs .package-deleted .tn { text-decoration: line-through; }
+#tabs .package-deleted .tn::before { content: '− '; }
+.package-caption { display: block; padding: 8px 14px; font-size: 12px; color: #9560d5; overflow-wrap: anywhere; }
+.package-file .t, .package-modified .t { color: #9560d5; }
+.package-tools button.on { background: rgba(145,90,225,.2); color: #9560d5; }
+.package-mode { max-width: 160px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #9560d5; }
+
+/* #3 hover-claim: hovering ANY fragment of a comment/suggestion/patch claims all its tiles (sibling fragments light up together) */
+#cmWrap .cm-hl.cm-hl-claim { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
+#cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: color-mix(in srgb, var(--editor) 68%, #955ae1); cursor: pointer; }

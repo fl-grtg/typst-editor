@@ -1,4 +1,4 @@
-"""MCP core: path resolver + doc/file/template ops for the 9 MCP tools.
+"""MCP core: path resolver + document, file, template and review operations for the MCP tools.
 
 Pure logic with explicit (user, cap); backend/mcp_server.py wraps these as
 FastMCP tools, tests call them directly. Raises HTTPException (the MCP
@@ -12,7 +12,7 @@ Path model:
 
 Titles containing / are rejected with 400 (after percent-decoding).
 Effective rights = min(key sort, doc_role()): a reviewer key (or share)
-caps every op at read+comment, keys never reach owner/admin.
+caps every op at read+comment+propose, keys never reach owner/admin.
 """
 from __future__ import annotations
 
@@ -47,6 +47,10 @@ from backend.services import quota as quota_svc
 from backend.services.docfiles import safe_name
 
 log = logging.getLogger("typst.mcp")
+
+# op_suggestions caps its answer (see below): the 200 latest suggestions,
+# everything else is folded into "total".
+SUGGESTIONS_LIST_CAP = 200
 
 TEXT_SUFFIX = {".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl"}
 VIEW_MAX_PAGES = 20
@@ -623,6 +627,16 @@ def _write_text_file(doc_id: str, filename: str, content: str, user: str, cap: s
         raise _bad("Max 200 KB")
     with locks._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
+        if must_create:
+            from backend.services import projects as _projects
+
+            _pcon = db.connect()
+            try:
+                pid = _pcon.execute("SELECT project_id FROM docs WHERE id=? AND trashed=0", (doc_id,)).fetchone()
+                if pid and pid[0]:
+                    _projects.assert_file_name_free(_pcon, pid[0], filename, exempt_files={(doc_id, filename)})
+            finally:
+                _pcon.close()
         p = _files_dir() / doc_id / filename
         try:
             if must_create and p.is_file():
@@ -909,6 +923,39 @@ def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str
         _recheck_edit(user, cap, doc_id)
         uf = FastUploadFile(file=io.BytesIO(data), filename=n)
         return docfiles._upload_locked(doc_id, uf, n, user)
+
+
+def op_suggest(user: str, cap: str, path: str, old_string: str, new_string: str,
+               text: str = "", author: str = "") -> dict:
+    from backend.schemas import SuggestionNew
+    from backend.services import suggestions
+    res = resolve_path(user, cap, path)
+    if res["kind"] != "doc":
+        raise _bad("Suggestions live on documents; use a document path")
+    if len(old_string) > 20000 or len(new_string) > 20000 or len(text) > 2000:
+        raise _bad("Original/replacement: max 20000 chars; explanation: max 2000 chars")
+    return suggestions.create(user, res["doc_id"], SuggestionNew(old_string=old_string, new_string=new_string, text=text), author)
+
+
+def op_suggestions(user: str, cap: str, path: str) -> dict:
+    res = resolve_path(user, cap, path)
+    if res["kind"] != "doc":
+        raise _bad("Use a document path")
+    con = db.connect()
+    try:
+        # UI-equivalent projection: no username (internal account), and no
+        # full anchor/replacement history (up to 20k chars each) beyond the
+        # short quote. Return only the SUGGESTIONS_LIST_CAP latest entries,
+        # chronological order, with the total count so callers know it is
+        # capped.
+        rows = con.execute("SELECT id,author,anchor,quote,text,suggestion_status AS status,created_at "
+                           "FROM comments WHERE doc_id=? AND suggestion_status<>'' "
+                           "ORDER BY created_at DESC LIMIT ?", (res["doc_id"], SUGGESTIONS_LIST_CAP)).fetchall()
+        total = con.execute("SELECT COUNT(*) FROM comments WHERE doc_id=? AND suggestion_status<>''",
+                            (res["doc_id"],)).fetchone()[0]
+    finally:
+        con.close()
+    return {"total": total, "suggestions": [dict(r) for r in reversed(rows)]}
 
 
 def op_comment(user: str, cap: str, path: str, anchor: int,

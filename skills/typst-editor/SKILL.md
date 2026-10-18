@@ -1,6 +1,6 @@
 ---
 name: typst-editor
-description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, export, search, upload, comment). Use for /docs, /shared, /templates, /projects work through the typst-editor server.
+description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, export, search, upload, comment, suggest, suggestions). Use for /docs, /shared, /templates, /projects work through the typst-editor server.
 ---
 
 # Typst Editor — MCP Agent Skill
@@ -54,6 +54,9 @@ Copy paths from `ls` output, never invent them.
 | `search(query)` | doc main text + reachable project resources (titles + content), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
 | `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
+| `suggest(path, old_string, new_string, text="")` | Propose a **document** edit without changing source. Any readable role/key may propose. Original must match exactly once (include context); use `old_string=""` only for an empty document. Replacement may be empty to delete. Original/replacement each max 20,000 chars, explanation max 2,000. Returns pending id/anchor. `409` means missing/ambiguous original: re-read before proposing again. |
+| `suggestions(path)` | List document proposals, original/replacement, author and pending/accepted/rejected status. Only an editor or owner can accept/reject in the UI; there is no MCP acceptance tool. File, template and resource paths are unsupported for proposals (`400`). |
+
 | `view(path, pages="1-5", scale=1.0)` | doc pages as viewable image blocks (longest side ≤1280px) → image blocks + `count` + `total_pages` + `cache_hit` + `last_seen`; pages format `"2"`, `"1-5"`, `"6-10"`, `"1-3,5"` — numbers 1-20, max 20 per call; `scale` 0.5-3.0 (default 1.0 → 144 ppi). Compile errors → `422` with `diagnostics: [{file, line, col, message}]`. No manual decode needed — see §8 |
 | `export(path, format="pdf")` | doc as file → `format` + `mime` + `filename` + `content_base64` + `size_bytes`. Formats: `pdf` (full multi-page PDF), `svg`/`png` (single page directly, multi-page docs arrive as ZIP of `page-{n}` files), `zip` (document source bundle: `main.typ` + `files/…` + `SKIPPED.txt` if oversized — not a project ZIP, no project round-trip). Read-only: reviewer keys work. Always decode + save, see §9 |
 
@@ -76,7 +79,7 @@ Copy paths from `ls` output, never invent them.
 ## 6. On errors
 
 - `404` → path is wrong or renamed: `ls` the parent again, never retry blindly.
-- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment only — that is the minimum of key role and share role. Project guests see only their shared docs. Rename/share/delete/invite/resolve don't exist as MCP tools — human in the UI (file/resource rename there is two-step: `rename-entry-preview` returns `{name, version, references}`, `rename-entry` requires that `version`; UI shows static references + dynamic-path hint and asks for confirmation, no auto-rewrite; removing a project member shows an explicit broad-revoke warning before confirming).
+- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment + propose only — that is the minimum of key role and share role. Project guests see only their shared docs. Rename/share/delete/invite/resolve don't exist as MCP tools — human in the UI (file/resource rename there is two-step: `rename-entry-preview` returns `{name, version, references}`, `rename-entry` requires that `version`; UI shows static references + dynamic-path hint and asks for confirmation, no auto-rewrite; removing a project member shows an explicit broad-revoke warning before confirming).
 - `409` → ambiguous legacy title (same title in several projects): switch to `/projects/{id}/docs/{Title}`; project/doc title collisions on create/rename also → `409` (project create auto-suffixes instead); stale file/resource rename `version` → `409` (re-run preview in UI); for `edit` it can also mean anchor-gone/anchor-ambiguous (see §5).
 - `410` → doc is trashed (restore in UI) or retired folder route (use `/projects`); stop and tell the human.
 - `429` → rate limit (60/min): back off, don't retry-loop. REST export of the same doc also serializes per user (`429 Export already running`) — wait, then retry once.

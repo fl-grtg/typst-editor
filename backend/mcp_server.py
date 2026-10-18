@@ -1,4 +1,4 @@
-"""MCP server: FastMCP typst-editor + 9 tools (M2: 7, M3: view, W2: export).
+"""MCP server: FastMCP typst-editor with document, review, render and export tools.
 
 Mounted in backend/main.py: app.mount("/mcp", _mcp_app).
 Auth per request: Authorization Bearer API key only (no cookie fallback,
@@ -116,6 +116,24 @@ def comment(path: str, anchor: int, text: str, quote: str = "",
     """Comment on a document (any role with read access, incl. reviewer)."""
     user, cap, author = _auth()
     return _wrap(t.op_comment, user, cap, path, anchor, text, quote, parent_id, author)
+
+
+@mcp.tool()
+def suggest(path: str, old_string: str, new_string: str, text: str = "") -> dict:
+    """Propose a document change without editing it (including with a reviewer key).
+    old_string must match exactly once; include context to disambiguate.
+    Use old_string="" only to propose the first text of an empty document. new_string
+    replaces that span, or use an empty string to propose deletion. An editor or
+    owner accepts/rejects it in the editor. text is an optional explanation."""
+    user, cap, author = _auth()
+    return _wrap(t.op_suggest, user, cap, path, old_string, new_string, text, author)
+
+
+@mcp.tool()
+def suggestions(path: str) -> dict:
+    """List document suggestions with their original/replacement text and pending/accepted/rejected status."""
+    user, cap, _ = _auth()
+    return _wrap(t.op_suggestions, user, cap, path)
 
 
 @mcp.tool(
