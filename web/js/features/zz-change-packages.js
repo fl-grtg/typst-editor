@@ -95,7 +95,10 @@ async function sessionEnsure(identity = sessionCurrent()) {
   if (!s) return null
   if (s.files.has(key)) return s.files.get(key)
   let content
-  if (identity.kind === 'document') content = identity.doc_id === docId ? shadow : (await api('GET', '/api/docs/' + identity.doc_id)).content
+  if (identity.kind === 'document') {
+    content = identity.doc_id === docId && synced ? shadow : (await api('GET', '/api/docs/' + identity.doc_id)).content
+    if (identity.doc_id === docId && synced) content = shadow // live sync may have completed during the read
+  }
   else if (identity.kind === 'resource') {
     const items = (await api('GET', '/api/projects/' + s.project + '/resources')).resources
     const item = items.find(f => f.name === identity.path)
@@ -138,21 +141,22 @@ function sessionRecord(changes, oldLen) {
   queueRender(); sessionStash()
   queueMicrotask(() => { if (window.changeSession === s) { sessionPaint(); paintSuggestionControls(); paintSessionSidebar() } })
 }
-async function sessionActivate() {
+async function sessionActivate(preserveView = false) {
   const s = window.changeSession
   if (!s || s.project !== docProject) return
+  const identity = sessionCurrent(), key = sessionKey(identity)
   let item
-  try { item = await sessionEnsure() }
+  try { item = await sessionEnsure(identity) }
   catch (e) { // Round5 High #2: a package file deleted/failed since the proposal must degrade, never crash the open
+    if (window.changeSession !== s || key !== sessionKey(sessionCurrent())) return
     toast(e.message)
-    const identity = sessionCurrent(), key = sessionKey(identity)
     if (window.changeSession === s && identity.kind !== 'document' && s.files.has(key)) { s.files.delete(key); s.dirty = true; sessionStash(); return sessionActivate() } // drop the broken file/resource entry once, keep the rest of the session
     if (window.changeSession === s) await endChangeSession(true) // document entry unreadable: close the session without prompts and reopen the plain doc
     return
   }
-  if (!item || window.changeSession !== s) return
+  if (!item || window.changeSession !== s || key !== sessionKey(sessionCurrent())) return
   const text = s.original || item.action === 'delete' ? item.base : item.content
-  if (!item.binary) setT(text || '')
+  if (!item.binary && (!preserveView || getT() !== (text || ''))) setT(text || '', preserveView)
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
   tabDirty = false; marks = new Set(); markStyle = ''
   paintFileExtras(); paintCsv(); fmtSync(); sessionPaint(); paintSuggestionControls(); paintSessionSidebar(); queueRender()
@@ -227,7 +231,7 @@ async function submitChangeSession() {
   } catch (e) { toast(e.status === 409 && /^Original (file|passage) changed/.test(e.message) ? t('packages.sourceConflict') : e.message); return false }
   finally { s.busy = false; if (window.changeSession === s) { sessionStash(); await sessionActivate() } paintSuggestionControls() }
 }
-async function endChangeSession(discard = false) {
+async function endChangeSession(discard = false, preserveView = false, mainText = null) {
   const s = window.changeSession
   if (!s) return true
   if (s.busy && !discard) return false
@@ -249,9 +253,9 @@ async function endChangeSession(discard = false) {
     if (key) {
       if (isTplKey(key)) { try { await loadDocResources(true) } catch (e) { toast(e.message) } }
       activeFile = ''
-      if (!await sessionOriginalSwitchTab(key, true)) setT(shadow)
+      if (!await sessionOriginalSwitchTab(key, true, preserveView)) setT(shadow)
     }
-    else setT(shadow)
+    else setT(mainText ?? shadow, preserveView && !addedTab)
     cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
     paintTabs(); paintFileExtras(); paintOutline(); reanchor(); refreshHl(); queueRender()
   }
@@ -264,7 +268,7 @@ async function choosePackage() {
     if (project !== docProject || epoch !== packageLoad) return
     packageList = response.packages
     const choice = await askPick(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
-      t('packages.summary', { author: p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])])
+      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])])
     if (choice == null || project !== docProject || window.changeSession !== previous) return
     if (choice === 0) {
       if (previous?.package) { previous.original = true; await sessionActivate() }
@@ -347,11 +351,15 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null, f
       const fallback = projects.find(p => p.id === s.project)?.documents?.find(d => d.id !== deletedId)
       if (fallback) { await openDoc(fallback.id); if (proposal.files.length) await startChangeSession(proposal) }
     }
-    else if (!proposal.files.length) { s.busy = false; await endChangeSession(true) }
+    else if (!proposal.files.length) {
+      const accepted = acceptedDocuments.find(f => f.doc_id === docId)
+      const main = accepted && shadow === accepted.base ? accepted.content : shadow // WS echo may arrive after the accept response
+      s.busy = false; await endChangeSession(true, true, main)
+    }
     else {
       s.busy = false
       if (acceptedAddedDocument) await openDoc(acceptedAddedDocument.doc_id)
-      await sessionActivate(); await sidebar()
+      await sessionActivate(true); await sidebar()
     }
   } catch (e) {
     if (fileId && !includeDependencies && e.status === 409 && e.detail?.code === 'proposal_dependencies') {
@@ -360,7 +368,7 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null, f
   }
   finally {
     s.busy = false
-    try { if (window.changeSession === s) await sessionActivate(); paintSuggestionControls() }
+    try { if (window.changeSession === s) await sessionActivate(true); paintSuggestionControls() }
     finally { s.accepting = false }
   }
   if (acceptTogether && window.changeSession === s) return acceptSessionSelection(fileId, changeId, cell, fieldEdit, true)
@@ -475,7 +483,7 @@ function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
   if (!range) { closePop(true); return }
   const card = el('div', 'th'), header = el('div', 'hd')
-  header.append(el('b', 'nm', s.package?.author || user), el('span', 'tm', t('comments.suggestionpending')))
+  header.append(el('b', 'nm', s.package?.author_name || s.package?.author || user), el('span', 'tm', t('comments.suggestionpending')))
   if (s.package && ['owner', 'editor'].includes(docRole)) {
     const accept = icoBtn('ib', ICO_CHECK); accept.title = t('comments.accept')
     accept.onclick = async () => {
@@ -699,9 +707,9 @@ paintSuggestionControls = () => {
   }
 }
 const sessionOriginalSwitchTab = switchTab
-switchTab = async (name, nosave) => {
+switchTab = async (name, nosave, preserveView = false) => {
   const s = window.changeSession
-  if (!s) return sessionOriginalSwitchTab(name, nosave)
+  if (!s) return sessionOriginalSwitchTab(name, nosave, preserveView)
   if (s.busy) return false
   if (name?.startsWith('@doc/') || name?.startsWith('@file/')) {
     const entry = projectTabEntry(name)
@@ -711,10 +719,10 @@ switchTab = async (name, nosave) => {
   }
   const identity = sessionIdentity(name)
   if (!s.files.has(sessionKey(identity))) {
-    const switched = await sessionOriginalSwitchTab(name, nosave)
+    const switched = await sessionOriginalSwitchTab(name, nosave, preserveView)
     if (!switched || window.changeSession !== s) return false
   } else { tabSaveState(activeFile); activeFile = name; tabDirty = false; tabSig = '' }
-  await sessionActivate(); paintTabs(); return true
+  await sessionActivate(preserveView); paintTabs(); return true
 }
 const sessionOriginalOpenDoc = openDoc
 openDoc = async id => {

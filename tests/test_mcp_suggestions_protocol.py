@@ -139,6 +139,7 @@ def test_suggest_is_normal_package_with_live_text_and_partial_review(c):
     package = _ok_struct(_call(c, key, "suggest", {"path": f"/projects/{project}/docs/Proto",
                          "old_string": "liveword", "new_string": "LIVE", "text": "Improve wording"}, 21))
     assert package["author"] == "bob" and package["title"] == "Improve wording"
+    assert package["author_name"] == "agent"
     assert package["files"][0]["content"].endswith(" LIVE")
     assert sync.room_text(did).endswith(" liveword")
     with db.tx() as con:
@@ -146,6 +147,7 @@ def test_suggest_is_normal_package_with_live_text_and_partial_review(c):
     assert _accept(c, project, package).status_code == 403
     listed = _ok_struct(_call(c, key, "suggestions", {"path": f"/projects/{project}"}, 22))
     assert [p["id"] for p in listed["packages"]] == [package["id"]]
+    assert listed["packages"][0]["author_name"] == "agent"
     login(c, "alice")
     assert c.get(f"/api/projects/{project}/proposals/{package['id']}").json() == package
     assert _accept(c, project, package).status_code == 200
@@ -255,3 +257,26 @@ def test_empty_unicode_suggest_and_discard(c):
     package = _ok_struct(_call(c, key, "suggest", {"path": f"/projects/{project}/docs/Proto", "old_string": " 🌍", "new_string": ""}, 82))
     assert c.delete(f"/api/projects/{project}/proposals/{package['id']}").status_code == 200
     assert sync.room_text(did) == "Grüße 🌍"
+
+
+def test_mcp_proposal_key_name_survives_human_corrections_and_keeps_account_permissions(c):
+    did, project, key = _setup(c)
+    key = _keys(c, 'reviewer', 'Review Bot')
+    base = 'hello world\nsecond line\n'
+    file = {'kind': 'document', 'doc_id': did, 'path': 'main.typ', 'action': 'modify',
+            'base': base, 'content': base.replace('hello', 'HELLO'),
+            'changes': [{'old_string': 'hello', 'new_string': 'HELLO'}]}
+    package = _ok_struct(_call(c, key, 'propose', {'path': f'/projects/{project}', 'title': 'Named agent', 'files': [file]}, 101))
+    assert package['author'] == 'bob'
+    assert package['author_name'] == 'Review Bot'
+    assert _accept(c, project, package).status_code == 403
+    login(c, 'alice')
+    summary = c.get('/api/notifications/summary').json()['packages']
+    assert next(p for p in summary if p['id'] == package['id'])['author_name'] == 'Review Bot'
+    response = c.patch(f"/api/projects/{project}/proposals/{package['id']}",
+                       json={'title': 'Corrected title', 'revision': package['revision'], 'files': package['files']})
+    assert response.status_code == 200, response.text
+    corrected = response.json()
+    assert corrected['author'] == 'bob'
+    assert corrected['author_name'] == 'Review Bot'
+    assert _accept(c, project, corrected).status_code == 200

@@ -62,7 +62,7 @@ function pullRemote(ev) {
   }
   applying = true
   try {
-    if (delta && cm.state.doc.length === old.length) { // normal case: delta -> CM changes, selection maps on its own
+    if (delta && getT() !== v && cm.state.doc.length === old.length) { // an accepted proposal may already display the echoed text: keep its selection and scroll
       const changes = []; let pos = 0
       for (const d of delta) {
         if (d.retain) pos += d.retain

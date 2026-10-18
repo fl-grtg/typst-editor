@@ -8,7 +8,7 @@ const tabs = fs.readFileSync('web/js/80-files-images.js', 'utf8')
 function context() {
   const file = { kind: 'document', doc_id: 'd_new', path: 'main.typ', action: 'add', target: 'New chapter', content: 'Draft' }
   const session = { files: new Map([['document:d_new:main.typ', file]]), project: 'p_test', previewRevision: 0 }
-  const c = vm.createContext({ window: { changeSession: session }, docId: 'd_existing', activeFile: '@proposal-doc/d_new.typ',
+  const c = vm.createContext({ window: { changeSession: session }, docId: 'd_existing', shadow: '', activeFile: '@proposal-doc/d_new.typ',
     isTplKey: () => false, tabName: k => k || 'main.typ', session, file })
   vm.runInContext(packages.slice(packages.indexOf('const sessionKey'), packages.indexOf('const sessionUrl')), c)
   return c
@@ -117,6 +117,7 @@ test('leaving an added document tab restores source without requesting a nonexis
 
 test('accepting a document rename refreshes the current document title immediately', async () => {
   const c = context()
+  let endArgs
   c.session.package = { id: 'sp_test', revision: 1 }
   c.session.commentRanges = new Map()
   c.session.files = new Map([['document:d_existing:main.typ', { id: 'pf_doc', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'rename', target: 'New name' }]])
@@ -124,11 +125,12 @@ test('accepting a document rename refreshes the current document title immediate
     cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {}, paintFileExtras: () => {},
     paintSuggestionControls: () => {}, sessionUrl: () => '/proposals/sp_test', loadDocResources: async () => {}, projectResources: () => [],
     api: async () => ({ files: [], revision: 2 }), threads: [], initRanges: () => {}, invalidateCommentCache: () => {},
-    fileCache: new Map(), closePop: () => {}, endChangeSession: async () => { c.window.changeSession = null },
+    fileCache: new Map(), closePop: () => {}, endChangeSession: async (...args) => { endArgs = args; c.window.changeSession = null },
     toast: message => { throw Error(message) } })
   vm.runInContext(packages.slice(packages.indexOf('async function acceptSessionSelection'), packages.indexOf('async function deleteSelectedPackage')), c)
   await c.acceptSessionSelection('pf_doc')
   assert.equal(c.docTitle, 'New name')
+  assert.deepEqual(endArgs, [true, true, '']) // accepting the last proposal preserves the current view
 })
 
 test('sidebar action checks accept only structural actions and leave content changes alone', async () => {
@@ -215,4 +217,94 @@ test('bibliography entry indicators show only records with remaining field chang
   assert.equal(c.sessionBibEntryPending({ base: 'accepted' }, { ...entry, key: 'new' }), true)
   c.session.original = true
   assert.equal(c.sessionBibEntryPending({ base: 'old' }, entry), false)
+})
+
+test('ending acceptance preserves main and module views instead of restoring old tab positions', async () => {
+  for (const key of ['', '@scrolling.typ']) {
+    let restored, switched
+    const c = context()
+    Object.assign(c, { activeFile: key, isTplKey: value => value.startsWith('@'), sessionStashTimer: 0,
+      clearTimeout() {}, packageDraft: async () => {}, sessionStashKey: () => 'draft',
+      localStorage: { removeItem() {} }, fileCache: new Map(), shadow: 'Accepted source',
+      setT: (...args) => { restored = args }, cm: { dispatch() {} }, editableComp: { reconfigure() {} }, editMode() {}, tabCanEdit: () => true,
+      paintTabs() {}, paintFileExtras() {}, paintOutline() {}, reanchor() {}, refreshHl() {}, queueRender() {}, paintSuggestionControls() {},
+      sidebar: async () => {}, loadDocResources: async () => {}, sessionOriginalSwitchTab: async (...args) => { switched = args; return true } })
+    vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
+    await c.endChangeSession(true, true)
+    if (key) assert.deepEqual(switched, [key, true, true])
+    else assert.deepEqual(restored, ['Accepted source', true])
+  }
+})
+
+test('last acceptance restores accepted text even before its websocket echo arrives', async () => {
+  for (const shadow of ['old text', 'new text']) {
+    const c = context()
+    c.session.package = { id: 'sp_test', revision: 1 }
+    c.session.commentRanges = new Map()
+    c.session.files = new Map([['document:d_existing:main.typ', { id: 'pf_doc', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'modify', base: 'old text', content: 'new text' }]])
+    let restored
+    Object.assign(c, { activeFile: '', shadow, saveSessionCorrections: async () => true, cm: { dispatch() {} },
+      editableComp: { reconfigure() {} }, editMode() {}, paintFileExtras() {}, paintSuggestionControls() {},
+      sessionUrl: () => '/proposals/sp_test', loadDocResources: async () => {}, projectResources: () => [],
+      api: async () => ({ files: [], revision: 2 }), threads: [], initRanges() {}, invalidateCommentCache() {},
+      fileCache: new Map(), closePop() {}, endChangeSession: async (_discard, _preserve, text) => { restored = text; c.window.changeSession = null },
+      toast: message => { throw Error(message) } })
+    vm.runInContext(packages.slice(packages.indexOf('async function acceptSessionSelection'), packages.indexOf('async function deleteSelectedPackage')), c)
+    await c.acceptSessionSelection('pf_doc')
+    assert.equal(restored, 'new text')
+  }
+})
+
+test('session tab wrapper forwards view preservation through both loaders', async () => {
+  const c = context(), calls = []
+  c.session.files.clear()
+  Object.assign(c, { switchTab: async (...args) => { calls.push(args); return true },
+    sessionActivate: async preserve => calls.push(preserve), paintTabs() {} })
+  vm.runInContext(packages.slice(packages.indexOf('const sessionOriginalSwitchTab'), packages.indexOf('const sessionOriginalOpenDoc')), c)
+  await c.switchTab('scrolling.typ', true, true)
+  assert.deepEqual(calls, [['scrolling.typ', true, true], true])
+})
+
+test('unmodified project documents load their text before websocket sync instead of caching an empty buffer', async () => {
+  const c = context(), reads = []
+  c.activeFile = ''; c.synced = false; c.shadow = ''
+  Object.assign(c, { sessionRuntime: file => file, api: async (_method, url) => { reads.push(url); return { content: 'Existing chapter text' } } })
+  vm.runInContext(packages.slice(packages.indexOf('async function sessionEnsure'), packages.indexOf('function bytesToBase64')), c)
+  const item = await c.sessionEnsure()
+  assert.equal(item.base, 'Existing chapter text')
+  assert.equal(item.content, 'Existing chapter text')
+  assert.deepEqual(reads, ['/api/docs/d_existing'])
+  assert.equal((await c.sessionEnsure()).content, 'Existing chapter text')
+  assert.equal(reads.length, 1)
+})
+
+test('document loading prefers live text if websocket sync completes during the read', async () => {
+  const c = context()
+  c.activeFile = ''; c.synced = false; c.shadow = ''
+  Object.assign(c, { sessionRuntime: file => file, api: async () => { c.synced = true; c.shadow = 'Latest live text'; return { content: 'Older saved text' } } })
+  vm.runInContext(packages.slice(packages.indexOf('async function sessionEnsure'), packages.indexOf('function bytesToBase64')), c)
+  assert.equal((await c.sessionEnsure()).content, 'Latest live text')
+})
+
+test('late proposal activation cannot blank a newly selected document', async () => {
+  const c = context()
+  let release, resets = 0
+  Object.assign(c, { docProject: 'p_test', activeFile: '', sessionEnsure: () => new Promise(resolve => { release = resolve }), setT: () => resets++ })
+  vm.runInContext(packages.slice(packages.indexOf('async function sessionActivate'), packages.indexOf('async function startChangeSession')), c)
+  const pending = c.sessionActivate()
+  c.docId = 'd_another'
+  release({ content: 'Previous document' })
+  await pending
+  assert.equal(resets, 0)
+})
+
+test('proposal picker displays the key name with an account-name fallback', async () => {
+  const labels = []
+  const c = vm.createContext({ docProject: 'p', packageLoad: 0, window: {},
+    api: async () => ({ packages: [{ author: 'alice', author_name: 'Review Bot' }, { author: 'bob', author_name: '' }] }),
+    t: (_key, args) => { if (args) labels.push(args.author); return '' }, askPick: async () => null,
+    toast: message => { throw Error(message) } })
+  vm.runInContext(packages.slice(packages.indexOf('async function choosePackage'), packages.indexOf('// #6: topbar chip')), c)
+  await c.choosePackage()
+  assert.deepEqual(labels, ['Review Bot', 'bob'])
 })

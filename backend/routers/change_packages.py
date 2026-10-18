@@ -65,7 +65,7 @@ def list_packages(project_id: str, user: str = Depends(deps.me)) -> dict:
     with db.tx() as con:
         projects.require(con, project_id, user)
         rows = con.execute(
-            """SELECT id,title,author,revision,accepted,created_at,updated_at,
+            """SELECT id,title,author,author_name,revision,accepted,created_at,updated_at,
                json_array_length(files) AS file_count,
                (SELECT COALESCE(SUM(MAX(COALESCE(json_array_length(value,'$.changes'),0),1)),0)
                 FROM json_each(files)) AS change_count

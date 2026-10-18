@@ -111,7 +111,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
 
 @router.get("/api/docs/{doc_id}/files/{name:path}")
 def get_file(doc_id: str, name: str, req: Request, user: str = Depends(deps.me)) -> Response:
-    deps.limited(req, "files")
+    deps.limited(req, "file_read") # preview loads every attachment; do not consume the upload bucket
     deps.check_doc_id(doc_id)
     deps.need_access(user, doc_id)
     n = safe_name(name)

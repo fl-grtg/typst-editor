@@ -198,13 +198,13 @@ function tabRestoreState(k) {
   cm.dispatch({ selection: { anchor: Math.min(s.a, n), head: Math.min(s.h, n) } })
   requestAnimationFrame(() => { cm.scrollDOM.scrollTop = s.top })
 }
-async function switchTab(name, nosave) { // true = switched, false = blocked/stale (caller keeps focus where it is)
+async function switchTab(name, nosave, preserveView = false) { // true = switched, false = blocked/stale (caller keeps focus where it is)
   if (window.suggestionDraft && !await leaveSuggestionDraft()) return false
   if (name?.startsWith('@doc/') || name?.startsWith('@file/')) {
     const entry = projectTabEntry(name), p = docProject
     if (entry.document !== docId) await openDoc(entry.document)
     if (docId !== entry.document || docProject !== p) return false
-    return switchTab(entry.name, nosave)
+    return switchTab(entry.name, nosave, preserveView)
   }
   if (name === activeFile || !docId) return true
   const my = ++tabSeq, dk = docId, epoch = openN
@@ -235,7 +235,7 @@ async function switchTab(name, nosave) { // true = switched, false = blocked/sta
     if (txt.version) tabVersions.set(name, txt.version)
   }
   if (my !== tabSeq || dk !== docId || epoch !== openN || tabDirty) return false
-  activeFile = name; tabDirty = false; setT(text)
+  activeFile = name; tabDirty = false; setT(text, preserveView)
   cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(name))) })
   $('cNew').style.display = 'none'
   const readonly = isTplKey(name) ? t('files.tplSharedNote') : t('common.roleReader')
@@ -243,7 +243,7 @@ async function switchTab(name, nosave) { // true = switched, false = blocked/sta
   $('save').title = tabCanEdit(name) ? '' : readonly
   tabSig = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline()
   cm.dispatch({ effects: setHl.of(RangeSet.of([])) }) // file tab: no main highlights as ghosts
-  tabRestoreState(activeFile)
+  if (!preserveView) tabRestoreState(activeFile)
   if (name && (isTplKey(name) || TEXT_EXT.test(name))) offerFileStash(dk, name) // pagehide stash differs from server: opt-in restore, never silent
   paintErr()
   queueRender()

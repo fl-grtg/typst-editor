@@ -31,7 +31,7 @@ def notification_summary(req: Request, user: str = Depends(deps.me)) -> dict:
     try:
         rows = con.execute(
             "SELECT s.id, s.project_id AS project, p.title AS project_title, s.title, "
-            "s.author, s.updated_at FROM suggestion_packages s"
+            "s.author, s.author_name, s.updated_at FROM suggestion_packages s"
             " JOIN projects p ON p.id=s.project_id"
             " WHERE p.archived=0 AND s.author<>? AND json_array_length(s.files)>0"
             " AND (p.owner=? OR EXISTS(SELECT 1 FROM project_members m"
