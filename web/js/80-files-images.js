@@ -54,7 +54,7 @@ $('mediaBtn').onclick = () => { mediaOpen = !mediaOpen; renderMediaChips(lastFil
 // --- Tabs: everything that belongs to the open document in one bar: main.typ, its text files, the templates it uses ---
 const TPLK = '@tpl/' // @ cannot occur in sanitized local file names; '' = main.typ
 const isTplKey = k => !!k && k.startsWith(TPLK)
-const tabName = k => (isTplKey(k) ? k.slice(TPLK.length) : k) || 'main.typ'
+let tabName = k => (isTplKey(k) ? k.slice(TPLK.length) : k) || 'main.typ'
 const tabKind = k => !k ? 'typ' : isTplKey(k) && /\.typ$/i.test(k) ? 'tpl' : ((/\.([a-z]+)$/i.exec(k) || [])[1] || 'typ').toLowerCase()
 const tabPath = k => '/' + tabName(k) // compiler path of the tab's text (diagnostics carry it)
 const TEXT_EXT = /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i
@@ -89,6 +89,8 @@ function usedTpls(preview = false) { // templates this document reaches: quoted 
   return out
 }
 function projectTabEntry(key) {
+  const added = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && key === sessionDocumentTab(f))
+  if (added) return { document: added.doc_id, name: '', resource: false }
   if (key.startsWith('@doc/')) return { document: key.slice(5), name: '', resource: false }
   if (key.startsWith('@file/')) { const parts = key.slice(6).split('/'); return { document: parts.shift(), name: parts.join('/'), resource: false } }
   return { document: docId, name: key && !isTplKey(key) ? key : isTplKey(key) ? tabName(key) : '', resource: isTplKey(key) }
@@ -119,7 +121,7 @@ function paintTabs() {
   if (activeFile && !items.includes(activeFile)) { activeFile = ''; tabDirty = false; setT(shadow); gutter(); refreshHl(); paintOutline(); items = tabItems() } // deleted/removed: back to main, editor must show main again (else file text leaks into main)
   const canEdit = docRole !== 'reviewer'
   const labels = typeof projects !== 'undefined' ? projects.find(p => p.id === docProject)?.documents?.map(d => d.id + ':' + d.title).join('|') : ''
-  const proposalState = [...(window.changeSession?.files.values() || [])].map(f => [f.kind, f.doc_id, f.path, f.action].join(':')).join('|')
+  const proposalState = [...(window.changeSession?.files.values() || [])].map(f => [f.kind, f.doc_id, f.path, f.action, f.target].join(':')).join('|')
   const sig = [docRole, activeFile, $('title').textContent, labels, proposalState, ...items.map(k => k + '\u0001' + tabErrs(k))].join('|')
   if (sig === tabSig && bar.firstChild) { bar.style.display = ''; paintSuggestionControls(); return }
   tabSig = sig
@@ -130,7 +132,8 @@ function paintTabs() {
   for (const k of items) {
     const entry = projectTabEntry(k), main = !entry.name
     const document = typeof projects !== 'undefined' && projects.find(p => p.id === docProject)?.documents?.find(d => d.id === entry.document)
-    const title = document?.title || (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
+    const proposed = window.changeSession?.files.get(['document', entry.document, 'main.typ'].join(':'))
+    const title = (!window.changeSession?.original && proposed?.target) || document?.title || (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
     const on = k === activeFile, nm = main ? title.replace(/\.typ$/i, '') + '.typ' : entry.name
     const staged = window.changeSession?.files.get([main ? 'document' : entry.resource ? 'resource' : 'file', entry.resource ? '' : entry.document, main ? 'main.typ' : entry.name].join(':'))
     const deleted = staged?.action === 'delete'

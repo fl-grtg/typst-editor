@@ -41,7 +41,7 @@ from fastmcp.utilities.types import Image
 from mcp.types import Annotations
 
 from backend import config as _config
-from backend import db, search, sync
+from backend import db, deps, search, sync
 from backend.constants import EXPORT_FORMATS, EXPORT_MAX, MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.services import quota as quota_svc
 from backend.services.docfiles import safe_name
@@ -371,7 +371,7 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
             rows = con.execute("SELECT p.* FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.archived=0 AND (p.owner=? OR m.username IS NOT NULL) ORDER BY p.title", (user, user)).fetchall()
             return {"projects": [dict(r) for r in rows]}
         if kind in ("project", "project_docs"):
-            docs = con.execute("SELECT title,updated_at FROM docs WHERE project_id=? AND trashed=0 ORDER BY title", (res["project_id"],)).fetchall()
+            docs = con.execute("SELECT id,title,updated_at FROM docs WHERE project_id=? AND trashed=0 ORDER BY title", (res["project_id"],)).fetchall()
             return {"docs": [dict(r) for r in docs], "resources": "/projects/" + res["project_id"] + "/resources"}
         if kind == "project_resources":
             rows = con.execute("SELECT name,updated_at FROM project_resources WHERE project_id=? ORDER BY name", (res["project_id"],)).fetchall()
@@ -420,9 +420,21 @@ def _page_text(text: str, offset: int, limit: int) -> tuple[str, int]:
     return "\n".join(sel), total
 
 
-def op_read(user: str, cap: str, path: str, offset: int = 1, limit: int = 0) -> dict:
+def op_read(user: str, cap: str, path: str, offset: int = 1, limit: int = 0, binary: bool = False) -> dict:
     res = resolve_path(user, cap, path)
     kind = res["kind"]
+    if binary:
+        if kind != "file":
+            raise _bad("Binary reads require an attachment path")
+        from backend.services.docfiles import store
+
+        try:
+            data = store.get(res["doc_id"], res["filename"])
+        except FileNotFoundError as error:
+            raise _bad("File gone", 404) from error
+        if len(data) > UPLOAD_MAX:
+            raise _bad("Attachment too large", 413)
+        return {"kind": "file", "name": res["filename"], "content_base64": base64.b64encode(data).decode(), "size_bytes": len(data)}
     if kind == "project_resource":
         text, marker = _project_resource_text(res)
         content, total = _page_text(text, offset, limit)
@@ -926,6 +938,75 @@ def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str
         _recheck_edit(user, cap, doc_id)
         uf = FastUploadFile(file=io.BytesIO(data), filename=n)
         return docfiles._upload_locked(doc_id, uf, n, user)
+
+
+def _proposal_project(user: str, cap: str, path: str) -> str:
+    from backend.services import projects
+
+    res = resolve_path(user, cap, path)
+    con = db.connect()
+    try:
+        if res["kind"] == "project":
+            project = res["project_id"]
+        elif res["kind"] == "doc":
+            row = con.execute("SELECT project_id FROM docs WHERE id=?", (res["doc_id"],)).fetchone()
+            if not row:
+                raise _bad("Document not found", 404)
+            project = row[0]
+        else:
+            raise _bad("Use a project or document path for proposal packages")
+        projects.require(con, project, user)
+        return project
+    finally:
+        con.close()
+
+
+def op_propose(user: str, cap: str, path: str, title: str, files: list[dict],
+               package_id: str = "", revision: int = 0) -> dict:
+    from pydantic import ValidationError
+
+    from backend.routers.change_packages import PackageSave
+    from backend.services import change_packages
+
+    project = _proposal_project(user, cap, path)
+    try:
+        body = PackageSave.model_validate({"title": title, "files": files, "revision": revision})
+    except ValidationError as error:
+        raise _bad("Invalid proposal package") from error
+    if not package_id and not body.files:
+        raise _bad("An empty package cannot be submitted")
+    deps.limited(_write_request(user), "comments")
+    return change_packages.save(user, project, body.title,
+                                [f.model_dump(exclude_defaults=True) for f in body.files], package_id, body.revision)
+
+
+def op_proposals(user: str, cap: str, path: str, package_id: str = "") -> dict:
+    from backend.routers.change_packages import list_packages, read_package
+
+    project = _proposal_project(user, cap, path)
+    return read_package(project, package_id, user) if package_id else list_packages(project, user)
+
+
+def op_suggest_package(user: str, cap: str, path: str, old_string: str, new_string: str, text: str = "") -> dict:
+    from backend.services import change_packages
+
+    title = text.strip() or "Suggested changes"
+    if len(title) > TITLE_MAX:
+        raise _bad(f"Package title (text): max {TITLE_MAX} chars")
+    project = _proposal_project(user, cap, path)
+    res = resolve_path(user, cap, path)
+    if res["kind"] != "doc":
+        raise _bad("Use a document path, or propose for a multi-file package")
+    con = db.connect()
+    try:
+        file = {"kind": "document", "doc_id": res["doc_id"], "path": "main.typ", "action": "modify"}
+        base = change_packages.snapshot(con, project, file)
+    finally:
+        con.close()
+    changes = [{"old_string": old_string, "new_string": new_string}]
+    content = change_packages.apply_changes(base or "", changes)
+    return op_propose(user, cap, path, title,
+                      [{**file, "base": base, "content": content, "changes": changes}])
 
 
 def op_suggest(user: str, cap: str, path: str, old_string: str, new_string: str,

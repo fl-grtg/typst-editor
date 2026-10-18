@@ -533,6 +533,34 @@ def restore_trash_entry(entry_id: str, req: Request, user: str = Depends(deps.me
     return trash.restore(user, entry_id)
 
 
+@router.delete("/api/trash")
+async def empty_trash(req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "delete")
+    with db.tx() as con:
+        documents = con.execute("SELECT id,project_id FROM docs WHERE owner=? AND trashed=1", (user,)).fetchall()
+        audience = {user}
+        for document in documents:
+            audience.update(doc_users(document["id"]))
+        con.execute("DELETE FROM trash_entries WHERE owner=? OR doc_id IN (SELECT id FROM docs WHERE owner=? AND trashed=1)",
+                    (user, user))
+        con.execute("DELETE FROM docs WHERE owner=? AND trashed=1", (user,))
+        for project in {d["project_id"] for d in documents if d["project_id"]}:
+            con.execute("DELETE FROM projects WHERE id=? AND archived=1 AND NOT EXISTS (SELECT 1 FROM docs WHERE project_id=?)",
+                        (project, project))
+    quota_svc.invalidate_quota_cache(user)
+    for document in documents:
+        doc_id = document["id"]
+        await sync.drop(doc_id)
+        _drop_doc_locks(doc_id)
+        try:
+            shutil.rmtree(deps.get_files_dir() / doc_id, ignore_errors=True)
+        except OSError:
+            log.warning("empty_trash %s: rmtree failed", doc_id)
+    for recipient in audience:
+        notify_sidebar(recipient)
+    return {"documents": [d["id"] for d in documents]}
+
+
 @router.delete("/api/trash/{entry_id}")
 def delete_trash_entry(entry_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     from backend.services.locks import _named_lock

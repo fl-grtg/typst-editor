@@ -2,7 +2,11 @@
 
 Additional local changes under review: floating comments avoid the entire marked
 source range; all collaborators can propose tracked source changes, including via
-MCP `suggest`/`suggestions`; owner/editor acceptance is explicit. Spelling is an
+MCP `propose`/`proposals` using the same project packages as the UI.
+`suggest` now creates a package and `suggestions` lists packages; existing
+clients must update their response handling. Packages include uploads, additions,
+deletions and renames, including new/renamed documents. Owner/editor acceptance
+is explicit in the existing review mode. Spelling is an
 account preference. Image viewing, project file drops, generic attachment upload,
 completion refresh, source/preview matching and checkpoint-menu deletion have
 been revised. Migrations 20-25 are required. These additions are not a published

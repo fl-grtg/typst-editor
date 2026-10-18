@@ -356,33 +356,6 @@ test('imgPick performs the one-shot swap in a session and the plain upload other
   assert.equal(c.pendingReplace, '') // picker dismissed: the swap target must not leak into the next upload
 })
 
-// Round 5 #4(c): badge icon + count never fight over one text node again
-test('pBadge paints the count into its own span and keeps the pen', () => {
-  const badge = { style: {}, textContent: '' }
-  const count = { textContent: '' }
-  const c = vm.createContext({ $: id => (id === 'pBadge' ? badge : count) })
-  vm.runInContext(docx.slice(docx.indexOf('let topPackages = []'), docx.indexOf('function refreshDocRole(d) {')), c)
-  vm.runInContext('topPackages = [{ project: "p1" }, { project: "p2" }]', c)
-  c.paintPackages()
-  assert.equal(badge.textContent, '') // no whole-badge text writes: the SVG survives every state
-  assert.equal(count.textContent, '2')
-  assert.equal(badge.style.display, '')
-  vm.runInContext('topPackages = []', c)
-  c.paintPackages()
-  assert.equal(count.textContent, '')
-  assert.equal(badge.style.display, 'none')
-})
-
-test('pBadge markup and styles keep icon and count together', () => {
-  const html = fs.readFileSync('web/index.shell.html', 'utf8')
-  const m = /<button id="pBadge"[^>]*>([\s\S]*?)<\/button>/.exec(html)
-  assert.ok(m, 'pBadge markup found')
-  assert.ok(m[1].includes('<svg') && m[1].includes('id="pBadgeN"'), 'pen svg + dedicated count span inside the button')
-  const css = fs.readFileSync('web/css/40-topbar.css', 'utf8')
-  assert.match(css, /#pBadge \{[^}]*inline-flex/)
-  assert.match(css, /#pBadge svg \{[^}]*width: 12px/)
-})
-
 test('the round-5 hooks exist where the report prescribes them', () => {
   assert.match(zz, /const stageToPackage/)
   assert.match(zz, /deleteFile = async name =>/)

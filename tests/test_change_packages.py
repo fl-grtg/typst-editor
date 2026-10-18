@@ -122,6 +122,164 @@ def setup(c, content="first old\nlast old\n"):
     return project, document
 
 
+def test_new_document_and_title_rename_stay_in_package_until_acceptance(c):
+    project, document = setup(c, "old")
+    package = submit(c, project, [
+        {"kind": "document", "path": "main.typ", "action": "add", "target": "New document", "content": "New text"},
+        {"kind": "document", "doc_id": document, "path": "main.typ", "action": "rename", "target": "Renamed",
+         "original_title": "Packages", "base": "old", "content": "edited"},
+    ])
+    added = package["files"][0]["doc_id"]
+    assert c.get(f"/api/docs/{added}").status_code == 404
+    assert c.get(f"/api/docs/{document}").json()["title"] == "Packages"
+    assert accept(c, project, package).status_code == 200
+    assert c.get(f"/api/docs/{added}").json()["content"] == "New text"
+    renamed = c.get(f"/api/docs/{document}").json()
+    assert (renamed["title"], renamed["content"]) == ("Renamed", "edited")
+
+
+def test_document_rename_detects_title_changes_and_target_collisions(c):
+    project, document = setup(c, "old")
+    package = submit(c, project, [{"kind": "document", "doc_id": document, "path": "main.typ", "action": "rename",
+                                  "target": "Renamed", "original_title": "Packages", "base": "old", "content": "old"}])
+    assert c.post(f"/api/docs/{document}/rename", json={"title": "Changed"}).status_code == 200
+    assert accept(c, project, package).status_code == 409
+    assert c.post(f"/api/docs/{document}/rename", json={"title": "Packages"}).status_code == 200
+    assert c.post(f"/api/projects/{project}/docs", json={"title": "renamed"}).status_code == 200
+    assert accept(c, project, package).status_code == 409
+    assert c.get(f"/api/docs/{document}").json()["title"] == "Packages"
+
+
+def test_new_documents_obey_owner_count_and_rollback_together(c, monkeypatch):
+    from dataclasses import replace
+
+    from backend import config
+
+    project, _ = setup(c)
+    package = submit(c, project, [{"kind": "document", "path": "main.typ", "action": "add", "target": title, "content": "text"}
+                                  for title in ("One", "Two")])
+    settings = replace(config.load(), MAX_DOCS_PER_USER=2)
+    monkeypatch.setattr(config, "load", lambda: settings)
+    assert accept(c, project, package).status_code == 400
+    for file in package["files"]:
+        assert c.get(f"/api/docs/{file['doc_id']}").status_code == 404
+
+
+def test_added_document_rejects_path_traversal_identity(c):
+    project, _ = setup(c)
+    response = c.post(f"/api/projects/{project}/proposals", json={"title": "Invalid", "files": [
+        {"kind": "document", "doc_id": "../outside", "path": "main.typ", "action": "add", "target": "New", "content": "text"}]})
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize('selected', ['rename', 'reference'])
+def test_related_acceptance_keeps_independent_changes_in_same_document_pending(c, selected):
+    base = '#import "old.typ": value\n#value\nUnrelated old text\n'
+    project, document = setup(c, base)
+    assert c.post(f'/api/projects/{project}/resources', json={'name': 'old.typ', 'content': '#let value = 1'}).status_code == 200
+    package = submit(c, project, [
+        document_change(document, base, [('"old.typ"', '"new.typ"'), ('Unrelated old text', 'Unrelated new text')]),
+        {'kind': 'resource', 'path': 'old.typ', 'action': 'rename', 'target': 'new.typ', 'base': '#let value = 1', 'content': '#let value = 1'},
+        {'kind': 'resource', 'path': 'unrelated.txt', 'action': 'add', 'content': 'Keep pending'},
+    ])
+    text, rename, unrelated = package['files']
+    selection = {'file_id': rename['id']} if selected == 'rename' else {'file_id': text['id'], 'change_id': text['changes'][0]['id']}
+    response = accept(c, project, package, **selection, include_dependencies=True)
+    assert response.status_code == 200, response.text
+    assert c.get(f'/api/docs/{document}').json()['content'] == base.replace('old.typ', 'new.typ')
+    remaining = response.json()['files']
+    assert len(remaining) == 2
+    pending_text = next(f for f in remaining if f['id'] == text['id'])
+    assert [change['id'] for change in pending_text['changes']] == [text['changes'][1]['id']]
+    assert next(f for f in remaining if f['id'] == unrelated['id'])['action'] == 'add'
+    assert {f['name'] for f in c.get(f'/api/projects/{project}/resources').json()['resources']} == {'new.typ'}
+
+
+def test_related_new_file_acceptance_keeps_other_proposals_pending(c):
+    base = '= Heading\nOther old text\n'
+    project, document = setup(c, base)
+    package = submit(c, project, [
+        document_change(document, base, [('= Heading', '#include "new.typ"'), ('Other old text', 'Other new text')]),
+        {'kind': 'resource', 'path': 'new.typ', 'action': 'add', 'content': '= Included heading'},
+    ])
+    source = package['files'][0]
+    response = accept(c, project, package, file_id=source['id'], change_id=source['changes'][0]['id'], include_dependencies=True)
+    assert response.status_code == 200, response.text
+    assert c.get(f'/api/docs/{document}').json()['content'] == base.replace('= Heading', '#include "new.typ"')
+    assert len(response.json()['files']) == 1
+    assert response.json()['files'][0]['changes'][0]['id'] == source['changes'][1]['id']
+
+
+def test_related_rename_leaves_renamed_file_contents_pending_at_new_path(c):
+    base = '#import "old.typ": value\n#value\nUnrelated old text\n'
+    project, document = setup(c, base)
+    module = '#let value = 1\n#let footer = "Original"\n'
+    proposed_module = module.replace('value = 1', 'value = 2')
+    assert c.post(f'/api/projects/{project}/resources', json={'name': 'old.typ', 'content': module}).status_code == 200
+    package = submit(c, project, [
+        document_change(document, base, [('"old.typ"', '"new.typ"'), ('Unrelated old text', 'Unrelated new text')]),
+        {'kind': 'resource', 'path': 'old.typ', 'action': 'rename', 'target': 'new.typ', 'base': module, 'content': proposed_module,
+         'changes': [{'old_string': 'value = 1', 'new_string': 'value = 2'}]},
+    ])
+    source, rename = package['files']
+    response = accept(c, project, package, file_id=source['id'], change_id=source['changes'][0]['id'], include_dependencies=True)
+    assert response.status_code == 200, response.text
+    resources = c.get(f'/api/projects/{project}/resources').json()['resources']
+    assert next(f for f in resources if f['name'] == 'new.typ')['content'] == module
+    partial = response.json()
+    pending_module = next(f for f in partial['files'] if f['id'] == rename['id'])
+    assert pending_module['action'] == 'modify' and pending_module['path'] == 'new.typ'
+    assert pending_module['base'] == module and pending_module['content'] == proposed_module
+    assert c.get(f'/api/docs/{document}').json()['content'] == base.replace('old.typ', 'new.typ')
+    final = accept(c, project, partial, file_id=rename['id'])
+    assert final.status_code == 200, final.text
+    assert len(final.json()['files']) == 1
+    resources = c.get(f'/api/projects/{project}/resources').json()['resources']
+    assert next(f for f in resources if f['name'] == 'new.typ')['content'] == proposed_module
+
+
+def test_structural_document_rename_keeps_content_pending_at_main_path(c):
+    project, document = setup(c, 'Original text')
+    package = submit(c, project, [{'kind': 'document', 'doc_id': document, 'path': 'main.typ', 'action': 'rename',
+                                  'target': 'Renamed', 'original_title': 'Packages', 'base': 'Original text', 'content': 'Proposed text'}])
+    response = accept(c, project, package, file_id=package['files'][0]['id'], change_id='@action')
+    assert response.status_code == 200, response.text
+    doc = c.get(f'/api/docs/{document}').json()
+    assert (doc['title'], doc['content']) == ('Renamed', 'Original text')
+    pending = response.json()['files'][0]
+    assert pending['path'] == 'main.typ' and pending['action'] == 'modify'
+    correction = c.patch(f"/api/projects/{project}/proposals/{package['id']}", json={
+        'title': package['title'], 'revision': response.json()['revision'], 'files': [pending]})
+    assert correction.status_code == 200, correction.text
+    assert accept(c, project, correction.json()).status_code == 200
+    assert c.get(f'/api/docs/{document}').json()['content'] == 'Proposed text'
+
+
+@pytest.mark.parametrize('kind,binary', [('resource', False), ('document', False), ('file', True)])
+def test_structural_add_keeps_later_content_edits_pending(c, kind, binary):
+    project, document = setup(c)
+    initial, proposed = ('Initial text', 'Proposed text') if not binary else (base64.b64encode(b'initial').decode(), base64.b64encode(b'proposed').decode())
+    file = {'kind': kind, 'path': 'main.typ' if kind == 'document' else 'added.png' if binary else 'added.typ',
+            'action': 'add', 'initial_content': initial, 'content': proposed, 'binary': binary}
+    if kind == 'document':
+        file['target'] = 'Added document'
+    elif kind == 'file':
+        file['doc_id'] = document
+    package = submit(c, project, [file])
+    saved = package['files'][0]
+    response = accept(c, project, package, file_id=saved['id'], change_id='@action')
+    assert response.status_code == 200, response.text
+    assert response.json()['files'][0]['action'] == 'modify'
+    assert response.json()['files'][0]['base'] == initial
+    if kind == 'document':
+        assert c.get(f"/api/docs/{saved['doc_id']}").json()['content'] == initial
+    elif kind == 'resource':
+        assert next(f for f in c.get(f'/api/projects/{project}/resources').json()['resources'] if f['name'] == 'added.typ')['content'] == initial
+    else:
+        assert c.get(f'/api/docs/{document}/files/added.png').content == b'initial'
+    assert accept(c, project, response.json()).status_code == 200
+
+
 def document_change(document, base, changes):
     content = base
     for old, new in changes:

@@ -57,6 +57,7 @@ $('renBtn').onclick = async () => { // pencil behind title (owner only, template
   const doc = docId, epoch = openN
   if (tplName) { await renamePersonalResource(tplName); return }
   if (!docId || docRole !== 'owner') return
+  if (window.changeSession) { await renameProjectDocument({ id: docId, title: docTitle }); return }
   const nt = await ask(t('docs.renameDoc'), { value: (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent })
   if (nt === null || !nt.trim()) return
   if (doc !== docId || epoch !== openN) return

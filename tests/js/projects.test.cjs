@@ -212,7 +212,7 @@ test('sidebar callers share one request and schedule one follow-up', async () =>
 test('project tabs contain every document, binary file and unused module', () => {
   const files = readFileSync('web/js/80-files-images.js', 'utf8')
   const fn = files.slice(files.indexOf('function projectTabEntry('), files.indexOf('const tabErrs'))
-  const c = setup({ projects: [{ id: 'p', documents: [{ id: 'd' }, { id: 'other' }],
+  const c = setup({ window: {}, projects: [{ id: 'p', documents: [{ id: 'd' }, { id: 'other' }],
     files: [{ doc_id: 'd', name: 'image.png' }, { doc_id: 'other', name: 'data.csv' }], resources: [{ name: 'unused.typ' }] }],
     lastFiles: [{ name: 'image.png' }], effTpl: () => [], TPLK: '@tpl/', isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.slice(5) })
   vm.runInContext(fn, c)
@@ -278,4 +278,38 @@ test('rail shortcuts open a collapsed section and never close an open one', () =
   vm.runInContext(fn, c)
   c.section('trashH'); c.section('trashH')
   assert.equal(expanded, true); assert.equal(clicks, 1); assert.equal(scrolls, 2)
+})
+
+
+test('repeated CSV sidebar clicks share one pending open and review resources need no fetch', async () => {
+  let finish, switches = 0, loads = 0
+  const c = setup({ window: { changeSession: {} }, TPLK: '@tpl/', tabPins: new Set(),
+    loadDocResources: async () => { loads++; return true },
+    switchTab: name => { switches++; return new Promise(r => { finish = () => { c.activeFile = name; r(true) } }) } })
+  const first = c.openProjectEntry({ id: 'p' }, 'd', 'data.csv', true)
+  const second = c.openProjectEntry({ id: 'p' }, 'd', 'data.csv', true)
+  assert.equal(first, second)
+  assert.equal(switches, 1)
+  assert.equal(loads, 0)
+  finish(); await first
+  await c.openProjectEntry({ id: 'p' }, 'd', 'data.csv', true)
+  assert.equal(switches, 1)
+})
+
+
+test('empty trash sends one bulk request for twelve entries and never opens a document', async () => {
+  const nodes = new Map(), writes = []
+  const node = () => ({ style: {}, children: [], setAttribute: () => {}, appendChild(n) { this.children.push(n) },
+    append(...ns) { this.children.push(...ns) }, replaceChildren() { this.children = [] } })
+  const c = vm.createContext({ $: id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id) },
+    el: node, icoBtn: node, t: key => key, kb: () => {}, sidebarDropTarget: () => {}, sidebarDrag: () => {},
+    secShut: new Set(), docId: 'active', activeFile: '', ICO_UNDO: '', ICO_X: '',
+    ask: async () => true, sidebar: async () => {}, closeView: () => assert.fail('active document must stay open'),
+    openDoc: () => assert.fail('deletion must not open a document'), toast: message => assert.fail(message),
+    api: async (method, url) => { writes.push([method, url]); return { documents: [] } } })
+  const docs = readFileSync('web/js/60-docs.js', 'utf8')
+  vm.runInContext(docs.slice(docs.indexOf('function paintTrash('), docs.indexOf("$('q').oninput")), c)
+  c.paintTrash(Array.from({ length: 12 }, (_, i) => ({ id: 'trash' + i, title: 'Old ' + i })))
+  await nodes.get('trashH').children[1].onclick({ stopPropagation: () => {} })
+  assert.deepEqual(writes, [['DELETE', '/api/trash']])
 })

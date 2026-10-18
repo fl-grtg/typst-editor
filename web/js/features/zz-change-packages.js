@@ -2,10 +2,16 @@
 window.changeSession = null
 let packageList = [], packageLoad = 0, sessionSequence = 0, sessionStarting = false
 const sessionKey = f => [f.kind, f.doc_id || '', f.path].join(':')
-const sessionCurrent = () => ({ kind: !activeFile ? 'document' : isTplKey(activeFile) ? 'resource' : 'file', doc_id: !activeFile || !isTplKey(activeFile) ? docId : '', path: activeFile ? tabName(activeFile) : 'main.typ' })
+const sessionDocumentTab = file => '@proposal-doc/' + file.doc_id + '.typ'
+function sessionIdentity(name) {
+  const added = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === name)
+  return added || { kind: !name ? 'document' : isTplKey(name) ? 'resource' : 'file', doc_id: !name || !isTplKey(name) ? docId : '', path: name ? tabName(name) : 'main.typ' }
+}
+const sessionCurrent = () => sessionIdentity(activeFile)
 const sessionUrl = s => '/api/projects/' + s.project + '/proposals' + (s.package ? '/' + s.package.id : '')
 function sessionRuntime(file) {
   const item = { ...file, id: file.id || 'draft_' + ++sessionSequence }
+  if (item.action === 'add') item.initial_content ??= item.content
   if (item.action === 'modify' && item.base == null) throw Error(t('comments.suggestionConflict'))
   if (!item.binary) {
     item.state = EditorState.create({ doc: item.base || '' })
@@ -231,12 +237,14 @@ async function endChangeSession(discard = false) {
     if (window.changeSession !== s || choice !== 0 && choice !== 1) return false
     if (choice === 0) return submitChangeSession()
   }
+  const addedTab = [...s.files.values()].some(f => f.action === 'add' && sessionKey(f) === sessionKey(sessionCurrent()))
   window.changeSession = null
   clearTimeout(sessionStashTimer)
   packageDraft('delete', sessionStashKey(s)).catch(() => {})
   try { localStorage.removeItem(sessionStashKey(s)) } catch (e) {}
   filesDirty = true; fileCache.clear(); shadowSig = ''; pvSentSig = ''; pvMapped = false; tabSig = ''
-  const current = docId, key = activeFile
+  const current = docId, key = addedTab ? '' : activeFile
+  if (addedTab) activeFile = ''
   if (current) {
     if (key) {
       if (isTplKey(key)) { try { await loadDocResources(true) } catch (e) { toast(e.message) } }
@@ -289,17 +297,36 @@ async function openTopPackage(entry) {
   } catch (e) { toast(e.message) }
 }
 window.openTopPackage = openTopPackage
-async function acceptSessionSelection(fileId = '', changeId = '', cell = null, fieldEdit = null) {
+async function acceptSessionSelection(fileId = '', changeId = '', cell = null, fieldEdit = null, includeDependencies = false) {
   const s = window.changeSession
-  if (!s?.package || s.busy || !await saveSessionCorrections() || window.changeSession !== s) return
-  s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
+  if (!s?.package || s.busy || s.accepting) return
+  s.accepting = true
+  let acceptTogether = false
   try {
-    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell, field_edit: fieldEdit })
+    if (!await saveSessionCorrections() || window.changeSession !== s) return
+    s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
+    const proposal = await api('POST', sessionUrl(s) + '/accept', { revision: s.package.revision, file_id: fileId, change_id: changeId, cell, field_edit: fieldEdit, include_dependencies: includeDependencies })
     if (window.changeSession !== s) return
+    const activeRename = [...s.files.values()].find(f => f.kind !== 'document' && f.action === 'rename' && sessionKey(f) === sessionKey(sessionCurrent()) && !proposal.files.some(p => p.id === f.id && p.action === 'rename'))
+    if (activeRename) {
+      activeFile = activeRename.kind === 'resource' ? TPLK + activeRename.target : activeRename.target
+      if (activeRename.kind === 'resource') { tabPins.delete(activeRename.path); tabPins.add(activeRename.target) }
+      tabDirty = false; tabSig = ''
+    }
     const deletedCurrent = [...s.files.values()].some(f => f.kind === 'document' && f.doc_id === docId && f.action === 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
     const deletedActive = [...s.files.values()].some(f => f.kind !== 'document' && sessionKey(f) === sessionKey(sessionCurrent()) && f.action === 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
     const acceptedDocuments = [...s.files.values()].filter(f => f.kind === 'document' && f.action !== 'delete' && !proposal.files.some(p => sessionKey(p) === sessionKey(f)))
+    const renamedDocument = [...s.files.values()].find(f => f.kind === 'document' && f.action === 'rename' && f.doc_id === docId && !proposal.files.some(p => p.id === f.id && p.action === 'rename'))
+    if (renamedDocument) { docTitle = renamedDocument.target; tabSig = '' }
+    const acceptedAddedDocument = [...s.files.values()].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === activeFile && !proposal.files.some(p => p.id === f.id && p.action === 'add'))
+    if (acceptedAddedDocument) { activeFile = ''; tabDirty = false; tabSig = '' }
     s.package = proposal; s.files = new Map(proposal.files.map(f => [sessionKey(f), sessionRuntime(f)]))
+    s.dirty = false
+    if (!deletedCurrent) {
+      await loadDocResources(true)
+      if (window.changeSession !== s) return
+      s.libraryBase = projectResources().map(f => ({ ...f }))
+    }
     if (proposal.files.length) for (const old of acceptedDocuments) {
       const current = await api('GET', '/api/docs/' + old.doc_id)
       if (window.changeSession !== s) return
@@ -308,21 +335,35 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null, f
     s.commentRanges.clear(); s.dirty = false; s.previewRevision++; s.original = false; filesDirty = true; fileCache.clear(); pvSentSig = ''; closePop(true)
     for (const th of threads) { th.a = null; th.b = null } // accepted text replaced the base: rebuild comment ranges on the fresh shadow
     initRanges(); invalidateCommentCache() // the accepted text reaches shadow via WS: the stale-ordered re-anchor must not stick behind the poll dedupe
-    if (deletedActive) {
+    if (deletedActive && !deletedCurrent) {
       if (isTplKey(activeFile)) await loadDocResources(true)
       else lastFiles = lastFiles.filter(f => f.name !== activeFile)
       activeFile = ''; tabDirty = false; setT(shadow); tabSig = ''
     }
     if (deletedCurrent) {
       const deletedId = docId
+      activeFile = ''; tabDirty = false
       s.busy = false; await endChangeSession(true); closeView()
       const fallback = projects.find(p => p.id === s.project)?.documents?.find(d => d.id !== deletedId)
       if (fallback) { await openDoc(fallback.id); if (proposal.files.length) await startChangeSession(proposal) }
     }
     else if (!proposal.files.length) { s.busy = false; await endChangeSession(true) }
-    else { s.busy = false; await loadDocResources(true); await sessionActivate(); await sidebar() }
-  } catch (e) { toast(e.message) }
-  finally { s.busy = false; if (window.changeSession === s) await sessionActivate(); paintSuggestionControls() }
+    else {
+      s.busy = false
+      if (acceptedAddedDocument) await openDoc(acceptedAddedDocument.doc_id)
+      await sessionActivate(); await sidebar()
+    }
+  } catch (e) {
+    if (fileId && !includeDependencies && e.status === 409 && e.detail?.code === 'proposal_dependencies') {
+      acceptTogether = await ask(t('packages.acceptRelated'), { noInput: true, ok: t('packages.acceptRelatedAction') })
+    } else toast(e.message)
+  }
+  finally {
+    s.busy = false
+    try { if (window.changeSession === s) await sessionActivate(); paintSuggestionControls() }
+    finally { s.accepting = false }
+  }
+  if (acceptTogether && window.changeSession === s) return acceptSessionSelection(fileId, changeId, cell, fieldEdit, true)
 }
 async function deleteSelectedPackage() {
   const s = window.changeSession
@@ -336,6 +377,12 @@ function sessionChangeRanges(file) {
   if (!file.delta) return ranges
   file.delta.iterChanges((from, to, a, b) => ranges.push({ from, to, a, b, old: (file.base || '').slice(from, to), next: (file.content || '').slice(a, b) }))
   return ranges
+}
+async function acceptSessionRange(file, range) {
+  if (file.action !== 'modify') return acceptSessionSelection(file.id)
+  const match = file.changes?.find(c => { const start = file.base.indexOf(c.old_string); return start >= 0 && range.from >= start && range.to <= start + c.old_string.length })
+  if (match) return acceptSessionSelection(file.id, match.id)
+  toast(t('comments.suggestionConflict'))
 }
 class PackageDeletion extends WidgetType {
   constructor(range, index) { super(); this.range = range; this.index = index }
@@ -428,6 +475,10 @@ function sessionCard(box) {
     accept.onclick = async () => {
       if (!await saveSessionCorrections()) return
       const actual = s.files.get(sessionKey(sessionCurrent()))
+      if (!actual || window.changeSession !== s) return
+      if (actual.action === 'rename' || actual.action === 'add' && !box.cell && !box.bibField) {
+        await acceptSessionSelection(actual.id); return
+      }
       if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
       if (box.bibField) {
         const patch = sessionBibPatch(actual, box.bibField, true)
@@ -437,9 +488,7 @@ function sessionCard(box) {
         if (edits.length === 1) await acceptSessionSelection(actual.id, '', null, edits[0])
         return
       }
-      const match = actual?.changes?.find(c => { const start = actual.base.indexOf(c.old_string); return start >= 0 && range.from >= start && range.to <= start + c.old_string.length })
-      if (match) await acceptSessionSelection(actual.id, match.id)
-      else toast(t('comments.suggestionConflict'))
+      await acceptSessionRange(actual, range)
     }
     header.append(accept)
   }
@@ -479,24 +528,48 @@ function sessionCard(box) {
   $('pop').append(card)
   if (!activeFile) threads.filter(th => { const r = threadEditorRange(th); return r.from <= range.b && r.to >= range.a }).forEach(th => $('pop').append(threadCard(th)))
 }
+function paintSessionSelection() {
+  const s = window.changeSession
+  if (!s) return
+  const current = sessionKey(sessionCurrent())
+  document.querySelectorAll('#own [data-package-key], #shared [data-package-key]').forEach(row => {
+    row.classList.toggle('cur', row.closest('.project-group')?.dataset.projectId === s.project && row.dataset.packageKey === current)
+  })
+}
 function paintSessionSidebar() {
   const s = window.changeSession
   document.querySelectorAll('.package-files').forEach(node => node.remove())
-  document.querySelectorAll('#own .package-modified, #own .package-deleted, #shared .package-modified, #shared .package-deleted').forEach(node => node.classList.remove('package-modified', 'package-deleted'))
+  document.querySelectorAll('.package-accept-action, .package-discard-action').forEach(node => node.remove())
+  document.querySelectorAll('.project-group .package-modified, .project-group .package-deleted').forEach(node => node.classList.remove('package-modified', 'package-deleted'))
   if (!s) return
   const group = el('div', 'package-files')
   group.append(el('b', 'package-caption', s.package?.title || t('packages.draft')))
   sessionFiles(s).forEach(file => {
     const existing = [...document.querySelectorAll('[data-package-key]')].find(row => row.closest('.project-group')?.dataset.projectId === s.project && row.dataset.packageKey === sessionKey(file))
-    if (existing) { existing.classList.add('package-modified'); existing.classList.toggle('package-deleted', file.action === 'delete'); return }
-    const documentTitle = file.kind === 'document' && (projects.find(p => p.id === s.project)?.documents?.find(d => d.id === file.doc_id)?.title || (file.doc_id === docId ? docTitle : ''))
+    if (existing) {
+      existing.classList.add('package-modified'); existing.classList.toggle('package-deleted', file.action === 'delete')
+      if (file.action === 'rename') {
+        const name = file.kind === 'document' ? file.original_title : file.path
+        const label = existing.querySelector('.t')
+        if (label) label.textContent = name + ' → ' + file.target
+        existing.title = name + ' → ' + file.target
+      }
+      if (s.package && ['owner', 'editor'].includes(docRole) && ['add', 'delete', 'rename'].includes(file.action)) {
+        const discard = projectAction(existing, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
+        discard.classList.add('package-discard-action')
+      }
+      sessionActionButton(existing, file)
+      return
+    }
+    const documentTitle = file.kind === 'document' && (file.target || projects.find(p => p.id === s.project)?.documents?.find(d => d.id === file.doc_id)?.title || (file.doc_id === docId ? docTitle : ''))
     const name = documentTitle ? documentTitle.replace(/\.typ$/i, '') + '.typ' : file.path
     const row = el('div', 'doc sub package-file'), label = el('span', 't', (file.action === 'add' ? '+ ' : file.action === 'delete' ? '− ' : '') + name)
+    row.dataset.packageKey = sessionKey(file)
     if (file.action === 'delete' || file.action === 'rename') label.classList.add('suggestionDeleted')
     row.append(label); row.title = file.action === 'rename' ? file.path + ' → ' + file.target : name
     row.onclick = () => sessionOpenFile(file)
-    if (s.package && ['owner', 'editor'].includes(docRole)) projectAction(row, ICO_CHECK, t('packages.acceptFile'), () => acceptSessionSelection(file.id))
     if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) projectAction(row, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
+    sessionActionButton(row, file)
     group.append(row)
   })
   // kept drafts belong to the project they were made in (never the top root): attach under that project's group, own or shared
@@ -504,22 +577,32 @@ function paintSessionSidebar() {
   if (home) {
     const head = home.querySelector('.fhd')
     home.insertBefore(group, head?.nextSibling || null) // visible even while the group is collapsed
+    paintSessionSelection()
     return
   }
   group.prepend(el('span', 'package-caption origin-gone', t('packages.originGone'))) // project list lagging (e.g. left)/project gone: keep the draft reachable, say where it came from
   $('own').prepend(group)
+  paintSessionSelection()
+}
+function sessionActionButton(row, file) {
+  const s = window.changeSession
+  if (!s?.package || !['owner', 'editor'].includes(docRole) || !['add', 'delete', 'rename'].includes(file.action)) return
+  const button = projectAction(row, ICO_CHECK, t('packages.acceptAction'), () => acceptSessionSelection(file.id, '@action'))
+  button.classList.add('package-accept-action')
 }
 async function discardSessionFile(file) {
   const s = window.changeSession
   if (!s || s.busy || s.original) return
+  const current = sessionKey(file) === sessionKey(sessionCurrent())
   if (file.action === 'add') s.files.delete(sessionKey(file))
   else s.files.set(sessionKey(file), sessionRuntime({ ...file, action: 'modify', content: file.base, changes: [], target: undefined }))
   s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar()
-  if (file.action === 'add' && sessionKey(file) === sessionKey(sessionCurrent())) await switchTab('')
+  if (file.action === 'add' && current) await switchTab('')
   else await sessionActivate()
   paintTabs()
 }
 async function sessionOpenFile(file) {
+  if (file.kind === 'document' && file.action === 'add') return switchTab(sessionDocumentTab(file))
   if (file.doc_id && file.doc_id !== docId) { await openDoc(file.doc_id); if (docId !== file.doc_id) return }
   await switchTab(file.kind === 'document' ? '' : file.kind === 'resource' ? TPLK + file.path : file.path)
 }
@@ -559,14 +642,14 @@ const reviewButton = icoBtn('ib', svgI('<path d="M3 3h10v10H3zM5 6h6M5 9h3"/>'))
 const originalButton = icoBtn('ib', svgI('<path d="M1 8s2-4 7-4 7 4 7 4-2 4-7 4-7-4-7-4z"/><circle cx="8" cy="8" r="2"/>'))
 const acceptPackageButton = icoBtn('ib', ICO_CHECK), acceptFileButton = icoBtn('ib', svgI('<path d="M3 1h7l3 3v10H3zM5 9l2 2 4-4"/>'))
 const exitPackageButton = icoBtn('ib', ICO_X), deletePackageButton = icoBtn('ib', ICO_TRASH)
-const packageActions = icoBtn('ib', ICO_MORE)
+const packageActions = icoBtn('ib', ICO_CHECK)
 const discardFileButton = icoBtn('ib', ICO_TRASH)
 const packageMode = el('span', 'package-mode sr-only')
 reviewTools.append(packageMode, reviewButton, originalButton, packageActions, exitPackageButton)
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
-  const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
+  const actions = [acceptPackageButton, acceptFileButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
   const choice = await askPick(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']))
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }
@@ -589,7 +672,7 @@ paintSuggestionControls = () => {
   packageMode.title = packageMode.textContent
   const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptPackage'), t('packages.acceptFile'), t('packages.delete'), t('packages.exit')]
   ;[reviewButton, originalButton, acceptPackageButton, acceptFileButton, deletePackageButton, exitPackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
-  packageActions.title = t('shell.menuMore'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.disabled = !!s?.busy
+  packageActions.title = t('packages.actions'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
   originalButton.hidden = !s?.package; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
   acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || !['owner', 'editor'].includes(docRole)
@@ -620,7 +703,7 @@ switchTab = async (name, nosave) => {
     if (docId !== entry.document || window.changeSession !== s) return false
     name = entry.name
   }
-  const identity = { kind: !name ? 'document' : isTplKey(name) ? 'resource' : 'file', doc_id: !name || !isTplKey(name) ? docId : '', path: name ? tabName(name) : 'main.typ' }
+  const identity = sessionIdentity(name)
   if (!s.files.has(sessionKey(identity))) {
     const switched = await sessionOriginalSwitchTab(name, nosave)
     if (!switched || window.changeSession !== s) return false
@@ -647,7 +730,7 @@ tabItems = () => {
   const items = sessionOriginalTabItems(), s = window.changeSession
   if (!s) return items
   for (const f of s.files.values()) {
-    const item = f.kind === 'document' ? f.doc_id === docId ? '' : '@doc/' + f.doc_id : f.kind === 'resource' ? TPLK + f.path : f.doc_id === docId ? f.path : '@file/' + f.doc_id + '/' + f.path
+    const item = f.kind === 'document' ? f.action === 'add' ? sessionDocumentTab(f) : f.doc_id === docId ? '' : '@doc/' + f.doc_id : f.kind === 'resource' ? TPLK + f.path : f.doc_id === docId ? f.path : '@file/' + f.doc_id + '/' + f.path
     if (!items.includes(item)) items.push(item)
   }
   return items
@@ -697,7 +780,11 @@ async function stageSessionDelete(identity) {
   if (!s || !canStageProjectDelete(s.project)) return
   const f = await sessionEnsure(identity)
   if (!f || window.changeSession !== s || !canStageProjectDelete(s.project)) return
-  if (f.action === 'add') s.files.delete(sessionKey(f))
+  if (f.action === 'add') {
+    const current = sessionKey(f) === sessionKey(sessionCurrent())
+    s.files.delete(sessionKey(f))
+    if (current) { activeFile = ''; tabDirty = false; tabSig = '' }
+  }
   else { f.action = 'delete'; f.content = null; f.changes = [] }
   s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); await sessionActivate(); paintTabs()
 }
@@ -709,7 +796,7 @@ async function stageDocumentDelete(document) {
   }
   const s = window.changeSession
   if (!s) return false
-  if (!projects.find(p => p.id === s.project)?.documents?.some(d => d.id === document)) { toast(t('packages.sourceBlocked')); return true }
+  if (!projects.find(p => p.id === s.project)?.documents?.some(d => d.id === document) && ![...s.files.values()].some(f => f.kind === 'document' && f.doc_id === document && f.action === 'add')) { toast(t('packages.sourceBlocked')); return true }
   try { await stageSessionDelete({ kind: 'document', doc_id: document, path: 'main.typ' }) } catch (e) { toast(e.message) }
   return true
 }
@@ -745,6 +832,34 @@ renameProjectEntry = async (project, name, document, resource) => {
   f.action = 'rename'; f.target = target.trim(); s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); queueRender()
 }
 const sessionOriginalNewResource = newProjectResource
+const sessionOriginalNewDocument = newProjectDoc, sessionOriginalRenameDocument = renameProjectDocument
+newProjectDoc = async project => {
+  const s = window.changeSession
+  if (!s || s.project !== project) return sessionOriginalNewDocument(project)
+  if (s.original || s.busy) return
+  const choice = await askNewDoc()
+  if (!choice?.title?.trim() || window.changeSession !== s) return
+  const file = sessionRuntime({ kind: 'document', doc_id: 'd_' + crypto.randomUUID().replaceAll('-', ''), path: 'main.typ', action: 'add', target: choice.title.trim(), content: galleryContent(choice.tpl) })
+  s.files.set(sessionKey(file), file); s.dirty = true; s.previewRevision++; sessionStash()
+  await sessionOpenFile(file); paintSessionSidebar(); return file.doc_id
+}
+renameProjectDocument = async document => {
+  const s = window.changeSession
+  if (!s) return sessionOriginalRenameDocument(document)
+  if (s.original || s.busy) return
+  const title = await ask(t('docs.renameDoc'), { value: document.title, maxLen: 100 })
+  if (!title?.trim() || title.trim() === document.title || window.changeSession !== s) return
+  const file = await sessionEnsure({ kind: 'document', doc_id: document.id, path: 'main.typ' })
+  if (window.changeSession !== s) return
+  if (file.action !== 'add') { file.action = 'rename'; file.original_title ||= document.title }
+  file.target = title.trim()
+  s.dirty = true; s.previewRevision++; sessionStash(); paintSessionSidebar(); paintTabs()
+}
+const sessionOriginalTabName = tabName
+tabName = name => {
+  const file = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === name)
+  return file ? file.target.replace(/\.typ$/i, '') + '.typ' : sessionOriginalTabName(name)
+}
 newProjectResource = async project => {
   if (!window.changeSession || window.changeSession.project !== project) return sessionOriginalNewResource(project)
   const ext = await chooseFileType(); if (!ext) return

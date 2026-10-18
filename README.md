@@ -222,6 +222,18 @@ Project ZIP (`GET /api/projects/{id}/export-zip`) is a different layout: `projec
 
 ### Local review and attachment changes
 
+MCP agents use `propose(path, title, files)` to submit the same project packages
+as humans, and `proposals(path, package_id)` to read/correct them. `suggest`
+is a shortcut for one document edit, takes an optional package title (`text`, max 100 characters), and now returns a package; `suggestions`
+lists project packages (the old comment-suggestion response is retired).
+Reviewer keys can propose without modifying source. Binary originals are
+available with `read(path, binary=true)`. Packages support text edits, new
+documents/modules/attachments, binary uploads/replacements, deletion and rename.
+Document add uses `target` as its title; document rename also carries
+`original_title`. File/module renames need explicit reference edits in the same
+package; known dependency conflicts block incomplete acceptance. Review uses
+the existing proposal mode, with no separate agent review interface.
+
 The editor's **Suggest** mode gives project members a tracked draft spanning
 documents, modules and attachments. `/api/projects/{id}/proposals` lists and
 creates packages; `PATCH /{package_id}` corrects a versioned package and

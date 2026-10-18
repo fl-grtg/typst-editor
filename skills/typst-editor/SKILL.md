@@ -1,6 +1,6 @@
 ---
 name: typst-editor
-description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, export, search, upload, comment, suggest, suggestions). Use for /docs, /shared, /templates, /projects work through the typst-editor server.
+description: Self-hosted Typst docs via MCP (ls, read, create, edit, view, export, search, upload, comment, suggest, suggestions, propose, proposals). Use for /docs, /shared, /templates, /projects work through the typst-editor server.
 ---
 
 # Typst Editor — MCP Agent Skill
@@ -48,14 +48,16 @@ Copy paths from `ls` output, never invent them.
 | Tool | Does |
 | --- | --- |
 | `ls(path="/")` | `/`, `/docs`, `/shared`, `/templates`, `/projects` (also a project `/{id}` + its `docs`/`resources`), or a doc path (its files) |
-| `read(path, offset=1, limit=0)` | line window over doc / text file / template / project resource (offset 1-based, limit 0 = all, past-the-end → `""`) → `content` + echoed `offset` + `total_lines` + `last_seen` (pass to `edit`); doc reads add `live` (text came from the in-memory live room, e.g. an open editor) |
+| `read(path, offset=1, limit=0, binary=false)` | line window over doc / text file / template / project resource (offset 1-based, limit 0 = all, past-the-end → `""`) → `content` + echoed `offset` + `total_lines` + `last_seen` (pass to `edit`); doc reads add `live` (text came from the in-memory live room, e.g. an open editor) |
 | `create(path, content="")` | new doc, file, template, or project doc/resource (template suffix must be a known text type: `.typ`, `.bib`, `.csv`, `.tsv`, `.json`, `.yaml`/`.yml`, `.toml`, `.xml`, `.txt`, `.csl` — else `404`). `400` if it exists, project collisions → `409`; binary names need `upload` instead |
 | `edit(path, old_string, new_string, replace_all=false, last_seen=null)` | anchor edit (§5), max 200000 UTF-8 bytes |
 | `search(query)` | doc main text + reachable project resources (titles + content), min 2 chars, max 20 hits |
 | `upload(path, content_base64, filename=null)` | attachment (`…/{File}` or doc + `filename`), max 10 MB |
 | `comment(path, anchor, text, quote="", parent_id=null)` | `anchor` = 1-based line number (`1` = first line, max 10M; `0` is accepted as an alias for `1`); text ≤2000 chars; **docs only** (file/template paths → `400`); one reply level; create-only, rest in UI |
-| `suggest(path, old_string, new_string, text="")` | Propose a **document** edit without changing source. Any readable role/key may propose. Original must match exactly once (include context); use `old_string=""` only for an empty document. Replacement may be empty to delete. Original/replacement each max 20,000 chars, explanation max 2,000. Returns pending id/anchor. `409` means missing/ambiguous original: re-read before proposing again; `400` if nothing changes; `413` beyond 200 pending proposals or 512 KB pending payload per document. |
-| `suggestions(path)` | List a document's proposals: 200 latest + `total`, each with `id`, `author`, `anchor`, `quote` (original, ≤500 chars), explanation `text`, `status`, `created_at`. Full original/replacement text is not returned. Only an editor or owner can accept/reject in the UI; there is no MCP acceptance tool. File, template and resource paths are unsupported for proposals (`400`). |
+| `propose(path, title, files, package_id="", revision=0)` | Submit one normal project proposal package (title max 100 characters), exactly like the UI. `path=/projects/{id}`. Nothing changes in source until an owner/editor accepts. Reviewer keys work. Supports text changes, new documents/resources/files, binary uploads/replacements, deletions and renames. See section 5a for the shared file schema. Read the package before correcting it; pass its id/revision and preserve file/change ids. |
+| `proposals(path, package_id="")` | List project packages, or read a complete package including originals, proposed contents, ids and revision. Project membership required. Owners/editors review, correct, discard or accept individual changes/files/the whole package in the existing UI review mode. No MCP acceptance tool. |
+| `suggest(path, old_string, new_string, text="")` | Convenience for one document text change: creates a **normal package**, never a comment suggestion. `text` is its title (max 100 characters; longer titles return an explicit 400). Original must match exactly once (empty only for an empty document); replacement may be empty. Use `propose` to group changes. |
+| `suggestions(path)` | Alias for listing the normal packages in the document's project. Returns `packages`, not the old comment-based `suggestions` array. |
 | `view(path, pages="1-5", scale=1.0)` | doc pages as viewable image blocks (longest side ≤1280px) → image blocks + `count` + `total_pages` + `cache_hit` + `last_seen`; pages format `"2"`, `"1-5"`, `"6-10"`, `"1-3,5"` — numbers 1-20, max 20 per call; `scale` 0.5-3.0 (default 1.0 → 144 ppi). Compile errors → `422` with `diagnostics: [{file, line, col, message}]`. No manual decode needed — see §8 |
 | `export(path, format="pdf", pdf_standard="none", pages="", ppi=0)` | doc as file → `format` + `mime` + `filename` + `content_base64` + `size_bytes`. Formats: `pdf` (full multi-page PDF), `svg`/`png` (single page directly, multi-page docs arrive as ZIP of `page-{n}` files), `zip` (document source bundle: `main.typ` + sources at their original relative paths + `SKIPPED.txt` if oversized — not a project ZIP, no project round-trip). Options (§9): `pdf_standard`, `pages`, `ppi`. Read-only: reviewer keys work. Always decode + save, see §9 |
 
@@ -73,12 +75,44 @@ Copy paths from `ls` output, never invent them.
 - `0` matches → `409 anchor-gone`: re-`read`, then retry with a bigger anchor.
 - `>1` matches → `409 anchor-ambiguous`: add context, or `replace_all=true` (renames).
 - `last_seen` is optional: stale marker + clean anchor still applies (returns `stale: true`).
-- Binary `read` → `400`: `view` the parent doc (renders only embedded content), `upload` to replace the file.
+- Binary attachments: use `read(path, binary=true)` for original bytes as `content_base64` (max 10 MB), suitable as a proposal base. Plain text `read` on binary filenames returns `400`. `view` renders the parent document; `upload` replaces source directly and requires edit permission.
+
+## 5a. Propose a project package
+
+When asked to suggest/review changes, use `propose` instead of `edit`/`create`/`upload`. Collect all related work into one package. The human opens it in the existing proposal/review mode, sees its proposed files and inline changes, and can correct, accept partially or discard it. Do not create duplicate comments to represent package edits. `comment` is for actual discussion.
+
+1. `ls("/projects")`, then `ls("/projects/{id}")` gives document `id` and title. Read affected text through its normal path. For binary originals use `read(attachment_path, binary=true)` and copy its `content_base64` as the base; never fabricate it.
+2. Submit `propose(path="/projects/{id}", title="...", files=[...])`. Each file has:
+   - `kind`: `document`, `resource` (project module), or `file` (document attachment).
+   - `doc_id`: listed document id for documents/attachments; omit for resources. For a new document omit it and retain the generated id returned by `propose`. Include needed project modules in the package; private templates are not materialized implicitly.
+   - `path`: `main.typ` for documents, relative filename for resources/attachments.
+   - `action`: `modify`, `add`, `delete`, or `rename`.
+   - `base`: full original text, or null/omitted for add. `content`: full proposed text, omitted for delete. For binary attachments set `binary=true` and use base64 in both fields.
+   - Text `modify` requires `changes=[{"old_string":"unique original passage","new_string":"replacement"}]`. All passages refer to the same original `base`; no overlapping changes. The changes must produce `content` exactly. Empty old text is allowed only for an empty original.
+   - `initial_content` (optional on add) records the initial file contents separately from later proposed `content` edits. The sidebar check accepts file creation with this initial content, leaving later edits pending. If omitted it defaults to the submitted content.
+   - `rename`: `target` is the new relative filename; include original `base` and proposed `content`. Documents instead use `target` as the new title and require `original_title` for conflict detection. New documents also use `target` for their title.
+3. Renames **do not automatically rewrite references**. Put required import/include/image/path edits into the same package. Accepting a rename or deletion alone is blocked when that would break known references; accept the dependent changes together. Dynamic paths still need human inspection. Destination collisions and changed originals fail without overwriting source.
+4. To correct: `proposals(path, package_id)` -> retain returned file/change ids and originals -> `propose(..., package_id, revision)` with the complete remaining file list. A stale revision returns 409; reopen before trying again. An empty correction discards remaining changes while preserving already accepted work.
+
+Example: one text change plus a new module, in the same package:
+
+```json
+{
+  "path": "/projects/PROJECT_ID",
+  "title": "Use the shared heading style",
+  "files": [
+    {"kind":"document","doc_id":"DOCUMENT_ID","path":"main.typ","action":"modify",
+     "base":"= Hello","content":"#import \"heading.typ\": heading\n#heading[Hello]",
+     "changes":[{"old_string":"= Hello","new_string":"#import \"heading.typ\": heading\n#heading[Hello]"}]},
+    {"kind":"resource","path":"heading.typ","action":"add","content":"#let heading(body) = text(size: 20pt, body)"}
+  ]
+}
+```
 
 ## 6. On errors
 
 - `404` → path is wrong or renamed: `ls` the parent again, never retry blindly.
-- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment + propose only — that is the minimum of key role and share role. Project guests see only their shared docs. Rename/share/delete/invite/resolve don't exist as MCP tools — human in the UI (file/resource rename there is two-step: `rename-entry-preview` returns `{name, version, references}`, `rename-entry` requires that `version`; UI shows static references + dynamic-path hint and asks for confirmation, no auto-rewrite; removing a project member shows an explicit broad-revoke warning before confirming).
+- `403` → missing right: ask the human for a share (or a stronger key). Reviewer keys/shares are read + comment + propose only; project packages require project membership, a legacy document-only guest must be added to the project by its owner — that is the minimum of key role and share role. Project guests see only their shared docs. Direct rename/share/delete/invite/resolve don't exist as MCP tools (propose rename/delete through a package instead) — human in the UI (file/resource rename there is two-step: `rename-entry-preview` returns `{name, version, references}`, `rename-entry` requires that `version`; UI shows static references + dynamic-path hint and asks for confirmation, no auto-rewrite; removing a project member shows an explicit broad-revoke warning before confirming).
 - `409` → ambiguous legacy title (same title in several projects): switch to `/projects/{id}/docs/{Title}`; project/doc title collisions on create/rename also → `409` (project create auto-suffixes instead); stale file/resource rename `version` → `409` (re-run preview in UI); for `edit` it can also mean anchor-gone/anchor-ambiguous (see §5).
 - `410` → doc is trashed (restore in UI) or retired folder route (use `/projects`); stop and tell the human.
 - `429` → rate limit (60/min): back off, don't retry-loop. REST export serializes per user across docs (`429 Export already running`) — wait, then retry once.
