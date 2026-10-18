@@ -590,3 +590,40 @@ def test_acceptance_releases_upload_and_package_locks_before_project_history(c, 
     assert checkpoints == [document]
     assert response.json()["files"] == []
     assert c.get(f"/api/docs/{document}").json()["content"] == "Accepted"
+
+
+@pytest.mark.parametrize("first", ["module", "hint", "attachment", "reference"])
+def test_related_acceptance_can_update_references_inside_a_renamed_document(c, first):
+    main = '#import "old.typ": value\nIndependent old\n'
+    appendix = '#import "old.typ": value\nAppendix old\n'
+    project, document = setup(c, main)
+    response = c.post(f"/api/projects/{project}/docs", json={"title": "Appendix", "content": appendix})
+    assert response.status_code == 200, response.text
+    other = response.json()["id"]
+    assert c.post(f"/api/projects/{project}/resources", json={"name": "old.typ", "content": "#let value = 1"}).status_code == 200
+    package = submit(c, project, [
+        document_change(document, main, [('"old.typ"', '"new.typ"\n#include "hint.typ"'), ('Independent old', 'Independent new')]),
+        {"kind": "document", "doc_id": other, "path": "main.typ", "action": "rename", "original_title": "Appendix", "target": "Appendix B",
+         "base": appendix, "content": appendix.replace('"old.typ"', '"new.typ"').replace('Appendix old', 'Appendix new'),
+         "changes": [{"old_string": '"old.typ"', "new_string": '"new.typ"'}, {"old_string": "Appendix old", "new_string": "Appendix new"}]},
+        {"kind": "resource", "path": "old.typ", "action": "rename", "target": "new.typ", "base": "#let value = 1", "content": "#let value = 2",
+         "changes": [{"old_string": "value = 1", "new_string": "value = 2"}]},
+        {"kind": "resource", "path": "hint.typ", "action": "add", "content": '#import "new.typ": value'},
+        {"kind": "file", "doc_id": other, "path": "head.typ", "action": "add", "content": '#import "new.typ": value'},
+    ])
+    source, renamed_doc, module, hint, attachment = package["files"]
+    selected = {"module": module, "hint": hint, "attachment": attachment, "reference": source}[first]
+    response = accept(c, project, package, file_id=selected["id"],
+                      change_id=source["changes"][0]["id"] if first == "reference" else "@action", include_dependencies=True)
+    assert response.status_code == 200, response.text
+    partial = response.json()
+    current = c.get(f"/api/docs/{other}").json()
+    assert current["title"] == "Appendix B"
+    assert current["content"] == appendix.replace('"old.typ"', '"new.typ"')
+    pending = next(f for f in partial["files"] if f["id"] == renamed_doc["id"])
+    assert pending["action"] == "modify"
+    assert [change["old_string"] for change in pending["changes"]] == ["Appendix old"]
+    assert "Independent old" in c.get(f"/api/docs/{document}").json()["content"]
+    resources = c.get(f"/api/projects/{project}/resources").json()["resources"]
+    assert next(f for f in resources if f["name"] == "new.typ")["content"] == "#let value = 1"
+    assert accept(c, project, partial).status_code == 200

@@ -294,8 +294,9 @@ def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict
                             target = (file["kind"], file.get("doc_id", ""), file.get("target", file["path"]))
                             if file["action"] in ("add", "rename") and target in (local, shared):
                                 return [(file["id"], "@rename" if file["action"] == "rename" else "")]
-                        source = next((f for f in pending if key(f) == identity), None)
-                        if source and source["action"] == "modify" and not source.get("binary"):
+                        source = next((f for f in pending if key(f) == identity or
+                                       f["action"] == "rename" and (f["kind"], f.get("doc_id", ""), f.get("target")) == identity), None)
+                        if source and source["action"] in ("modify", "rename") and not source.get("binary"):
                             quoted = '"' + ref + '"'
                             changes = [(source["id"], c["id"]) for c in source["changes"]
                                        if c["old_string"].count(quoted) > c["new_string"].count(quoted)]
@@ -411,19 +412,24 @@ def accept(
                             continue
                         selected_ids = selection[file["id"]]
                         structural_only = file["action"] in ("rename", "add", "delete") and selected_ids == {"@action"}
-                        rename_only = file["action"] == "rename" and (structural_only or selected_ids == {"@rename"})
-                        if selected_ids and not rename_only and not structural_only and (file["action"] != "modify" or file.get("binary")):
+                        rename_ids = selected_ids if file["action"] == "rename" else None
+                        if rename_ids is not None and file.get("binary") and not rename_ids <= {"@action", "@rename"}:
+                            raise HTTPException(400, "Single-change acceptance requires a text modification")
+                        if selected_ids and rename_ids is None and not structural_only and (file["action"] != "modify" or file.get("binary")):
                             raise HTTPException(400, "Single-change acceptance requires a text modification")
                         current = snapshot(con, project, file)
-                        if rename_only:
+                        if rename_ids is not None:
                             if current != file.get("base"):
                                 raise HTTPException(409, "Original file changed")
-                            content = current
-                            if current != file["content"]:
-                                pending_content = {**file, "action": "modify", "path": file["path"] if file["kind"] == "document" else file["target"], "base": current}
+                            selected = [c for c in file.get("changes", []) if c["id"] in rename_ids]
+                            if rename_ids - {"@action", "@rename"} - {c["id"] for c in selected}:
+                                raise HTTPException(409, "Change is no longer pending")
+                            content = apply_changes(current or "", selected) if selected else current
+                            if content != file["content"]:
+                                pending_content = {**file, "action": "modify", "path": file["path"] if file["kind"] == "document" else file["target"], "base": content}
                                 pending_content.pop("target", None)
-                                pending_content["changes"] = file.get("changes") or ([] if file.get("binary") else [
-                                    {"id": db.new_id("pc_"), "old_string": current, "new_string": file["content"]}])
+                                pending_content["changes"] = [c for c in file.get("changes", []) if c not in selected] or ([] if file.get("binary") else [
+                                    {"id": db.new_id("pc_"), "old_string": content, "new_string": file["content"]}])
                                 remaining.append(pending_content)
                             accepted += 1
                         elif structural_only and file["action"] == "add":

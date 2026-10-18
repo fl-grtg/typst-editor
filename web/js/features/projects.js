@@ -64,8 +64,10 @@ function paintProjects(box, shared) {
     const title = el('b', null, p.title)
     title.title = p.title; title.setAttribute('role', 'button')
     title.setAttribute('aria-expanded', String(!shut.has(key)))
-    const toggle = () => {
-      shut.has(key) ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
+    const toggle = async () => {
+      const opening = shut.has(key)
+      opening ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
+      if (opening && !docId && !tplName && entries.documents[0]) await openDoc(entries.documents[0].id)
     }
     title.onclick = toggle; kb(title, toggle); h.appendChild(title)
     if (projectEditable(p)) {

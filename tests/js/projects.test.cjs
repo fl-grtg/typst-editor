@@ -313,3 +313,17 @@ test('empty trash sends one bulk request for twelve entries and never opens a do
   await nodes.get('trashH').children[1].onclick({ stopPropagation: () => {} })
   assert.deepEqual(writes, [['DELETE', '/api/trash']])
 })
+
+
+test('expanding a project from welcome opens its first document without replacing an open editor', async () => {
+  const fn = source.slice(source.indexOf('    const toggle = async () =>'), source.indexOf('    title.onclick = toggle'))
+  const opened = []
+  const c = vm.createContext({ key: 'project:p', shut: new Set(['project:p']), entries: { documents: [{ id: 'first' }, { id: 'second' }] },
+    docId: '', tplName: '', saveShut: () => {}, paintOwn: () => {}, paintShared: () => {}, lastShared: [], openDoc: async id => opened.push(id) })
+  vm.runInContext(fn + '; globalThis.toggleProject = toggle', c)
+  await c.toggleProject()
+  assert.deepEqual(opened, ['first'])
+  c.docId = 'already-open'; c.shut.add('project:p')
+  await c.toggleProject()
+  assert.deepEqual(opened, ['first'])
+})

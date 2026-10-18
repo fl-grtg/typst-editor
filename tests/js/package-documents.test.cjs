@@ -200,3 +200,19 @@ test('accepting current document deletion closes review without fetching trashed
     assert.equal(c.session.accepting, false)
   }
 })
+
+
+test('bibliography entry indicators show only records with remaining field changes', () => {
+  const c = context()
+  const entry = { key: 'a', type: 'book', fields: [{ name: 'title', value: 'Title' }, { name: 'year', value: '2021' }] }
+  const old = { ...entry, fields: [{ name: 'title', value: 'Title' }, { name: 'year', value: '2020' }] }
+  c.parseBib = () => [old]
+  vm.runInContext(packages.slice(packages.indexOf('function sessionBibEntryPending'), packages.indexOf('function sessionBibField')), c)
+  assert.equal(c.sessionBibEntryPending({ base: 'old' }, entry), true)
+  assert.equal(c.sessionBibEntryPending({ base: 'old' }, old), false)
+  c.parseBib = () => [entry]
+  assert.equal(c.sessionBibEntryPending({ base: 'accepted' }, entry), false)
+  assert.equal(c.sessionBibEntryPending({ base: 'accepted' }, { ...entry, key: 'new' }), true)
+  c.session.original = true
+  assert.equal(c.sessionBibEntryPending({ base: 'old' }, entry), false)
+})

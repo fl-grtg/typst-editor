@@ -435,6 +435,12 @@ function openSessionChange(index, anchors = null, cell = null, bibField = null) 
   const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
   openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bibField })
 }
+function sessionBibEntryPending(file, entry) {
+  if (!file || window.changeSession?.original) return false
+  const before = parseBib(file.base || '').find(old => old.key === entry.key)
+  return !before || before.type !== entry.type || before.fields.length !== entry.fields.length ||
+    entry.fields.some(field => before.fields.find(old => old.name === field.name)?.value !== field.value)
+}
 function sessionBibField(file, selector) {
   const before = parseBib(file.base || ''), after = parseBib(file.content || '')
   const next = after[selector.entry], old = before.find(e => e.key === next?.key)
@@ -649,7 +655,7 @@ reviewTools.append(packageMode, reviewButton, originalButton, packageActions, ex
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
-  const actions = [acceptPackageButton, acceptFileButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
+  const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
   const choice = await askPick(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']))
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }
