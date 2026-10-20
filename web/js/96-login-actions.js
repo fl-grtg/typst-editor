@@ -1,9 +1,7 @@
 // --- Login / Buttons ---
 function paintMe() { // own blob in user box (image not color, missing = color)
-  const bg = avBg(user || '?', colOf(user || '?'))
   const dot = $('meDot')
-  dot.style.background = bg
-  dot.textContent = (user || '?').slice(0, 2).toUpperCase()
+  paintAvatar(dot, user || '?', colOf(user || '?'))
   dot.title = t('login.meSelf', { name: user || '?' }) // aria-hidden: name lives in #who
   const who = $('who')
   who.innerHTML = ''
@@ -13,7 +11,30 @@ function paintMe() { // own blob in user box (image not color, missing = color)
   who.appendChild(sub)
 }
 let avatarV = 0
-const avBg = (n, c) => avatarV ? `${c} url("/api/avatar/${encodeURIComponent(n)}?v=${avatarV}") center/cover` : c
+const avUrl = n => `/api/avatar/${encodeURIComponent(n)}?v=${avatarV}`
+const avProbes = new Map() // name|version -> Promise<bool>: does this person have an image? one request each, not one per render
+function avProbe(n) {
+  const key = `${n}|${avatarV}`
+  if (avProbes.has(key)) return avProbes.get(key)
+  if (globalThis.navigator?.onLine === false) return Promise.resolve(false) // offline: spare the request, a later render retries
+  avProbes.set(key, new Promise(res => {
+    const done = (img, sure) => { if (!sure) avProbes.delete(key); res(img) } // unsure (network down, 5xx): entry dropped, a later render retries
+    fetch(avUrl(n)).then(r => done(r.ok, r.ok || r.status === 404)).catch(() => done(false, false)) // 200/404 are final; anything else may recover without a reload
+  }))
+  return avProbes.get(key)
+}
+function paintAvatar(node, n, c) { // initials on the color blob; once the image is known to exist it replaces them (no letters over a photo)
+  const key = `${n}|${avatarV}`
+  node.dataset.av = key
+  node.style.background = c
+  node.textContent = (n || '?').slice(0, 2).toUpperCase()
+  if (n === user && !avatarV) return // own account without an image: nothing to fetch
+  avProbe(n).then(ok => {
+    if (!ok || node.dataset.av !== key) return
+    node.style.background = `${c} url("${avUrl(n)}") center/cover`
+    node.textContent = ''
+  })
+}
 let regMode = false
 $('showPw').onchange = () => { $('p').type = $('showPw').checked ? 'text' : 'password' }
 $('mode').onclick = e => {
