@@ -26,7 +26,7 @@ function setYText(v) { // replace Y content with minimal edit (never delete+rein
   }, 'local')
 }
 function pushLocal(changes, oldLen) {
-  if (window.suggestionDraft || window.changeSession) return
+  if (applying || window.suggestionDraft || window.changeSession) return
   if (changes && ytext.length === oldLen && shadow.length === oldLen) { // in sync: apply CM changes 1:1
     ydoc.transact(() => {
       let adj = 0 // later changes shift by earlier ones (iterChanges reports old-doc positions)
@@ -44,6 +44,7 @@ function pushLocal(changes, oldLen) {
   shadow = getT()
 }
 function pullRemote(ev) {
+  if (ev && ev.transaction && ev.transaction.origin === 'local') return;
   const v = ytext.toString()
   synced = true // server text arrived: saves now write real content
   if (v === shadow) { if (!window.suggestionDraft && !window.changeSession) jumpWant(); return }
