@@ -6151,7 +6151,12 @@ const avUrl = n => `/api/avatar/${encodeURIComponent(n)}?v=${avatarV}`
 const avProbes = new Map() // name|version -> Promise<bool>: does this person have an image? one request each, not one per render
 function avProbe(n) {
   const key = `${n}|${avatarV}`
-  if (!avProbes.has(key)) avProbes.set(key, new Promise(res => { const im = new Image(); im.onload = () => res(true); im.onerror = () => res(false); im.src = avUrl(n) }))
+  if (avProbes.has(key)) return avProbes.get(key)
+  if (globalThis.navigator?.onLine === false) return Promise.resolve(false) // offline: spare the request, a later render retries
+  avProbes.set(key, new Promise(res => {
+    const done = (img, sure) => { if (!sure) avProbes.delete(key); res(img) } // unsure (network down, 5xx): entry dropped, a later render retries
+    fetch(avUrl(n)).then(r => done(r.ok, r.ok || r.status === 404)).catch(() => done(false, false)) // 200/404 are final; anything else may recover without a reload
+  }))
   return avProbes.get(key)
 }
 function paintAvatar(node, n, c) { // initials on the color blob; once the image is known to exist it replaces them (no letters over a photo)
