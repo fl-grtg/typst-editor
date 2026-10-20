@@ -91,7 +91,7 @@ function typstComplete(ctx) {
   if (imp) { // after import/include/#image(": global templates + manager files
     const q = imp[2].toLowerCase()
     const files = [...new Set([...projectResources().map(t => t.name), ...mediaNames])].filter(n => fuzzy(q, n))
-    return files.length ? { from: pos - imp[2].length, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[^"\n]*$/ } : null
+    return files.length ? { from: pos - imp[2].length, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
   }
   const rf = before.match(/#ref\s*\((<?)([^)>]*)$/)
   if (rf) { // after #ref(: labels from doc (vendor covers @label, not the #ref( form)
@@ -105,14 +105,14 @@ function typstComplete(ctx) {
           view.dispatch({ changes: { from, to: end, insert: ins }, selection: { anchor: from + ins.length }, userEvent: 'input.complete' })
         } })
       }
-    return out.length ? { from: pos - rf[2].length - rf[1].length, filter: false, options: out.slice(0, 50), validFor: /^<?[\p{ID_Continue}:.-]*>?$/u } : null
+    return out.length ? { from: pos - rf[2].length - rf[1].length, filter: false, options: out.slice(0, 50) } : null
   }
   const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
   if (ct) {
     if (!bibKeys.length) return null
     const q = ct[1].toLowerCase()
     const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
-    return out.length ? { from: pos - ct[1].length, filter: false, options: out.slice(0, 50), validFor: /^[\p{ID_Continue}:.+/-]*$/u } : null
+    return out.length ? { from: pos - ct[1].length, filter: false, options: out.slice(0, 50) } : null
   }
   const sr = (() => { // innermost unclosed `#set FUNC(` (nesting-aware; parens in strings ignored)
     const re = /#set\s+([\w.]+)\s*\(/g
@@ -167,7 +167,7 @@ function typstComplete(ctx) {
         if (out.length) {
           const qn = q
           out.sort((a, b) => (b.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0) - (a.label.replace(/^"/, '').toLowerCase().startsWith(qn) ? 1 : 0))
-          return { from: pos - trail.length, filter: false, options: out.slice(0, 50), validFor: /^"?[\p{ID_Continue}:.-]*$/u }
+          return { from: pos - trail.length, filter: false, options: out.slice(0, 50) }
         }
       } else if (!cur.includes(':')) { // param name (no colon yet): only params vendor hides
         const used = new Set([...flat.matchAll(/([\p{ID_Start}_][\p{ID_Continue}_-]*)\s*:/gu)].map(m => m[1]))
@@ -177,7 +177,7 @@ function typstComplete(ctx) {
           return { from: pos - (wm ? wm[1].length : 0), filter: false, options: gap.slice(0, 20).map(p => {
             const accepts = (Array.isArray(p[2]) ? p[2] : []).map(s => s.replace(/^(?:type|value):/, '')).join(' | ')
             return { label: p[0], apply: p[0] + ': ', type: 'property', detail: accepts ? t('editor.paramWith', { accepts }) : t('editor.param'), boost: 50 }
-          }), validFor: /^[\p{ID_Continue}_-]*$/u }
+          }) }
         }
       }
     }
@@ -186,20 +186,20 @@ function typstComplete(ctx) {
     const q = kwm[1].toLowerCase()
     const out = T_KW.filter(k => k.includes(q)).map(k => ({ label: '#' + k, apply: '#' + k, type: 'keyword', boost: 60 }))
     for (const s of T_SNIP) if (s.label.toLowerCase().includes('#' + q) || s.label.toLowerCase().includes(q)) out.push(s) // F10 snippets alongside keywords
-    if (out.length) return { from: pos - kwm[1].length - 1, filter: false, options: out.slice(0, 50), validFor: /^#?[\p{ID_Continue}_-]*$/u }
+    if (out.length) return { from: pos - kwm[1].length - 1, filter: false, options: out.slice(0, 50) }
   }
   if (kwm && blocked === 'Error' && typeof typstGlobalCompletions !== 'undefined') {
     // broken syntax (##, unclosed forms): vendor is tree-based and silent -> text fallback from vendor data
     const q = kwm[1].toLowerCase(), out = []
     for (const c of typstGlobalCompletions) { if (out.length >= 50) break; if (c.label.toLowerCase().includes(q)) out.push(c) }
-    if (out.length) return { from: pos - kwm[1].length, filter: false, options: out, validFor: /^[\p{ID_Continue}_-]*$/u }
+    if (out.length) return { from: pos - kwm[1].length, filter: false, options: out }
   }
   if (ctx.explicit) { // Ctrl-Space/Tab without context: files/templates only, no language noise
     if (imp || rf || ct || sr) return null // context recognized but empty (no labels/keys/params): no file noise
     const w = ctx.matchBefore(/[\p{ID_Continue}.\-/]*$/u)
     const pre = (w ? w.text : '').toLowerCase()
     const files = [...new Set([...projectResources().map(t => t.name), ...mediaNames])].filter(n => fuzzy(pre, n))
-    return files.length ? { from: w ? w.from : pos, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })), validFor: /^[\p{ID_Continue}.\-/]*$/u } : null
+    return files.length ? { from: w ? w.from : pos, filter: false, options: files.slice(0, 50).map(n => ({ label: n, type: 'file' })) } : null
   }
   return null
 }
