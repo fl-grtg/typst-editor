@@ -33,10 +33,37 @@ test('prefiltered completion results are recomputed after typing', () => {
   vm.runInContext(src.slice(start, end), c)
   const complete = text => c.typstComplete({ pos: text.length, state: { doc: { sliceString: () => text } } })
   assert.ok(complete('#').options.some(o => o.label === '#set'))
-  assert.equal(complete('#').validFor.source, '^#?[\\p{ID_Continue}_-]*$')
-  assert.equal(complete('#').validFor.flags, 'u')
+  assert.equal(complete('#').validFor, undefined)
   assert.equal(complete('#ali'), null)
   assert.deepEqual(Array.from(complete('#sho').options, o => o.label), ['#show'])
+})
+
+test('project completions requery every prefiltered context', () => {
+  const src = read('20-completions.js')
+  const files = Array.from({ length: 60 }, (_, i) => ({ name: `module-${i}.typ` }))
+  const c = vm.createContext({ window: {}, snippetCompletion: (_s, c) => c,
+    typstGlobalCompletions: [{ label: 'alpha' }], typstMathCompletions: [],
+    typstBuiltinSignatures: { page: [['paper', 2, ['value:"a3"', 'value:"a4"']]] },
+    tplName: '', activeFile: '', tabName: () => 'main.typ', t: k => k,
+    projectResources: () => files, mediaNames: [], bibKeys: ['alpha', 'beta'],
+    getT: () => '<alpha> <beta>',
+    typstParser: { parse: () => ({ resolveInner: () => ({ name: 'Error' }) }) },
+  })
+  vm.runInContext(src.slice(src.indexOf('const T_KW'), src.indexOf('function typstHover')), c)
+  const complete = text => c.typstComplete({ pos: text.length, explicit: true,
+    state: { doc: { length: text.length, sliceString: () => text } },
+    matchBefore: () => ({ from: 0, text }),
+  })
+  for (const text of ['#include "', '#ref(<', '#cite("', '#set page(', '#set page(paper: "', '#', '#alp', 'module']) {
+    const result = complete(text)
+    assert.ok(result?.options.length, text)
+    assert.equal(result.filter, false, text)
+    assert.equal(result.validFor, undefined, text)
+  }
+  assert.equal(complete('#include "').options.length, 50)
+  assert.deepEqual(Array.from(complete('#include "module-59').options, o => o.label), ['module-59.typ'])
+  assert.deepEqual(Array.from(complete('#ref(<alp').options, o => o.label), ['<alpha>'])
+  assert.deepEqual(Array.from(complete('#cite("bet').options, o => o.label), ['beta'])
 })
 
 test('image view renders a typed blob, ignores stale loads and releases its URL', async () => {
