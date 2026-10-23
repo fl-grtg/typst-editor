@@ -56,6 +56,11 @@ def c(tmp_path, monkeypatch):
         yield client
 
 
+def set_cookie(c, name, value):
+    c.cookies.delete(name)
+    c.cookies.set(name, value)
+
+
 def register_user(c, name, pw="pass1234"):
     r = c.post("/api/register", json={"username": name, "password": pw})
     assert r.status_code == 200, r.text

@@ -5,7 +5,7 @@ Backend tests patch deps.* (never main.*) via the `c` fixture.
 import hashlib
 
 import pytest
-from conftest import login, make_doc, register_user
+from conftest import login, make_doc, register_user, set_cookie
 from pycrdt import Doc, Text
 from ws_helpers import _parse, _step1, _update_msg
 
@@ -109,9 +109,9 @@ def test_session_list_and_single_revoke(c):
     assert rr.status_code == 200, rr.text
     r2 = c.get("/api/sessions")
     assert len(r2.json()["sessions"]) == 1
-    c.cookies.set(auth.COOKIE, tok_a)
+    set_cookie(c, auth.COOKIE, tok_a)
     assert c.get("/api/me").status_code == 401
-    c.cookies.set(auth.COOKIE, tok_b)
+    set_cookie(c, auth.COOKIE, tok_b)
     assert c.get("/api/me").status_code == 200
     # Bad id -> 404, no leak.
     assert c.delete("/api/sessions/nothex").status_code == 404
@@ -343,10 +343,10 @@ def test_b5_foreign_revoke_kicks_idle_ws(c):
     assert tok_b and tok_b != tok_a
     did = make_doc(c, "B5Kick", content="hi")
     # Fremde Session (wird revoked) + eigene Survivor-Session.
-    c.cookies.set(auth.COOKIE, tok_a)
+    set_cookie(c, auth.COOKIE, tok_a)
     with c.websocket_connect(f"/ws/{did}") as wa:
         wa.receive_bytes()
-        c.cookies.set(auth.COOKIE, tok_b)
+        set_cookie(c, auth.COOKIE, tok_b)
         with c.websocket_connect(f"/ws/{did}") as wb:
             wb.receive_bytes()
             # Revoke der fremden Session als Survivor.
