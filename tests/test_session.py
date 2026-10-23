@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from conftest import login, register_user
+from conftest import login, register_user, set_cookie
 
 from backend import auth, db
 
@@ -34,5 +34,5 @@ def test_password_change_kills_other_sessions(c):
     login(c, "alice")
     assert c.post("/api/me/password", json={"old": "pass1234", "new": "neu12345"}).status_code == 200
     assert c.get("/api/me").status_code == 200
-    c.cookies.set(auth.COOKIE, old)
+    set_cookie(c, auth.COOKIE, old)
     assert c.get("/api/me").status_code == 401
