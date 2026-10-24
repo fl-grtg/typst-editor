@@ -52,18 +52,22 @@ jobs:
       - uses: actions/checkout@v7
       # No pip hash-lock: risky (rotating wheels); `pip check` is enough as a consistency gate.
       # No coverage gate and no image-scan gate: informational only, never fails the build (flaky/slow).
+      - name: Validate compose files
+        run: |
+          docker compose config --quiet
+          docker compose -f compose.yml -f compose.prerelease.yml config --quiet
       - run: |
           # Docker Hub rate-limits shared runner IPs (429 toomanyrequests);
           # retry with backoff instead of failing the whole CI on infra flakes.
           for i in 1 2 3 4 5; do
-            docker build --pull -t typst-editor . && break
+            docker build --pull -t ghcr.io/fl-grtg/typst-editor:main . && break
             echo "docker build attempt $i failed, retrying in 60s..."
             sleep 60
           done
-          docker image inspect typst-editor >/dev/null
+          docker image inspect ghcr.io/fl-grtg/typst-editor:main >/dev/null
       - run: |
-          docker run -d --rm -p 8978:8978 --name smoke typst-editor
-          trap 'docker stop smoke || true' EXIT
+          trap 'docker compose down -v || true' EXIT
+          docker compose up -d --pull never
           ok=0
           for i in $(seq 1 20); do
             if curl -fsS --max-time 5 http://127.0.0.1:8978/healthz; then ok=1; break; fi

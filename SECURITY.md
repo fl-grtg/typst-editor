@@ -29,6 +29,6 @@ Out of scope: vulnerabilities in third-party dependencies that are not exploitab
 
 ## Hardening notes for operators
 
-- Never expose the app directly; terminate TLS in a reverse proxy and set `TRUST_PROXY=true` only behind one.
+- The shipped Compose file publishes `8978` on all host interfaces. Bind it to `127.0.0.1:8978:8978` or filter the Docker-published port, terminate TLS in a reverse proxy, and set `TRUST_PROXY=true` only behind one.
 - Keep `REGISTRATION=invite-only` (default) unless you run a closed network.
 - Back up `DATA_DIR` regularly (`scripts/backup.py`) and test restoring it.

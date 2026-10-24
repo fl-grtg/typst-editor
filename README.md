@@ -34,9 +34,11 @@ docker compose logs app | grep "invite code"
 # Windows PowerShell: docker compose logs app | Select-String "invite code"
 ```
 
-Pulls the image (`pull_policy: always`). Data stays in a managed volume. Host path instead: set `COMPOSE_DATA_PATH` (Linux/macOS/WSL: `chown -R 999:999` on it).
+Uses the `main` image; run `docker compose pull` before upgrading. Data stays in a managed volume. For a host path, replace `typst-data:/app/data` with `./data:/app/data` and run `mkdir -p data && chown -R 999:999 data` first (Linux/macOS/WSL). Compose publishes `8978:8978` on all host interfaces; bind it to `127.0.0.1:8978:8978` for local-only (Docker-published ports can bypass host firewalls).
 
-Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Custom setup only: `cp .env.example .env`. Custom port: set `PORT` in `.env` (moves host + container port). Build local: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
+Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Custom setup only: `cp .env.example .env`. Custom port: change `environment.PORT` and both sides of the `ports` mapping in `compose.yml` (default `8978`). The container binds `0.0.0.0`; host exposure is controlled by `ports`. Build local: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
+
+Upgrading from the old compose file: `compose.yml` pins `HOST=0.0.0.0`, `PORT=8978`, and `DATA_DIR=/app/data`, so those `.env` values are ignored; `COMPOSE_DATA_PATH` is no longer used. Other `.env` settings still apply. See the upgrade notes in `RELEASE_NOTES.md`.
 
 Local Python 3.11:
 
@@ -56,7 +58,6 @@ File + env overrides; env wins. Parsed in `backend/config.py`. `.env.example`/`c
 | ENV | Default | Notes |
 | --- | --- | --- |
 | `DATA_DIR` | `./data` | SQLite + uploads; `/app/data` in container. |
-| `COMPOSE_DATA_PATH` | managed volume | Host path instead, e.g. `/srv/typst-data`. |
 | `TRUST_PROXY` | `false` | Set `true` behind a proxy, else cookies break. |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Peers allowed to send `X-Forwarded-*` (CIDR ok); same value goes to uvicorn. Never `*` with `TRUST_PROXY=true` (refuses to start). |
 | `REGISTRATION` | `invite-only` | `closed`, `invite-only`, or `open`. |
@@ -110,7 +111,7 @@ Restore: stop server, copy backup DB + files from the same maintenance window ov
 
 ## 🔌 Reverse proxy
 
-Needs `TRUST_PROXY=true`. Never expose directly; TLS is yours. Caddy:
+Needs `TRUST_PROXY=true`. The shipped Compose file publishes `8978:8978` on all interfaces; bind it to `127.0.0.1:8978:8978` or filter the Docker-published port, and terminate TLS in the proxy. Caddy:
 
 ```
 typst.example.com {
@@ -149,11 +150,11 @@ server {
 }
 ```
 
-Compression matters: the compiler (JS + WASM) is about 72 MB raw and about 26 MB compressed, so keep `encode`/`gzip` on. Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: point proxy at that port.
+Compression matters: the compiler (JS + WASM) is about 72 MB raw and about 26 MB compressed, so keep `encode`/`gzip` on. Without those headers the sync socket stays dead. `client_max_body_size 12M` covers 10 MB uploads. Custom `PORT`: change `environment.PORT` and both sides of the `ports` mapping in `compose.yml`, then point the proxy at the host port.
 
 Uvicorn trusts `X-Forwarded-For`/`Proto` only from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose the proxy uses a `172.x` IP, so extend the default: `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12`. Else all clients share one rate-limit bucket. Never `*` with `TRUST_PROXY=true`.
 
-One worker (`--workers 1`), one replica: rooms live in memory; multi-worker exits on purpose. 512 MB min, 1 GB advised. No public demo; self-host.
+One worker (`--workers 1`), one replica: rooms live in memory; multi-worker exits on purpose. 512 MB min, 1 GB advised; Compose does not enforce limits. No public demo; self-host.
 
 Project checkpoints need editor rights (read/compare for readers); restore saves a `Before restore` copy first. Removing a project member also deletes that member's doc shares in the project and — because invite links carry no username — wipes all pending invites of all project docs (broad revoke). The remove dialog states this broad effect explicitly before confirming (`projects.removeMemberWarning`, implemented in the share UI); per-invite attribution would need a migration and is out of prerelease scope. Project titles are unique per owner case-insensitive (v19 `idx_projects_owner_title_nocase`): create auto-suffixes (`Title (2)`…, truncated to 100 chars), rename rejects collisions with `409`, existing collisions were suffixed once during migration. File/resource rename is two-step: `POST /api/projects/{id}/rename-entry-preview` returns `{name, version, references}`, `POST /api/projects/{id}/rename-entry` requires that `version` (`409` on stale state); the UI shows the static references + dynamic-path hint and asks for confirmation before renaming (no automatic reference rewrite). Over-quota migration state stays readable/exportable/deletable; v19 grants a one-time permanent `migration_bytes` allowance (size of the existing project library in bytes at migration time, `user_cap` = cap + allowance, no recurring grant for new copies): new writes fail with `413` until space is freed.
 
@@ -172,7 +173,8 @@ No CDN for code delivery (local `vendor/` bundle; no service worker since 2026-1
 - First load is self-hosted; only `@preview` packages need net (`packages.typst.org`). Check console.
 - Single worker only (`--workers 1`). Multi-worker exits on purpose.
 - Behind proxy: `TRUST_PROXY=true`.
-- Port `8978` is loopback-only (override via `PORT`); TLS via proxy.
+- Port `8978` is published on all host interfaces (`8978:8978`); bind it to `127.0.0.1:8978:8978` for local-only (Docker-published ports can bypass host firewalls). TLS via proxy.
+- Compose uses Docker's default 10 s stop timeout; for large rooms use `docker compose down -t 15` so the final sync flush completes.
 - Host path perms only: `chown -R 999:999` on it.
 - `429` on reads: shared `files_list` bucket (120/min), slow down. `429 Export already running`: per-user export lock, wait and retry once.
 - `410`: trashed doc (restore first) or retired folder route (use projects). `409`: name/version conflict — re-read, rename, or use the project path for ambiguous MCP titles.
@@ -190,7 +192,7 @@ Vendor bundle (`cm-build/` → `vendor-cm.js`): `cd cm-build && npm ci && npm ru
 
 ### 📦 Changelog
 
-Version `0.2.0rc1` (`pyproject.toml`) is a prerelease candidate, not yet published. See `RELEASE_NOTES.md` (candidate draft: breaking changes + limits, no full acceptance claimed) and, once published, GitHub Releases.
+Version `0.2.0rc1` (`pyproject.toml`) is a prerelease candidate without a tagged release image; the rolling `main` image may contain this code. See `RELEASE_NOTES.md` (candidate draft: breaking changes + limits, no full acceptance claimed) and, once published, GitHub Releases.
 
 ## 🛠 Development
 
