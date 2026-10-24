@@ -1230,8 +1230,8 @@ def _subprocess_preexec():
 
 
 def _typst_env(root: Path) -> dict:
-    # Container runs read-only (USER 999, read_only:true): typst's package
-    # cache defaults to a non-writable location, so any @preview import
+    # Container runs as USER 999: typst's package cache defaults to a
+    # non-writable location, so any @preview import
     # fails with "failed to create temporary package directory: Permission
     # denied". Point it at DATA_DIR/typst-cache (persistent, survives
     # views) with a tmp fallback. TYPST_PACKAGE_CACHE_PATH is the

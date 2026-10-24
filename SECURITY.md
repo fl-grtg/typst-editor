@@ -29,6 +29,7 @@ Out of scope: vulnerabilities in third-party dependencies that are not exploitab
 
 ## Hardening notes for operators
 
-- Never expose the app directly; terminate TLS in a reverse proxy and set `TRUST_PROXY=true` only behind one.
+- The shipped Compose file publishes `8978` only on loopback (`127.0.0.1:8978:8978`). Keep it there unless you intentionally expose the service; if you change it to `8978:8978` or filter/proxy the Docker-published port, terminate TLS in a reverse proxy and set `TRUST_PROXY=true` only behind one.
+- The optional `compose.hardened.yml` adds a read-only root filesystem, `cap_drop: ALL`, and `no-new-privileges` (`docker compose -f compose.yml -f compose.hardened.yml up -d`).
 - Keep `REGISTRATION=invite-only` (default) unless you run a closed network.
 - Back up `DATA_DIR` regularly (`scripts/backup.py`) and test restoring it.

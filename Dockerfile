@@ -41,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD pytho
 # --proxy-headers: behind Caddy/nginx scheme/client IP stay correct (TRUST_PROXY, COOKIE_SECURE=auto, rate limit)
 # FORWARDED_ALLOW_IPS (default loopback) must cover the proxy IP, else X-Forwarded-For/Proto is ignored
 # (e.g. FORWARDED_ALLOW_IPS=172.16.0.0/12 behind compose/Caddy on a bridge network).
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8978} --workers 1 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}\""]
+CMD ["sh", "-c", "uvicorn backend.main:app --host \"${HOST:-0.0.0.0}\" --port ${PORT:-8978} --workers 1 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}\""]
