@@ -3,6 +3,7 @@ services:
     image: ghcr.io/fl-grtg/typst-editor:main
     container_name: typst-editor
     restart: unless-stopped
+    stop_grace_period: 15s
     env_file:
       - path: .env
         required: false
@@ -11,9 +12,14 @@ services:
       HOST: 0.0.0.0
       PORT: 8978
     ports:
-      - "8978:8978"
+      - "127.0.0.1:8978:8978"
     volumes:
       - typst-data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   typst-data:

@@ -56,6 +56,7 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose -f compose.yml -f compose.prerelease.yml config --quiet
+          docker compose -f compose.yml -f compose.hardened.yml config --quiet
       - run: |
           # Docker Hub rate-limits shared runner IPs (429 toomanyrequests);
           # retry with backoff instead of failing the whole CI on infra flakes.

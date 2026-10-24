@@ -120,21 +120,25 @@ candidate digest yet.
 
 ## Upgrade notes
 
-- `compose.yml` now uses the rolling `main` image, a fixed `8978:8978`
-  port mapping, and the named `typst-data` volume. Back up the data
-  directory/volume first. `compose.yml` pins `HOST=0.0.0.0`, `PORT=8978`,
+- `compose.yml` now uses the rolling `main` image, keeps the loopback-only
+  port mapping fixed at `127.0.0.1:8978:8978` (use `8978:8978` for LAN access),
+  and the named `typst-data` volume. It keeps the 15 s stop grace
+  period and json-file log rotation (10 MB × 3). The previous read-only and
+  capability hardening is opt-in via `compose.hardened.yml`. Stop the old
+  deployment (`docker compose down`) and back up the data directory/volume
+  first. `compose.yml` pins `HOST=0.0.0.0`, `PORT=8978`,
   and `DATA_DIR=/app/data`, so those `.env` values are ignored;
   `COMPOSE_DATA_PATH` is no longer used. Other `.env` settings still apply.
   Existing host-path installs must either mount the old path in `compose.yml`
   or copy the database/files into the new named volume before first start.
   If the old install already used the default named volume, skip the copy
-  command below; the same `typst-data` volume is reused. After removing the
-  old deployment (`docker compose down`):
+  command below; the same `typst-data` volume is reused. With the old
+  deployment stopped:
 
   ```sh
   docker compose run --rm --no-deps -T --user root --entrypoint sh \
     -v "$PWD/data:/from:ro" app \
-    -c 'cp -a /from/. /app/data/ && chown -R 999:999 /app/data'
+    -c 'test -f /from/app.db && cp -a /from/. /app/data/ && chown -R 999:999 /app/data'
   docker compose up -d
   ```
 

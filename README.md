@@ -34,11 +34,27 @@ docker compose logs app | grep "invite code"
 # Windows PowerShell: docker compose logs app | Select-String "invite code"
 ```
 
-Uses the `main` image; run `docker compose pull` before upgrading. Data stays in a managed volume. For a host path, replace `typst-data:/app/data` with `./data:/app/data` and run `mkdir -p data && chown -R 999:999 data` first (Linux/macOS/WSL). Compose publishes `8978:8978` on all host interfaces; bind it to `127.0.0.1:8978:8978` for local-only (Docker-published ports can bypass host firewalls).
+Uses the `main` image; run `docker compose pull` before upgrading. Data stays in a managed volume. For a host path, replace `typst-data:/app/data` with `./data:/app/data` and run `mkdir -p data && chown -R 999:999 data` first (Linux/macOS/WSL). Compose publishes only on loopback (`127.0.0.1:8978:8978`). For LAN access, change that mapping to `8978:8978`; Docker-published ports can bypass host firewalls. Restrict/filter the published port and use a reverse proxy for TLS.
 
-Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Custom setup only: `cp .env.example .env`. Custom port: change `environment.PORT` and both sides of the `ports` mapping in `compose.yml` (default `8978`). The container binds `0.0.0.0`; host exposure is controlled by `ports`. Build local: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
+Sign up at `http://127.0.0.1:8978` with the invite code from the logs. Custom setup only: `cp .env.example .env`. Custom port: change `environment.PORT` and both sides of the `ports` mapping in `compose.yml` (default `8978`). The container binds `0.0.0.0` by default (`HOST`); keep that for published ports — host exposure is controlled by `ports`. Build local: `docker build -t ghcr.io/fl-grtg/typst-editor:main .`.
 
-Upgrading from the old compose file: `compose.yml` pins `HOST=0.0.0.0`, `PORT=8978`, and `DATA_DIR=/app/data`, so those `.env` values are ignored; `COMPOSE_DATA_PATH` is no longer used. Other `.env` settings still apply. See the upgrade notes in `RELEASE_NOTES.md`.
+### ⬆️ Upgrading from the old Compose file
+
+Stop the old stack (`docker compose down`) and back up the data volume or host directory before switching. `compose.yml` pins `HOST=0.0.0.0`, `PORT=8978`, and `DATA_DIR=/app/data`, so those `.env` values are ignored; `COMPOSE_DATA_PATH` is no longer used. Other `.env` settings still apply.
+
+- Custom port: change `environment.PORT` and both sides of the `ports` mapping in `compose.yml` instead of `.env`.
+- Host path: either keep mounting the old path at `/app/data` or copy the database and files into the named `typst-data` volume before first start. Existing installs using the default volume reuse it.
+- Detailed migration commands: see the upgrade notes in `RELEASE_NOTES.md`.
+
+### 🛡 Hardened deployment (optional)
+
+For `read_only`, dropped Linux capabilities, and `no-new-privileges`:
+
+```bash
+docker compose -f compose.yml -f compose.hardened.yml up -d
+```
+
+The base `compose.yml` remains the default; the overlay is opt-in and does not add CPU or memory limits.
 
 Local Python 3.11:
 
@@ -111,7 +127,7 @@ Restore: stop server, copy backup DB + files from the same maintenance window ov
 
 ## 🔌 Reverse proxy
 
-Needs `TRUST_PROXY=true`. The shipped Compose file publishes `8978:8978` on all interfaces; bind it to `127.0.0.1:8978:8978` or filter the Docker-published port, and terminate TLS in the proxy. Caddy:
+Needs `TRUST_PROXY=true`. The shipped Compose file publishes only on loopback; keep the `127.0.0.1:8978:8978` mapping and terminate TLS in the proxy. For LAN access, change it to `8978:8978` and filter/protect the Docker-published port. Caddy:
 
 ```
 typst.example.com {
@@ -154,7 +170,7 @@ Compression matters: the compiler (JS + WASM) is about 72 MB raw and about 26 MB
 
 Uvicorn trusts `X-Forwarded-For`/`Proto` only from `FORWARDED_ALLOW_IPS` (default `127.0.0.1,::1`). Behind compose the proxy uses a `172.x` IP, so extend the default: `FORWARDED_ALLOW_IPS=127.0.0.1,::1,172.16.0.0/12`. Else all clients share one rate-limit bucket. Never `*` with `TRUST_PROXY=true`.
 
-One worker (`--workers 1`), one replica: rooms live in memory; multi-worker exits on purpose. 512 MB min, 1 GB advised; Compose does not enforce limits. No public demo; self-host.
+One worker (`--workers 1`), one replica: rooms live in memory; multi-worker exits on purpose. 512 MB min, 1 GB advised; the base Compose file does not enforce CPU or memory limits. No public demo; self-host.
 
 Project checkpoints need editor rights (read/compare for readers); restore saves a `Before restore` copy first. Removing a project member also deletes that member's doc shares in the project and — because invite links carry no username — wipes all pending invites of all project docs (broad revoke). The remove dialog states this broad effect explicitly before confirming (`projects.removeMemberWarning`, implemented in the share UI); per-invite attribution would need a migration and is out of prerelease scope. Project titles are unique per owner case-insensitive (v19 `idx_projects_owner_title_nocase`): create auto-suffixes (`Title (2)`…, truncated to 100 chars), rename rejects collisions with `409`, existing collisions were suffixed once during migration. File/resource rename is two-step: `POST /api/projects/{id}/rename-entry-preview` returns `{name, version, references}`, `POST /api/projects/{id}/rename-entry` requires that `version` (`409` on stale state); the UI shows the static references + dynamic-path hint and asks for confirmation before renaming (no automatic reference rewrite). Over-quota migration state stays readable/exportable/deletable; v19 grants a one-time permanent `migration_bytes` allowance (size of the existing project library in bytes at migration time, `user_cap` = cap + allowance, no recurring grant for new copies): new writes fail with `413` until space is freed.
 
@@ -173,8 +189,8 @@ No CDN for code delivery (local `vendor/` bundle; no service worker since 2026-1
 - First load is self-hosted; only `@preview` packages need net (`packages.typst.org`). Check console.
 - Single worker only (`--workers 1`). Multi-worker exits on purpose.
 - Behind proxy: `TRUST_PROXY=true`.
-- Port `8978` is published on all host interfaces (`8978:8978`); bind it to `127.0.0.1:8978:8978` for local-only (Docker-published ports can bypass host firewalls). TLS via proxy.
-- Compose uses Docker's default 10 s stop timeout; for large rooms use `docker compose down -t 15` so the final sync flush completes.
+- Port `8978` is loopback-only by default (`127.0.0.1:8978:8978`); change it to `8978:8978` only if you intentionally expose it (Docker-published ports can bypass host firewalls). TLS via proxy.
+- Compose uses a 15 s stop grace period so `sync.flush_all()` can finish; do not shorten it for large rooms.
 - Host path perms only: `chown -R 999:999` on it.
 - `429` on reads: shared `files_list` bucket (120/min), slow down. `429 Export already running`: per-user export lock, wait and retry once.
 - `410`: trashed doc (restore first) or retired folder route (use projects). `409`: name/version conflict — re-read, rename, or use the project path for ambiguous MCP titles.

@@ -1,4 +1,4 @@
-HOST = "127.0.0.1" # Parsed config value; local commands pin 127.0.0.1. Compose binds 0.0.0.0.
+HOST = "127.0.0.1" # Parsed config value; local commands pin 127.0.0.1. Compose sets HOST=0.0.0.0; keep that for published ports.
 PORT = 8978 # Parsed config value; local commands pin 8978. Compose pins 8978.
 DATA_DIR = "./data" # SQLite + files directory.
 TRUST_PROXY = false # Trust X-Forwarded-Proto/For from the reverse proxy. Set in config.toml or via env; env wins.
