@@ -15,13 +15,13 @@ release or a completed browser acceptance report.
 
 
 Status: candidate draft only. Source version is `pyproject.toml` = `0.2.0rc1`.
-No tag, no published image/digest, no release date is assigned in this draft.
+No release tag, no published 0.2.0rc1 image/digest, no release date is assigned in this draft.
 Final acceptance, CI and image verification remain pending. This draft does
 not announce a published or fully verified release.
 
 Build this source candidate locally with
 `docker compose -f compose.yml -f compose.prerelease.yml up --build -d`.
-The regular `compose.yml` continues to pin the last published stable image;
+The regular `compose.yml` uses the rolling published `main` image;
 the override builds `typst-editor:0.2.0rc1` from this checkout. Back up the
 data volume in a maintenance window before upgrading. There is no published
 candidate digest yet.
@@ -120,6 +120,31 @@ candidate digest yet.
 
 ## Upgrade notes
 
+- `compose.yml` now uses the rolling `main` image, keeps the loopback-only
+  port mapping fixed at `127.0.0.1:8978:8978` (use `8978:8978` for LAN access),
+  and the named `typst-data` volume. It keeps the 15 s stop grace
+  period and json-file log rotation (10 MB × 3). The previous read-only and
+  capability hardening is opt-in via `compose.hardened.yml`. Stop the old
+  deployment (`docker compose down`) and back up the data directory/volume
+  first. `compose.yml` pins `HOST=0.0.0.0`, `PORT=8978`,
+  and `DATA_DIR=/app/data`, so those `.env` values are ignored;
+  `COMPOSE_DATA_PATH` is no longer used. Other `.env` settings still apply.
+  Existing host-path installs must either mount the old path in `compose.yml`
+  or copy the database/files into the new named volume before first start.
+  If the old install already used the default named volume, skip the copy
+  command below; the same `typst-data` volume is reused. With the old
+  deployment stopped:
+
+  ```sh
+  docker compose run --rm --no-deps -T --user root --entrypoint sh \
+    -v "$PWD/data:/from:ro" app \
+    -c 'test -f /from/app.db && cp -a /from/. /app/data/ && chown -R 999:999 /app/data'
+  docker compose up -d
+  ```
+
+  Adjust `$PWD/data` if the old path differs. For a custom port, change
+  `environment.PORT` and both sides of `ports` in `compose.yml`, then update
+  the proxy.
 - Returning DBs migrate through v21 on start (fresh DBs run the same chain).
   v20 adds suggestions and v21 adds the account spelling preference.
   The v19 migration does not block on quota; affected accounts may land over limit

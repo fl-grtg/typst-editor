@@ -1,4 +1,4 @@
-# Build the local candidate instead of pulling the last published stable image.
+# Build the local candidate instead of pulling the published main image.
 services:
   app:
     image: typst-editor:0.2.0rc1
