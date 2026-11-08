@@ -47,7 +47,72 @@ function renderPeers() { // bar only when editor active, dot for all online in d
     rs.push(Decoration.widget({ widget: new PeerCaret(c, n), side: 1 }).range(p))
   }
   cm.dispatch({ effects: setPeer.of(RangeSet.of(rs, true)) }) // true: CM sorts marks + widgets
+  schedulePeerEdges()
 }
+// Off-screen collaborators: compact avatars at the editor edge while their caret is outside the viewport.
+// Peers in view keep only their caret + label (no duplicate edge chip).
+const EDGE_ICO = {
+  top: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3"/><path d="M4 7l4-4 4 4"/></svg>',
+  bottom: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10"/><path d="M4 9l4 4 4-4"/></svg>'
+}
+function edgeSide(p) { // '' = same excerpt (caret visible), else the edge it sits beyond
+  const c = cm.coordsAtPos(p), r = cm.scrollDOM.getBoundingClientRect()
+  if (c) {
+    if (c.top < r.top - 2) return 'top'
+    if (c.bottom > r.bottom + 2) return 'bottom'
+    return ''
+  }
+  return p < cm.viewport.from ? 'top' : p > cm.viewport.to ? 'bottom' : '' // outside rendered viewport: only a clear distance counts
+}
+let edgeT = 0, edgeKey = ''
+function renderPeerEdges() {
+  edgeT = 0
+  const boxes = { top: $('peerTop'), bottom: $('peerBottom') }
+  const hide = side => { const b = boxes[side]; if (b) { b.style.display = 'none'; b.replaceChildren() } }
+  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { hide('top'); hide('bottom'); edgeKey = ''; return }
+  const len = cm.state.doc.length, lists = { top: [], bottom: [] }
+  for (const [id, st] of prov.awareness.getStates()) {
+    if (id === prov.awareness.clientID || !st.active || !st.sel) continue // same gate as the caret/label
+    const h = absPos(st.sel.h)
+    if (h == null) continue
+    const p = Math.max(0, Math.min(len, h)), side = edgeSide(p)
+    if (!side) continue
+    lists[side].push({ id, p, n: (st.u && st.u.name) || '?', c: (st.u && st.u.color) || '#ff5f57' })
+  }
+  lists.top.sort((a, b) => b.p - a.p) // nearest to the viewport first
+  lists.bottom.sort((a, b) => a.p - b.p)
+  const key = ['top', 'bottom'].map(side => side + ':' + lists[side].map(x => x.id + ':' + x.p + ':' + x.n + ':' + x.c).join(',')).join('|')
+  if (key === edgeKey) return // scroll inside the same excerpt: no DOM churn
+  edgeKey = key
+  for (const side of ['top', 'bottom']) {
+    const box = boxes[side], list = lists[side]
+    if (!list.length) { hide(side); continue }
+    box.setAttribute('aria-label', t(side === 'top' ? 'comments.peerEdgeAbove' : 'comments.peerEdgeBelow', { names: list.map(x => x.n).join(', ') }))
+    box.replaceChildren()
+    const dir = el('span', 'dir'); dir.innerHTML = EDGE_ICO[side]; box.appendChild(dir)
+    for (const x of list) {
+      const b = el('button'); b.type = 'button'
+      b.title = t(side === 'top' ? 'comments.peerJumpAbove' : 'comments.peerJumpBelow', { name: x.n, line: cm.state.doc.lineAt(x.p).number })
+      b.setAttribute('aria-label', b.title)
+      const av = el('span', 'av'); paintAvatar(av, x.n, x.c)
+      b.appendChild(av)
+      b.onclick = () => jumpPeer(x.id)
+      box.appendChild(b)
+    }
+    box.style.display = 'flex'
+  }
+}
+function jumpPeer(id) { // edge chip: centre that peer, own selection stays put
+  const st = prov && prov.awareness.getStates().get(id), h = st && st.sel && absPos(st.sel.h)
+  if (h == null) return
+  const p = Math.max(0, Math.min(cm.state.doc.length, h))
+  cm.dispatch({ effects: EditorView.scrollIntoView(p, { y: 'center' }) })
+  cm.focus()
+}
+function schedulePeerEdges() { if (!edgeT) edgeT = requestAnimationFrame(renderPeerEdges) } // scroll bursts: one paint per frame
+cm.scrollDOM.addEventListener('scroll', schedulePeerEdges, { passive: true })
+new ResizeObserver(schedulePeerEdges).observe(cm.scrollDOM)
+new ResizeObserver(schedulePeerEdges).observe(cm.contentDOM) // editor font/split changes move the excerpt without a scroll event
 cm.dom.addEventListener('focusin', pushPresence)
 cm.dom.addEventListener('focusout', () => { pushPresence(); renderPeers() })
 addEventListener('blur', pushPresence)
