@@ -146,10 +146,12 @@ $('shareBtn').onclick = e => {
 }
 document.addEventListener('click', e => {
   if (e.target.closest('#modal')) return
-  for (const [p, b] of Object.entries(POP_BTN)) { // click outside closes (one loop not 5 blocks)
-    const box = $(p)
-    if (box && box.style.display !== 'none' && !$(b).contains(e.target) && !box.contains(e.target))
+  for (const p of Object.keys(POP_BTN)) { // click outside closes (one loop not 5 blocks)
+    const box = $(p), triggers = popTriggers(p)
+    if (box && box.style.display !== 'none' && ![...triggers].some(t => t.contains(e.target)) && !box.contains(e.target)) {
       box.style.display = 'none'
+      triggers.forEach(t => t.setAttribute('aria-expanded', 'false'))
+    }
   }
   const pop = $('pop') // click outside closes, never with text draft (highlight/tooltip opens, not closes)
   if (pop && popAnchor != null && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,[data-suggestion-change],[data-suggestion-id],.cm-tooltip')

@@ -106,7 +106,7 @@
     help: function () {
       return [
         it(t('editor.scTitle'), function () { click('helpBtn') }),
-        it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('who') }),
+        it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('userMain') }),
         it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
       ]
     },
@@ -244,12 +244,11 @@
     tpl: function () { section('tplH') },
     trash: function () { section('trashH') },
     theme: function () { setTheme(effective() === 'dark' ? 'light' : 'dark') },
-    set: function () { click('who') },
+    set: function () { click('userMain') },
     help: function () { click('helpBtn') }
   }
   document.querySelectorAll('[data-rail]').forEach(function (b) {
-    b.addEventListener('click', function (e) {
-      if (b.id === 'userMain' && e.target.closest && e.target.closest('#who')) return // #who has its own handler
+    b.addEventListener('click', function () {
       var f = RAIL[b.dataset.rail]; if (f) f()
     })
   })

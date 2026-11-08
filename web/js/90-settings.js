@@ -1,10 +1,10 @@
-// --- Settings: click on name (font/zoom, profile, password, account) ---
+// --- Settings: click on user box (font/zoom, profile, password, account) ---
 document.body.appendChild($('setPop'))
-$('who').onclick = e => {
+$('userMain').onclick = e => {
   e.stopPropagation()
   if (showPop('setPop')) { apiKeys = null; sessList = null; renderSettings() }
 }
-kb($('who'), () => $('who').click())
+kb($('userMain'), () => $('userMain').click())
 let apiKeys = null, apiKeysLoading = false, lastKeySecret = ''
 let settingsCategory = 'account'
 const settingsError = message => toast(message || t('common.requestFailed'), null, null, 5000, 'error')

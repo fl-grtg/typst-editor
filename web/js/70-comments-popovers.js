@@ -263,21 +263,23 @@ function openPop(anchor, fresh, quote = '', suggestion = null) {
 }
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
   if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
+const popTriggers = id => document.querySelectorAll(`[aria-controls="${id}"]`)
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
-  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn) { btn.setAttribute('aria-expanded', 'false'); if (b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } } }
+  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
 }
-const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'who' }
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain' }
 function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   const p = $(id), open = p.style.display === 'none'
   hidePops(); closePop(true) // only one popover at a time (header or comment card)
   p.style.display = open ? '' : 'none'
   const btn = $(POP_BTN[id])
-  if (btn) { btn.setAttribute('aria-expanded', String(open)); if (!btn.getAttribute('aria-controls')) btn.setAttribute('aria-controls', id) }
+  if (btn) btn.setAttribute('aria-controls', id) // trigger may have switched popovers (insertMore)
+  popTriggers(id).forEach(t => t.setAttribute('aria-expanded', String(open)))
   if (open) {
     p.setAttribute('role', 'dialog')
     if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', { sharePop: t('share.title'), tplPop: t('templates.title'), histPop: t('history.title'), symPop: t('symbols.title'), setPop: t('settings.title') }[id] || id)
-    anchorPop(p, btn) // under trigger, clamped to viewport (no fixed left:8px)
+    anchorPop(p, id === 'setPop' ? $('who') : btn) // settings stays anchored to the name; userMain is the trigger
     const f = p.querySelector('input,select,textarea') || p.querySelector('button') // input first, never ✕
     if (f) setTimeout(() => { try { f.focus() } catch (e) {} }, 30)
   }
