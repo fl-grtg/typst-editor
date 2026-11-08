@@ -573,16 +573,16 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 .peer { display: inline-block; width: 0; height: 1.2em; margin-left: -1px; vertical-align: text-top; border-left: 2px solid #ff5f57; cursor: default; }
 .peerName { font: 600 11px/1.5 var(--ui); background: var(--card); border: 1px solid; border-radius: 5px; padding: 0 5px; margin-left: 4px; white-space: nowrap; box-shadow: var(--sh-pop); vertical-align: text-top; cursor: default; }
 /* Off-screen collaborators: one compact avatar row per edge, only while the caret is outside the viewport */
-#cmWrap .peerEdge { position: absolute; left: 50%; transform: translateX(-50%); z-index: 8; display: none; align-items: center; gap: 1px; max-width: calc(100% - 28px); padding: 3px 5px; border: 1px solid var(--line-2); border-radius: 999px; background: color-mix(in srgb, var(--card) 92%, transparent); box-shadow: var(--sh-pop); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+#cmWrap .peerEdge { position: absolute; left: 50%; transform: translateX(-50%); width: max-content; z-index: 8; display: none; flex-wrap: wrap; justify-content: center; align-items: center; row-gap: 2px; max-width: calc(100% - 28px); max-height: calc(100% - 12px); overflow-y: auto; overscroll-behavior: contain; padding: 2px 5px; border: 1px solid var(--line-2); border-radius: 24px; background: color-mix(in srgb, var(--card) 92%, transparent); box-shadow: var(--sh-pop); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 #cmWrap .peerEdge.top { top: 6px; }
 #cmWrap .peerEdge.bottom { bottom: 6px; }
 #cmWrap .peerEdge .dir { display: inline-flex; align-items: center; justify-content: center; width: 18px; color: var(--faint); }
-#cmWrap .peerEdge button { width: 22px; height: 22px; min-width: 22px; min-height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; display: inline-flex; align-items: center; justify-content: center; }
-#cmWrap .peerEdge button + button { margin-left: -3px; } /* overlapping like the header dots */
+#cmWrap .peerEdge button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; display: inline-flex; align-items: center; justify-content: center; }
+#cmWrap .peerEdge button + button { margin-left: -6px; } /* overlapping like the header dots */
 #cmWrap .peerEdge button:hover { background: var(--hover); }
 #cmWrap .peerEdge button:active { background: var(--press); }
-#cmWrap .peerEdge button:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
-#cmWrap .peerEdge .av { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font: 700 8.5px/1 var(--ui); letter-spacing: -.02em; box-shadow: 0 0 0 2px var(--card); }
+#cmWrap .peerEdge button:focus-visible { outline: 2px solid var(--acc); outline-offset: -4px; }
+#cmWrap .peerEdge .av { width: 28px; height: 28px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font: 700 10px/1 var(--ui); letter-spacing: -.02em; box-shadow: 0 0 0 2px var(--card); }
 /* Wave 2B: keyboard shortcut overview (small window over Help) */
 #scOverlay { position: fixed; inset: 0; z-index: var(--z-modal); display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 12, 16, .32); }
 #scCard { width: min(430px, 94vw); max-height: 86vh; overflow: auto; padding: 18px 20px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
@@ -3676,11 +3676,19 @@ function edgeSide(p) { // '' = same excerpt (caret visible), else the edge it si
   return p < cm.viewport.from ? 'top' : p > cm.viewport.to ? 'bottom' : '' // outside rendered viewport: only a clear distance counts
 }
 let edgeT = 0, edgeKey = ''
+function edgeChip(box, id) { return [...box.querySelectorAll('button[data-peer]')].find(b => b.dataset.peer === String(id)) }
+function clearEdge(box) { for (const b of box.querySelectorAll('button[data-peer]')) b.remove(); box.style.display = 'none' }
+function focusEdgeChip(id) { // keep keyboard focus on the same person across re-renders
+  const btn = [...document.querySelectorAll('#peerTop button[data-peer], #peerBottom button[data-peer]')].find(b => b.dataset.peer === id)
+  if (btn) { if (document.activeElement !== btn) btn.focus({ preventScroll: true }) }
+  else cm.focus()
+}
 function renderPeerEdges() {
   edgeT = 0
   const boxes = { top: $('peerTop'), bottom: $('peerBottom') }
-  const hide = side => { const b = boxes[side]; if (b) { b.style.display = 'none'; b.replaceChildren() } }
-  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { hide('top'); hide('bottom'); edgeKey = ''; return }
+  const active = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#peerTop button[data-peer], #peerBottom button[data-peer]') : null
+  const keepFocus = active && active.dataset.peer
+  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { clearEdge(boxes.top); clearEdge(boxes.bottom); edgeKey = ''; return }
   const len = cm.state.doc.length, lists = { top: [], bottom: [] }
   for (const [id, st] of prov.awareness.getStates()) {
     if (id === prov.awareness.clientID || !st.active || !st.sel) continue // same gate as the caret/label
@@ -3697,21 +3705,25 @@ function renderPeerEdges() {
   edgeKey = key
   for (const side of ['top', 'bottom']) {
     const box = boxes[side], list = lists[side]
-    if (!list.length) { hide(side); continue }
+    if (!list.length) { clearEdge(box); continue }
     box.setAttribute('aria-label', t(side === 'top' ? 'comments.peerEdgeAbove' : 'comments.peerEdgeBelow', { names: list.map(x => x.n).join(', ') }))
-    box.replaceChildren()
-    const dir = el('span', 'dir'); dir.innerHTML = EDGE_ICO[side]; box.appendChild(dir)
+    if (!box.querySelector('.dir')) { const dir = el('span', 'dir'); dir.innerHTML = EDGE_ICO[side]; box.prepend(dir) }
+    const ids = new Set()
     for (const x of list) {
-      const b = el('button'); b.type = 'button'
-      b.title = t(side === 'top' ? 'comments.peerJumpAbove' : 'comments.peerJumpBelow', { name: x.n, line: cm.state.doc.lineAt(x.p).number })
-      b.setAttribute('aria-label', b.title)
-      const av = el('span', 'av'); paintAvatar(av, x.n, x.c)
-      b.appendChild(av)
+      ids.add(String(x.id))
+      let b = edgeChip(box, x.id)
+      if (!b) { b = el('button'); b.type = 'button'; b.dataset.peer = String(x.id); b.appendChild(el('span', 'av')) }
+      const title = t(side === 'top' ? 'comments.peerJumpAbove' : 'comments.peerJumpBelow', { name: x.n, line: cm.state.doc.lineAt(x.p).number })
+      if (b.title !== title) { b.title = title; b.setAttribute('aria-label', title) }
+      const sig = x.n + '|' + x.c
+      if (b.dataset.sig !== sig) { b.dataset.sig = sig; paintAvatar(b.firstChild, x.n, x.c) }
       b.onclick = () => jumpPeer(x.id)
-      box.appendChild(b)
+      box.appendChild(b) // keeps DOM order and reuses the button node
     }
+    for (const b of box.querySelectorAll('button[data-peer]')) if (!ids.has(b.dataset.peer)) b.remove()
     box.style.display = 'flex'
   }
+  if (keepFocus) focusEdgeChip(keepFocus) // position updates must never drop keyboard focus
 }
 function jumpPeer(id) { // edge chip: centre that peer, own selection stays put
   const st = prov && prov.awareness.getStates().get(id), h = st && st.sel && absPos(st.sel.h)

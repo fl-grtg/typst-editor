@@ -65,11 +65,19 @@ function edgeSide(p) { // '' = same excerpt (caret visible), else the edge it si
   return p < cm.viewport.from ? 'top' : p > cm.viewport.to ? 'bottom' : '' // outside rendered viewport: only a clear distance counts
 }
 let edgeT = 0, edgeKey = ''
+function edgeChip(box, id) { return [...box.querySelectorAll('button[data-peer]')].find(b => b.dataset.peer === String(id)) }
+function clearEdge(box) { for (const b of box.querySelectorAll('button[data-peer]')) b.remove(); box.style.display = 'none' }
+function focusEdgeChip(id) { // keep keyboard focus on the same person across re-renders
+  const btn = [...document.querySelectorAll('#peerTop button[data-peer], #peerBottom button[data-peer]')].find(b => b.dataset.peer === id)
+  if (btn) { if (document.activeElement !== btn) btn.focus({ preventScroll: true }) }
+  else cm.focus()
+}
 function renderPeerEdges() {
   edgeT = 0
   const boxes = { top: $('peerTop'), bottom: $('peerBottom') }
-  const hide = side => { const b = boxes[side]; if (b) { b.style.display = 'none'; b.replaceChildren() } }
-  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { hide('top'); hide('bottom'); edgeKey = ''; return }
+  const active = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#peerTop button[data-peer], #peerBottom button[data-peer]') : null
+  const keepFocus = active && active.dataset.peer
+  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { clearEdge(boxes.top); clearEdge(boxes.bottom); edgeKey = ''; return }
   const len = cm.state.doc.length, lists = { top: [], bottom: [] }
   for (const [id, st] of prov.awareness.getStates()) {
     if (id === prov.awareness.clientID || !st.active || !st.sel) continue // same gate as the caret/label
@@ -86,21 +94,25 @@ function renderPeerEdges() {
   edgeKey = key
   for (const side of ['top', 'bottom']) {
     const box = boxes[side], list = lists[side]
-    if (!list.length) { hide(side); continue }
+    if (!list.length) { clearEdge(box); continue }
     box.setAttribute('aria-label', t(side === 'top' ? 'comments.peerEdgeAbove' : 'comments.peerEdgeBelow', { names: list.map(x => x.n).join(', ') }))
-    box.replaceChildren()
-    const dir = el('span', 'dir'); dir.innerHTML = EDGE_ICO[side]; box.appendChild(dir)
+    if (!box.querySelector('.dir')) { const dir = el('span', 'dir'); dir.innerHTML = EDGE_ICO[side]; box.prepend(dir) }
+    const ids = new Set()
     for (const x of list) {
-      const b = el('button'); b.type = 'button'
-      b.title = t(side === 'top' ? 'comments.peerJumpAbove' : 'comments.peerJumpBelow', { name: x.n, line: cm.state.doc.lineAt(x.p).number })
-      b.setAttribute('aria-label', b.title)
-      const av = el('span', 'av'); paintAvatar(av, x.n, x.c)
-      b.appendChild(av)
+      ids.add(String(x.id))
+      let b = edgeChip(box, x.id)
+      if (!b) { b = el('button'); b.type = 'button'; b.dataset.peer = String(x.id); b.appendChild(el('span', 'av')) }
+      const title = t(side === 'top' ? 'comments.peerJumpAbove' : 'comments.peerJumpBelow', { name: x.n, line: cm.state.doc.lineAt(x.p).number })
+      if (b.title !== title) { b.title = title; b.setAttribute('aria-label', title) }
+      const sig = x.n + '|' + x.c
+      if (b.dataset.sig !== sig) { b.dataset.sig = sig; paintAvatar(b.firstChild, x.n, x.c) }
       b.onclick = () => jumpPeer(x.id)
-      box.appendChild(b)
+      box.appendChild(b) // keeps DOM order and reuses the button node
     }
+    for (const b of box.querySelectorAll('button[data-peer]')) if (!ids.has(b.dataset.peer)) b.remove()
     box.style.display = 'flex'
   }
+  if (keepFocus) focusEdgeChip(keepFocus) // position updates must never drop keyboard focus
 }
 function jumpPeer(id) { // edge chip: centre that peer, own selection stays put
   const st = prov && prov.awareness.getStates().get(id), h = st && st.sel && absPos(st.sel.h)
