@@ -564,12 +564,19 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
     if (zP) zP.disabled = pvZoom >= PV_MAX
   } catch (e) {}
 }
-let syncOn = true, syncT = 0, syncPage = 0, pvT = 0 // click sync editor<->preview, last hit page
+let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, pvT = 0 // click sync editor<->preview, last hit page
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
 function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
 function queueSyncPv() { clearTimeout(syncT); syncT = setTimeout(syncToPv, SYNC_MS) }
-function pvPageHint(pi, idx, len, total, n) { // page-proportional line: layout order tracks source order
+function pvPageHint(pi, idx, len, total, n) { // click page -> source line: section window first, then layout ratio
   const frac = len > 0 ? (idx + 1) / len : 0.5
+  const at = pvSecAt(pi)
+  if (at.sec) {
+    const a = at.sec.line, b = at.next ? at.next.line - 1 : total
+    const span = at.next ? at.next.page - at.sec.page + 1 : Math.max(1, n - at.sec.page)
+    const f = ((pi - at.sec.page) + frac) / Math.max(1, span)
+    return Math.max(1, Math.min(total, Math.round(a + f * Math.max(0, b - a))))
+  }
   return Math.max(1, Math.min(total, Math.round((pi + frac) / Math.max(1, n) * total) + 1))
 }
 function pvCanvasList() { // virtual slots first, fallback bare canvases
@@ -592,7 +599,7 @@ async function pvJumpBest(s, hint, pi, anchor) { // honest cross-file jump: curr
     let pos = 0
     lines.forEach((text, i) => {
       if (/^\s*=+\s/.test(text) && syncText(text).includes(syncText(needle))) {
-        const hit = syncAnchor(lines, i + 1, pvTexts)
+        const hit = syncAnchor(lines, i + 1, pvTexts, pvSecAtLine(i + 1))
         if (hit && hit.pi === pi && hit.items.includes(anchor)) matches.push({ pos, distance: Math.abs(hit.it.y - anchor.y) })
       }
       pos += text.length + 1
@@ -635,42 +642,68 @@ async function pvJumpBest(s, hint, pi, anchor) { // honest cross-file jump: curr
 function syncText(text) {
   return text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 }
-function syncAnchor(lines, line, pages) {
-  const needle = syncText(lines[line - 1] || '')
-  if (needle.length < 4 || /^[#]/.test((lines[line - 1] || '').trim())) return null
-  const headings = lines.slice(0, line - 1).filter(s => /^\s*=+\s/.test(s)).map(syncText).reverse()
+function syncAnchor(lines, line, pages, sec) { // source line -> word box on paper, section window first
+  const raw = (lines[line - 1] || '').trim()
+  if (!raw || raw.startsWith('#')) return null
+  const exact = syncText(raw)
+  if (exact.length < 4) return null
+  const p0 = sec ? Math.max(0, sec.page) : 0
+  const p1 = sec ? Math.min(pages.length - 1, line === sec.line ? sec.page : sec.endPage) : pages.length - 1 // heading: its own page only
+  const { text, spans } = pvPageIndex(pages, p0, p1)
+  const hit = pvFind(text, spans, exact) || pvRuns(exact).map(run => pvFind(text, spans, run)).find(Boolean)
+  if (hit) return hit
+  return sec && (p0 > 0 || p1 < pages.length - 1) ? syncAnchor(lines, line, pages, null) : null // stale outline: global last resort
+}
+function pvPageIndex(pages, p0, p1) { // flat word text of one page window + item spans
   const parts = [], spans = []
   let offset = 0
-  pages.forEach((items, pi) => items.forEach(it => {
+  for (let pi = p0; pi <= p1; pi++) (pages[pi] || []).forEach(it => {
     const text = syncText(it.s || '')
     if (!text) return
     parts.push(text); spans.push({ from: offset, to: offset + text.length, pi, it })
     offset += text.length + 1
-  }))
-  const text = parts.join(' '), hits = []
-  let at = -1
+  })
+  return { text: parts.join(' '), spans }
+}
+function pvFind(text, spans, needle) { // whole-word, unique within the window (else null)
+  let hit = null, at = -1
   while ((at = text.indexOf(needle, at + 1)) >= 0) {
     if ((at && text[at - 1] !== ' ') || (at + needle.length < text.length && text[at + needle.length] !== ' ')) continue
+    if (hit) return null
     const span = spans.find(s => s.to > at)
-    if (span) hits.push({ ...span, at, items: spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) })
+    if (span) hit = { ...span, at, items: spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) }
   }
-  if (hits.length === 1) return hits[0]
-  // Repeated headings belong to the nearest preceding section title.
-  for (const heading of headings) {
-    if (text.indexOf(heading) !== text.lastIndexOf(heading)) continue
-    const scored = hits.map(hit => ({ hit, distance: text.lastIndexOf(heading, hit.at - 1) }))
-      .filter(s => s.distance >= 0).sort((a, b) => (a.hit.at - a.distance) - (b.hit.at - b.distance))
-    if (scored.length && (scored.length === 1 || scored[0].hit.at - scored[0].distance < scored[1].hit.at - scored[1].distance)) return scored[0].hit
-  }
-  return null
+  return hit
+}
+function pvRuns(text) { // 6..3 word runs, 12+ chars: lines with inline markup still match the paper text
+  const words = text.split(' ').filter(Boolean), out = []
+  for (let n = Math.min(6, words.length); n >= 3; n--)
+    for (let i = 0; i + n <= words.length; i++) {
+      const run = words.slice(i, i + n).join(' ')
+      if (run.length >= 12) out.push(run)
+    }
+  return out
+}
+function pvViewPage(pv) { // page at the viewport center: what the reader is actually looking at
+  const pr = pv.getBoundingClientRect(), mid = pr.top + pv.clientHeight / 2
+  const slots = pv.querySelectorAll('.pvPage')
+  for (let k = 0; k < slots.length; k++) if (slots[k].getBoundingClientRect().bottom > mid) return k
+  return -1
 }
 function syncToPv() {
-  if (!syncOn || !docId || tplName || Date.now() - pvT < 1000) return
+  if (!syncOn || !docId || tplName || (activeFile && !window.changeSession) || Date.now() - pvT < 1000) return
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
-  const line = cm.state.doc.lineAt(cm.state.selection.main.head).number
-  const hit = syncAnchor(getT().split('\n'), line, pvTexts)
-  if (!hit) return // incomplete code or ambiguous text: keep the paper where the user left it
+  const lines = getT().split('\n'), line = cm.state.doc.lineAt(cm.state.selection.main.head).number
+  const sec = pvSecAtLine(line)
+  const hit = syncAnchor(lines, line, pvTexts, sec)
+  if (!hit) { // no matching words: still show the section page, but never yank the preview out of it
+    syncMiss = true // a render still in flight gets one retry (see pvTextAll)
+    const at = pvViewPage(pv)
+    if (sec && at >= 0 && (at < sec.page || at > sec.endPage)) pvGotoTarget({ page: sec.page, top: null })
+    return
+  }
+  syncMiss = false
   const cv = pvCanvasList()[hit.pi]
   if (!cv) return
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()

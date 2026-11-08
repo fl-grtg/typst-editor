@@ -539,6 +539,41 @@ async function pvLoadOutline(doc, id) { // bookmarks with pages: the honest anch
   pvOutline = out
   try { paintOutline() } catch (e) {} // sidebar badges follow the PDF, not the cursor
 }
+function pvOlNorm(s) { return syncText(String(s).replace(/<[^>]*>/g, ' ')).replace(/^\d+(\s+\d+)*\s*/, '') } // heading text: no labels, no "1.2 "
+function pvOlMatch(text, from) { // PDF bookmark index for a source heading, in document order; -1: not in the outline
+  if (!pvOutline.length) return -1
+  const want = pvOlNorm(text)
+  if (!want) return -1
+  for (let k = from; k < pvOutline.length; k++) if (pvOlNorm(pvOutline[k].title) === want) return k
+  return -1
+}
+function pvSections() { // source heading line -> PDF page, in document order (the anchor chain)
+  const out = []
+  let at = 0
+  getT().split('\n').forEach((ln, i) => {
+    const m = ln.match(/^(=+)\s+(.+)$/)
+    if (!m) return
+    const k = pvOlMatch(m[2], at)
+    if (k < 0) return
+    at = k + 1
+    out.push({ line: i + 1, page: pvOutline[k].page, title: m[2] })
+  })
+  return out
+}
+function pvSecAt(page) { // preview page -> section start + the next section (both may be null)
+  const secs = pvSections()
+  let i = -1
+  for (let k = 0; k < secs.length && secs[k].page <= page; k++) i = k
+  return { sec: i >= 0 ? secs[i] : null, next: i >= 0 ? (secs[i + 1] || null) : null }
+}
+function pvSecAtLine(line) { // source line -> its section with inclusive page and line bounds
+  const secs = pvSections()
+  let i = -1
+  for (let k = 0; k < secs.length && secs[k].line <= line; k++) i = k
+  if (i < 0) return null
+  const sec = secs[i], next = secs[i + 1] || null
+  return { ...sec, endPage: next ? next.page : Math.max(0, pvTexts.length - 1), endLine: next ? next.line - 1 : Infinity }
+}
 function pvPageMeta(doc, p, scale) { // one page: text anchors + link boxes (indexed past the visible window)
   return doc.getPage(p).then(async page => {
     const v = page.getViewport({ scale })
@@ -570,6 +605,7 @@ async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors
       if (p % 8 === 0) await new Promise(r => setTimeout(r, 0)) // yield: typing stays fluid on long docs
     }
   } catch (e) {}
+  if (syncMiss) queueSyncPv() // a sync that ran before the new page text was indexed: retry once it is
 }
 function pvAnchorRead(pv) { // first visible slot + offset (scrollTop alone drifts when heights change)
   const pr = pv.getBoundingClientRect(), top = pv.scrollTop
