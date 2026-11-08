@@ -698,6 +698,7 @@ function jumpPos(pos) { // editor jump to screen center (preview does not follow
   cm.focus()
 }
 $('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), else ratio
+  if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
   if (!syncOn || !docId || tplName) return
   const pv = $('preview')
   const cv = e.target.closest ? e.target.closest('canvas') : null

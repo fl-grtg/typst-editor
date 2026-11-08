@@ -1,5 +1,6 @@
 // --- Typst preview: main file + uploads as shadow files in compiler ---
 let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // text anchors per page: click hits exact (tables too)
+let pvLinks = [], pvOutline = [] // PDF layer: link boxes per page (viewport units) + outline with resolved pages
 let cmpWarns = [] // compiler warnings of the last good render (shown as yellow marks, never block)
 let cmpWait = 0, lastInfra = false // compiler missing / last render infra error (watchdog heals)
 const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived (exports only; preview compiles in the worker below)
@@ -341,6 +342,7 @@ async function render() {
     pvModeApply() // width/page zoom follows current layout
     pvTexts = Array.from({ length: n }, () => []) // dense: sync math indexes by page (holes would crash it)
     pvTextDone = Array.from({ length: n }, () => false)
+    pvLinks = Array.from({ length: n }, () => [])
     pvSlots = sizes.map((v, k) => {
       const s = document.createElement('div')
       s.className = 'pvPage'; s.dataset.page = k + 1; s.dataset.r = v.height / v.width; s.dataset.w = v.width
@@ -364,6 +366,8 @@ async function render() {
     scrollApplyPreview() // first render of a reopened doc: back to its saved page + offset
     pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
     pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
+    pvOutline = [] // old bookmarks die with the old render
+    pvLoadOutline(doc, id).catch(() => {})
     clearErr() // running again: clear marks
     cmpWarns = (wDiags || []).filter(d => d && d.severity === 'warning'); if (cmpWarns.length) paintErr()
     lastInfra = false
@@ -408,13 +412,10 @@ async function pvDraw(slot, doc, id, detached) { // rasterize one slot (backing 
     pvFitCanvas(c) // CSS size only, not canvas.width
     const tc = await page.getTextContent() // click anchors: each visible word knows its spot
     if (id !== renderN) return
-    const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
-    const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-    pvTexts[p - 1] = tc.items.map(it => {
-      const w = (it.width || 0) * ax, h = (it.height || 0) * ay
-      const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
-    })
+    pvTexts[p - 1] = pvBoxes(tc, v)
+    pvLinks[p - 1] = await pvPageLinks(doc, page, v)
+    if (id !== renderN) return
+    pvPaintLinks(slot, p - 1)
     try { pvTextDone[p - 1] = true } catch (e) {}
     slot.dataset.done = '1'
   } finally { delete slot.dataset.busy }
@@ -444,28 +445,128 @@ function pvWatch(doc, id, myDoc, myTplName) { // draw on scroll into view (+2 vi
   }, { root: $('preview'), rootMargin: '200% 0' + 'px' }) // string split: one literal with space+letters trips check_i18n
   for (const s of pvSlots) pvObs.observe(s)
 }
-function pvIdxPage(doc, p, scale) { // one page textContent -> anchor list in backing px (raster-independent)
+function pvBoxes(tc, v) { // textContent -> click anchors in viewport px (raster-independent)
+  const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
+  const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
+  return tc.items.map(it => {
+    const w = (it.width || 0) * ax, h = (it.height || 0) * ay
+    const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
+    return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
+  })
+}
+const PV_LINK_SCHEME = /^(https?|mailto):/i // only schemes a browser tab may open safely from a PDF
+async function pvDestTarget(doc, dest) { // PDF destination (name or explicit array) -> page + top; null: unresolvable
+  try {
+    const d = typeof dest === 'string' ? await doc.getDestination(dest) : dest
+    if (!Array.isArray(d) || !d[0]) return null
+    const page = await doc.getPageIndex(d[0]) // 0-based
+    const kind = String((typeof d[1] === 'string' ? d[1] : d[1] && d[1].name) || '')
+    const top = kind === 'XYZ' ? d[3] : (kind === 'FitH' || kind === 'FitBH' ? d[2] : (kind === 'FitR' ? d[5] : null))
+    return { page, top: typeof top === 'number' && isFinite(top) ? top : null }
+  } catch (e) { return null } // broken destination: no jump, never throw into the render
+}
+async function pvPageLinks(doc, page, v) { // annotation layer: external URLs and internal jumps as boxes
+  let anns = []
+  try { anns = await page.getAnnotations() } catch (e) { return [] }
+  const out = []
+  for (const a of anns) {
+    if (!a || a.subtype !== 'Link' || !a.rect) continue
+    const r = v.convertToViewportRectangle(a.rect)
+    const box = { x0: Math.min(r[0], r[2]), y0: Math.min(r[1], r[3]), x1: Math.max(r[0], r[2]), y1: Math.max(r[1], r[3]), vw: v.width, vh: v.height }
+    if (box.x1 - box.x0 < 1 || box.y1 - box.y0 < 1) continue // invisible/degenerate: never a click target
+    const url = a.url || a.unsafeUrl || ''
+    if (url && PV_LINK_SCHEME.test(url)) { out.push({ ...box, url }); continue }
+    if (a.dest) {
+      const dest = await pvDestTarget(doc, a.dest)
+      if (dest) out.push({ ...box, dest })
+    }
+  }
+  return out
+}
+function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no update, browser does hit testing
+  if (!slot) return
+  const old = slot.querySelector('.pvLinks')
+  if (old) old.remove()
+  const links = pvLinks[pi] || []
+  if (!links.length) return
+  const box = document.createElement('div')
+  box.className = 'pvLinks'
+  links.forEach((L, i) => {
+    const a = document.createElement('a')
+    a.style.left = (L.x0 / L.vw * 100) + '%'
+    a.style.top = (L.y0 / L.vh * 100) + '%'
+    a.style.width = ((L.x1 - L.x0) / L.vw * 100) + '%'
+    a.style.height = ((L.y1 - L.y0) / L.vh * 100) + '%'
+    if (L.url) { a.href = L.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = L.url }
+    else { // internal destination: click jumps the preview, never the editor
+      a.href = '#'; a.title = t('preview.linkPage', { n: L.dest.page + 1 })
+      a.dataset.pvLink = String(i)
+    }
+    a.setAttribute('aria-label', a.title)
+    box.appendChild(a)
+  })
+  slot.appendChild(box)
+}
+function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
+  if (!target) return
+  const pv = $('preview'), s = pvSlots[target.page]
+  if (s) {
+    const pr = pv.getBoundingClientRect(), sr = s.getBoundingClientRect()
+    const hPt = +s.dataset.w * +s.dataset.r, cssH = parseFloat(s.style.height) || 0
+    let y = 0
+    if (target.top != null && hPt > 0 && cssH > 0) y = Math.max(0, Math.min(cssH, cssH * (1 - target.top / hPt)))
+    pv.scrollTop += sr.top - pr.top + y - pv.clientHeight * 0.12
+    return
+  }
+  const cv = pvCanvasList()[target.page] // fallback path: bare canvases, page top only
+  if (!cv) return
+  const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
+  pv.scrollTop += cr.top - pr.top - pv.clientHeight * 0.12
+}
+async function pvLoadOutline(doc, id) { // bookmarks with pages: the honest anchor chain for source -> PDF
+  let root = []
+  try { root = await doc.getOutline() || [] } catch (e) { return }
+  const out = []
+  const walk = async (list, depth) => {
+    for (const it of list || []) {
+      if (id !== renderN) return
+      const target = it && it.dest ? await pvDestTarget(doc, it.dest) : null
+      if (target) out.push({ title: String((it && it.title) || ''), page: target.page, depth })
+      if (it && it.items && it.items.length) await walk(it.items, depth + 1)
+    }
+  }
+  await walk(root, 0)
+  if (id !== renderN) return
+  pvOutline = out
+  try { paintOutline() } catch (e) {} // sidebar badges follow the PDF, not the cursor
+}
+function pvPageMeta(doc, p, scale) { // one page: text anchors + link boxes (indexed past the visible window)
   return doc.getPage(p).then(async page => {
     const v = page.getViewport({ scale })
     const tc = await page.getTextContent()
-    const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
-    const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-    return tc.items.map(it => {
-      const w = (it.width || 0) * ax, h = (it.height || 0) * ay
-      const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
-    })
+    return { items: pvBoxes(tc, v), links: await pvPageLinks(doc, page, v) }
   })
 }
-async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors: editor->preview reaches past the visible window
+$('preview').addEventListener('click', e => { // internal PDF destination: external links open natively
+  const a = e.target.closest ? e.target.closest('.pvLinks a[data-pv-link]') : null
+  if (!a) return
+  const slot = a.closest('.pvPage'), pi = slot ? +slot.dataset.page - 1 : -1
+  const L = pi >= 0 ? (pvLinks[pi] || [])[+a.dataset.pvLink] : null
+  if (!L || !L.dest) return
+  e.preventDefault() // hash href: keep the URL and the scroll position of the app
+  pvGotoTarget(L.dest)
+})
+async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors + links: sync works past the visible window
   try {
     for (let p = 1; p <= pvTexts.length; p++) {
       if (pvStale(id, myDoc, myTplName)) return
       if (pvTextDone[p - 1]) continue
-      let items
-      try { items = await pvIdxPage(doc, p, pvScale) } catch (e) { continue }
+      let meta
+      try { meta = await pvPageMeta(doc, p, pvScale) } catch (e) { continue }
       if (pvStale(id, myDoc, myTplName)) return
-      pvTexts[p - 1] = items
+      pvTexts[p - 1] = meta.items
+      pvLinks[p - 1] = meta.links
+      pvPaintLinks(pvSlots[p - 1], p - 1)
       try { pvTextDone[p - 1] = true } catch (e) {}
       if (p % 8 === 0) await new Promise(r => setTimeout(r, 0)) // yield: typing stays fluid on long docs
     }
@@ -588,13 +689,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
       sizeCanvas(c) // CSS width only, not canvas.width
       const tc = await page.getTextContent() // click anchors: each visible word knows its spot
       if (pvStale(id, myDoc, myTplName)) return
-      const [a, b, cc, d, ee, ff] = v.transform // text space -> canvas px
-      const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-      texts.push(tc.items.map(it => {
-        const w = (it.width || 0) * ax, h = (it.height || 0) * ay
-        const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-        return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
-      }))
+      texts.push(pvBoxes(tc, v))
       pages.push(c)
     }
     if (pvStale(id, myDoc, myTplName)) return
@@ -604,9 +699,12 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     const st = preview.scrollTop // read at swap time: follow-scroll during render is kept
     preview.replaceChildren(...pages)
     pvTexts = texts
+    pvLinks = texts.map(() => []) // fallback: no annotation overlay (bare canvases)
     try { pvTextDone = texts.map(() => true) } catch (e) {}
     preview.scrollTop = st
-    scrollApplyPreview() // fallback render of a reopened doc: same saved page + offset
+    scrollApplyPreview() // fallback render of a reopened doc: back to its saved page + offset
+    pvOutline = []
+    pvLoadOutline(doc, id).catch(() => {})
     clearErr() // running again: clear marks
     lastInfra = false
   } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text

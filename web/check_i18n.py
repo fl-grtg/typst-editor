@@ -70,7 +70,7 @@ ALLOW_EXACT = {
     "Compiler still loading - network/adblock issue.",
     # protocol / technical
     "HTTP ", "Content-Type", "application/json", "text/plain;charset=utf-8",
-    "image/svg+xml", "application/pdf", "text/plain", "use strict",
+    "image/svg+xml", "application/pdf", "text/plain", "use strict", "noopener noreferrer",
     # boot fallback in index.shell.html: module (incl. t()) may be dead there
     "Something went wrong – ", "Reload",
     "App still loading – wait or reload",
