@@ -903,7 +903,7 @@ body.settings-open #modal { z-index: 302; }
 #setPop .keyCreateRow { display: grid; grid-template-columns: minmax(110px, 1.2fr) minmax(95px, .9fr) minmax(90px, .8fr) auto; align-items: center; gap: 6px; }
 #setPop .keyCreateRow > input, #setPop .keyCreateRow > select { box-sizing: border-box; width: 100%; min-width: 0; max-width: none; }
 #setPop .keyCreateRow > button { white-space: nowrap; }
-#setPop .setView .settingRow { flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 14px; }
+#setPop .setView .settingRow { min-height: 32px; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 14px; } /* switches are 20px: keep every row on the same 32px rhythm as steppers and selects */
 #setPop .setView .settingRow > label { flex: 1; min-width: 0; }
 #setPop .setView .settingRow > select { flex: 0 1 220px; width: 220px; max-width: 220px; }
 #setPop .setView .preferenceRow > select { flex: 0 1 190px; width: 190px; max-width: 190px; margin-left: auto; }
