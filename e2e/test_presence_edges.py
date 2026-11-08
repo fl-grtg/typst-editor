@@ -91,6 +91,7 @@ def test_offscreen_peer_chips(page):
     _set_first_peer(page, "end")
     expect(page.locator("#peerBottom")).to_be_visible()
     expect(page.locator("#peerBottom")).to_have_attribute("aria-label", "Below: Edge One")
+    assert page.locator("#peerBottom").bounding_box()["height"] <= 30  # compact edge pill
 
     # A position update re-renders the row but keeps keyboard focus on the chip.
     chip = page.locator("#peerBottom button").first
@@ -110,15 +111,15 @@ def test_offscreen_peer_chips(page):
     assert after > before
 
     # Many off-screen peers wrap inside the editor instead of overflowing it,
-    # and every chip keeps a 44px touch target.
+    # with the same slight avatar overlap as the header dots.
     _set_first_peer(page, "top")
     _add_phantoms(page, doc_id, [
-        {"name": f"Edge {i}", "color": "#0369a1", "pos": 0} for i in range(2, 10)
+        {"name": f"Edge {i}", "color": "#0369a1", "pos": 0} for i in range(2, 20)
     ])
     page.set_viewport_size({"width": 340, "height": 760})
     page.locator("#cm .cm-content").click()
     page.keyboard.press("ControlOrMeta+End")
-    expect(page.locator("#peerTop button")).to_have_count(9)
+    expect(page.locator("#peerTop button")).to_have_count(19)
     wrap = page.locator("#cmWrap").bounding_box()
     box = page.locator("#peerTop").bounding_box()
     assert wrap and box
@@ -128,7 +129,11 @@ def test_offscreen_peer_chips(page):
     sizes = page.locator("#peerTop button").evaluate_all(
         "els => els.map(el => { const r = el.getBoundingClientRect(); return [r.width, r.height] })"
     )
-    assert all(w >= 44 and h >= 44 for w, h in sizes)
+    assert all(w >= 24 and h >= 24 for w, h in sizes)
+    avatars = page.locator("#peerTop .av").evaluate_all(
+        "els => els.map(el => { const r = el.getBoundingClientRect(); return [r.left, r.width] })"
+    )
+    assert avatars[1][0] - avatars[0][0] <= avatars[0][1] - 2, "avatars should overlap like the header dots"
 
     # Leaving the document clears both edge rows right away, not on the next scroll.
     page.set_viewport_size({"width": 1280, "height": 800})

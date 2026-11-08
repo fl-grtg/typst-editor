@@ -7,8 +7,9 @@ def _assert_anchored(menu, button):
     button_box = button.bounding_box()
     menu_box = menu.bounding_box()
     assert menu_box["y"] >= button_box["y"] + button_box["height"] - 1
-    assert menu_box["x"] < button_box["x"] + button_box["width"]
-    assert menu_box["x"] + menu_box["width"] > button_box["x"]
+    # opens rightward from the three-dot instead of stretching to the sidebar's left edge
+    assert menu_box["x"] >= button_box["x"] - 1
+    assert menu_box["x"] + menu_box["width"] > button_box["x"] + button_box["width"]
 
 
 def test_sidebar_doc_menu_anchors_and_renames_inline(page):
