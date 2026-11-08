@@ -58,6 +58,8 @@ def test_offscreen_peer_chips(page):
     created = page.request.post("/api/docs/create", data={"title": TITLE, "content": _long_source()})
     assert created.ok, created.text()
     doc_id = created.json()["id"]
+    page.reload()  # the sidebar event can fire before the page subscribes on slow runners
+    page.wait_for_function("window.__booted === true")
     page.locator("#own .doc", has_text=TITLE).first.click()
     expect(page.locator("#title")).to_have_text(TITLE)
     expect(page.locator("#wsTxt")).to_have_text("Live")
