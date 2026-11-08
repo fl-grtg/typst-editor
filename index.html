@@ -526,9 +526,9 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #cmWrap .cm-activeLine { background: var(--hover); }
 #cmWrap .cm-gutters { background: var(--editor); border: 0; color: var(--faint); }
 #cmWrap .cm-lineNumbers .cm-gutterElement { min-width: 64px; padding: 0 12px 0 16px; font: 11.5px var(--mono); line-height: var(--lh); text-align: right; }
-#cmWrap .cm-scroller::-webkit-scrollbar { width: 10px; height: 12px; } /* horizontal rail a touch thicker than the vertical one */
+#cmWrap .cm-scroller::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; } /* compact rail on both axes */
 #cmWrap .cm-scroller::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 6px; }
-#cmWrap .cm-scroller::-webkit-scrollbar-track, #cmWrap .cm-scroller::-webkit-scrollbar-corner { background: transparent; }
+#cmWrap .cm-scroller::-webkit-scrollbar-track, #cmWrap .cm-scroller::-webkit-scrollbar-track-piece, #cmWrap .cm-scroller::-webkit-scrollbar-corner { background: transparent; }
 @supports not selector(::-webkit-scrollbar) { #cmWrap .cm-scroller { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; } } /* Firefox: no per-axis width */
 #cmWrap .cm-lineNumbers .cm-gutterElement.hasThread { color: var(--acc); font-weight: 700; cursor: pointer; }
 /* Fold lane right of numbers: shares editor bg, chevrons hover-revealed, folded stays visible */
