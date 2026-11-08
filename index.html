@@ -3364,6 +3364,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   $('media').style.display = 'none'; closePop()
   cm.dispatch({ effects: setPeer.of(RangeSet.of([])) })
   $('peers').replaceChildren()
+  clearPeerEdges()
   $('cBadge').style.display = 'none'
   const eb = $('eBadge'); if (eb) eb.style.display = 'none'
 }
@@ -3666,18 +3667,20 @@ const EDGE_ICO = {
   top: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3"/><path d="M4 7l4-4 4 4"/></svg>',
   bottom: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10"/><path d="M4 9l4 4 4-4"/></svg>'
 }
-function edgeSide(p) { // '' = same excerpt (caret visible), else the edge it sits beyond
-  const c = cm.coordsAtPos(p), r = cm.scrollDOM.getBoundingClientRect()
+function edgeSide(p, rect) { // '' = same excerpt (caret visible), else the edge it sits beyond
+  if (p < cm.viewport.from) return 'top' // outside the rendered range: only a clear distance counts
+  if (p > cm.viewport.to) return 'bottom'
+  const c = cm.coordsAtPos(p) // cheap only for the rendered range, not every peer in the room
   if (c) {
-    if (c.top < r.top - 2) return 'top'
-    if (c.bottom > r.bottom + 2) return 'bottom'
-    return ''
+    if (c.top < rect.top - 2) return 'top'
+    if (c.bottom > rect.bottom + 2) return 'bottom'
   }
-  return p < cm.viewport.from ? 'top' : p > cm.viewport.to ? 'bottom' : '' // outside rendered viewport: only a clear distance counts
+  return ''
 }
 let edgeT = 0, edgeKey = ''
 function edgeChip(box, id) { return [...box.querySelectorAll('button[data-peer]')].find(b => b.dataset.peer === String(id)) }
-function clearEdge(box) { for (const b of box.querySelectorAll('button[data-peer]')) b.remove(); box.style.display = 'none' }
+function clearEdge(box) { if (!box) return; for (const b of box.querySelectorAll('button[data-peer]')) b.remove(); box.style.display = 'none' }
+function clearPeerEdges() { cancelAnimationFrame(edgeT); edgeT = 0; clearEdge($('peerTop')); clearEdge($('peerBottom')); edgeKey = '' }
 function focusEdgeChip(id) { // keep keyboard focus on the same person across re-renders
   const btn = [...document.querySelectorAll('#peerTop button[data-peer], #peerBottom button[data-peer]')].find(b => b.dataset.peer === id)
   if (btn) { if (document.activeElement !== btn) btn.focus({ preventScroll: true }) }
@@ -3688,13 +3691,14 @@ function renderPeerEdges() {
   const boxes = { top: $('peerTop'), bottom: $('peerBottom') }
   const active = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#peerTop button[data-peer], #peerBottom button[data-peer]') : null
   const keepFocus = active && active.dataset.peer
-  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { clearEdge(boxes.top); clearEdge(boxes.bottom); edgeKey = ''; return }
+  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { clearPeerEdges(); return }
   const len = cm.state.doc.length, lists = { top: [], bottom: [] }
+  const rect = cm.scrollDOM.getBoundingClientRect() // one layout read per frame, not one per peer
   for (const [id, st] of prov.awareness.getStates()) {
     if (id === prov.awareness.clientID || !st.active || !st.sel) continue // same gate as the caret/label
     const h = absPos(st.sel.h)
     if (h == null) continue
-    const p = Math.max(0, Math.min(len, h)), side = edgeSide(p)
+    const p = Math.max(0, Math.min(len, h)), side = edgeSide(p, rect)
     if (!side) continue
     lists[side].push({ id, p, n: (st.u && st.u.name) || '?', c: (st.u && st.u.color) || '#ff5f57' })
   }

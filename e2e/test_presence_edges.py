@@ -1,15 +1,28 @@
 """Off-screen collaborators get a compact chip at the editor edge."""
+import json
+from pathlib import Path
+
 from helpers import register
 from playwright.sync_api import expect
 
+ROOT = Path(__file__).resolve().parents[1]
 TITLE = "Edge presence"
+
+
+def _vendor_urls():
+    entries = json.loads((ROOT / "vendor" / "manifest.json").read_text(encoding="utf-8"))["entry"]
+    return "/vendor/" + entries["yjs"], "/vendor/" + entries["y-websocket"]
+
+
+YJS_URL, WS_URL = _vendor_urls()
+
 
 # Awareness-only collaborators: real WebsocketProvider clients, so the app sees
 # ordinary remote state and the test never depends on window focus or timers.
 PHANTOM_JS = """
-async ({ docId, peers }) => {
-  const Y = await import('/vendor/yjs-13.6.27-232b4982bc3f.js')
-  const { WebsocketProvider } = await import('/vendor/y-websocket-1.5.0-8a98fc0aad78.js')
+async ({ docId, peers, yjsUrl, wsUrl }) => {
+  const Y = await import(yjsUrl)
+  const { WebsocketProvider } = await import(wsUrl)
   const proto = location.protocol === 'https' ? 'wss' : 'ws'
   window.__phantoms = window.__phantoms || []
   for (const p of peers) {
@@ -39,7 +52,7 @@ def _long_source():
 
 
 def _add_phantoms(page, doc_id, peers):
-    page.evaluate(PHANTOM_JS, {"docId": doc_id, "peers": peers})
+    page.evaluate(PHANTOM_JS, {"docId": doc_id, "peers": peers, "yjsUrl": YJS_URL, "wsUrl": WS_URL})
 
 
 def _set_first_peer(page, pos):
@@ -116,3 +129,11 @@ def test_offscreen_peer_chips(page):
         "els => els.map(el => { const r = el.getBoundingClientRect(); return [r.width, r.height] })"
     )
     assert all(w >= 44 and h >= 44 for w, h in sizes)
+
+    # Leaving the document clears both edge rows right away, not on the next scroll.
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.locator("#own .doc", has_text="Tutorial").first.click()
+    expect(page.locator("#title")).to_have_text("Tutorial")
+    expect(page.locator("#peerTop button, #peerBottom button")).to_have_count(0)
+    expect(page.locator("#peerTop")).to_be_hidden()
+    expect(page.locator("#peerBottom")).to_be_hidden()
