@@ -19,7 +19,9 @@ Beta tail line.
 
 
 def _line(page) -> int:
-    return int(re.match(r"Ln (\d+):", page.locator("#pos").inner_text()).group(1))
+    m = re.match(r"Ln (\d+):", page.locator("#pos").inner_text())
+    assert m, "status line has no line number"
+    return int(m.group(1))
 
 
 def test_click_preview_lands_in_the_clicked_section(page):

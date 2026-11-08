@@ -98,7 +98,7 @@ test('preview heading clicks resolve the matching source section on the same pag
   const lines = ['== First section', '=== D: Beobachtung', '== Second section', '=== D: Beobachtung']
   const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
   const jumps = []
-  const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0 })
+  const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
   vm.runInContext(code.slice(code.indexOf('async function pvJumpBest'), code.indexOf('function syncToPv')), c)
   assert.equal(await c.pvJumpBest('D: Beobachtung', 1, 0, pages[0][3]), true)
   assert.deepEqual(jumps, [lines.slice(0, 3).join('\n').length + 1])

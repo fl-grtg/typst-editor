@@ -6156,10 +6156,37 @@ function syncAnchor(lines, line, pages, sec) { // source line -> word box on pap
   if (exact.length < 4) return null
   const p0 = sec ? Math.max(0, sec.page) : 0
   const p1 = sec ? Math.min(pages.length - 1, line === sec.line ? sec.page : sec.endPage) : pages.length - 1 // heading: its own page only
-  const { text, spans } = pvPageIndex(pages, p0, p1)
-  const hit = pvFind(text, spans, exact) || pvRuns(exact).map(run => pvFind(text, spans, run)).find(Boolean)
+  const win = pvPageIndex(pages, p0, p1)
+  const hit = pvFindIn(win, exact)
   if (hit) return hit
-  return sec && (p0 > 0 || p1 < pages.length - 1) ? syncAnchor(lines, line, pages, null) : null // stale outline: global last resort
+  if (p0 === 0 && p1 === pages.length - 1) return pvHeadingPick(win, lines, line, exact) // no window: heading context decides
+  const all = pvPageIndex(pages, 0, pages.length - 1) // stale outline: global last resort
+  return pvFind(all.text, all.spans, exact) || pvHeadingPick(all, lines, line, exact) || pvRunPick(all, exact)
+}
+function pvFindIn(win, exact) { // exact whole words, else a unique 3-6 word run
+  return pvFind(win.text, win.spans, exact) || pvRunPick(win, exact)
+}
+function pvRunPick(win, exact) {
+  return pvRuns(exact).map(run => pvFind(win.text, win.spans, run)).find(Boolean) || null
+}
+function pvHeadingPick(win, lines, line, needle) { // repeated text: the nearest unique preceding heading decides
+  const hits = []
+  let at = -1
+  while ((at = win.text.indexOf(needle, at + 1)) >= 0) {
+    if ((at && win.text[at - 1] !== ' ') || (at + needle.length < win.text.length && win.text[at + needle.length] !== ' ')) continue
+    const span = win.spans.find(s => s.to > at)
+    if (span) hits.push({ ...span, at, items: win.spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) })
+  }
+  if (!hits.length) return null
+  if (hits.length === 1) return hits[0]
+  const headings = lines.slice(0, line - 1).filter(s => /^\s*=+\s/.test(s)).map(syncText).reverse()
+  for (const heading of headings) {
+    if (win.text.indexOf(heading) !== win.text.lastIndexOf(heading)) continue // not unique: useless as a marker
+    const scored = hits.map(hit => ({ hit, d: win.text.lastIndexOf(heading, hit.at - 1) })).filter(s => s.d >= 0)
+      .sort((a, b) => (a.hit.at - a.d) - (b.hit.at - b.d))
+    if (scored.length && (scored.length === 1 || scored[0].hit.at - scored[0].d < scored[1].hit.at - scored[1].d)) return scored[0].hit
+  }
+  return null
 }
 function pvPageIndex(pages, p0, p1) { // flat word text of one page window + item spans
   const parts = [], spans = []
