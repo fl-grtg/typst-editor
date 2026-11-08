@@ -450,6 +450,7 @@ function projectDropTarget(row, target) {
 async function renamePersonalResource(name, host) {
   const editing = tplName === name
   if (editing && !await flushTpl()) return
+  if (host && !host.isConnected) host = [...document.querySelectorAll('.private-module')].find(row => row.querySelector('.t')?.textContent === name) || host
   const label = host?.querySelector('.t')
   const target = label ? await sidebarInlineRename(host, label, name, { label: t('templates.renameTpl'), maxLen: 100 }) : await ask(t('templates.renameTpl'), { value: name, maxLen: 100 })
   if (!target?.trim() || target.trim() === name) return

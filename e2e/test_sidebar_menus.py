@@ -36,6 +36,35 @@ def test_sidebar_doc_menu_anchors_and_renames_inline(page):
     expect(page.locator("#own input.renameInput")).to_have_count(0)
 
 
+def test_personal_resource_rename_after_sidebar_refresh(page):
+    register(page, "e2e_sidebar_personal")
+    response = page.request.post("/api/templates", data={"name": "module.typ", "content": "= Module"})
+    assert response.ok, response.text()
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+
+    row = page.locator("#tpls .doc").filter(has=page.locator(".t", has_text="module.typ")).first
+    if not row.is_visible():
+        page.locator("#tplH").press("Enter")
+    old_row = row.element_handle()
+    row.hover()
+    row.locator("button[data-side-menu]").click()
+    menu = page.locator("#menu")
+    expect(menu).to_be_visible()
+
+    response = page.request.post("/api/docs/create", data={"title": "Refresh trigger", "content": ""})
+    assert response.ok, response.text()
+    expect(page.locator("#own .doc .t", has_text="Refresh trigger")).to_be_visible()
+    assert page.evaluate("node => !node.isConnected", old_row)
+
+    menu.locator("button").filter(has_text="Rename resource").click()
+    inp = page.locator("#tpls input.renameInput")
+    expect(inp).to_be_visible()
+    inp.fill("module-renamed.typ")
+    inp.press("Enter")
+    expect(page.locator("#tpls .doc .t", has_text="module-renamed.typ")).to_be_visible()
+
+
 def test_sidebar_project_menu_opens_anchored(page):
     register(page, "e2e_sidebar_project")
     response = page.request.post("/api/projects", data={"title": "Sidebar project"})
