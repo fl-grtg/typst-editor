@@ -248,8 +248,7 @@
     help: function () { click('helpBtn') }
   }
   document.querySelectorAll('[data-rail]').forEach(function (b) {
-    b.addEventListener('click', function (e) {
-      if (b.dataset.rail === 'set') e.stopPropagation() // avatar trigger: the outside-click closer must not shut the dialog again
+    b.addEventListener('click', function () {
       var f = RAIL[b.dataset.rail]; if (f) f()
     })
   })

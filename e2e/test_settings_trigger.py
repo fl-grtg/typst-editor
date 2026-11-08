@@ -1,13 +1,16 @@
 """Settings trigger hit area: the whole user box opens the dialog, not only the name."""
-from helpers import register
+from helpers import create_doc, register
 from playwright.sync_api import expect
 
 
 def test_settings_open_across_the_full_user_box(page):
     register(page, "e2e_settings_area")
-    expect(page.locator("#cm .cm-content")).to_be_visible()
+    create_doc(page, "Settings doc")
     main = page.locator("#userMain")
     pop = page.locator("#setPop")
+    expect(main).to_have_attribute("role", "button")
+    expect(main).to_have_attribute("aria-haspopup", "dialog")
+    expect(page.locator("#who")).not_to_have_attribute("role", "button")
     box, who_box, dot_box = main.bounding_box(), page.locator("#who").bounding_box(), page.locator("#meDot").bounding_box()
     assert box and who_box and dot_box
     points = [
@@ -18,8 +21,6 @@ def test_settings_open_across_the_full_user_box(page):
     ]
     for x, y in points:
         page.mouse.click(x, y)
-        if not pop.is_visible():  # async openDoc hidePops() won the race: toggle back open
-            page.mouse.click(x, y)
         expect(pop).to_be_visible()
         expect(main).to_have_attribute("aria-expanded", "true")
         page.mouse.click(x, y)
@@ -29,10 +30,15 @@ def test_settings_open_across_the_full_user_box(page):
 
 def test_collapsed_rail_avatar_opens_settings(page):
     register(page, "e2e_settings_rail")
-    expect(page.locator("#cm .cm-content")).to_be_visible()
+    create_doc(page, "Settings rail doc")
     page.click("#navToggle")
-    expect(page.locator("#railAv")).to_be_visible()
+    rail = page.locator("#railAv")
+    pop = page.locator("#setPop")
+    expect(rail).to_be_visible()
+    expect(rail).to_have_attribute("aria-expanded", "false")
     page.click("#railAv")
-    expect(page.locator("#setPop")).to_be_visible()
+    expect(pop).to_be_visible()
+    expect(rail).to_have_attribute("aria-expanded", "true")
     page.click("#railAv")
-    expect(page.locator("#setPop")).not_to_be_visible()
+    expect(pop).not_to_be_visible()
+    expect(rail).to_have_attribute("aria-expanded", "false")
