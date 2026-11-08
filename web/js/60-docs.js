@@ -385,6 +385,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   $('media').style.display = 'none'; closePop()
   cm.dispatch({ effects: setPeer.of(RangeSet.of([])) })
   $('peers').replaceChildren()
+  clearPeerEdges()
   $('cBadge').style.display = 'none'
   const eb = $('eBadge'); if (eb) eb.style.display = 'none'
 }

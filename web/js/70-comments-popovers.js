@@ -47,7 +47,87 @@ function renderPeers() { // bar only when editor active, dot for all online in d
     rs.push(Decoration.widget({ widget: new PeerCaret(c, n), side: 1 }).range(p))
   }
   cm.dispatch({ effects: setPeer.of(RangeSet.of(rs, true)) }) // true: CM sorts marks + widgets
+  schedulePeerEdges()
 }
+// Off-screen collaborators: compact avatars at the editor edge while their caret is outside the viewport.
+// Peers in view keep only their caret + label (no duplicate edge chip).
+const EDGE_ICO = {
+  top: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3"/><path d="M4 7l4-4 4 4"/></svg>',
+  bottom: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v10"/><path d="M4 9l4 4 4-4"/></svg>'
+}
+function edgeSide(p, rect) { // '' = same excerpt (caret visible), else the edge it sits beyond
+  if (p < cm.viewport.from) return 'top' // outside the rendered range: only a clear distance counts
+  if (p > cm.viewport.to) return 'bottom'
+  const c = cm.coordsAtPos(p) // cheap only for the rendered range, not every peer in the room
+  if (c) {
+    if (c.top < rect.top - 2) return 'top'
+    if (c.bottom > rect.bottom + 2) return 'bottom'
+  }
+  return ''
+}
+let edgeT = 0, edgeKey = ''
+function edgeChip(box, id) { return [...box.querySelectorAll('button[data-peer]')].find(b => b.dataset.peer === String(id)) }
+function clearEdge(box) { if (!box) return; for (const b of box.querySelectorAll('button[data-peer]')) b.remove(); box.style.display = 'none' }
+function clearPeerEdges() { cancelAnimationFrame(edgeT); edgeT = 0; clearEdge($('peerTop')); clearEdge($('peerBottom')); edgeKey = '' }
+function focusEdgeChip(id) { // keep keyboard focus on the same person across re-renders
+  const btn = [...document.querySelectorAll('#peerTop button[data-peer], #peerBottom button[data-peer]')].find(b => b.dataset.peer === id)
+  if (btn) { if (document.activeElement !== btn) btn.focus({ preventScroll: true }) }
+  else cm.focus()
+}
+function renderPeerEdges() {
+  edgeT = 0
+  const boxes = { top: $('peerTop'), bottom: $('peerBottom') }
+  const active = document.activeElement && document.activeElement.closest ? document.activeElement.closest('#peerTop button[data-peer], #peerBottom button[data-peer]') : null
+  const keepFocus = active && active.dataset.peer
+  if (!prov || !prov.awareness || !ytext || !docId || tplName || activeFile || openedTrashed || window.suggestionDraft || window.changeSession || $('cmWrap').hidden) { clearPeerEdges(); return }
+  const len = cm.state.doc.length, lists = { top: [], bottom: [] }
+  const rect = cm.scrollDOM.getBoundingClientRect() // one layout read per frame, not one per peer
+  for (const [id, st] of prov.awareness.getStates()) {
+    if (id === prov.awareness.clientID || !st.active || !st.sel) continue // same gate as the caret/label
+    const h = absPos(st.sel.h)
+    if (h == null) continue
+    const p = Math.max(0, Math.min(len, h)), side = edgeSide(p, rect)
+    if (!side) continue
+    lists[side].push({ id, p, n: (st.u && st.u.name) || '?', c: (st.u && st.u.color) || '#ff5f57' })
+  }
+  lists.top.sort((a, b) => b.p - a.p) // nearest to the viewport first
+  lists.bottom.sort((a, b) => a.p - b.p)
+  const key = ['top', 'bottom'].map(side => side + ':' + lists[side].map(x => x.id + ':' + x.p + ':' + x.n + ':' + x.c).join(',')).join('|')
+  if (key === edgeKey) return // scroll inside the same excerpt: no DOM churn
+  edgeKey = key
+  for (const side of ['top', 'bottom']) {
+    const box = boxes[side], list = lists[side]
+    if (!list.length) { clearEdge(box); continue }
+    box.setAttribute('aria-label', t(side === 'top' ? 'comments.peerEdgeAbove' : 'comments.peerEdgeBelow', { names: list.map(x => x.n).join(', ') }))
+    if (!box.querySelector('.dir')) { const dir = el('span', 'dir'); dir.innerHTML = EDGE_ICO[side]; box.prepend(dir) }
+    const ids = new Set()
+    for (const x of list) {
+      ids.add(String(x.id))
+      let b = edgeChip(box, x.id)
+      if (!b) { b = el('button'); b.type = 'button'; b.dataset.peer = String(x.id); b.appendChild(el('span', 'av')) }
+      const title = t(side === 'top' ? 'comments.peerJumpAbove' : 'comments.peerJumpBelow', { name: x.n, line: cm.state.doc.lineAt(x.p).number })
+      if (b.title !== title) { b.title = title; b.setAttribute('aria-label', title) }
+      const sig = x.n + '|' + x.c
+      if (b.dataset.sig !== sig) { b.dataset.sig = sig; paintAvatar(b.firstChild, x.n, x.c) }
+      b.onclick = () => jumpPeer(x.id)
+      box.appendChild(b) // keeps DOM order and reuses the button node
+    }
+    for (const b of box.querySelectorAll('button[data-peer]')) if (!ids.has(b.dataset.peer)) b.remove()
+    box.style.display = 'flex'
+  }
+  if (keepFocus) focusEdgeChip(keepFocus) // position updates must never drop keyboard focus
+}
+function jumpPeer(id) { // edge chip: centre that peer, own selection stays put
+  const st = prov && prov.awareness.getStates().get(id), h = st && st.sel && absPos(st.sel.h)
+  if (h == null) return
+  const p = Math.max(0, Math.min(cm.state.doc.length, h))
+  cm.dispatch({ effects: EditorView.scrollIntoView(p, { y: 'center' }) })
+  cm.focus()
+}
+function schedulePeerEdges() { if (!edgeT) edgeT = requestAnimationFrame(renderPeerEdges) } // scroll bursts: one paint per frame
+cm.scrollDOM.addEventListener('scroll', schedulePeerEdges, { passive: true })
+new ResizeObserver(schedulePeerEdges).observe(cm.scrollDOM)
+new ResizeObserver(schedulePeerEdges).observe(cm.contentDOM) // editor font/split changes move the excerpt without a scroll event
 cm.dom.addEventListener('focusin', pushPresence)
 cm.dom.addEventListener('focusout', () => { pushPresence(); renderPeers() })
 addEventListener('blur', pushPresence)
