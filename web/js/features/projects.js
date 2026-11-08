@@ -17,16 +17,43 @@ function compactSidebarActions(host, keep = 0) {
   const actions = [...host.children].filter(node => node.matches('button.mini')).slice(keep)
   if (actions.length < 2) return
   actions.forEach(button => button.remove())
-  projectAction(host, ICO_MORE, t('shell.menuMore'), async () => {
+  const more = icoBtn('mini', ICO_MORE)
+  more.title = t('shell.menuMore'); more.setAttribute('aria-label', more.title)
+  more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-expanded', 'false')
+  more.dataset.sideMenu = '' // ui-layer opens the dropdown below the button
+  more.sideMenuItems = () => {
     const s = window.changeSession
     const staged = s && host.closest('.project-group')?.dataset.projectId === s.project ? s.files.get(host.dataset.packageKey) : null
-    if (staged?.action === 'delete') {
-      const choice = await askPick(host.title || host.querySelector('.t')?.textContent || '', [[t('packages.discardFile'), '']])
-      if (choice === 0) await discardSessionFile(staged)
-      return
+    if (staged?.action === 'delete') return [{ label: t('packages.discardFile'), danger: true, run: () => discardSessionFile(staged).catch(e => toast(e.message)) }]
+    return actions.map(button => ({ label: button.dataset.menuLabel || button.title, danger: button.dataset.menuDanger !== undefined, disabled: button.disabled, run: () => button.click() }))
+  }
+  host.appendChild(more)
+}
+function sidebarInlineRename(host, label, value, opts = {}) { // rename in place: Enter/blur saves, Esc cancels
+  const input = el('input', 'renameInput')
+  input.value = value; input.maxLength = opts.maxLen || 240
+  input.setAttribute('aria-label', opts.label || t('shell.rename'))
+  input.spellcheck = false
+  label.replaceWith(input)
+  host.classList.add('renaming')
+  return new Promise(resolve => {
+    let done = false
+    const finish = save => {
+      if (done) return
+      done = true
+      const next = input.value.trim()
+      input.replaceWith(label)
+      host.classList.remove('renaming')
+      resolve(save && next && next !== value ? next : null)
     }
-    const choice = await askPick(host.title || host.querySelector('.t, b')?.textContent || '', actions.map(button => [button.title, '']))
-    if (choice != null && !actions[choice]?.disabled) actions[choice]?.click()
+    input.onclick = e => e.stopPropagation()
+    input.ondblclick = e => e.stopPropagation()
+    input.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true) }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
+    }
+    input.onblur = () => finish(true)
+    setTimeout(() => { input.focus(); input.select() }, 0)
   })
 }
 const projectEntryFlights = new Map()
@@ -74,8 +101,8 @@ function paintProjects(box, shared) {
       projectAction(h, ICO_PLUS, t('docs.newPick'), () => projectMenu(p))
     }
     if (p.role === 'owner') {
-      projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p))
-      projectAction(h, ICO_TRASH, t('common.delete'), () => deleteProject(p))
+      projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p, h))
+      projectAction(h, ICO_TRASH, t('common.delete'), () => deleteProject(p)).dataset.menuDanger = ''
     }
     compactSidebarActions(h, 1)
     group.appendChild(h)
@@ -84,7 +111,7 @@ function paintProjects(box, shared) {
       const row = docRow({ ...d, project_id: p.id, role: d.role || p.role }, shared, true)
       row.dataset.packageKey = ['document', d.id, 'main.typ'].join(':')
       row.classList.add('sub'); row.classList.toggle('cur', d.id === docId && !activeFile);
-      if (projectEditable(p)) projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d))
+      if (projectEditable(p)) projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row))
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title }))
       compactSidebarActions(row)
       projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title }); group.appendChild(row)
@@ -99,10 +126,10 @@ function paintProjects(box, shared) {
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: resource ? 'resource' : 'file', doc_id: document, name }))
       projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name })
       if (projectEditable(p)) {
-        projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource))
+        projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource, row))
       }
       if (projectEditable(p) || canStageProjectDelete(p.id)) {
-        projectAction(row, ICO_TRASH, t('common.delete'), () => deleteProjectEntry(p, name, document, resource))
+        projectAction(row, ICO_TRASH, t('common.delete'), () => deleteProjectEntry(p, name, document, resource)).dataset.menuDanger = ''
       }
       compactSidebarActions(row)
       group.appendChild(row)
@@ -277,26 +304,29 @@ async function projectMenu(p) {
     if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id })
   }
 }
-async function renameProject(p) {
-  const title = await ask(t('projects.rename'), { value: p.title })
+async function renameProject(p, host) {
+  const label = host?.querySelector('b')
+  const title = label ? await sidebarInlineRename(host, label, p.title, { label: t('projects.rename') }) : await ask(t('projects.rename'), { value: p.title })
   if (title?.trim()) { await api('POST', `/api/projects/${p.id}/rename`, { title: title.trim() }); await sidebar() }
 }
 async function deleteProject(p) {
   if (!await ask(t('projects.deleteWarning'), { noInput: true, danger: true })) return
   await api('DELETE', `/api/projects/${p.id}`); await sidebar()
 }
-async function renameProjectDocument(d) {
-  const title = await ask(t('docs.renameDoc'), { value: d.title })
+async function renameProjectDocument(d, host) {
+  const label = host?.querySelector('.t')
+  const title = label ? await sidebarInlineRename(host, label, d.title, { label: t('docs.renameDoc') }) : await ask(t('docs.renameDoc'), { value: d.title })
   if (!title?.trim()) return
   await api('POST', `/api/docs/${d.id}/rename`, { title: title.trim() })
   if (docId === d.id) { $('title').textContent = title.trim(); docTitle = title.trim(); tabSig = ''; paintTabs() }
   await sidebar()
 }
-async function renameProjectEntry(p, name, document, resource) {
+async function renameProjectEntry(p, name, document, resource, host) {
   if (!p) { toast(t('projects.contextGone')); return }
   const doc = docId, epoch = openN
   if (!await flushTab() || !await flushTpl()) return
-  const next = await ask(t('projects.renameWarning'), { value: name, maxLen: 240 })
+  const label = host?.querySelector('.t')
+  const next = label ? await sidebarInlineRename(host, label, name, { label: t('docs.renameDoc'), maxLen: 240 }) : await ask(t('projects.renameWarning'), { value: name, maxLen: 240 })
   if (!next?.trim() || next.trim() === name) return
   const body = { name, target: next.trim(), doc_id: resource ? '' : document }
   const preview = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, body)
@@ -410,10 +440,11 @@ function projectDropTarget(row, target) {
   }
 }
 
-async function renamePersonalResource(name) {
+async function renamePersonalResource(name, host) {
   const editing = tplName === name
   if (editing && !await flushTpl()) return
-  const target = await ask(t('templates.renameTpl'), { value: name, maxLen: 100 })
+  const label = host?.querySelector('.t')
+  const target = label ? await sidebarInlineRename(host, label, name, { label: t('templates.renameTpl'), maxLen: 100 }) : await ask(t('templates.renameTpl'), { value: name, maxLen: 100 })
   if (!target?.trim() || target.trim() === name) return
   try {
   await loadTpl()

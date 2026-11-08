@@ -9,6 +9,8 @@
 #menu button:hover:not(:disabled), #menu button:focus-visible { background: var(--ink); color: var(--on-ink); outline: none; }
 #menu button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #menu button:disabled { opacity: .4; }
+#menu button.danger { color: var(--danger); }
+#menu button.danger:hover:not(:disabled), #menu button.danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
 #menu .chk { width: 14px; flex: none; font-size: 12px; text-align: center; }
 #menu .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #menu .kbd { flex: none; font: 11.5px var(--ui); opacity: .55; letter-spacing: .02em; }
