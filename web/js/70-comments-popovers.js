@@ -267,7 +267,7 @@ function hidePops() { // close all header popups (share/tpl/history/symbols/sett
   if (window.closeMenu) window.closeMenu(false)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn) { btn.setAttribute('aria-expanded', 'false'); if (b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } } }
 }
-const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'who' }
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain' }
 function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   const p = $(id), open = p.style.display === 'none'
   hidePops(); closePop(true) // only one popover at a time (header or comment card)

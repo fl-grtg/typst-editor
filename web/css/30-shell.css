@@ -89,7 +89,6 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 #userMain:active { background: var(--press); }
 #userMain:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 #userBox #who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; line-height: 1.25; }
-#userBox #who:focus-visible { outline-offset: 4px; }
 #userBox #who small { display: block; margin-top: 1px; font-weight: 400; color: var(--faint); font-size: 12px; }
 #userBox #out { width: 48px; height: 48px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--sub); }
 #userBox #out:hover { background: var(--hover); color: var(--text); }

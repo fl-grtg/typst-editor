@@ -287,7 +287,6 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 #userMain:active { background: var(--press); }
 #userMain:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 #userBox #who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; line-height: 1.25; }
-#userBox #who:focus-visible { outline-offset: 4px; }
 #userBox #who small { display: block; margin-top: 1px; font-weight: 400; color: var(--faint); font-size: 12px; }
 #userBox #out { width: 48px; height: 48px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card); color: var(--sub); }
 #userBox #out:hover { background: var(--hover); color: var(--text); }
@@ -853,7 +852,7 @@ body.present-switch .pvPage { transition: none !important; }
 body.settings-open::before {
   content: ''; position: fixed; inset: 0; z-index: 299; background: rgba(9, 11, 15, .42);
   -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
-  pointer-events: none; /* clicks pass through: outside-click closes via hidePops(), #who toggles closed */
+  pointer-events: none; /* clicks pass through: outside-click closes via hidePops(), #userMain toggles closed */
 }
 /* ask() dialogs must sit above the settings panel (otherwise both are centered and the panel covers the dialog) */
 body.settings-open #modal { z-index: 302; }
@@ -1176,7 +1175,7 @@ document.addEventListener('submit', function (e) { // form is parsed below: capt
       <div id="trashDrop" class="sidebar-drop"><h3 id="trashH" role="button" tabindex="0" aria-expanded="true" aria-controls="trash" data-i18n="docs.trashSec">Trash</h3><div id="trash"></div></div>
       <h3 id="olH" role="button" tabindex="0" aria-expanded="true" aria-controls="ol" data-i18n="docs.secOutline">Outline</h3><div id="ol"></div>
     </div>
-    <div id="userBox"><div id="userMain" data-rail="set"><span id="meDot" class="dot" aria-hidden="true"></span><span id="who" role="button" tabindex="0" title="Settings" data-i18n-title="shell.whoTitle" aria-label="Settings: open settings" data-i18n-aria="shell.whoAria"></span></div><button id="out" aria-label="Sign out" data-i18n-aria="shell.signOut" title="Sign out" data-i18n-title="shell.signOut"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 2.5H4A1.5 1.5 0 0 0 2.5 4v8A1.5 1.5 0 0 0 4 13.5h2.5"/><path d="M10 5.2L12.8 8 10 10.8M12.8 8H6"/></svg></button></div>
+    <div id="userBox"><div id="userMain" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false" title="Settings" data-i18n-title="shell.whoTitle" aria-label="Settings: open settings" data-i18n-aria="shell.whoAria"><span id="meDot" class="dot" aria-hidden="true"></span><span id="who"></span></div><button id="out" aria-label="Sign out" data-i18n-aria="shell.signOut" title="Sign out" data-i18n-title="shell.signOut"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 2.5H4A1.5 1.5 0 0 0 2.5 4v8A1.5 1.5 0 0 0 4 13.5h2.5"/><path d="M10 5.2L12.8 8 10 10.8M12.8 8H6"/></svg></button></div>
     </div>
   </aside>
   <div id="scrim" style="display:none" role="presentation" aria-hidden="true"></div>
@@ -3867,7 +3866,7 @@ function hidePops() { // close all header popups (share/tpl/history/symbols/sett
   if (window.closeMenu) window.closeMenu(false)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; const btn = $(POP_BTN[p]); if (btn) { btn.setAttribute('aria-expanded', 'false'); if (b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } } }
 }
-const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'who' }
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain' }
 function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   const p = $(id), open = p.style.display === 'none'
   hidePops(); closePop(true) // only one popover at a time (header or comment card)
@@ -5123,22 +5122,24 @@ $('shareBtn').onclick = e => {
 document.addEventListener('click', e => {
   if (e.target.closest('#modal')) return
   for (const [p, b] of Object.entries(POP_BTN)) { // click outside closes (one loop not 5 blocks)
-    const box = $(p)
-    if (box && box.style.display !== 'none' && !$(b).contains(e.target) && !box.contains(e.target))
+    const box = $(p), btn = $(b)
+    if (box && box.style.display !== 'none' && !btn.contains(e.target) && !box.contains(e.target)) {
       box.style.display = 'none'
+      btn.setAttribute('aria-expanded', 'false')
+    }
   }
   const pop = $('pop') // click outside closes, never with text draft (highlight/tooltip opens, not closes)
   if (pop && popAnchor != null && pop.style.display !== 'none' && Date.now() - popT > 300 && !e.target.closest('#pop,.cm-gutters,#cNew,.cm-hl,[data-suggestion-change],[data-suggestion-id],.cm-tooltip')
       && ![...pop.querySelectorAll('input,textarea')].some(i => i.value.trim()))
     closePop()
 })
-// --- Settings: click on name (font/zoom, profile, password, account) ---
+// --- Settings: click on user box (font/zoom, profile, password, account) ---
 document.body.appendChild($('setPop'))
-$('who').onclick = e => {
+$('userMain').onclick = e => {
   e.stopPropagation()
   if (showPop('setPop')) { apiKeys = null; sessList = null; renderSettings() }
 }
-kb($('who'), () => $('who').click())
+kb($('userMain'), () => $('userMain').click())
 let apiKeys = null, apiKeysLoading = false, lastKeySecret = ''
 let settingsCategory = 'account'
 const settingsError = message => toast(message || t('common.requestFailed'), null, null, 5000, 'error')
@@ -9428,7 +9429,7 @@ openLinePop = line => {
     help: function () {
       return [
         it(t('editor.scTitle'), function () { click('helpBtn') }),
-        it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('who') }),
+        it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('userMain') }),
         it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
       ]
     },
@@ -9566,12 +9567,12 @@ openLinePop = line => {
     tpl: function () { section('tplH') },
     trash: function () { section('trashH') },
     theme: function () { setTheme(effective() === 'dark' ? 'light' : 'dark') },
-    set: function () { click('who') },
+    set: function () { click('userMain') },
     help: function () { click('helpBtn') }
   }
   document.querySelectorAll('[data-rail]').forEach(function (b) {
     b.addEventListener('click', function (e) {
-      if (b.id === 'userMain' && e.target.closest && e.target.closest('#who')) return // #who has its own handler
+      if (b.dataset.rail === 'set') e.stopPropagation() // avatar trigger: the outside-click closer must not shut the dialog again
       var f = RAIL[b.dataset.rail]; if (f) f()
     })
   })
