@@ -196,9 +196,10 @@ test('navigation during pull preview aborts before confirmation and copy', async
 test('sidebar callers share one request and schedule one follow-up', async () => {
   const docs = readFileSync('web/js/60-docs.js', 'utf8')
   const wrapper = docs.slice(docs.indexOf('let sidePending'), docs.indexOf('async function refreshSidebar'))
-  let release, calls = 0
+  let release, calls = 0, renameOpen = null
   const gate = new Promise(resolve => { release = resolve }), timers = []
-  const c = vm.createContext({ refreshSidebar: async () => { calls++; await gate },
+  const c = vm.createContext({ document: { querySelector: () => renameOpen }, window: {},
+    refreshSidebar: async () => { calls++; await gate },
     setTimeout: fn => { timers.push(fn); return timers.length }, clearTimeout: () => {} })
   vm.runInContext(wrapper, c)
   const first = c.sidebar(), second = c.sidebar(), third = c.sidebar()
@@ -206,6 +207,9 @@ test('sidebar callers share one request and schedule one follow-up', async () =>
   release(); await first
   assert.equal(timers.length, 1)
   await timers[0](); assert.equal(calls, 2)
+  renameOpen = {}
+  await c.sidebar()
+  assert.equal(c.window.__sidebarDeferred, true); assert.equal(calls, 2)
 })
 
 
