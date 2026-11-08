@@ -508,6 +508,7 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   slot.appendChild(box)
 }
 let pvAnim = 0
+function pvScrollStop() { cancelAnimationFrame(pvAnim) } // any deliberate scroll wins over a jump still in flight
 function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduced motion is requested
   cancelAnimationFrame(pvAnim)
   const from = pv.scrollTop, dy = y - from
@@ -522,7 +523,7 @@ function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduc
   }
   pvAnim = requestAnimationFrame(step)
 }
-$('preview').addEventListener('wheel', () => cancelAnimationFrame(pvAnim), { passive: true }) // user scroll wins over a jump animation
+$('preview').addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
 function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
   if (!target) return
   const pv = $('preview'), s = pvSlots[target.page]

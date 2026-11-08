@@ -739,6 +739,7 @@ function syncToPv() {
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
+  pvScrollStop() // a jump in flight must never override the editor-driven sync
   if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
 }
 function locateNear(t, s, hint) { // shortest hit near hint line (short cell texts too)

@@ -2765,6 +2765,7 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   slot.appendChild(box)
 }
 let pvAnim = 0
+function pvScrollStop() { cancelAnimationFrame(pvAnim) } // any deliberate scroll wins over a jump still in flight
 function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduced motion is requested
   cancelAnimationFrame(pvAnim)
   const from = pv.scrollTop, dy = y - from
@@ -2779,7 +2780,7 @@ function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduc
   }
   pvAnim = requestAnimationFrame(step)
 }
-$('preview').addEventListener('wheel', () => cancelAnimationFrame(pvAnim), { passive: true }) // user scroll wins over a jump animation
+$('preview').addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
 function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
   if (!target) return
   const pv = $('preview'), s = pvSlots[target.page]
@@ -6244,6 +6245,7 @@ function syncToPv() {
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
+  pvScrollStop() // a jump in flight must never override the editor-driven sync
   if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
 }
 function locateNear(t, s, hint) { // shortest hit near hint line (short cell texts too)
