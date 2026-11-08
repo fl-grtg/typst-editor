@@ -13,6 +13,10 @@ function projectAction(host, icon, label, run) {
   b.onclick = e => { e.stopPropagation(); Promise.resolve().then(run).catch(e => toast(e.message)) }
   host.appendChild(b); return b
 }
+function sidebarLiveHost(host, key) { // row actions can outlive a sidebar repaint (open menu, then a remote change)
+  if (!host || host.isConnected) return host
+  return key ? [...document.querySelectorAll('[data-package-key]')].find(row => row.dataset.packageKey === key) || host : host
+}
 function compactSidebarActions(host, keep = 0) {
   const actions = [...host.children].filter(node => node.matches('button.mini')).slice(keep)
   if (actions.length < 2) return
@@ -305,6 +309,7 @@ async function projectMenu(p) {
   }
 }
 async function renameProject(p, host) {
+  if (host && !host.isConnected) host = [...document.querySelectorAll('.project-group')].find(group => group.dataset.projectId === p.id)?.querySelector('.fhd.project') || host
   const label = host?.querySelector('b')
   const title = label ? await sidebarInlineRename(host, label, p.title, { label: t('projects.rename') }) : await ask(t('projects.rename'), { value: p.title })
   if (title?.trim()) { await api('POST', `/api/projects/${p.id}/rename`, { title: title.trim() }); await sidebar() }
@@ -314,6 +319,7 @@ async function deleteProject(p) {
   await api('DELETE', `/api/projects/${p.id}`); await sidebar()
 }
 async function renameProjectDocument(d, host) {
+  host = sidebarLiveHost(host, ['document', d.id, 'main.typ'].join(':'))
   const label = host?.querySelector('.t')
   const title = label ? await sidebarInlineRename(host, label, d.title, { label: t('docs.renameDoc') }) : await ask(t('docs.renameDoc'), { value: d.title })
   if (!title?.trim()) return
@@ -323,6 +329,7 @@ async function renameProjectDocument(d, host) {
 }
 async function renameProjectEntry(p, name, document, resource, host) {
   if (!p) { toast(t('projects.contextGone')); return }
+  host = sidebarLiveHost(host, [resource ? 'resource' : 'file', resource ? '' : document, name].join(':'))
   const doc = docId, epoch = openN
   if (!await flushTab() || !await flushTpl()) return
   const label = host?.querySelector('.t')
