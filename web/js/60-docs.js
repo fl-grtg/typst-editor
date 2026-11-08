@@ -69,6 +69,7 @@ function queueSidebar() {
   sideEventTimer = setTimeout(() => sidebar().catch(() => {}), 1000)
 }
 function sidebar() {
+  if (document.querySelector('aside input.renameInput')) { window.__sidebarDeferred = true; return Promise.resolve() } // keep inline rename alive; refresh after it closes
   if (sidePending) { sideAgain = true; return sidePending }
   sidePending = refreshSidebar().finally(() => {
     sidePending = null
@@ -147,7 +148,7 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
     div.appendChild(dup)
   }
   if (!shared || (x.project_id && (x.role === 'editor' || canStageProjectDelete(x.project_id)))) {
-    const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title)
+    const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
     del.onclick = async e => {
       e.stopPropagation()
       if (await stageDocumentDelete(x.id)) return
@@ -278,9 +279,10 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   kb(div, () => openTpl(tpl.name))
   sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name } }, 'copyMove')
   projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
-  projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name))
+  const ren = projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name, div))
+  ren.dataset.menuLabel = t('templates.renameRes') // short menu item; the full title stays the tooltip
   projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
-  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title)
+  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
   del.onclick = async e => {
     e.stopPropagation()
     if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return

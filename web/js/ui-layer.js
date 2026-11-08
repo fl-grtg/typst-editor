@@ -131,10 +131,9 @@
     idx = (i + btns.length) % btns.length
     btns[idx].focus()
   }
-  function open(anchor, name) {
+  function show(anchor, list, name, align) {
     close(false)
     document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop').forEach(function (p) { p.style.display = 'none' }) // one popover at a time
-    var list = DEF[name] ? DEF[name]() : []
     menu.replaceChildren()
     list.forEach(function (d) {
       if (d.sep) { menu.appendChild(document.createElement('hr')); return }
@@ -143,7 +142,8 @@
       b.type = 'button'
       b.setAttribute('role', d.checked === undefined ? 'menuitem' : 'menuitemcheckbox')
       if (d.checked !== undefined) b.setAttribute('aria-checked', String(!!d.checked))
-      b.disabled = !d.on
+      b.disabled = d.on === false || !!d.disabled
+      if (d.danger) b.className = 'danger'
       var c = document.createElement('span'); c.className = 'chk'; c.textContent = d.checked ? '\u2713' : ''; c.setAttribute('aria-hidden', 'true')
       var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
       if (d.checked !== undefined) b.appendChild(c)
@@ -154,16 +154,32 @@
     })
     menu.hidden = false
     var r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h2 = menu.offsetHeight
-    var left = name === 'export' ? r.right - w : r.left
+    var left = align === 'right' ? r.right - w : r.left
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
     var top = r.bottom + 6
-    if (top + h2 > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h2 - 8)
+    if (top + h2 > window.innerHeight - 8) { // rows near the bottom dock: open upwards when there is room
+      var above = r.top - h2 - 6
+      top = above >= 8 ? above : Math.max(8, window.innerHeight - h2 - 8)
+    }
     menu.style.left = left + 'px'; menu.style.top = top + 'px'
     anchor.setAttribute('aria-expanded', 'true')
     openFor = anchor; items = list
     menu.dataset.name = name
   }
+  function open(anchor, name) {
+    show(anchor, DEF[name] ? DEF[name]() : [], name, name === 'export' ? 'right' : 'left')
+  }
 
+  document.addEventListener('click', function (e) { // capture: row clicks (open document) must not run for the menu button
+    var s = e.target.closest && e.target.closest('[data-side-menu]')
+    if (!s) return
+    e.preventDefault(); e.stopPropagation()
+    if (openFor === s) close(false)
+    else {
+      var list = typeof s.sideMenuItems === 'function' ? s.sideMenuItems() : []
+      if (list.length) show(s, list, 'sidebar', 'right')
+    }
+  }, true)
   document.addEventListener('click', function (e) {
     var a = e.target.closest && e.target.closest('[data-menu]')
     if (a) {
@@ -180,7 +196,14 @@
     })
   })
   document.addEventListener('keydown', function (e) {
-    if (!openFor) return
+    if (!openFor) {
+      var s = e.target.closest && e.target.closest('[data-side-menu]')
+      if (s && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
+        var list = typeof s.sideMenuItems === 'function' ? s.sideMenuItems() : []
+        if (list.length) { e.preventDefault(); show(s, list, 'sidebar', 'right'); focusItem(0) }
+      }
+      return
+    }
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true) }
     else if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(idx + 1) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(idx < 0 ? -1 : idx - 1) }

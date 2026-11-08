@@ -15,8 +15,8 @@ function drop(data, files = []) {
   return { preventDefault() {}, stopPropagation() {}, dataTransfer: { files, types: files.length ? ['Files'] : ['application/x-typst-project-entry'], getData: () => JSON.stringify(data) } }
 }
 test('private module drag permits moving into trash and restoring to modules', () => {
-  const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null })
-  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction() {}, compactSidebarActions() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
+  const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {} })
+  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
   const docs = fs.readFileSync('web/js/60-docs.js', 'utf8')
   vm.runInContext(docs.slice(docs.indexOf('function resRow'), docs.indexOf('function paintKind')), c)
   const module = c.resRow({ name: 'module.typ' }), event = drop(null)
