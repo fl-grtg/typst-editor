@@ -507,6 +507,22 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   })
   slot.appendChild(box)
 }
+let pvAnim = 0
+function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduced motion is requested
+  cancelAnimationFrame(pvAnim)
+  const from = pv.scrollTop, dy = y - from
+  let calm = false
+  try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
+  if (Math.abs(dy) < 240 || calm) { pv.scrollTop = y; return }
+  const t0 = performance.now()
+  const step = now => {
+    const k = Math.min(1, (now - t0) / 220)
+    pv.scrollTop = from + dy * (1 - (1 - k) * (1 - k))
+    if (k < 1) pvAnim = requestAnimationFrame(step)
+  }
+  pvAnim = requestAnimationFrame(step)
+}
+$('preview').addEventListener('wheel', () => cancelAnimationFrame(pvAnim), { passive: true }) // user scroll wins over a jump animation
 function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
   if (!target) return
   const pv = $('preview'), s = pvSlots[target.page]
@@ -515,13 +531,13 @@ function pvGotoTarget(target) { // internal jump: destination page, refined by i
     const hPt = +s.dataset.w * +s.dataset.r, cssH = parseFloat(s.style.height) || 0
     let y = 0
     if (target.top != null && hPt > 0 && cssH > 0) y = Math.max(0, Math.min(cssH, cssH * (1 - target.top / hPt)))
-    pv.scrollTop += sr.top - pr.top + y - pv.clientHeight * 0.12
+    pvScrollTo(pv, pv.scrollTop + sr.top - pr.top + y - pv.clientHeight * 0.12)
     return
   }
   const cv = pvCanvasList()[target.page] // fallback path: bare canvases, page top only
   if (!cv) return
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
-  pv.scrollTop += cr.top - pr.top - pv.clientHeight * 0.12
+  pvScrollTo(pv, pv.scrollTop + cr.top - pr.top - pv.clientHeight * 0.12)
 }
 async function pvLoadOutline(doc, id) { // bookmarks with pages: the honest anchor chain for source -> PDF
   let root = []

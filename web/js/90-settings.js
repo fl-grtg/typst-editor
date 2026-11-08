@@ -730,14 +730,13 @@ function jumpPos(pos) { // editor jump to screen center (preview does not follow
   cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) })
   cm.focus()
 }
-$('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), else ratio
+$('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then section, else ratio
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
   if (!syncOn || !docId || tplName) return
   const pv = $('preview')
   const cv = e.target.closest ? e.target.closest('canvas') : null
+  const pi = cv && pvTexts.length ? pvCanvasList().indexOf(cv) : -1 // canvas only, ignore .empty divs
   if (cv && pvTexts.length) {
-    const list = pvCanvasList()
-    const pi = list.indexOf(cv) // count canvas only, ignore .empty divs
     const items = pi >= 0 ? (pvTexts[pi] || []) : []
     const r = cv.getBoundingClientRect()
     const x = e.clientX - r.left, y = e.clientY - r.top
@@ -751,15 +750,18 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     if (best) {
       const total = cm.state.doc.lines || 1
       const hint = pvPageHint(pi, items.indexOf(best), items.length, total, pvTexts.length)
+      const file0 = activeFile
       if (await pvJumpBest(best.s, hint, pi, best)) return
       syncPage = pi >= 0 ? pi : syncPage
-      return // ambiguous text is not a source location
+      if (activeFile !== file0) return // the jump already tried another file: no section guess
     } else {
       syncPage = pi >= 0 ? pi : syncPage // even without hit: next sync starts on click page
       if (activeFile) return // image/margin click in a file tab: ratio maps main layout onto file text
     }
   } else if (activeFile) return // no canvas hit in a file tab: nowhere honest to go
   if (pvSrcList().length > 1) return // included files destroy a main-line/layout ratio
+  const sec = pi >= 0 ? pvSecAt(pi).sec : null
+  if (sec) { jumpPos(posOfLine(getT(), sec.line)); return } // no source word: land on the clicked section
   const r = pv.getBoundingClientRect() // fallback for a single source only
   const ratio = Math.max(0, Math.min(1, (e.clientY - r.top + pv.scrollTop) / pv.scrollHeight))
   const lines = getT().split('\n'), total = lines.length || 1
