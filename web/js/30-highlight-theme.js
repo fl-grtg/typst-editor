@@ -46,6 +46,7 @@ function spellCodeMarks(state) {
   return Decoration.set(marks, true)
 }
 const languageComp = new Compartment()
+const wrapComp = new Compartment() // F26: line wrapping (settings, persisted)
 const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup defaults
       { key: 'ArrowDown', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(true)(v); return false } }, // creator call: (forward)(view), else cursor moves along
       { key: 'ArrowUp', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(false)(v); return false } },
@@ -68,7 +69,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
       },
       shift: v => prevSnippetField(v) || indentLess(v), // F10: Shift-Tab walks snippet fields back, else dedent
     }, { key: 'Ctrl-Space', run: startCompletion }, ...foldKeymap]), // F10: fold shortcuts alongside completion keys
-    minimalSetup, languageComp.of(typstSupport), Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), EditorView.lineWrapping, tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
+    minimalSetup, languageComp.of(typstSupport), Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), wrapComp.of(wrapOn ? EditorView.lineWrapping : []), tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
     autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
@@ -87,6 +88,14 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
       if (u.selectionSet || u.docChanged) try { updPos() } catch (e) {} // F24 status: Ln/Col/words follow cursor
     })]
 const cm = new EditorView({ parent: $('cm'), extensions: cmExtensions })
+function paintWrap() { $('cmWrap').classList.toggle('wrapOff', !wrapOn) } // scrollbar class only: never dispatch before the rest of the module has initialized
+function setWrap(on) { // F26: wrapping lives in a compartment so the setting switches without a reload
+  wrapOn = !!on
+  lsSet('typst_wrap', wrapOn ? '1' : '0')
+  paintWrap()
+  cm.dispatch({ effects: wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []) })
+}
+paintWrap() // persisted wrapping mode on boot (the initial extension above already honors it)
 const Transaction = cm.state.update({}).constructor // vendor bundle exports no Transaction: take the class from a throwaway transaction
 const NO_HIST = [Transaction.addToHistory.of(false), Transaction.remote.of(true)] // remote/programmatic text: never in own undo stack
 cm.scrollDOM.addEventListener('scroll', () => {
@@ -212,7 +221,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
   applying = true
   try {
     cm.setState(EditorState.create({ doc: v, selection, extensions: cmExtensions }))
-    cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), ...(scroll ? [scroll] : [])] })
+    cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }
   if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.() }

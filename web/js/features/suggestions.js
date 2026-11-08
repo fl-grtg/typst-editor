@@ -263,7 +263,7 @@ function stopSuggestionDraft(discard = true) {
     cm.setState(draft.originState)
     const old = getT(), span = diffSpan(old, shadow)
     if (old !== shadow) cm.dispatch({ changes: { from: span.a, to: old.length - span.b, insert: shadow.slice(span.a, shadow.length - span.b) }, annotations: NO_HIST })
-    cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
+    cm.dispatch({ effects: [editableComp.reconfigure(editMode(tabCanEdit(activeFile))), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : [])] })
   } finally { applying = false }
   document.body.classList.remove('suggesting'); cm.scrollDOM.scrollTop = draft.scroll
   renderPeers(); pushPresence(); applySpell(); fmtSync(); initRanges(); gutter(); refreshHl(); paintOutline(); queueRender(); paintSuggestionControls(); cm.requestMeasure(); return true
