@@ -40,6 +40,7 @@ test('replacing a review buffer maps the selection and scroll anchor through tex
     setState(state) { this.state = state }, dispatch(spec) { effects = spec.effects } }
   const c = vm.createContext({ cm, EditorState, EditorView, cmExtensions: [], window: {},
     editableComp: { reconfigure: () => 'mode' }, tabComp: { reconfigure: () => 'tabs' },
+    wrapComp: { reconfigure: () => 'wrap' }, wrapOn: true,
     editMode: () => [], tabW: 2, indentUnit: { of: () => null } })
   vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
   vm.runInContext(source.slice(source.indexOf('const getT ='), source.indexOf('function onEdit')), c)
@@ -48,7 +49,7 @@ test('replacing a review buffer maps the selection and scroll anchor through tex
   assert.equal(cm.state.doc.toString(), next)
   assert.equal(cm.state.selection.main.anchor, 209)
   assert.equal(cm.state.selection.main.head, 259)
-  assert.equal(effects[2].value.range.head, 159)
+  assert.equal(effects[3].value.range.head, 159)
   assert.equal(c.applying, false)
 })
 

@@ -48,7 +48,9 @@
 /* Hover carrier: transparent extension makes the whole editor width hoverable, so no aim is needed */
 #cmWrap .cm-errMark { position: relative; }
 #cmWrap .cm-errMark::after { content: ''; position: absolute; left: 100%; top: 0; bottom: 0; width: 100vw; }
-#cmWrap .cm-scroller { overflow-x: clip; } /* carrier extension must never cause a horizontal scrollbar (lineWrapping is always on) */
+#cmWrap .cm-scroller { overflow-x: clip; } /* wrapping on: carrier extension must never cause a horizontal scrollbar */
+#cmWrap.wrapOff .cm-scroller { overflow-x: auto; } /* wrapping off: long lines scroll horizontally */
+#cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
 #cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
 #cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
 #cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }

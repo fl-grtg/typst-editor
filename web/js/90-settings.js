@@ -219,7 +219,13 @@ function renderSettings() {
   ;[2, 4, 8].forEach(n => { const o = el('option', null, t('settings.tabSpaces', { n })); o.value = String(n); if (n === tabW) o.selected = true; ts.appendChild(o) })
   ts.onchange = () => { tabW = +ts.value || 2; lsSet('typst_tab', tabW); cm.dispatch({ effects: tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]) }); renderSettings() }
   tr.appendChild(ts)
-  const edSec = sec(fr, zr, tr)
+  const wr = el('div', 'row settingRow')
+  const wl = el('label', null, t('settings.lineWrap')); wl.setAttribute('for', 'wrapSet'); wl.title = t('settings.lineWrapHint')
+  const wc = el('input', 'settingSwitch'); wc.type = 'checkbox'; wc.id = 'wrapSet'; wc.setAttribute('role', 'switch'); wc.checked = wrapOn
+  wc.setAttribute('aria-label', t('settings.lineWrap')); wc.title = t('settings.lineWrapHint')
+  wc.onchange = () => setWrap(wc.checked)
+  wr.append(wl, wc)
+  const edSec = sec(fr, zr, tr, wr)
   for (const s of [formatSettingsSec(), spellSettingsSec()]) while (s.firstChild) edSec.appendChild(s.firstChild)
   put('editor', grp(t('settings.editorGroup'), edSec))
   const avatarActions = el('div', 'row avatarRow')

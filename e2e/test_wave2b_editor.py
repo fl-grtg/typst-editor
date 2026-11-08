@@ -1,10 +1,11 @@
-"""Wave 2B (Editor): one new path covering the track.
+"""Wave 2B (Editor): paths covering the track.
 
 Format shortcut formats the doc, a second run is stable (idempotent), the
 preview still renders a canvas, the Help button and the Help menu open the
 shortcut overview (Settings holds no shortcuts now), the toolbar stays one
-line (format-on-save + spellcheck live in Settings), and spellcheck wiring
-is per document.
+line (format-on-save + spellcheck live in Settings), spellcheck wiring
+is per document, and line wrapping toggles between wrapped and horizontally
+scrolling lines.
 """
 from helpers import create_doc, register, type_source
 from playwright.sync_api import expect
@@ -68,3 +69,46 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     pop.locator("#spellSel").select_option("off")
     expect(page.locator('#cm .cm-content')).to_have_attribute('spellcheck', 'false')
     assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('lang')") is None
+
+
+def test_10_line_wrap_setting(page):
+    register(page, "e2e_wrap")
+    create_doc(page, "Wrap doc")
+    type_source(page, "Wort " * 400)
+
+    scroller = "#cm .cm-scroller"
+
+    def widths():
+        return page.eval_on_selector(scroller, "n => [n.scrollWidth, n.clientWidth]")
+
+    scroll, client = widths()
+    assert scroll <= client + 1  # wrapping is on by default
+
+    page.locator("#who").click()
+    pop = page.locator("#setPop")
+    pop.locator('.setNavItem[data-category="editor"]').click()
+    wrap = pop.locator("#wrapSet")
+    expect(wrap).to_be_checked()
+    wrap.click()
+    expect(wrap).not_to_be_checked()
+    assert page.eval_on_selector("#cmWrap", "n => n.classList.contains('wrapOff')")
+    assert page.evaluate("() => localStorage.getItem('typst_wrap')") == "0"
+    scroll, client = widths()
+    assert scroll > client * 2  # long lines scroll horizontally
+    page.eval_on_selector(scroller, "n => n.scrollLeft = 200")
+    assert page.eval_on_selector(scroller, "n => n.scrollLeft") == 200
+
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+    assert page.eval_on_selector("#cmWrap", "n => n.classList.contains('wrapOff')")
+    assert page.evaluate("() => localStorage.getItem('typst_wrap')") == "0"
+
+    page.locator("#who").click()
+    pop = page.locator("#setPop")
+    pop.locator('.setNavItem[data-category="editor"]').click()
+    wrap = pop.locator("#wrapSet")
+    expect(wrap).not_to_be_checked()
+    wrap.click()
+    expect(wrap).to_be_checked()
+    assert not page.eval_on_selector("#cmWrap", "n => n.classList.contains('wrapOff')")
+    assert page.evaluate("() => localStorage.getItem('typst_wrap')") == "1"
