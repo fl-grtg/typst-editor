@@ -65,6 +65,42 @@ def test_personal_resource_rename_after_sidebar_refresh(page):
     expect(page.locator("#tpls .doc .t", has_text="module-renamed.typ")).to_be_visible()
 
 
+def test_inline_rename_survives_sidebar_refresh(page):
+    register(page, "e2e_rename_refresh")
+    create_doc(page, "Rename stays")
+    row = page.locator("#own .doc").filter(has=page.locator(".t", has_text="Rename stays")).first
+    row.hover()
+    row.locator("button[data-side-menu]").click()
+    page.locator("#menu button").filter(has_text="Rename document").click()
+
+    inp = page.locator("#own input.renameInput")
+    expect(inp).to_be_visible()
+    inp.fill("Rename kept")
+    response = page.request.post("/api/docs/create", data={"title": "Refresh during rename", "content": ""})
+    assert response.ok, response.text()
+    page.wait_for_function("window.__sidebarDeferred === true")
+    expect(inp).to_be_visible()
+    inp.press("Enter")
+    expect(page.locator("#own .doc .t", has_text="Rename kept")).to_be_visible()
+    expect(page.locator("#own .doc .t", has_text="Refresh during rename")).to_be_visible()
+
+
+def test_sidebar_menu_keyboard_escape_returns_focus(page):
+    register(page, "e2e_sidebar_keys")
+    create_doc(page, "Keyboard row")
+    row = page.locator("#own .doc").filter(has=page.locator(".t", has_text="Keyboard row")).first
+    row.hover()
+    more = row.locator("button[data-side-menu]")
+    more.focus()
+    more.press("ArrowDown")
+    menu = page.locator("#menu")
+    expect(menu).to_be_visible()
+    expect(menu.locator("button").first).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
+    expect(more).to_be_focused()
+
+
 def test_sidebar_project_menu_opens_anchored(page):
     register(page, "e2e_sidebar_project")
     response = page.request.post("/api/projects", data={"title": "Sidebar project"})

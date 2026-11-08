@@ -46,9 +46,14 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
       if (done) return
       done = true
       const next = input.value.trim()
+      const deferred = window.__sidebarDeferred
       input.replaceWith(label)
       host.classList.remove('renaming')
       resolve(save && next && next !== value ? next : null)
+      if (deferred && !document.querySelector('aside input.renameInput')) {
+        window.__sidebarDeferred = false
+        setTimeout(() => sidebar(), 0)
+      }
     }
     input.onclick = e => e.stopPropagation()
     input.ondblclick = e => e.stopPropagation()

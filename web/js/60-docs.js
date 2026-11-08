@@ -69,6 +69,7 @@ function queueSidebar() {
   sideEventTimer = setTimeout(() => sidebar().catch(() => {}), 1000)
 }
 function sidebar() {
+  if (document.querySelector('aside input.renameInput')) { window.__sidebarDeferred = true; return Promise.resolve() } // keep inline rename alive; refresh after it closes
   if (sidePending) { sideAgain = true; return sidePending }
   sidePending = refreshSidebar().finally(() => {
     sidePending = null
