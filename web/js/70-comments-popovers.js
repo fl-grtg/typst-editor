@@ -239,11 +239,19 @@ const ICO_CHECK = svgI('<path d="M3.5 8.5l3 3 6-7"/>')
 const ICO_SEND = svgI('<path d="M8 13V3"/><path d="M4 7l4-4 4 4"/>')
 const icoBtn = (cls, svg) => { const b = el('button', cls); b.innerHTML = svg; return b }
 const ICO_TRASH = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg>'
-function paintOutline() { // collect = lines, click jumps to line
+function pvOlHit(text, from) { // PDF bookmark index for a source heading, in document order; -1: not in the outline
+  if (!pvOutline.length) return -1
+  const norm = s => syncText(String(s).replace(/<[^>]*>/g, ' ')).replace(/^\d+(\s+\d+)*\s*/, '') // drop labels and "1.2 " numbers
+  const want = norm(text)
+  for (let k = from; k < pvOutline.length; k++) if (norm(pvOutline[k].title) === want) return k
+  return -1
+}
+function paintOutline() { // collect = lines, click jumps to line; page badge from the PDF outline
   const box = $('ol')
   if (!box) return
   box.replaceChildren()
   if (!docId || tplName) return
+  let olAt = 0
   getT().split('\n').forEach((ln, i) => {
     const m = ln.match(/^(=+)\s+(.+)$/)
     if (!m) return
@@ -252,6 +260,13 @@ function paintOutline() { // collect = lines, click jumps to line
     d.setAttribute('role', 'button')
     d.appendChild(el('span', 't', m[2].slice(0, 60)))
     d.title = t('docs.olLineTitle', { n: line })
+    const hit = pvOlHit(m[2], olAt)
+    if (hit >= 0) { // real page from the last render: proves the heading made it onto paper
+      olAt = hit + 1
+      const page = pvOutline[hit].page + 1
+      d.appendChild(el('span', 'pg', String(page)))
+      d.title += ' · ' + t('docs.olPage', { n: page })
+    }
     d.setAttribute('aria-label', t('docs.olGoTo', { line, text: m[2].slice(0, 60) }))
     const goL = () => {
       const p = posOfLine(getT(), line)

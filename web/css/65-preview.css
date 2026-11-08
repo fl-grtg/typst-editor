@@ -27,8 +27,14 @@ body.read #preview { padding-top: 24px; }
 #pvTools #syncBtn + .grp { padding-left: 4px; border-left: 1px solid var(--line); }
 
 /* Virtual pages: one slot per page, only visible ones rasterized */
-.pvPage { margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); overflow: hidden; }
+.pvPage { position: relative; margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); overflow: hidden; }
 .pvPage canvas { margin: 0; box-shadow: none; border-radius: 0; }
+/* PDF links (js/50-preview.js): invisible boxes over the canvas, the browser
+   handles hover, keyboard and right-click. Percent boxes follow every zoom. */
+.pvLinks { position: absolute; inset: 0; pointer-events: none; }
+.pvLinks a { position: absolute; pointer-events: auto; border-radius: 2px; transition: background .12s; }
+.pvLinks a:hover, .pvLinks a:focus-visible { background: var(--acc-soft); outline: none; }
+body.present .pvLinks { display: none; }
 
 /* Presentation mode (see js/features/presentation.js): one rendered page at a
    time, fit to both axes. Distinct from read: prior view mode is restored. */
