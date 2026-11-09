@@ -324,7 +324,7 @@ async function flushTpl() {
     if (getT() !== text) { queueTplSave(); return false }
     tplDirty = false
     try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
-    $('save').textContent = t('docs.saved') + wc()
+    $('save').textContent = t('docs.saved')
     loadTpl()
     return true
   } catch (e) {
@@ -344,7 +344,7 @@ async function loadTheirs(key) { // conflict escape: take the server text into t
     tplVer = r.version || ''
     const cc = tplCached(key); if (cc) { cc.content = r.content || ''; cc.updated_at = tplVer }
     try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
-    tplDirty = false; setT(r.content || ''); $('save').textContent = t('docs.saved') + wc(); paintTpls()
+    tplDirty = false; setT(r.content || ''); $('save').textContent = t('docs.saved'); paintTpls()
   } catch (e) { toast(e.message) }
 }
 async function resSync() { // SSE follow-up: fresh list first, open resource follows only when clean (dirty editors never wiped)
@@ -354,7 +354,7 @@ async function resSync() { // SSE follow-up: fresh list first, open resource fol
   if (!cc) return
   if (!tplDirty) {
     tplVer = cc.updated_at || tplVer
-    if ((cc.content || '') !== getT()) { setT(cc.content || ''); $('save').textContent = t('docs.saved') + wc() }
+    if ((cc.content || '') !== getT()) { setT(cc.content || ''); $('save').textContent = t('docs.saved') }
   }
 }
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
@@ -452,7 +452,7 @@ function paintConn() { // one status: Live / Offline (browser) / Getrennt (WS do
   dot.style.background = live ? '#30d158' : '#8e8e93'; dot.title = t(key)
   wt.textContent = t(key) // #wsTxt has role=status: announced once, not per keystroke
   dot.classList.toggle('is-off', !live); wt.classList.toggle('is-off', !live)
-  if (sv && live && (!sv.textContent || sv.textContent === t('docs.offlineRetry'))) sv.textContent = t('docs.saved') + wc() // back from offline: Yjs already converged, drop the stale retry note quietly
+  if (sv && live && (!sv.textContent || sv.textContent === t('docs.offlineRetry'))) sv.textContent = t('docs.saved') // back from offline: Yjs already converged, drop the stale retry note quietly
 }
 function updConn() { // calm: live/offline paint at once, getrennt after 1200ms grace (reconnect inside cancels it)
   paintSuggestionControls()
@@ -616,13 +616,13 @@ async function saveNow(force, auto) {
   const saveErr = e => navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
   if (tplName) { await flushTpl(); return } // explicit save: flushTpl carries status + conflict toasts
   if (activeFile && docId) { // file/template tab: save that text, not main
-    if (await flushTab()) { $('save').textContent = t('docs.saved') + wc(); queueRender() }
+    if (await flushTab()) { $('save').textContent = t('docs.saved'); queueRender() }
     return
   }
   if (!docId || docRole === 'reviewer' || !ytext) return
   if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns main.typ: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
-  if (auto) { if (!window.suggestionDraft) $('save').textContent = t('docs.saved') + wc(); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E); draft must not claim 'saved'
-  try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') + wc() }
+  if (auto) { if (!window.suggestionDraft) $('save').textContent = t('docs.saved'); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E); draft must not claim 'saved'
+  try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') }
   catch (e) {
     if (e.status === 409 && !force && prov && prov.wsconnected && synced) return saveNow(true, auto) // live: Y state already merges everyone's edits, safe to overwrite
     $('save').textContent = saveErr(e)

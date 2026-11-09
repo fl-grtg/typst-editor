@@ -2098,7 +2098,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }
-  if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.() }
+  if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.(); try { updPos() } catch (e) {} } // status follows the new buffer
 }
 function onEdit(mapPos, changes, oldLen) {
   if (window.changeSession) { sessionRecord(changes, oldLen); return }
@@ -3326,7 +3326,7 @@ async function flushTpl() {
     if (getT() !== text) { queueTplSave(); return false }
     tplDirty = false
     try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
-    $('save').textContent = t('docs.saved') + wc()
+    $('save').textContent = t('docs.saved')
     loadTpl()
     return true
   } catch (e) {
@@ -3346,7 +3346,7 @@ async function loadTheirs(key) { // conflict escape: take the server text into t
     tplVer = r.version || ''
     const cc = tplCached(key); if (cc) { cc.content = r.content || ''; cc.updated_at = tplVer }
     try { localStorage.removeItem(resourceStashKey(key)) } catch (e) {}
-    tplDirty = false; setT(r.content || ''); $('save').textContent = t('docs.saved') + wc(); paintTpls()
+    tplDirty = false; setT(r.content || ''); $('save').textContent = t('docs.saved'); paintTpls()
   } catch (e) { toast(e.message) }
 }
 async function resSync() { // SSE follow-up: fresh list first, open resource follows only when clean (dirty editors never wiped)
@@ -3356,7 +3356,7 @@ async function resSync() { // SSE follow-up: fresh list first, open resource fol
   if (!cc) return
   if (!tplDirty) {
     tplVer = cc.updated_at || tplVer
-    if ((cc.content || '') !== getT()) { setT(cc.content || ''); $('save').textContent = t('docs.saved') + wc() }
+    if ((cc.content || '') !== getT()) { setT(cc.content || ''); $('save').textContent = t('docs.saved') }
   }
 }
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
@@ -3454,7 +3454,7 @@ function paintConn() { // one status: Live / Offline (browser) / Getrennt (WS do
   dot.style.background = live ? '#30d158' : '#8e8e93'; dot.title = t(key)
   wt.textContent = t(key) // #wsTxt has role=status: announced once, not per keystroke
   dot.classList.toggle('is-off', !live); wt.classList.toggle('is-off', !live)
-  if (sv && live && (!sv.textContent || sv.textContent === t('docs.offlineRetry'))) sv.textContent = t('docs.saved') + wc() // back from offline: Yjs already converged, drop the stale retry note quietly
+  if (sv && live && (!sv.textContent || sv.textContent === t('docs.offlineRetry'))) sv.textContent = t('docs.saved') // back from offline: Yjs already converged, drop the stale retry note quietly
 }
 function updConn() { // calm: live/offline paint at once, getrennt after 1200ms grace (reconnect inside cancels it)
   paintSuggestionControls()
@@ -3618,13 +3618,13 @@ async function saveNow(force, auto) {
   const saveErr = e => navigator.onLine === false ? t('docs.offlineRetry') : t('docs.saveError', { msg: e.message })
   if (tplName) { await flushTpl(); return } // explicit save: flushTpl carries status + conflict toasts
   if (activeFile && docId) { // file/template tab: save that text, not main
-    if (await flushTab()) { $('save').textContent = t('docs.saved') + wc(); queueRender() }
+    if (await flushTab()) { $('save').textContent = t('docs.saved'); queueRender() }
     return
   }
   if (!docId || docRole === 'reviewer' || !ytext) return
   if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns main.typ: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
-  if (auto) { if (!window.suggestionDraft) $('save').textContent = t('docs.saved') + wc(); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E); draft must not claim 'saved'
-  try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') + wc() }
+  if (auto) { if (!window.suggestionDraft) $('save').textContent = t('docs.saved'); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E); draft must not claim 'saved'
+  try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') }
   catch (e) {
     if (e.status === 409 && !force && prov && prov.wsconnected && synced) return saveNow(true, auto) // live: Y state already merges everyone's edits, safe to overwrite
     $('save').textContent = saveErr(e)
@@ -3899,7 +3899,7 @@ function paintOutline() { // collect = lines, click jumps to line
   })
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.olEmpty')))
 }
-function wc() { // word count for #save display
+function wc() { // word count for #pos display
   const txt = getT().trim()
   if (!txt) return ''
   const n = txt.split(/\s+/).length
@@ -3910,7 +3910,8 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   if (!p) return
   let ln = 1, col = 1
   try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
-  p.textContent = t('docs.posCompact', { ln, col }) + (!activeFile && !tplName ? (wc() || '') : '')
+  const words = !activeFile || TEXT_EXT.test(activeFile) // binary tabs show a placeholder, never a word count
+  p.textContent = t('docs.posCompact', { ln, col }) + (words ? (wc() || '') : '')
   p.title = t('docs.posLine', { ln, col }) + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
 function openTutorial() {
@@ -4566,7 +4567,7 @@ async function flushTab(allowStash = false) {
       try { localStorage.removeItem(fileStashKey(dk, key)) } catch (e) {}
       tabDirty = false
       if (!isTplKey(key)) fileCache.delete(key) // bytes stale: next render refetches
-      $('save').textContent = t('docs.saved') + wc()
+      $('save').textContent = t('docs.saved')
     } else if (activeFile === key && tabDirty) { queueFileSave(); return false }
     return true
   } catch (e) {
@@ -4598,7 +4599,7 @@ async function loadTabTheirs(dk, key) { // 409 escape: take the server text into
       tabDirty = false; setT(txt.content)
     }
     try { localStorage.removeItem(fileStashKey(dk, key)) } catch (e) {}
-    $('save').textContent = t('docs.saved') + wc()
+    $('save').textContent = t('docs.saved')
     gutter(); paintOutline(); paintErr(); queueRender()
   } catch (e) { toast(e.message) }
 }
@@ -4612,7 +4613,7 @@ function queueFileSave() { // file/template tab: only that text + preview, no Yj
   clearTimeout(fileT)
   if (!tabCanEdit(activeFile)) return // shared read-only: no save timer
   tabDirty = true
-  $('save').textContent = '…' + wc()
+  $('save').textContent = t('docs.saving')
   const dk = docId, key = activeFile
   fileT = setTimeout(async () => {
     if (docId !== dk || activeFile !== key) return // switched meanwhile: the newer tab owns the editor
@@ -8514,7 +8515,7 @@ function stopSuggestionDraft(discard = true) {
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(tabCanEdit(activeFile))), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : [])] })
   } finally { applying = false }
   document.body.classList.remove('suggesting'); cm.scrollDOM.scrollTop = draft.scroll
-  renderPeers(); pushPresence(); applySpell(); fmtSync(); initRanges(); gutter(); refreshHl(); paintOutline(); queueRender(); paintSuggestionControls(); cm.requestMeasure(); return true
+  renderPeers(); pushPresence(); applySpell(); fmtSync(); initRanges(); gutter(); refreshHl(); paintOutline(); queueRender(); paintSuggestionControls(); try { updPos() } catch (e) {}; cm.requestMeasure(); return true
 }
 
 async function sendSuggestionDraft() {

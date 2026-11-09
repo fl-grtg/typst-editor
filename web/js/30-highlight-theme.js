@@ -224,7 +224,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }
-  if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.() }
+  if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.(); try { updPos() } catch (e) {} } // status follows the new buffer
 }
 function onEdit(mapPos, changes, oldLen) {
   if (window.changeSession) { sessionRecord(changes, oldLen); return }

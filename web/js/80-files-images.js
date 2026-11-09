@@ -299,7 +299,7 @@ async function flushTab(allowStash = false) {
       try { localStorage.removeItem(fileStashKey(dk, key)) } catch (e) {}
       tabDirty = false
       if (!isTplKey(key)) fileCache.delete(key) // bytes stale: next render refetches
-      $('save').textContent = t('docs.saved') + wc()
+      $('save').textContent = t('docs.saved')
     } else if (activeFile === key && tabDirty) { queueFileSave(); return false }
     return true
   } catch (e) {
@@ -331,7 +331,7 @@ async function loadTabTheirs(dk, key) { // 409 escape: take the server text into
       tabDirty = false; setT(txt.content)
     }
     try { localStorage.removeItem(fileStashKey(dk, key)) } catch (e) {}
-    $('save').textContent = t('docs.saved') + wc()
+    $('save').textContent = t('docs.saved')
     gutter(); paintOutline(); paintErr(); queueRender()
   } catch (e) { toast(e.message) }
 }
@@ -345,7 +345,7 @@ function queueFileSave() { // file/template tab: only that text + preview, no Yj
   clearTimeout(fileT)
   if (!tabCanEdit(activeFile)) return // shared read-only: no save timer
   tabDirty = true
-  $('save').textContent = '…' + wc()
+  $('save').textContent = t('docs.saving')
   const dk = docId, key = activeFile
   fileT = setTimeout(async () => {
     if (docId !== dk || activeFile !== key) return // switched meanwhile: the newer tab owns the editor

@@ -264,7 +264,7 @@ function paintOutline() { // collect = lines, click jumps to line
   })
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.olEmpty')))
 }
-function wc() { // word count for #save display
+function wc() { // word count for #pos display
   const txt = getT().trim()
   if (!txt) return ''
   const n = txt.split(/\s+/).length
@@ -275,7 +275,8 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   if (!p) return
   let ln = 1, col = 1
   try { const l = cm.state.doc.lineAt(cm.state.selection.main.head); ln = l.number; col = cm.state.selection.main.head - l.from + 1 } catch (e) {}
-  p.textContent = t('docs.posCompact', { ln, col }) + (!activeFile && !tplName ? (wc() || '') : '')
+  const words = !activeFile || TEXT_EXT.test(activeFile) // binary tabs show a placeholder, never a word count
+  p.textContent = t('docs.posCompact', { ln, col }) + (words ? (wc() || '') : '')
   p.title = t('docs.posLine', { ln, col }) + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
 function openTutorial() {
