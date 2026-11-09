@@ -7006,7 +7006,13 @@ function paintBib() {
     input.onchange = input.oninput
     row.append(input); target.append(row)
   }
-  field(t('editor.entryKey'), entry.key, (e, value) => { if (/^[\w:.-]+$/.test(value) && !parseBib(getT()).some((x, i) => i !== bibSelected && x.key === value)) replaceBib(e.keyFrom, e.keyTo, value) }, false, false, '$entryKey')
+  field(t('editor.entryKey'), entry.key, (e, value) => {
+    if (!/^[\w:.-]+$/.test(value) || parseBib(getT()).some((x, i) => i !== bibSelected && x.key === value)) return
+    // Pending rows are keyed by entry key: move them along when the key changes.
+    const pending = bibPending.get(e.key)
+    if (pending) { bibPending.delete(e.key); bibPending.set(value, pending) }
+    replaceBib(e.keyFrom, e.keyTo, value)
+  }, false, false, '$entryKey')
   field(t('editor.entryType'), entry.type, (e, value) => { if (/^[a-zA-Z]+$/.test(value)) replaceBib(e.typeFrom, e.typeTo, value) }, false, false, '$entryType', true)
   const mainFields = el('div', 'bibMainFields'), extras = el('details', 'bibMoreFields'); extras.append(el('summary', null, t('editor.moreFields')))
   function focusField(name) {
@@ -7045,7 +7051,7 @@ function paintBib() {
       for (const ch of value) { if (ch === '{') depth++; if (ch === '}') depth-- }
       if (depth !== 0) return
       if (!value) { if (f) replaceBib(f.statementFrom, f.statementTo, ''); return }
-      bibPending.get(entry.key)?.delete(name)
+      bibPending.get(e.key)?.delete(name)
       const text = '{' + value + '}'
       if (f) replaceBib(f.from, f.to, text)
       else { const before = getT().slice(e.from, e.end).trimEnd(); replaceBib(e.end, e.end, (before.endsWith(',') ? '' : ',') + '\n  ' + name + ' = ' + text + ',\n') }
@@ -7057,7 +7063,7 @@ function paintBib() {
     if (!await ask(t('editor.deleteEntry') + ': ' + key, { noInput: true, danger: true, ok: t('common.delete') })) return
     if (identity !== bibIdentity) return
     const latest = parseBib(getT()).find(e => e.key === key)
-    if (latest) replaceBib(latest.from, latest.to, '')
+    if (latest) { bibPending.delete(latest.key); replaceBib(latest.from, latest.to, '') }
   }
   const footer = el('div', 'bibFooter'); footer.append(remove); form.append(footer)
 }
