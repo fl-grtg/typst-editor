@@ -115,11 +115,14 @@ function paintBib() {
   const entry = entries[bibSelected]
   if (!entry) { form.append(el('p', null, t('editor.emptyEntries'))); return }
   if (entry.invalid) { form.append(el('p', null, t('editor.bibInvalid'))); return }
+  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
+  const names = [...new Set(['title', 'author', 'year', 'doi', 'url', ...entry.fields.map(f => f.name), 'publisher', 'journal'])]
   let target = form
   const proposalPainters = []
   const metadata = el('div', 'bibMetadata'); form.append(metadata); target = metadata
-  function field(label, value, save, multiline, disabled) {
-    const row = el('label', 'bibField'), input = el(label === t('editor.entryType') ? 'select' : multiline ? 'textarea' : 'input')
+  function field(label, value, save, multiline, disabled, name = label) {
+    const row = el('label', 'bibField'); row.dataset.field = name
+    const input = el(label === t('editor.entryType') ? 'select' : multiline ? 'textarea' : 'input')
     if (input.tagName === 'SELECT') for (const type of [...new Set([value, 'book', 'article', 'inproceedings', 'incollection', 'thesis', 'report', 'online', 'misc'])]) { const option = el('option', null, type); option.value = type; input.append(option) }
     if (multiline) input.rows = 1
     const caption = el('span', null, label)
@@ -168,9 +171,31 @@ function paintBib() {
   field(t('editor.entryKey'), entry.key, (e, value) => { if (/^[\w:.-]+$/.test(value) && !parseBib(getT()).some((x, i) => i !== bibSelected && x.key === value)) replaceBib(e.keyFrom, e.keyTo, value) })
   field(t('editor.entryType'), entry.type, (e, value) => { if (/^[a-zA-Z]+$/.test(value)) replaceBib(e.typeFrom, e.typeTo, value) })
   const mainFields = el('div', 'bibMainFields'), extras = el('details', 'bibMoreFields'); extras.append(el('summary', null, t('editor.moreFields')))
-  form.append(mainFields, extras)
-  const names = [...new Set(['title', 'author', 'year', 'doi', 'url', ...entry.fields.map(f => f.name), 'publisher', 'journal'])]
-  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
+  function focusField(name) {
+    const row = [...bibPanel.querySelectorAll('.bibField')].find(r => r.dataset.field?.toLowerCase() === name.toLowerCase())
+    if (!row) return
+    const more = bibPanel.querySelector('.bibMoreFields'); if (more) more.open = true
+    row.scrollIntoView({ block: 'nearest' }); row.querySelector('input, textarea, select')?.focus()
+  }
+  const addField = el('button', 'ibtn bibAddField'); addField.innerHTML = svgI('<path d="M8 3v10M3 8h10"/>')
+  addField.title = t('editor.addField'); addField.setAttribute('aria-label', addField.title); addField.disabled = !editable
+  addField.onclick = async () => {
+    const identity = bibIdentity, key = entry.key
+    const value = await ask(t('editor.addField'), { ph: t('editor.fieldNamePh'), maxLen: 64 })
+    if (!value || identity !== bibIdentity || !cm.state.facet(EditorView.editable)) return
+    const name = value.trim()
+    if (!/^[A-Za-z][\w-]*$/.test(name)) { toast(t('editor.fieldNameInvalid')); return }
+    const latest = parseBib(getT()).find(e => e.key === key)
+    if (!latest || latest.invalid) return
+    const taken = new Set(['title', 'author', 'year', 'doi', 'url', 'publisher', 'journal', ...latest.fields.map(f => f.name.toLowerCase())])
+    if (taken.has(name.toLowerCase())) { toast(t('editor.fieldExists')); focusField(name); return }
+    // Write the empty field immediately so the new form row survives repaints.
+    const before = getT().slice(latest.from, latest.end).trimEnd()
+    replaceBib(latest.from + before.length, latest.end, (before.endsWith(',') ? '' : ',') + '\n  ' + name + ' = {},\n')
+    focusField(name)
+  }
+  const moreBar = el('div', 'bibMoreBar'); moreBar.append(extras, addField)
+  form.append(mainFields, moreBar)
   names.forEach(name => {
     const existing = entry.fields.find(f => f.name === name)
     target = labels[name] ? mainFields : extras
@@ -185,7 +210,7 @@ function paintBib() {
       const text = '{' + value + '}'
       if (f) replaceBib(f.from, f.to, text)
       else { const before = getT().slice(e.from, e.end).trimEnd(); replaceBib(e.end, e.end, (before.endsWith(',') ? '' : ',') + '\n  ' + name + ' = ' + text + ',\n') }
-    }, ['title', 'author'].includes(name), existing && !existing.simple)
+    }, ['title', 'author'].includes(name), existing && !existing.simple, name)
   })
   const remove = el('button', 'btn', t('editor.deleteEntry')); remove.disabled = !editable
   remove.onclick = async () => {

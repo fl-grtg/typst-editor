@@ -128,8 +128,10 @@
 .bibField { font-size: 12px; gap: 5px; margin-bottom: 12px; }
 .bibField input, .bibField select, .bibField textarea { border-radius: var(--r-sm); background: var(--field); padding: 7px 9px; min-width: 0; }
 .bibField textarea { min-height: 52px; height: 52px; }
-.bibMoreFields { margin: 4px 0 16px; border-top: 1px solid var(--line); }
+.bibMoreBar { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 16px; }
+.bibMoreFields { flex: 1; min-width: 0; }
 .bibMoreFields summary { padding: 12px 0; cursor: pointer; color: var(--sub); font-size: 12px; }
+.bibAddField { flex: none; width: 30px; height: 30px; margin-top: 6px; padding: 0; }
 .bibFooter { border-top: 1px solid var(--line); padding-top: 12px; }
 .bibFooter button { background: transparent; color: var(--danger); border-color: var(--line-2); box-shadow: none; }
 .bibFooter button:not(:disabled):hover { background: var(--danger-soft); color: var(--danger); }
@@ -137,7 +139,6 @@
 @media (max-width: 600px) { .bibList { flex-basis: 130px; } .bibForm { padding: 12px; } .bibMetadata, .bibMainFields { grid-template-columns: 1fr; } }
 
 .bibMetadata { border-bottom: 0; padding-bottom: 0; margin-bottom: 8px; }
-.bibMoreFields { border-top: 0; }
 .bibFooter { border-top: 0; }
 .bibField textarea { min-height: 38px; height: 38px; resize: none; }
 .bibField input:invalid { border-color: var(--danger); }

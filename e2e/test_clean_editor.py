@@ -106,6 +106,28 @@ def test_bib_draft_marks_and_opens_changed_input_immediately(page):
     assert next(r for r in resources if r['name'] == 'sources.bib')['content'] == base
 
 
+def test_bib_form_adds_custom_field(page):
+    register(page, 'bib_add_field')
+    create_doc(page, 'Added field')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Added field')
+    project = document['project_id']
+    base = '@book{key, title={Sample}, author={Doe, Jane}, year={2026}}\n'
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'sources.bib', 'content': base}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Added field').click()
+    page.locator('#own .doc .t').filter(has_text='sources.bib').click()
+    page.get_by_role('button', name='Add field', exact=True).click()
+    page.fill('#mInp', 'isbn')
+    page.click('#mYes')
+    isbn = page.locator('.bibField').filter(has=page.locator('span', has_text=re.compile('^isbn$')))
+    expect(isbn.locator('input')).to_be_focused()
+    with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources'), timeout=15_000) as saved:
+        isbn.locator('input').fill('978-3-16-148410-0')
+    assert saved.value.ok
+    resources = page.request.get(f'/api/projects/{project}/resources').json()['resources']
+    assert 'isbn = {978-3-16-148410-0}' in next(r for r in resources if r['name'] == 'sources.bib')['content']
+
+
 def test_csv_review_accepts_and_discards_only_clicked_cell(page):
     register(page, 'csv_cell_review')
     create_doc(page, 'Cell review')
