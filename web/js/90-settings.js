@@ -567,9 +567,13 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
   } catch (e) {}
 }
 let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, pvT = 0, syncView = 0 // click sync editor<->preview, last hit page, scroll-follow pos
+let followAll = true // true: cursor/scroll/jumps move the preview; false: only a click syncs
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
+try { const s = localStorage.getItem('typst_follow_all'); if (s === '0' || s === '1') followAll = s === '1' } catch (e) {}
 function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
+function applyFollowBtn() { const b = $('followBtn'); if (!b) return; b.classList.toggle('on', followAll); b.setAttribute('aria-pressed', followAll) }
 function queueSyncPv(at) { // throttle: continuous cursor/scroll movement still updates the preview (no wait-for-idle)
+  if (!followAll) return
   syncView = at || 0
   if (syncT) return // a run is already scheduled and reads the latest position
   syncT = setTimeout(() => { syncT = 0; syncToPv() }, SYNC_MS)
@@ -579,20 +583,19 @@ try { // wheel over the editor: the preview follows what is on screen, not only 
   const sc = cm.scrollDOM
   sc.addEventListener('wheel', () => { cmWheelT = Date.now() }, { passive: true })
   sc.addEventListener('scroll', () => {
-    if (Date.now() - cmWheelT > 600) return // selection/scrollIntoView already syncs the cursor
+    if (!followAll || Date.now() - cmWheelT > 600) return // selection/scrollIntoView already syncs the cursor
     try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
   }, { passive: true })
 } catch (e) {}
-function pvPageHint(pi, idx, len, total, n) { // click page -> source line: section window first, then layout ratio
-  const frac = len > 0 ? (idx + 1) / len : 0.5
-  const at = pvSecAt(pi)
-  if (at.sec) {
+function pvPageHint(pi, total, n, at, frac) { // click page -> source line: section window first, then layout ratio
+  const f0 = typeof frac === 'number' && isFinite(frac) ? Math.max(0, Math.min(1, frac)) : 0.5
+  if (at && at.sec) {
     const a = at.sec.line, b = at.next ? at.next.line - 1 : total
     const span = at.next ? at.next.page - at.sec.page + 1 : Math.max(1, n - at.sec.page)
-    const f = ((pi - at.sec.page) + frac) / Math.max(1, span)
+    const f = ((pi - at.sec.page) + f0) / Math.max(1, span)
     return Math.max(1, Math.min(total, Math.round(a + f * Math.max(0, b - a))))
   }
-  return Math.max(1, Math.min(total, Math.round((pi + frac) / Math.max(1, n) * total) + 1))
+  return Math.max(1, Math.min(total, Math.round((pi + f0) / Math.max(1, n) * total) + 1))
 }
 function pvCanvasList() { // virtual slots first, fallback bare canvases
   const pv = $('preview')
@@ -605,61 +608,93 @@ function pvVerify(t, at, s) { // context must contain the click word: longest to
   const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
   return w.length < 4 || um.includes(w) || um.includes(s.trim())
 }
-async function pvJumpBest(s, hint, pi, anchor, col) { // honest cross-file jump: current tab, else the unique owner, else stay
-  const needle = (s || '').trim()
-  if (needle.length < 2) return false
-  const off = Math.max(0, Math.min(col || 0, needle.length)) // clicked column inside the PDF item
+async function pvJumpBest(needles, hint, pi, anchor) { // honest cross-file jump per click candidate: current tab, else the unique owner, else stay
+  const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
+  if (!list.length) return false
   const cur = activeFile || ''
-  if (!cur && anchor) {
-    const lines = getT().split('\n'), matches = []
-    let pos = 0
-    lines.forEach((text, i) => {
-      if (/^\s*=+\s/.test(text) && syncPlain(text).includes(syncPlain(needle))) {
-        const hit = syncAnchor(lines, i + 1, pvTexts, pvSecAtLine(i + 1))
-        if (hit && hit.pi === pi && hit.items.includes(anchor)) {
-          const at = text.indexOf(needle)
-          matches.push({ pos: at >= 0 ? pos + at + off : pos, distance: Math.abs(hit.it.y - anchor.y) })
+  for (const nd of list) {
+    const s = nd.s.trim(), off = Math.max(0, Math.min(nd.off || 0, s.length)) // clicked column inside the PDF line
+    if (!cur && anchor) { // heading clicks: the PDF line's own height decides between repeated titles
+      const lines = getT().split('\n'), matches = []
+      let pos = 0
+      lines.forEach((text, i) => {
+        if (/^\s*=+\s/.test(text) && syncPlain(text).includes(syncPlain(s))) {
+          const hit = syncAnchor(lines, i + 1, pvTexts, pvSecAtLine(i + 1))
+          if (hit && hit.pi === pi && hit.items.includes(anchor)) {
+            const at = text.indexOf(s)
+            matches.push({ pos: at >= 0 ? pos + at + off : pos, distance: Math.abs(hit.it.y - anchor.y) })
+          }
         }
+        pos += text.length + 1
+      })
+      matches.sort((a, b) => a.distance - b.distance)
+      if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) {
+        syncPage = pi; jumpPos(matches[0].pos); return true
       }
-      pos += text.length + 1
-    })
-    matches.sort((a, b) => a.distance - b.distance)
-    if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) {
-      syncPage = pi; jumpPos(matches[0].pos); return true
+      if (matches.length > 1) continue
     }
-    if (matches.length > 1) return false
-  }
-  const total = cm.state.doc.lines || 1
-  const atCur = locateNear(getT(), needle, hint)
-  if (atCur >= 0 && pvVerify(getT(), atCur, needle)) { syncPage = pi; jumpPos(atCur + off); return true }
-  const wi = col ? syncText(needle.slice(0, col)).split(' ').filter(Boolean).length : 0
-  const atNorm = syncNeedleAt(getT(), needle, hint, wi)
-  if (atNorm >= 0) { syncPage = pi; jumpPos(atNorm); return true }
-  let srcs = []
-  try { srcs = pvSrcList() } catch (e) { srcs = [] }
-  let found = null, dup = false
-  for (const src of srcs) {
-    if (!src || src.key === cur) continue
-    const txt = src.text || ''
-    const lines = txt ? txt.split('\n').length : 1
-    const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
-    const at = locateNear(txt, needle, h2)
-    if (at >= 0 && pvVerify(txt, at, needle)) {
-      if (found) { dup = true; break }
-      found = { key: src.key }
+    const total = cm.state.doc.lines || 1
+    const atCur = locateNear(getT(), s, hint)
+    if (atCur >= 0 && pvVerify(getT(), atCur, s)) { syncPage = pi; jumpPos(atCur + off); return true }
+    const wi = off ? syncText(s.slice(0, off)).split(' ').filter(Boolean).length : 0
+    const atNorm = syncNeedleAt(getT(), s, hint, wi)
+    if (atNorm >= 0) { syncPage = pi; jumpPos(atNorm); return true }
+    let srcs = []
+    try { srcs = pvSrcList() } catch (e) { srcs = [] }
+    let found = null, dup = false
+    for (const src of srcs) {
+      if (!src || src.key === cur) continue
+      const txt = src.text || ''
+      const lines = txt ? txt.split('\n').length : 1
+      const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
+      const at = locateNear(txt, s, h2)
+      if (at >= 0 && pvVerify(txt, at, s)) {
+        if (found) { dup = true; break }
+        found = { key: src.key }
+      }
     }
-  }
-  if (found && !dup) {
-    syncPage = pi
-    const doc = docId, epoch = openN
-    try { if (!await switchTab(found.key)) return false } catch (e) { return false }
-    if (doc !== docId || epoch !== openN || activeFile !== found.key) return false
-    const t = getT(), lines = cm.state.doc.lines || 1
-    const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
-    const at = locateNear(t, needle, h2)
-    if (at >= 0) { jumpPos(at + off); return true }
+    if (found && !dup) {
+      syncPage = pi
+      const doc = docId, epoch = openN
+      try { if (!await switchTab(found.key)) return false } catch (e) { return false }
+      if (doc !== docId || epoch !== openN || activeFile !== found.key) return false
+      const t = getT(), lines = cm.state.doc.lines || 1
+      const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
+      const at = locateNear(t, s, h2)
+      if (at >= 0) { jumpPos(at + off); return true }
+    }
   }
   return false
+}
+function pvCaptionCut(s) { // Typst adds "Figure 1: " / "Table 1: " in front of a caption that the source does not have
+  const m = String(s || '').match(/^(?:figure|table|listing|algorithm|equation|diagram|chart|abbildung|tabelle|diagramm|gleichung|liste)\s+\d+(?:\.\d+)*\s*[:.]\s*/i)
+  return m ? m[0].length : 0
+}
+function pvClickNeedles(items, it, x, cssW, baseW, col) { // clicked item first, then its whole PDF line (table rows, formulas, captions)
+  const out = [], seen = new Set()
+  const add = (s, off) => {
+    s = String(s || '').trim()
+    const norm = syncText(s)
+    if (norm.length < 4 || seen.has(norm)) return
+    seen.add(norm)
+    out.push({ s, off: Math.max(0, Math.min(s.length, off || 0)) })
+  }
+  const raw = String(it.s || '').trim(), cut = pvCaptionCut(raw)
+  if (/[\p{L}]/u.test(raw.slice(cut))) add(raw.slice(cut), (col || 0) - cut)
+  for (const tol of [10, 30, 60]) {
+    const line = items.filter(o => Math.abs(o.y - it.y) <= tol).sort((a, b) => a.x0 - b.x0)
+    let s = '', off = 0
+    for (const o of line) {
+      const t = String(o.s || '').trim()
+      if (!t) continue
+      if (o === it) off = s.length + (s ? 1 : 0) + (col || 0)
+      s += (s ? ' ' : '') + t
+    }
+    const cut2 = pvCaptionCut(s)
+    add(s.slice(cut2), off - cut2)
+    if (out.length > 1) break
+  }
+  return out
 }
 function syncText(text) {
   return text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
@@ -711,7 +746,7 @@ function syncAnchor(lines, line, pages, sec) { // source line -> word box on pap
   const p0 = sec ? Math.max(0, sec.page) : 0
   const p1 = sec ? Math.min(pages.length - 1, line === sec.line ? sec.page : sec.endPage) : pages.length - 1 // heading: its own page only
   const win = pvPageIndex(pages, p0, p1)
-  const hit = pvFindIn(win, exact)
+  const hit = (head && pvHeadingHit(win, exact)) || pvFindIn(win, exact)
   if (hit) return hit
   if (p0 === 0 && p1 === pages.length - 1) return pvHeadingPick(win, lines, line, exact) // no window: heading context decides
   const all = pvPageIndex(pages, 0, pages.length - 1) // stale outline: global last resort
@@ -753,15 +788,26 @@ function pvPageIndex(pages, p0, p1) { // flat word text of one page window + ite
   })
   return { text: parts.join(' '), spans }
 }
-function pvFind(text, spans, needle) { // whole-word, unique within the window (else null)
-  let hit = null, at = -1
+function pvHits(text, spans, needle) { // every whole-word occurrence inside the window
+  const out = []
+  let at = -1
   while ((at = text.indexOf(needle, at + 1)) >= 0) {
     if ((at && text[at - 1] !== ' ') || (at + needle.length < text.length && text[at + needle.length] !== ' ')) continue
-    if (hit) return null
     const span = spans.find(s => s.to > at)
-    if (span) hit = { ...span, at, items: spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) }
+    if (span) out.push({ ...span, at, items: spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) })
   }
-  return hit
+  return out
+}
+function pvFind(text, spans, needle) { // whole-word, unique within the window (else null)
+  const hits = pvHits(text, spans, needle)
+  return hits.length === 1 ? hits[0] : null
+}
+function pvHeadingHit(win, needle) { // heading page: the biggest type wins over the same word in the body
+  const hits = pvHits(win.text, win.spans, needle)
+  if (!hits.length) return null
+  const top = Math.max(...hits.map(h => h.it.h || 0))
+  const best = hits.filter(h => Math.abs((h.it.h || 0) - top) <= 0.5)
+  return best.length === 1 ? best[0] : null
 }
 function pvRuns(text) { // 6..3 word runs, 12+ chars: lines with inline markup still match the paper text
   const words = text.split(' ').filter(Boolean), out = []
@@ -794,7 +840,7 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   return cmd ? (fwd() || back()) : (back() || fwd())
 }
 function syncToPv() {
-  if (!syncOn || !docId || tplName || (activeFile && !window.changeSession) || Date.now() - pvT < 1000) return
+  if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession) || Date.now() - pvT < 1000) return
   if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
@@ -817,12 +863,14 @@ function syncToPv() {
   pvScrollStop() // a jump in flight must never override the editor-driven sync
   if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
 }
-function locateNear(t, s, hint) { // shortest hit near hint line (short cell texts too)
+function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
+function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
   s = (s || '').trim()
   if (s.length < 2) return -1
   const hp = posOfLine(t, hint)
   let best = -1, bd = 1e12, p = -1, n = 0
   while ((p = t.indexOf(s, p + 1)) >= 0 && n++ < 50) {
+    if ((p && pvWordChar(t[p - 1])) || (p + s.length < t.length && pvWordChar(t[p + s.length]))) continue
     const dd = Math.abs(p - hp)
     if (dd < bd) { bd = dd; best = p }
   }
@@ -858,6 +906,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   const pv = $('preview')
   const cv = e.target.closest ? e.target.closest('canvas') : null
   const pi = cv && pvTexts.length ? pvCanvasList().indexOf(cv) : -1 // canvas only, ignore .empty divs
+  let hint = 0, at = null
   if (cv && pvTexts.length) {
     const items = pi >= 0 ? (pvTexts[pi] || []) : []
     const r = cv.getBoundingClientRect()
@@ -873,12 +922,15 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
       const dd = dx * dx + dy * dy // distance to the text box, never to its center: long lines stay clickable everywhere
       if (dd < bd) { bd = dd; best = it }
     }
+    const vh = (items[0] && items[0].vh) || cv.height || 1
+    const yv = best ? best.y : y / (r.height || 1) * vh
+    at = pi >= 0 ? pvSecAtY(pi, yv) : null
     if (best) {
       const total = cm.state.doc.lines || 1
-      const hint = pvPageHint(pi, items.indexOf(best), items.length, total, pvTexts.length)
+      hint = pvPageHint(pi, total, pvTexts.length, at, yv / vh)
       const col = pvClickCol(best, x, r.width, cv.width)
       const file0 = activeFile
-      if (await pvJumpBest(best.s, hint, pi, best, col)) return
+      if (await pvJumpBest(pvClickNeedles(items, best, x, r.width, cv.width, col), hint, pi, best)) return
       syncPage = pi >= 0 ? pi : syncPage
       if (activeFile !== file0) return // the jump already tried another file: no section guess
     } else {
@@ -887,8 +939,12 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     }
   } else if (activeFile) return // no canvas hit in a file tab: nowhere honest to go
   if (pvSrcList().length > 1) return // included files destroy a main-line/layout ratio
-  const sec = pi >= 0 ? pvSecAt(pi).sec : null
-  if (sec) { jumpPos(posOfLine(getT(), sec.line)); return } // no source word: land on the clicked section
+  if (at && at.sec) { // no source word: stay in the clicked section, as close to the click height as the render allows
+    const lines = getT().split('\n'), total = lines.length || 1
+    const hi = at.next ? at.next.line - 1 : total
+    jumpPos(posOfLine(getT(), Math.max(at.sec.line, Math.min(hi, hint || at.sec.line))))
+    return
+  }
   const r = pv.getBoundingClientRect() // fallback for a single source only
   const ratio = Math.max(0, Math.min(1, (e.clientY - r.top + pv.scrollTop) / pv.scrollHeight))
   const lines = getT().split('\n'), total = lines.length || 1
@@ -897,7 +953,9 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   jumpPos(posOfLine(getT(), line))
 })
 $('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_sync', syncOn ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} }
+$('followBtn').onclick = () => { followAll = !followAll; lsSet('typst_follow_all', followAll ? 1 : 0); applyFollowBtn() }
 applySyncBtn() // F25: persisted follow state on boot
+applyFollowBtn()
 try { updPos() } catch (e) {} // F24: status filled before first keystroke
 function fitPv() { // fit paper exactly to preview width, centered via margin
   const c = document.querySelector('#preview canvas')

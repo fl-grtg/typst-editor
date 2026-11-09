@@ -106,13 +106,31 @@ test('click column maps to the start of the clicked word', () => {
   assert.equal(c.pvClickCol(item, 5, 100, 100), 0) // "Die"
   assert.equal(c.pvClickCol(item, 50, 100, 100), 10) // "Methode"
 })
+test('caption prefixes and table rows become needles the source can match', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvCaptionCut'), code.indexOf('function syncToPv')), c)
+  const item = (s, y, x0) => ({ s, y, x0, w: s.length * 5, vw: 100 })
+  const cell = item('mg', 10, 80)
+  const cells = [item('Alpha', 10, 0), item('12.4', 10, 40), cell]
+  const row = c.pvClickNeedles(cells, cell, 82, 100, 100, 0)
+  assert.deepEqual(Array.from(row, n => n.s), ['Alpha 12.4 mg']) // short cells need the line context
+  assert.equal(row[0].off, 11) // clicked cell "mg" starts after "Alpha 12.4 "
+  const capIt = item('Table 1: Fundamental constants.', 10, 0)
+  const cap = c.pvClickNeedles([capIt], capIt, 0, 100, 100, 9)
+  assert.equal(cap[0].s, 'Fundamental constants.')
+  assert.equal(cap[0].off, 0) // column follows the visible caption, not the generated prefix
+})
+test('heading anchors pick the big heading item, not the same word in the body', () => {
+  const pages = [[{ s: 'Diskussion', y: 100, h: 30 }, { s: 'Die Diskussion verbindet Methoden', y: 200, h: 22 }]]
+  assert.equal(ctx.syncAnchor(['= Diskussion'], 1, pages).it.s, 'Diskussion')
+})
 test('preview heading clicks resolve the matching source section on the same page', async () => {
   const lines = ['== First section', '=== D: Beobachtung', '== Second section', '=== D: Beobachtung']
   const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
   const jumps = []
   const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
   vm.runInContext(code.slice(code.indexOf('async function pvJumpBest'), code.indexOf('function syncToPv')), c)
-  assert.equal(await c.pvJumpBest('D: Beobachtung', 1, 0, pages[0][3]), true)
+  assert.equal(await c.pvJumpBest([{ s: 'D: Beobachtung', off: 0 }], 1, 0, pages[0][3]), true)
   const start = lines.slice(0, 3).join('\n').length + 1
   assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers
 })

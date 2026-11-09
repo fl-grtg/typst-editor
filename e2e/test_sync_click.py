@@ -65,6 +65,28 @@ def test_click_preview_lands_in_the_clicked_section(page):
     assert _line(page) == 7
 
 
+def test_follow_toggle_keeps_the_preview_still_but_clicks_still_jump(page):
+    register(page, "e2e_click_follow")
+    create_doc(page, "Follow toggle doc")
+    type_source(page, SOURCE)
+    _ready(page, 2)
+
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+Home")
+    page.wait_for_function(PAGE_IN_VIEW, arg=1, timeout=PREVIEW_TIMEOUT)
+
+    page.click("#followBtn")  # follow everything -> clicks only
+    expect(page.locator("#followBtn")).to_have_attribute("aria-pressed", "false")
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+End")
+    page.wait_for_timeout(700)  # longer than the 150 ms sync throttle
+    assert not page.evaluate(PAGE_IN_VIEW, 2)  # cursor moved, preview stayed
+
+    body = page.locator('.pvPage[data-page="2"] canvas')
+    body.click(position={"x": 300, "y": 110})  # an explicit click still finds its line
+    page.wait_for_function("() => /^Ln [789]:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+
+
 def test_sync_wins_over_a_running_jump_animation(page):
     register(page, "e2e_click_anim")
     create_doc(page, "Click animation doc")

@@ -118,7 +118,7 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 
 /* View modes */
 body.read #leftCol, body.read #split { display: none; }
-body.read #syncBtn, body.editonly #syncBtn { display: none; }
+body.read #syncBtn, body.read #followBtn, body.editonly #syncBtn, body.editonly #followBtn { display: none; }
 body.editonly #rightCol, body.editonly #split, body.editonly #vsplit { display: none; }
 body.editonly #leftCol { width: 100% !important; }
 body.editonly #pvTools { display: none; }

@@ -593,6 +593,18 @@ function pvSecAtLine(line) { // source line -> its section with inclusive page a
   const sec = secs[i], next = secs[i + 1] || null
   return { ...sec, endPage: next ? next.page : Math.max(0, pvTexts.length - 1), endLine: next ? next.line - 1 : Infinity }
 }
+function pvSecAtY(pi, y) { // preview point -> section: several headings share a page, so their height decides
+  const secs = pvSections(), lines = getT().split('\n')
+  let sec = null, next = null
+  for (const s of secs) {
+    if (s.page > pi) { next = s; break }
+    if (s.page < pi) { sec = s; continue }
+    const hit = syncAnchor(lines, s.line, pvTexts, { ...s, endPage: s.page })
+    if (!hit || hit.it.y <= y) sec = s
+    else { next = s; break }
+  }
+  return { sec, next }
+}
 function pvPageMeta(doc, p, scale) { // one page: text anchors + link boxes (indexed past the visible window)
   return doc.getPage(p).then(async page => {
     const v = page.getViewport({ scale })

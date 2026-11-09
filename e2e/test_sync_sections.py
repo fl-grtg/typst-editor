@@ -48,6 +48,23 @@ See #emph[hidden] text here please.
 Tail words.
 """
 
+HEADING_IN_BODY = """= Start
+
+Start body text.
+
+#pagebreak()
+
+= Summary <summary>
+
+The Summary wraps up the whole document.
+
+#pagebreak()
+
+= End
+
+End body text.
+"""
+
 
 def _settle(page, headings: int) -> None:
     expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
@@ -81,4 +98,15 @@ def test_2_word_run_fallback_finds_the_page(page):
     page.wait_for_function(PAGE_IN_VIEW, arg=1, timeout=PREVIEW_TIMEOUT)
 
     page.locator("#cm .cm-line", has_text="#emph").click()
+    page.wait_for_function(PAGE_IN_VIEW, arg=2, timeout=PREVIEW_TIMEOUT)
+
+
+def test_3_heading_page_wins_over_the_same_word_in_the_body(page):
+    register(page, "e2e_sec_heading")
+    create_doc(page, "Heading in body doc")
+    type_source(page, HEADING_IN_BODY)
+    _settle(page, 3)
+    expect(page.locator("#preview .pvPage")).to_have_count(3)
+
+    page.locator("#cm .cm-line", has_text="= Summary").click()  # heading word also appears in its body line
     page.wait_for_function(PAGE_IN_VIEW, arg=2, timeout=PREVIEW_TIMEOUT)

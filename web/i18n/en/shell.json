@@ -22,6 +22,7 @@
   "fmtText": "Text formatting",
   "fmtU": "Underline (Ctrl U)",
   "follow": "Follow between editor and preview",
+  "followAll": "Follow cursor, scrolling and jumps (off: clicks only)",
   "fontGrp": "Font",
   "hist": "History: save, compare, restore",
   "imgAdd": "Add a picture or file",

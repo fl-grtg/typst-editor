@@ -22,6 +22,7 @@
   "fmtText": "Textformatierung",
   "fmtU": "Unterstrichen (Strg U)",
   "follow": "Editor und Vorschau folgen",
+  "followAll": "Cursor, Scrollen und Sprüngen folgen (aus: nur Klicks)",
   "fontGrp": "Schrift",
   "hist": "Verlauf: speichern, vergleichen, wiederherstellen",
   "imgAdd": "Bild oder Datei hinzufügen",
