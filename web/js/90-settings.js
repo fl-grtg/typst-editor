@@ -1001,6 +1001,27 @@ function pvNearItems(items, x, y, sx, sy, skip) { // nearest readable text: a dr
     .sort((a, b) => a.d - b.d)
     .slice(0, 8)
 }
+function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered #outline(): keep the cursor at the outline, not on a heading below
+  const lines = getT().split('\n')
+  const oi = lines.findIndex(l => /^\s*#outline\s*\(/.test(l))
+  if (oi < 0) return 0
+  const heads = lines.filter(l => /^=+\s/.test(l)).map(l => syncPlain(l.replace(/^=+\s+/, ''))).filter(Boolean)
+  let top = Infinity, bot = -Infinity, left = Infinity, right = -Infinity
+  for (const L of pvLinks[pi] || []) {
+    if (!L.dest) continue // external links are not outline entries
+    const mid = (L.y0 + L.y1) / 2, hh = Math.max(6, (L.y1 - L.y0) / 2 + 2)
+    const entry = items.some(it => {
+      if (it.x0 >= L.x1 || it.x0 + it.w <= L.x0 || Math.abs(it.y - mid) > hh) return false
+      const t = syncPlain(it.s)
+      return t && heads.some(h => h.includes(t) || t.includes(h))
+    })
+    if (!entry) continue
+    top = Math.min(top, L.y0 * sy); bot = Math.max(bot, L.y1 * sy)
+    left = Math.min(left, L.x0 * sx); right = Math.max(right, L.x1 * sx)
+  }
+  const pad = 12 // one blank line around the block still belongs to the outline
+  return isFinite(top) && x >= left - pad && x <= right + pad && y >= top - pad && y <= bot + pad ? oi + 1 : 0
+}
 $('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then nearest text, else section
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
   if (!syncOn || !docId || tplName) return
@@ -1016,6 +1037,8 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     const vw = (items[0] && items[0].vw) || cv.width || 1
     const vh = (items[0] && items[0].vh) || cv.height || 1
     const sx = r.width / vw, sy = r.height / vh
+    const ol = pvOutlineClick(pi, items, x, y, sx, sy)
+    if (ol) { syncPage = pi; jumpPos(posOfLine(getT(), ol)); return } // beside an outline entry: stay at the outline line
     const rr = CLICK_PX / 2 // CSS pixels, independent of zoom and render scale
     let best = null, bd = rr * rr
     for (const it of items) {

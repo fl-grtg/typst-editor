@@ -45,6 +45,20 @@ test('lines inside a figure call stay on the caption page', () => {
   assert.equal(ctx.syncAnchor(lines, 4, pages), null)
   assert.equal(ctx.syncNearHit(lines, 4, pages, { page: 0, endPage: 1, endLine: 10 }).pi, 1)
 })
+test('blank clicks around a rendered outline keep the outline line', () => {
+  const src = read('90-settings.js')
+  const c = vm.createContext({
+    pvLinks: [[{ x0: 10, y0: 100, x1: 300, y1: 116, dest: { page: 1 } }]],
+    getT: () => '#outline()\n\n= Alpha\n\nText\n\n#pagebreak()\n\n= Beta\n',
+    syncPlain: t => String(t).toLowerCase(),
+  })
+  vm.runInContext(src.slice(src.indexOf('function pvOutlineClick'), src.indexOf("$('preview').addEventListener('click'")), c)
+  const items = [{ s: 'Alpha', x0: 20, y: 108, w: 40 }]
+  assert.equal(c.pvOutlineClick(0, items, 30, 124, 1, 1), 1) // one blank line below the entry
+  assert.equal(c.pvOutlineClick(0, items, 30, 160, 1, 1), 0) // body text below the block
+  assert.equal(c.pvOutlineClick(0, items, 400, 124, 1, 1), 0) // beside the page, not the entry
+  assert.equal(c.pvOutlineClick(1, items, 30, 124, 1, 1), 0) // page without outline links
+})
 test('prefiltered completion results are recomputed after typing', () => {
   const src = read('20-completions.js')
   const start = src.indexOf('const T_KW')
