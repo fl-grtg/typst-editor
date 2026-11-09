@@ -104,6 +104,11 @@ test('math italic glyphs normalize to the letters in the source', () => {
   const t = 'Inline math: $E = m c^2$.'
   assert.equal(ctx.syncNeedleAt(t, 'Inline math: 𝐸 = 𝑚 𝑐 2 .', 1, 0), t.indexOf('Inline'))
 })
+test('a short label run never jumps past the matched caption', () => {
+  const t = '= Chart\n\n#figure(\n  box[rect()],\n  caption: [Simple bar diagram.],\n)\n\n= Conclusion\nText.'
+  assert.equal(ctx.syncNeedleAt(t, 'Simple bar diagram. A B C D', 6, 4), -1) // clicked "A" is outside the caption run
+  assert.equal(ctx.syncNeedleAt(t, 'Simple bar diagram.', 6, 0), t.indexOf('Simple'))
+})
 test('click column maps to the start of the clicked word', () => {
   const c = vm.createContext({})
   vm.runInContext(code.slice(code.indexOf('function pvClickCol'), code.indexOf("$('preview').addEventListener")), c)
@@ -117,13 +122,15 @@ test('caption prefixes and table rows become needles the source can match', () =
   const item = (s, y, x0) => ({ s, y, x0, w: s.length * 5, vw: 100 })
   const cell = item('mg', 10, 80)
   const cells = [item('Alpha', 10, 0), item('12.4', 10, 40), cell]
-  const row = c.pvClickNeedles(cells, cell, 82, 100, 100, 0)
+  const row = c.pvClickNeedles(cells, cell, 0)
   assert.deepEqual(Array.from(row, n => n.s), ['Alpha 12.4 mg']) // short cells need the line context
   assert.equal(row[0].off, 11) // clicked cell "mg" starts after "Alpha 12.4 "
   const capIt = item('Table 1: Fundamental constants.', 10, 0)
-  const cap = c.pvClickNeedles([capIt], capIt, 0, 100, 100, 9)
+  const cap = c.pvClickNeedles([capIt], capIt, 9)
   assert.equal(cap[0].s, 'Fundamental constants.')
   assert.equal(cap[0].off, 0) // column follows the visible caption, not the generated prefix
+  const label = item('A', 20, 0)
+  assert.deepEqual(Array.from(c.pvClickNeedles([label, item('B', 20, 20)], label, 0)), []) // a lone letter has no usable needle
 })
 test('heading anchors pick the big heading item, not the same word in the body', () => {
   const pages = [[{ s: 'Diskussion', y: 100, h: 30 }, { s: 'Die Diskussion verbindet Methoden', y: 200, h: 22 }]]
@@ -134,7 +141,7 @@ test('preview heading clicks resolve the matching source section on the same pag
   const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
   const jumps = []
   const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
-  vm.runInContext(code.slice(code.indexOf('async function pvJumpBest'), code.indexOf('function syncToPv')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvJumpHere'), code.indexOf('function syncToPv')), c)
   assert.equal(await c.pvJumpBest([{ s: 'D: Beobachtung', off: 0 }], 1, 0, pages[0][3]), true)
   const start = lines.slice(0, 3).join('\n').length + 1
   assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers

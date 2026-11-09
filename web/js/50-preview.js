@@ -507,12 +507,12 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   })
   slot.appendChild(box)
 }
-const scrollAnims = new WeakMap() // one running glide per element: a new target retargets from where it is now
+const scrollAnims = new WeakMap() // one animation per element: a jump and a follow never fight
 function smoothStop(el) {
-  const id = scrollAnims.get(el)
-  if (id) { cancelAnimationFrame(id); scrollAnims.delete(el) }
+  const a = scrollAnims.get(el)
+  if (a) { cancelAnimationFrame(a.raf); scrollAnims.delete(el) }
 }
-function smoothScroll(el, y, ms) { // in-out cubic bezier, very fast: small follow steps and page jumps share one feel
+function smoothScroll(el, y) { // jump: quintic in-out, long handles, zero velocity at both ends
   const max = Math.max(0, el.scrollHeight - el.clientHeight)
   const target = Math.max(0, Math.min(max, y))
   smoothStop(el)
@@ -520,16 +520,45 @@ function smoothScroll(el, y, ms) { // in-out cubic bezier, very fast: small foll
   try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
   const from = el.scrollTop, dy = target - from
   if (calm || Math.abs(dy) < 1) { el.scrollTop = target; return }
-  const dur = ms || Math.max(120, Math.min(240, 110 + Math.abs(dy) / 12))
-  const t0 = performance.now()
+  const dur = Math.max(220, Math.min(650, 190 + Math.sqrt(Math.abs(dy)) * 5.2))
+  const t0 = performance.now(), a = { raf: 0 }
   const step = now => {
     const k = Math.min(1, (now - t0) / dur)
-    const e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2
-    el.scrollTop = from + dy * e
-    if (k < 1) scrollAnims.set(el, requestAnimationFrame(step))
+    el.scrollTop = from + dy * k * k * k * (k * (6 * k - 15) + 10) // smootherstep: no overshoot, no hard start
+    if (k < 1) a.raf = requestAnimationFrame(step)
     else scrollAnims.delete(el)
   }
-  scrollAnims.set(el, requestAnimationFrame(step))
+  scrollAnims.set(el, a)
+  a.raf = requestAnimationFrame(step)
+}
+function smoothFollow(el, y) { // cursor/scroll follow: new targets keep position and speed, so nothing restarts
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  const target = Math.max(0, Math.min(max, y))
+  let calm = false
+  try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
+  if (calm) { smoothStop(el); el.scrollTop = target; return }
+  let a = scrollAnims.get(el)
+  if (a && a.follow) { a.target = target; return }
+  smoothStop(el)
+  if (Math.abs(target - el.scrollTop) < 1) { el.scrollTop = target; return }
+  const dist = Math.abs(target - el.scrollTop)
+  a = { follow: true, target, v: 0, t: performance.now(), omega: Math.max(14, Math.min(22, 22 - Math.log2(Math.max(1, dist / 200)) * 3)), raf: 0 }
+  const step = now => {
+    const dt = Math.max(0.001, Math.min(0.05, (now - a.t) / 1000))
+    a.t = now
+    const x = el.scrollTop, c = x - a.target, e = Math.exp(-a.omega * dt)
+    const nx = a.target + (c + (a.v + a.omega * c) * dt) * e
+    a.v = (a.v - (a.v + a.omega * c) * a.omega * dt) * e
+    el.scrollTop = nx
+    if (Math.abs(nx - a.target) < 0.5 && Math.abs(a.v) < 4) {
+      el.scrollTop = a.target
+      scrollAnims.delete(el)
+      return
+    }
+    a.raf = requestAnimationFrame(step)
+  }
+  scrollAnims.set(el, a)
+  a.raf = requestAnimationFrame(step)
 }
 function pvScrollStop() { try { smoothStop($('preview')) } catch (e) {} } // any deliberate scroll wins over a jump still in flight
 function pvScrollTo(pv, y) { smoothScroll(pv, y) }

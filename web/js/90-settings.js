@@ -608,9 +608,8 @@ function pvVerify(t, at, s) { // context must contain the click word: longest to
   const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
   return w.length < 4 || um.includes(w) || um.includes(s.trim())
 }
-async function pvJumpBest(needles, hint, pi, anchor) { // honest cross-file jump per click candidate: current tab, else the unique owner, else stay
+function pvJumpHere(needles, hint, pi, anchor) { // current file: exact word first, then the clicked word of a reflowed run
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
-  if (!list.length) return false
   const cur = activeFile || ''
   for (const nd of list) {
     const s = nd.s.trim(), off = Math.max(0, Math.min(nd.off || 0, s.length)) // clicked column inside the PDF line
@@ -633,12 +632,22 @@ async function pvJumpBest(needles, hint, pi, anchor) { // honest cross-file jump
       }
       if (matches.length > 1) continue
     }
-    const total = cm.state.doc.lines || 1
     const atCur = locateNear(getT(), s, hint)
     if (atCur >= 0 && pvVerify(getT(), atCur, s)) { syncPage = pi; jumpPos(atCur + off); return true }
     const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
     const atNorm = syncNeedleAt(getT(), s, hint, wi)
     if (atNorm >= 0) { syncPage = pi; jumpPos(atNorm); return true }
+  }
+  return false
+}
+async function pvJumpBest(needles, hint, pi, anchor) { // current file, else the unique owner, else stay
+  const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
+  if (!list.length) return false
+  if (pvJumpHere(list, hint, pi, anchor)) return true
+  const cur = activeFile || ''
+  const total = cm.state.doc.lines || 1
+  for (const nd of list) {
+    const s = nd.s.trim(), off = Math.max(0, Math.min(nd.off || 0, s.length))
     let srcs = []
     try { srcs = pvSrcList() } catch (e) { srcs = [] }
     let found = null, dup = false
@@ -670,18 +679,20 @@ function pvCaptionCut(s) { // Typst adds "Figure 1: " / "Table 1: " in front of 
   const m = String(s || '').match(/^(?:figure|table|listing|algorithm|equation|diagram|chart|abbildung|tabelle|diagramm|gleichung|liste)\s+\d+(?:\.\d+)*\s*[:.]\s*/i)
   return m ? m[0].length : 0
 }
-function pvClickNeedles(items, it, x, cssW, baseW, col) { // clicked item first, then its whole PDF line (table rows, formulas, captions)
+function pvClickNeedles(items, it, col) { // clicked item first; short cells and math glyphs add their PDF line
   const out = [], seen = new Set()
   const add = (s, off) => {
     s = String(s || '').trim()
     const norm = syncText(s)
-    if (norm.length < 4 || seen.has(norm)) return
+    if (norm.length < 4 || seen.has(norm)) return false
     seen.add(norm)
     out.push({ s, off: Math.max(0, Math.min(s.length, off || 0)) })
+    return true
   }
-  const raw = String(it.s || '').trim(), cut = pvCaptionCut(raw)
-  if (/[\p{L}]/u.test(raw.slice(cut))) add(raw.slice(cut), (col || 0) - cut)
-  for (const tol of [10, 30, 60]) {
+  const raw = String(it.s || '').trim(), cut = pvCaptionCut(raw), body = raw.slice(cut)
+  if (/\p{L}/u.test(body)) add(body, (col || 0) - cut)
+  if (/\p{L}{3}/u.test(body)) return out // a real word needs no line guessing
+  for (const tol of [10, 20]) { // short cells, numbers and math glyphs: the row is the context
     const line = items.filter(o => Math.abs(o.y - it.y) <= tol).sort((a, b) => a.x0 - b.x0)
     let s = '', off = 0
     for (const o of line) {
@@ -690,9 +701,8 @@ function pvClickNeedles(items, it, x, cssW, baseW, col) { // clicked item first,
       if (o === it) off = s.length + (s ? 1 : 0) + (col || 0)
       s += (s ? ' ' : '') + t
     }
-    const cut2 = pvCaptionCut(s)
-    add(s.slice(cut2), off - cut2)
-    if (out.length > 1) break
+    const cut2 = pvCaptionCut(s), text = s.slice(cut2)
+    if (/\p{L}{3}/u.test(text) && add(text, off - cut2)) break
   }
   return out
 }
@@ -722,18 +732,19 @@ function syncWords(t) { // source words in document order with their raw line/of
 }
 function syncNeedleAt(t, needle, hint, wi) { // PDF text -> source pos of its wi-th word, across line breaks and markup
   const words = syncWords(t), want = syncText(needle).split(' ')
+  const w0 = Math.max(0, wi || 0)
   if (!want[0]) return -1
   let best = -1, bd = Infinity
   for (let i = 0; i < words.length; i++) {
     if (words[i].w !== want[0]) continue
     let n = 0
     while (n < want.length && i + n < words.length && words[i + n].w === want[n]) n++
-    if (n < Math.min(3, want.length)) continue // short prefixes are too ambiguous, hint decides among real runs
+    if (n < Math.min(3, want.length) || w0 >= n) continue // the clicked word must be inside the matched run
     const d = Math.abs(words[i].ln - hint)
     if (d < bd) { bd = d; best = i }
   }
   if (best < 0) return -1
-  const w = words[Math.min(words.length - 1, best + (wi || 0))]
+  const w = words[Math.min(words.length - 1, best + w0)]
   return posOfLine(t, w.ln) + w.at
 }
 function syncAnchor(lines, line, pages, sec) { // source line -> word box on paper, section window first
@@ -860,7 +871,9 @@ function syncToPv() {
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
-  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pvScrollTo(pv, want) // same fast glide as every other jump, retargeted while typing
+  const dy = want - pv.scrollTop
+  if (Math.abs(dy) > 300) smoothScroll(pv, want) // a page jump gets the long in-out handles
+  else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
 }
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
@@ -903,49 +916,63 @@ function pvClickCol(it, x, cssW, baseW) { // click x -> word start inside the PD
   const m = [...body.matchAll(/\S+/g)].find(m => ci >= m.index && ci < m.index + m[0].length)
   return m ? m.index : 0
 }
-$('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then section, else ratio
+function pvItemDist(it, x, y, sx, sy) { // CSS distance to the text box, never to its center: long lines stay clickable everywhere
+  const x0 = (it.x0 || 0) * sx, x1 = x0 + (it.w || 0) * sx
+  const yc = (it.y || 0) * sy, hh = Math.max(4, (it.h || 10) * sy / 2)
+  const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0
+  const dy = y < yc - hh ? yc - hh - y : y > yc + hh ? y - yc - hh : 0
+  return dx * dx + dy * dy
+}
+function pvNearItems(items, x, y, sx, sy, skip) { // nearest readable text: a drawing without text still lands on its caption
+  return items
+    .filter(it => it !== skip && /\p{L}{3}/u.test(it.s || ''))
+    .map(it => ({ it, d: pvItemDist(it, x, y, sx, sy) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 8)
+}
+$('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then nearest text, else section
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
   if (!syncOn || !docId || tplName) return
   const pv = $('preview')
   const cv = e.target.closest ? e.target.closest('canvas') : null
   const pi = cv && pvTexts.length ? pvCanvasList().indexOf(cv) : -1 // canvas only, ignore .empty divs
-  let hint = 0, at = null
+  let at = null
   if (cv && pvTexts.length) {
     const items = pi >= 0 ? (pvTexts[pi] || []) : []
     const r = cv.getBoundingClientRect()
     const x = e.clientX - r.left, y = e.clientY - r.top
+    const vw = (items[0] && items[0].vw) || cv.width || 1
+    const vh = (items[0] && items[0].vh) || cv.height || 1
+    const sx = r.width / vw, sy = r.height / vh
     const rr = CLICK_PX / 2 // CSS pixels, independent of zoom and render scale
     let best = null, bd = rr * rr
-    const sx = r.width / (items[0] && items[0].vw || cv.width || 1), sy = r.height / (items[0] && items[0].vh || cv.height || 1)
     for (const it of items) {
       if (!it.s.trim()) continue
-      const x0 = it.x0 * sx, x1 = x0 + (it.w || 0) * sx, yc = it.y * sy, hh = Math.max(4, (it.h || 10) * sy / 2)
-      const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0
-      const dy = y < yc - hh ? yc - hh - y : y > yc + hh ? y - yc - hh : 0
-      const dd = dx * dx + dy * dy // distance to the text box, never to its center: long lines stay clickable everywhere
+      const dd = pvItemDist(it, x, y, sx, sy)
       if (dd < bd) { bd = dd; best = it }
     }
-    const vh = (items[0] && items[0].vh) || cv.height || 1
     const yv = best ? best.y : y / (r.height || 1) * vh
     at = pi >= 0 ? pvSecAtY(pi, yv) : null
+    const total = cm.state.doc.lines || 1
+    const hintAt = y => pvPageHint(pi, total, pvTexts.length, at, y / vh)
+    const file0 = activeFile
     if (best) {
-      const total = cm.state.doc.lines || 1
-      hint = pvPageHint(pi, total, pvTexts.length, at, yv / vh)
+      const hint = hintAt(yv)
       const col = pvClickCol(best, x, r.width, cv.width)
-      const file0 = activeFile
-      if (await pvJumpBest(pvClickNeedles(items, best, x, r.width, cv.width, col), hint, pi, best)) return
-      syncPage = pi >= 0 ? pi : syncPage
-      if (activeFile !== file0) return // the jump already tried another file: no section guess
-    } else {
-      syncPage = pi >= 0 ? pi : syncPage // even without hit: next sync starts on click page
-      if (activeFile) return // image/margin click in a file tab: ratio maps main layout onto file text
+      if (await pvJumpBest(pvClickNeedles(items, best, col), hint, pi, best)) return
     }
+    if (!best || activeFile === file0) { // clicked text missed: try the nearest readable text in this file
+      for (const { it: near } of pvNearItems(items, x, y, sx, sy, best)) {
+        if (pvJumpHere(pvClickNeedles(items, near, 0), hintAt(near.y), pi, near)) return
+      }
+    }
+    syncPage = pi >= 0 ? pi : syncPage // even without hit: next sync starts on click page
+    if (activeFile !== file0) return // the jump already tried another file: no section guess
+    if (activeFile) return // image/margin click in a file tab: ratio maps main layout onto file text
   } else if (activeFile) return // no canvas hit in a file tab: nowhere honest to go
   if (pvSrcList().length > 1) return // included files destroy a main-line/layout ratio
-  if (at && at.sec) { // no source word: stay in the clicked section, as close to the click height as the render allows
-    const lines = getT().split('\n'), total = lines.length || 1
-    const hi = at.next ? at.next.line - 1 : total
-    jumpPos(posOfLine(getT(), Math.max(at.sec.line, Math.min(hi, hint || at.sec.line))))
+  if (at && at.sec) { // no source text within reach: the section start is the honest anchor
+    jumpPos(posOfLine(getT(), at.sec.line))
     return
   }
   const r = pv.getBoundingClientRect() // fallback for a single source only

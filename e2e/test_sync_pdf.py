@@ -3,7 +3,8 @@
 test_1: a `#link("…")` becomes a real anchor over the canvas; clicking it opens
     the target tab and never moves the editor cursor (link beats click-sync).
 test_2: an internal `#link(<label>)` scrolls the preview to the destination page.
-test_3: the sidebar outline shows the real page number from the PDF outline.
+test_3: the internal jump glides through several frames instead of teleporting.
+test_4: the sidebar outline shows the real page number from the PDF outline.
 """
 from helpers import create_doc, register, type_source
 from playwright.sync_api import expect
@@ -72,7 +73,37 @@ def test_2_internal_link_scrolls_the_preview(page):
     page.wait_for_function(PAGE_TWO_IN_VIEW, timeout=LINK_TIMEOUT)
 
 
-def test_3_outline_shows_pdf_page_numbers(page):
+def test_3_internal_link_glides_instead_of_teleporting(page):
+    register(page, "e2e_pdf_glide")
+    create_doc(page, "PDF glide doc")
+    source, _ = _source(page)
+    type_source(page, source)
+    expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    jump = page.locator("#preview .pvLinks a[data-pv-link]")
+    expect(jump).to_have_count(1, timeout=LINK_TIMEOUT)
+    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")  # start on page 1
+    page.wait_for_timeout(150)
+
+    page.evaluate("""() => {
+      const pv = document.getElementById('preview')
+      window.__pvSamples = []
+      const t0 = performance.now()
+      const tick = () => {
+        window.__pvSamples.push(Math.round(pv.scrollTop))
+        if (performance.now() - t0 < 800) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    }""")
+    jump.dispatch_event("click")
+    page.wait_for_timeout(850)
+    samples = page.evaluate("() => window.__pvSamples")
+    assert len(set(samples)) >= 5, samples  # a glide has many intermediate positions
+    span = samples[-1] - samples[0]
+    assert span > 100, samples
+    assert max(b - a for a, b in zip(samples, samples[1:], strict=False)) < span * 0.6, samples  # eased, not a teleport
+
+
+def test_4_outline_shows_pdf_page_numbers(page):
     register(page, "e2e_pdf_outline")
     create_doc(page, "PDF outline doc")
     source, _ = _source(page)
