@@ -775,9 +775,10 @@ function syncNeedleAt(t, needle, hint, wi) { // PDF text -> source pos of its wi
   const w = words[Math.min(words.length - 1, best + w0)]
   return posOfLine(t, w.ln) + w.at
 }
+function pvCmdLine(s) { s = String(s || '').trim(); return /^#[\w-]+(?:\s*(?:\([^)]*\)|[\(\[]))?$/.test(s) || /^[\w-]+\s*[\(\[]$/.test(s) } // bare command (also "table("): no rendered words to anchor
 function syncAnchor(lines, line, pages, sec) { // source line -> word box on paper, section window first
   let raw = (lines[line - 1] || '').trim()
-  if (!raw) return null
+  if (!raw || pvCmdLine(raw)) return null // "#figure(" must never match a generated "Figure 1:" caption prefix
   const head = raw.match(/^(=+)\s+(.+)$/)
   if (head) raw = head[2] // heading: the title, not the "=" markers
   const exact = syncPlain(raw)
@@ -875,8 +876,20 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   }
   const back = () => scan(line - 1, Math.max(1, line - 12), -1)
   const fwd = () => scan(line + 1, Math.min(lines.length, line + 12), 1)
-  const cmd = /^\s*#\w+\s*(?:\([^)]*\))?\s*$/.test((lines[line - 1] || '').trim()) // #pagebreak()/#set ...: the next content
-  return cmd ? (fwd() || back()) : (back() || fwd())
+  const cap = () => { // a figure call may sit far above its own caption: that text still names its page
+    if (!/^#(?:figure|table|image)\s*\(/.test((lines[line - 1] || '').trim())) return null
+    const to = sec ? Math.min(lines.length, sec.endLine) : Math.min(lines.length, line + 40)
+    for (let ln = line + 1; ln <= to; ln++) {
+      const s = (lines[ln - 1] || '').trim()
+      if (/^=+\s/.test(s) || /^#(?:figure|table|image)\s*\(/.test(s)) return null
+      if (!/^caption\s*:/.test(s)) continue
+      const hit = syncAnchor(lines, ln, pages, sec)
+      if (hit) return hit
+    }
+    return null
+  }
+  const cmd = pvCmdLine(lines[line - 1]) // #pagebreak()/#figure(: the next content
+  return cmd ? (fwd() || cap() || back()) : (back() || fwd())
 }
 function syncToPv() {
   if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession)) return

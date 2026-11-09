@@ -25,6 +25,20 @@ test('split PDF text matches a heading and ambiguous or unfinished input stays s
   assert.equal(ctx.syncAnchor(['#grid(columns: (50%, 50%))'], 1, [page(['columns'])]), null)
   assert.equal(ctx.syncAnchor(['unfinished typing'], 1, [page(['Other text'])]), null)
 })
+test('command lines never anchor to a generated caption prefix', () => {
+  const lines = ['= Table and Diagram', '#figure(', '  table(', '    [Name], [Value],', '  caption: [Fundamental constants.],', ')', '#pagebreak()', '#figure(', '  chart body', ')']
+  const pages = [page(['Table and Diagram', 'Name Value', 'Fundamental constants.']), page(['Figure 1: Diagram'])]
+  assert.equal(ctx.syncAnchor(lines, 2, pages), null)
+  assert.equal(ctx.syncAnchor(lines, 3, pages), null)
+  assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 0)
+})
+test('a figure caption further down still names the page of its call', () => {
+  const body = Array.from({ length: 20 }, (_, i) => `  #let n${i} = ${i}`)
+  const lines = ['= Chart', '#figure(', ...body, '  caption: [Simple bar diagram.],', ')']
+  const pages = [page(['Chart']), page(['Figure 1: Simple bar diagram.', '4. Conclusion'])]
+  assert.equal(ctx.syncAnchor(['#figure('], 1, pages), null)
+  assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 1)
+})
 test('prefiltered completion results are recomputed after typing', () => {
   const src = read('20-completions.js')
   const start = src.indexOf('const T_KW')
