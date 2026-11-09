@@ -266,7 +266,7 @@ function stopSuggestionDraft(discard = true) {
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(tabCanEdit(activeFile))), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : [])] })
   } finally { applying = false }
   document.body.classList.remove('suggesting'); cm.scrollDOM.scrollTop = draft.scroll
-  renderPeers(); pushPresence(); applySpell(); fmtSync(); initRanges(); gutter(); refreshHl(); paintOutline(); queueRender(); paintSuggestionControls(); cm.requestMeasure(); return true
+  renderPeers(); pushPresence(); applySpell(); fmtSync(); initRanges(); gutter(); refreshHl(); paintOutline(); queueRender(); paintSuggestionControls(); try { updPos() } catch (e) {}; cm.requestMeasure(); return true
 }
 
 async function sendSuggestionDraft() {
