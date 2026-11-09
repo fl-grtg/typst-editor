@@ -59,6 +59,43 @@ test('blank clicks around a rendered outline keep the outline line', () => {
   assert.equal(c.pvOutlineClick(0, items, 400, 124, 1, 1), 0) // beside the page, not the entry
   assert.equal(c.pvOutlineClick(1, items, 30, 124, 1, 1), 0) // page without outline links
 })
+test('an outline test per entry never covers the blank space up to a body link', () => {
+  const src = read('90-settings.js')
+  const c = vm.createContext({
+    pvLinks: [[
+      { x0: 10, y0: 100, x1: 300, y1: 116, dest: { page: 0 } }, // outline entry
+      { x0: 10, y0: 400, x1: 300, y1: 416, dest: { page: 1 } }, // body link with the same title
+    ]],
+    getT: () => '#outline()\n\n= Alpha\n\n#link(<alpha>)[Alpha]\n',
+    syncPlain: t => String(t).toLowerCase(),
+  })
+  vm.runInContext(src.slice(src.indexOf('function pvOutlineClick'), src.indexOf("$('preview').addEventListener('click'")), c)
+  const entry = [{ s: 'Alpha', x0: 20, y: 108, w: 40 }]
+  const body = [{ s: 'Alpha', x0: 20, y: 408, w: 40 }]
+  assert.equal(c.pvOutlineClick(0, entry, 30, 124, 1, 1), 1) // blank line under the outline entry
+  assert.equal(c.pvOutlineClick(0, body, 30, 300, 1, 1), 0) // between outline and body link: no union
+})
+test('brackets inside block comments or strings do not end a figure early', () => {
+  const lines = ['#figure(', '  /* ) ] /* still */ ) */', '  "a ) string",', '  box[rect()],', '  caption: [Panel layout note.],', ')']
+  assert.equal(ctx.pvCallEnd(lines, 1), 6)
+  const pages = [page(['Figure 1: Panel layout note.'])]
+  assert.equal(ctx.pvFigureHint(lines, 4, pages).pi, 0)
+  assert.equal(ctx.syncNearHit(lines, 4, pages).pi, 0)
+})
+test('a figure without a caption never borrows the next caption', () => {
+  const lines = ['= Chart', '#figure(', '  box[rect()],', ')', '', '#figure(', '  box[circle()],', '  caption: [Next figure.],', ')']
+  const pages = [page(['Chart']), page(['Figure 1: Next figure.'])]
+  assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 0) // its own frame has no text: the heading above wins
+})
+test('a figure command anchors to its own caption before its table cells', () => {
+  const lines = ['#figure(', '  table(', '    [Name], [Value],', '  ),', '  caption: [Fundamental constants.],', ')']
+  const pages = [page(['Name', 'Value']), page(['Table 1: Fundamental constants.'])]
+  assert.equal(ctx.syncNearHit(lines, 1, pages).pi, 1)
+})
+test('inline commands with one nested bracket level keep their visible text', () => {
+  assert.equal(ctx.syncPlain('#grid(columns: (1fr, 1fr))[hidden]'), 'hidden')
+  assert.equal(ctx.syncPlain('#link("a b")[Label]'), 'label')
+})
 test('prefiltered completion results are recomputed after typing', () => {
   const src = read('20-completions.js')
   const start = src.indexOf('const T_KW')

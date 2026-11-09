@@ -366,8 +366,7 @@ async function render() {
     scrollApplyPreview() // first render of a reopened doc: back to its saved page + offset
     pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
     pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
-    pvOutline = [] // old bookmarks die with the old render
-    pvLoadOutline(doc, id).catch(() => {})
+    pvLoadOutline(doc, id).catch(() => {}) // badges keep the last outline until the new one is ready
     clearErr() // running again: clear marks
     cmpWarns = (wDiags || []).filter(d => d && d.severity === 'warning'); if (cmpWarns.length) paintErr()
     lastInfra = false

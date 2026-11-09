@@ -2632,8 +2632,7 @@ async function render() {
     scrollApplyPreview() // first render of a reopened doc: back to its saved page + offset
     pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
     pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
-    pvOutline = [] // old bookmarks die with the old render
-    pvLoadOutline(doc, id).catch(() => {})
+    pvLoadOutline(doc, id).catch(() => {}) // badges keep the last outline until the new one is ready
     clearErr() // running again: clear marks
     cmpWarns = (wDiags || []).filter(d => d && d.severity === 'warning'); if (cmpWarns.length) paintErr()
     lastInfra = false
@@ -6313,7 +6312,7 @@ function syncText(text) {
 function syncPlain(text) { // source markup -> the words the PDF actually shows (best effort, no parser)
   return syncText(String(text)
     .replace(/<[^>]*>/g, ' ') // labels never reach the paper
-    .replace(/#[a-zA-Z]\w*(?:\([^)]*\))?\[([^\]]*)\]/g, ' $1 ') // #link(..)[text], #emph[..], #strong[..]: keep the visible text
+    .replace(/#[a-zA-Z]\w*(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?\[([^\]]*)\]/g, ' $1 ') // #link(..)[text], #emph[..], #grid(columns: (1fr, 1fr))[..]: keep the visible text
     .replace(/[`*_]/g, ' '))
 }
 function syncWords(t) { // source words in document order with their raw line/offset (markup and reflow safe)
@@ -6354,6 +6353,7 @@ function syncAnchor(lines, line, pages, sec) { // source line -> word box on pap
   if (!raw || pvCmdLine(raw)) return null // "#figure(" must never match a generated "Figure 1:" caption prefix
   const head = raw.match(/^(=+)\s+(.+)$/)
   if (head) raw = head[2] // heading: the title, not the "=" markers
+  raw = raw.replace(/^caption\s*:\s*/, '') // figure caption: the visible words, not the option name
   const exact = syncPlain(raw)
   if (exact.length < 4) return null
   const p0 = sec ? Math.max(0, sec.page) : 0
@@ -6438,22 +6438,36 @@ function pvViewPage(pv) { // page at the viewport center: what the reader is act
   return -1
 }
 function pvCallEnd(lines, from) { // line with the closing bracket of a call opened at `from` (best effort)
-  let d = 0
+  let d = 0, block = 0, str = false
   for (let ln = from; ln <= lines.length; ln++) {
-    const s = (lines[ln - 1] || '').replace(/\/\/.*$/, '').replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    for (const c of s) d += c === '(' || c === '[' ? 1 : c === ')' || c === ']' ? -1 : 0
+    const s = lines[ln - 1] || ''
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i], n = s[i + 1]
+      if (block) { // /* … */ (nested): parens inside are prose
+        if (c === '/' && n === '*') { block++; i++ } else if (c === '*' && n === '/') { block--; i++ }
+        continue
+      }
+      if (str) { if (c === '\\') i++; else if (c === '"') str = false; continue } // strings may span lines
+      if (c === '/' && n === '*') { block = 1; i++; continue }
+      if (c === '/' && n === '/') break
+      if (c === '"') { str = true; continue }
+      d += c === '(' || c === '[' ? 1 : c === ')' || c === ']' ? -1 : 0
+    }
     if (d <= 0) return ln
   }
   return lines.length
 }
-function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call: its own caption names the page
-  let from = -1
-  for (let ln = line; ln >= Math.max(1, line - 80) && from < 0; ln--) {
+function pvFigureStart(lines, line) { // line of the figure/table/image call that owns `line` (0: none)
+  for (let ln = line; ln >= Math.max(1, line - 80); ln--) {
     const s = (lines[ln - 1] || '').trim()
-    if (/^=+\s/.test(s)) break
-    if (/^#(?:figure|table|image)\s*\(/.test(s)) from = ln
+    if (/^=+\s/.test(s)) return 0
+    if (/^#(?:figure|table|image)\s*\(/.test(s)) return ln
   }
-  if (from < 0) return null
+  return 0
+}
+function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call: its own caption names the page
+  const from = pvFigureStart(lines, line)
+  if (!from) return null
   const to = pvCallEnd(lines, from)
   if (line > to) return null
   for (let ln = from + 1; ln <= to; ln++)
@@ -6470,11 +6484,14 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
     }
     return null
   }
+  const from = pvFigureStart(lines, line)
+  const end = from ? pvCallEnd(lines, from) : 0
+  const inFig = from > 0 && line <= end
   const back = () => scan(line - 1, Math.max(1, line - 12), -1)
-  const fwd = () => scan(line + 1, Math.min(lines.length, line + 12), 1)
+  const fwd = () => scan(line + 1, inFig ? end : Math.min(lines.length, line + 12), 1) // inside a figure: its own span only
   const hint = () => pvFigureHint(lines, line, pages, sec)
   const cmd = pvCmdLine(lines[line - 1]) // #pagebreak()/#figure(: the next content
-  return cmd ? (fwd() || hint() || back()) : (hint() || back() || fwd())
+  return hint() || (cmd ? (fwd() || back()) : (back() || fwd()))
 }
 function syncToPv() {
   if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession)) return
@@ -6579,7 +6596,7 @@ function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered
   const oi = lines.findIndex(l => /^\s*#outline\s*\(/.test(l))
   if (oi < 0) return 0
   const heads = lines.filter(l => /^=+\s/.test(l)).map(l => syncPlain(l.replace(/^=+\s+/, ''))).filter(Boolean)
-  let top = Infinity, bot = -Infinity, left = Infinity, right = -Infinity
+  const pad = 12 // one blank line around an entry still belongs to the outline
   for (const L of pvLinks[pi] || []) {
     if (!L.dest) continue // external links are not outline entries
     const mid = (L.y0 + L.y1) / 2, hh = Math.max(6, (L.y1 - L.y0) / 2 + 2)
@@ -6589,11 +6606,9 @@ function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered
       return t && heads.some(h => h.includes(t) || t.includes(h))
     })
     if (!entry) continue
-    top = Math.min(top, L.y0 * sy); bot = Math.max(bot, L.y1 * sy)
-    left = Math.min(left, L.x0 * sx); right = Math.max(right, L.x1 * sx)
+    if (x >= L.x0 * sx - pad && x <= L.x1 * sx + pad && y >= L.y0 * sy - pad && y <= L.y1 * sy + pad) return oi + 1
   }
-  const pad = 12 // one blank line around the block still belongs to the outline
-  return isFinite(top) && x >= left - pad && x <= right + pad && y >= top - pad && y <= bot + pad ? oi + 1 : 0
+  return 0
 }
 $('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then nearest text, else section
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
