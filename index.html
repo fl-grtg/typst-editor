@@ -2241,6 +2241,7 @@ function pullRemote(ev) {
   if (threads.length) mapThreads(map, true, old.length)
   reanchor()
   paintOutline()
+  scrollApplyEditor() // first sync of an opened doc: restore its saved editor spot
   queueRender()
 }
 // --- Typst preview: main file + uploads as shadow files in compiler ---
@@ -2606,6 +2607,7 @@ async function render() {
     const anchor = pvAnchorRead(preview) // at swap time: the awaits above take seconds, an early anchor goes stale
     preview.replaceChildren(...pvSlots)
     pvAnchorBack(preview, anchor)
+    scrollApplyPreview() // first render of a reopened doc: back to its saved page + offset
     pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
     pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
     clearErr() // running again: clear marks
@@ -2731,6 +2733,75 @@ function pvAnchorBack(pv, a) {
     pv.scrollTop += (r.top - pr.top) - a.off
   } else if (a) pv.scrollTop = Math.min(a.top, Math.max(0, pv.scrollHeight - pv.clientHeight))
 }
+// --- Per-document scroll memory: editor + preview spot, this browser/device only ---
+const SCROLL_KEY = 'typst_scroll' // localStorage stays on this device: another machine keeps its own spots
+const SCROLL_MAX = 200 // bounded store: oldest documents fall out instead of growing forever
+let docScroll = {}
+try {
+  const s = JSON.parse(localStorage.getItem(SCROLL_KEY) || '{}')
+  if (s && typeof s === 'object' && !Array.isArray(s)) docScroll = s
+} catch (e) {}
+let scrollRestore = null // loaded on open; editor and preview apply it once their content is ready
+let scrollT = 0
+const scrollNum = v => Number.isFinite(+v) ? +v : 0
+function scrollRead(id) { // snapshot: a later save must not change the values this open restores
+  const s = docScroll[id]
+  if (!s || typeof s !== 'object') return null
+  return { doc: id, epoch: 0, l: Math.max(1, scrollNum(s.l) || 1), lo: Math.max(0, scrollNum(s.lo)), p: s.p == null ? -1 : scrollNum(s.p), po: scrollNum(s.po), pt: Math.max(0, scrollNum(s.pt)), ed: false, pv: false }
+}
+function saveDocScroll() { // scroll, doc switch and pagehide write the latest spot: it survives reloads
+  if (!docId || tplName || openedTrashed || !synced || window.suggestionDraft || window.changeSession) return // loading/trash/review: never overwrite a good spot with another buffer
+  const prev = docScroll[docId] && typeof docScroll[docId] === 'object' ? docScroll[docId] : {}
+  const e = Object.assign({}, prev)
+  if (!activeFile && cm.scrollDOM.clientHeight) { // file tab or hidden editor: keep the document's own main.typ spot
+    const ed = cm.scrollDOM, block = cm.lineBlockAtHeight(ed.scrollTop)
+    e.l = cm.state.doc.lineAt(block.from).number
+    e.lo = Math.max(0, Math.round(ed.scrollTop - block.top))
+  }
+  const pv = $('preview')
+  if (pv.clientHeight && pv.querySelector('.pvPage')) { // hidden/empty/error preview: keep the last good preview spot
+    const a = pvAnchorRead(pv)
+    e.p = a.page; e.po = Math.round(a.off); e.pt = Math.round(a.top)
+  }
+  e.t = Date.now()
+  docScroll[docId] = e
+  const keys = Object.keys(docScroll)
+  if (keys.length > SCROLL_MAX) keys.sort((a, b) => scrollNum(docScroll[a].t) - scrollNum(docScroll[b].t)).slice(0, keys.length - SCROLL_MAX).forEach(k => delete docScroll[k])
+  try { localStorage.setItem(SCROLL_KEY, JSON.stringify(docScroll)) } catch (e) {} // quiet: a lost scroll spot must never evict draft stashes
+}
+function queueDocScroll() {
+  clearTimeout(scrollT)
+  scrollT = setTimeout(saveDocScroll, 300) // one write after a scroll gesture, not per pixel
+}
+function scrollApplyEditor() { // after Yjs sync: line + offset survive edits above the saved spot
+  const r = scrollRestore
+  if (!r || r.doc !== docId || r.epoch !== openN || r.ed || activeFile || window.suggestionDraft || window.changeSession || (!synced && !openedTrashed)) return
+  if (!cm.scrollDOM.clientHeight) return // read-only view: setView retries once the editor is visible
+  r.ed = true
+  const line = Math.max(1, Math.min(cm.state.doc.lines, r.l))
+  const top = Math.max(0, cm.lineBlockAt(cm.state.doc.line(line).from).top + r.lo)
+  requestAnimationFrame(() => {
+    if (r.epoch !== openN || r.doc !== docId) return
+    cm.scrollDOM.scrollTop = Math.min(top, Math.max(0, cm.scrollDOM.scrollHeight - cm.scrollDOM.clientHeight))
+  })
+}
+function scrollApplyPreview() { // page + offset survive new page sizes and zoom changes
+  const r = scrollRestore
+  if (!r || r.doc !== docId || r.epoch !== openN || r.pv || window.suggestionDraft || window.changeSession) return
+  const pv = $('preview')
+  if (!pv.clientHeight) return // editor-only view: setView retries once the preview is visible
+  const pages = pv.querySelectorAll('.pvPage').length ? pv.querySelectorAll('.pvPage') : pv.querySelectorAll('canvas')
+  if (r.p >= 0) {
+    if (!pages.length) return // first render still pending: keep the saved page for the next call
+    const node = pages[Math.min(r.p, pages.length - 1)], nr = node.getBoundingClientRect(), pr = pv.getBoundingClientRect()
+    pv.scrollTop += (nr.top - pr.top) - r.po
+  } else if (r.pt) {
+    if (pv.scrollHeight <= pv.clientHeight) return
+    pv.scrollTop = Math.min(r.pt, pv.scrollHeight - pv.clientHeight)
+  }
+  r.pv = true
+}
+
 async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   const myDoc = docId, myTplName = tplName
@@ -2778,6 +2849,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     pvTexts = texts
     try { pvTextDone = texts.map(() => true) } catch (e) {}
     preview.scrollTop = st
+    scrollApplyPreview() // fallback render of a reopened doc: same saved page + offset
     clearErr() // running again: clear marks
     lastInfra = false
   } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
@@ -2996,6 +3068,10 @@ addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === '0'
 new MutationObserver(() => pvRelayout()).observe($('zoomV'), { childList: true, characterData: true, subtree: true }) // any zoom change relayouts slots
 addEventListener('resize', () => { if (!window.Present?.isOn() && pvZoomMode !== 'pct' && pvPageSize) { pvModeApply(); pvRelayout() } })
 new ResizeObserver(() => { if (pvZoomMode !== 'pct' && pvPageSize && !window.Present?.isOn()) { pvModeApply(); pvRelayout() } }).observe($('preview'))
+cm.scrollDOM.addEventListener('scroll', queueDocScroll)
+$('preview').addEventListener('scroll', queueDocScroll)
+addEventListener('pagehide', () => { clearTimeout(scrollT); saveDocScroll() }) // reload/close: drop the pending debounce, keep the spot
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { clearTimeout(scrollT); saveDocScroll() } })
 // --- Docs ---
 let folders = [], lastOwn = [], lastShared = [], hits = [], findQ = '', findT = 0, wantPos = -1
 let shut = new Set() // collapsed folders (doc: name, tpl: "tpl:..", shared: "share:..")
@@ -3356,6 +3432,9 @@ async function resSync() { // SSE follow-up: fresh list first, open resource fol
   }
 }
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
+  clearTimeout(scrollT)
+  saveDocScroll() // previous doc: remember editor + preview spot before the buffers reset
+  scrollRestore = null
   try { if (docId && ytext && docRole !== 'reviewer' && !openedTrashed && (!wsLive() || !synced)) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline/unsynced main: Yjs dies with the provider, stash offers restore on reopen (openDoc drops it silently if converged)
   if (window.suggestionDraft && !stopSuggestionDraft(false)) stopSuggestionDraft()
   ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT)
@@ -3502,6 +3581,8 @@ async function openDoc(id) {
   if (tplName) setView('split')
   hidePops()
   docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
+  scrollRestore = scrollRead(id)
+  if (scrollRestore) scrollRestore.epoch = n
   openedTrashed = !!d.trashed
   if (docProject && !openedTrashed) shut.delete('project:' + docProject)
   const ro = d.role === 'reviewer' || openedTrashed // trash: read yes, write no
@@ -3549,6 +3630,7 @@ async function openDoc(id) {
     pushPresence()
   } else {
     setT(d.content || ''); shadow = d.content || ''; synced = true // no Yjs in trash: state from DB
+    scrollApplyEditor()
   }
   try { // pagehide backup: keepalive misses 409, restore stashed edits here
     let pend = null; const raw = localStorage.getItem('typst-pending-' + id)
@@ -4476,9 +4558,10 @@ async function switchTab(name, nosave, preserveView = false) { // true = switche
   clearTimeout(fileT) // old tab's pending timer must not fire into the new tab
   if (nosave) tabDirty = false // delete path: old text is gone by design
   tabSaveState(activeFile)
+  if (!activeFile) saveDocScroll() // leaving main.typ: keep its spot before the file buffer replaces it
   if (name && !isTplKey(name) && !lastFiles.some(f => f.name === name)) { try { lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files } catch (e) {} } // fresh list: new upload must not be dropped as 'deleted'
   if (my !== tabSeq || dk !== docId) return false
-  if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); paintErr(); queueRender(); return true }
+  if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); scrollApplyEditor(); paintErr(); queueRender(); return true }
   let text
   if (isTplKey(name)) {
     const tp = effTpl().find(x => x.name === tabName(name))
@@ -5783,6 +5866,8 @@ function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode b
   }
   $('leftCol').style.height = ''; $('leftCol').style.flex = '' // mobile drag height must not survive view switch
   updVsplitAria()
+  if (m !== 'editor') scrollApplyPreview() // preview was hidden on open: apply the saved spot now
+  if (m !== 'read') scrollApplyEditor() // editor was hidden on open: same for its saved line
   if (popAnchor != null) movePop()
 }
 $('vEdit').onclick = () => setView('editor')
@@ -5915,6 +6000,7 @@ function syncAnchor(lines, line, pages) {
 }
 function syncToPv() {
   if (!syncOn || !docId || tplName || Date.now() - pvT < 1000) return
+  if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
   const line = cm.state.doc.lineAt(cm.state.selection.main.head).number

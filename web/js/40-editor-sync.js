@@ -81,5 +81,6 @@ function pullRemote(ev) {
   if (threads.length) mapThreads(map, true, old.length)
   reanchor()
   paintOutline()
+  scrollApplyEditor() // first sync of an opened doc: restore its saved editor spot
   queueRender()
 }

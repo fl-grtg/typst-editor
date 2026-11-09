@@ -534,6 +534,8 @@ function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode b
   }
   $('leftCol').style.height = ''; $('leftCol').style.flex = '' // mobile drag height must not survive view switch
   updVsplitAria()
+  if (m !== 'editor') scrollApplyPreview() // preview was hidden on open: apply the saved spot now
+  if (m !== 'read') scrollApplyEditor() // editor was hidden on open: same for its saved line
   if (popAnchor != null) movePop()
 }
 $('vEdit').onclick = () => setView('editor')
@@ -666,6 +668,7 @@ function syncAnchor(lines, line, pages) {
 }
 function syncToPv() {
   if (!syncOn || !docId || tplName || Date.now() - pvT < 1000) return
+  if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
   const line = cm.state.doc.lineAt(cm.state.selection.main.head).number

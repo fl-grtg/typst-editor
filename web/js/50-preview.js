@@ -361,6 +361,7 @@ async function render() {
     const anchor = pvAnchorRead(preview) // at swap time: the awaits above take seconds, an early anchor goes stale
     preview.replaceChildren(...pvSlots)
     pvAnchorBack(preview, anchor)
+    scrollApplyPreview() // first render of a reopened doc: back to its saved page + offset
     pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
     pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
     clearErr() // running again: clear marks
@@ -486,6 +487,75 @@ function pvAnchorBack(pv, a) {
     pv.scrollTop += (r.top - pr.top) - a.off
   } else if (a) pv.scrollTop = Math.min(a.top, Math.max(0, pv.scrollHeight - pv.clientHeight))
 }
+// --- Per-document scroll memory: editor + preview spot, this browser/device only ---
+const SCROLL_KEY = 'typst_scroll' // localStorage stays on this device: another machine keeps its own spots
+const SCROLL_MAX = 200 // bounded store: oldest documents fall out instead of growing forever
+let docScroll = {}
+try {
+  const s = JSON.parse(localStorage.getItem(SCROLL_KEY) || '{}')
+  if (s && typeof s === 'object' && !Array.isArray(s)) docScroll = s
+} catch (e) {}
+let scrollRestore = null // loaded on open; editor and preview apply it once their content is ready
+let scrollT = 0
+const scrollNum = v => Number.isFinite(+v) ? +v : 0
+function scrollRead(id) { // snapshot: a later save must not change the values this open restores
+  const s = docScroll[id]
+  if (!s || typeof s !== 'object') return null
+  return { doc: id, epoch: 0, l: Math.max(1, scrollNum(s.l) || 1), lo: Math.max(0, scrollNum(s.lo)), p: s.p == null ? -1 : scrollNum(s.p), po: scrollNum(s.po), pt: Math.max(0, scrollNum(s.pt)), ed: false, pv: false }
+}
+function saveDocScroll() { // scroll, doc switch and pagehide write the latest spot: it survives reloads
+  if (!docId || tplName || openedTrashed || !synced || window.suggestionDraft || window.changeSession) return // loading/trash/review: never overwrite a good spot with another buffer
+  const prev = docScroll[docId] && typeof docScroll[docId] === 'object' ? docScroll[docId] : {}
+  const e = Object.assign({}, prev)
+  if (!activeFile && cm.scrollDOM.clientHeight) { // file tab or hidden editor: keep the document's own main.typ spot
+    const ed = cm.scrollDOM, block = cm.lineBlockAtHeight(ed.scrollTop)
+    e.l = cm.state.doc.lineAt(block.from).number
+    e.lo = Math.max(0, Math.round(ed.scrollTop - block.top))
+  }
+  const pv = $('preview')
+  if (pv.clientHeight && pv.querySelector('.pvPage')) { // hidden/empty/error preview: keep the last good preview spot
+    const a = pvAnchorRead(pv)
+    e.p = a.page; e.po = Math.round(a.off); e.pt = Math.round(a.top)
+  }
+  e.t = Date.now()
+  docScroll[docId] = e
+  const keys = Object.keys(docScroll)
+  if (keys.length > SCROLL_MAX) keys.sort((a, b) => scrollNum(docScroll[a].t) - scrollNum(docScroll[b].t)).slice(0, keys.length - SCROLL_MAX).forEach(k => delete docScroll[k])
+  try { localStorage.setItem(SCROLL_KEY, JSON.stringify(docScroll)) } catch (e) {} // quiet: a lost scroll spot must never evict draft stashes
+}
+function queueDocScroll() {
+  clearTimeout(scrollT)
+  scrollT = setTimeout(saveDocScroll, 300) // one write after a scroll gesture, not per pixel
+}
+function scrollApplyEditor() { // after Yjs sync: line + offset survive edits above the saved spot
+  const r = scrollRestore
+  if (!r || r.doc !== docId || r.epoch !== openN || r.ed || activeFile || window.suggestionDraft || window.changeSession || (!synced && !openedTrashed)) return
+  if (!cm.scrollDOM.clientHeight) return // read-only view: setView retries once the editor is visible
+  r.ed = true
+  const line = Math.max(1, Math.min(cm.state.doc.lines, r.l))
+  const top = Math.max(0, cm.lineBlockAt(cm.state.doc.line(line).from).top + r.lo)
+  requestAnimationFrame(() => {
+    if (r.epoch !== openN || r.doc !== docId) return
+    cm.scrollDOM.scrollTop = Math.min(top, Math.max(0, cm.scrollDOM.scrollHeight - cm.scrollDOM.clientHeight))
+  })
+}
+function scrollApplyPreview() { // page + offset survive new page sizes and zoom changes
+  const r = scrollRestore
+  if (!r || r.doc !== docId || r.epoch !== openN || r.pv || window.suggestionDraft || window.changeSession) return
+  const pv = $('preview')
+  if (!pv.clientHeight) return // editor-only view: setView retries once the preview is visible
+  const pages = pv.querySelectorAll('.pvPage').length ? pv.querySelectorAll('.pvPage') : pv.querySelectorAll('canvas')
+  if (r.p >= 0) {
+    if (!pages.length) return // first render still pending: keep the saved page for the next call
+    const node = pages[Math.min(r.p, pages.length - 1)], nr = node.getBoundingClientRect(), pr = pv.getBoundingClientRect()
+    pv.scrollTop += (nr.top - pr.top) - r.po
+  } else if (r.pt) {
+    if (pv.scrollHeight <= pv.clientHeight) return
+    pv.scrollTop = Math.min(r.pt, pv.scrollHeight - pv.clientHeight)
+  }
+  r.pv = true
+}
+
 async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   const myDoc = docId, myTplName = tplName
@@ -533,6 +603,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     pvTexts = texts
     try { pvTextDone = texts.map(() => true) } catch (e) {}
     preview.scrollTop = st
+    scrollApplyPreview() // fallback render of a reopened doc: same saved page + offset
     clearErr() // running again: clear marks
     lastInfra = false
   } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
@@ -751,3 +822,7 @@ addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === '0'
 new MutationObserver(() => pvRelayout()).observe($('zoomV'), { childList: true, characterData: true, subtree: true }) // any zoom change relayouts slots
 addEventListener('resize', () => { if (!window.Present?.isOn() && pvZoomMode !== 'pct' && pvPageSize) { pvModeApply(); pvRelayout() } })
 new ResizeObserver(() => { if (pvZoomMode !== 'pct' && pvPageSize && !window.Present?.isOn()) { pvModeApply(); pvRelayout() } }).observe($('preview'))
+cm.scrollDOM.addEventListener('scroll', queueDocScroll)
+$('preview').addEventListener('scroll', queueDocScroll)
+addEventListener('pagehide', () => { clearTimeout(scrollT); saveDocScroll() }) // reload/close: drop the pending debounce, keep the spot
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { clearTimeout(scrollT); saveDocScroll() } })
