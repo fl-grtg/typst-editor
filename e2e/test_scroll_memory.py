@@ -12,6 +12,23 @@ def _open_doc(page, title):
     expect(page.locator('#title')).to_have_text(title)
 
 
+def _follow_off(page):
+    if page.locator('#syncBtn').evaluate("el => el.classList.contains('on')"):
+        page.click('#syncBtn')
+
+
+def _scroll_to(page, editor_top, preview_top):
+    page.locator('#cm .cm-scroller').evaluate('(el, top) => { el.scrollTop = top }', editor_top)
+    page.locator('#preview').evaluate('(el, top) => { el.scrollTop = top }', preview_top)
+    page.wait_for_timeout(600)
+
+
+def _long_source(name):
+    return '\n\n#pagebreak()\n\n'.join(
+        f'= {name} {i}\n\nBody text for {name} {i}.' for i in range(1, 16)
+    )
+
+
 def test_editor_and_preview_scroll_survive_switch_and_reload(page):
     register(page, 'e2e_scroll_memory')
     create_doc(page, 'Scroll memory A')
@@ -48,6 +65,57 @@ def test_editor_and_preview_scroll_survive_switch_and_reload(page):
     preview_reload = page.locator('#preview').evaluate('el => el.scrollTop')
     assert abs(editor_reload - editor_before) < 80, f'editor scroll lost on reload: {editor_before} -> {editor_reload}'
     assert abs(preview_reload - preview_before) < 120, f'preview scroll lost on reload: {preview_before} -> {preview_reload}'
+
+
+def test_scroll_memory_survives_another_tab(ctx):
+    first = ctx.new_page()
+    register(first, 'e2e_scroll_tabs')
+    create_doc(first, 'Tab scroll A')
+    first.click('#cm .cm-content')
+    first.keyboard.press('ControlOrMeta+A')
+    assert first.evaluate("(t) => document.execCommand('insertText', false, t)", _long_source('Tab A'))
+    expect(first.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    create_doc(first, 'Tab scroll B')
+
+    second = ctx.new_page()
+    second.goto('/')
+    second.wait_for_function('window.__booted === true')
+    # second loaded the scroll store before A was scrolled, so an in-memory write would erase A
+
+    _open_doc(first, 'Tab scroll A')
+    expect(first.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    _follow_off(first)
+    _scroll_to(first, 900, 1200)
+    editor_a = first.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
+    preview_a = first.locator('#preview').evaluate('el => el.scrollTop')
+
+    _open_doc(second, 'Tab scroll B')
+    second.click('#cm .cm-content')
+    second.keyboard.press('ControlOrMeta+A')
+    assert second.evaluate("(t) => document.execCommand('insertText', false, t)", _long_source('Tab B'))
+    expect(second.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    _follow_off(second)
+    _scroll_to(second, 700, 1000)
+
+    first.reload()
+    first.wait_for_function('window.__booted === true')
+    _open_doc(first, 'Tab scroll A')
+    expect(first.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    first.wait_for_timeout(600)
+    editor_a2 = first.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
+    preview_a2 = first.locator('#preview').evaluate('el => el.scrollTop')
+    assert abs(editor_a2 - editor_a) < 80, f'other tab erased editor spot: {editor_a} -> {editor_a2}'
+    assert abs(preview_a2 - preview_a) < 120, f'other tab erased preview spot: {preview_a} -> {preview_a2}'
+
+    second.reload()
+    second.wait_for_function('window.__booted === true')
+    _open_doc(second, 'Tab scroll B')
+    expect(second.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    second.wait_for_timeout(600)
+    editor_b = second.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
+    preview_b = second.locator('#preview').evaluate('el => el.scrollTop')
+    assert abs(editor_b - 700) < 80, f'editor spot lost after reload: {editor_b}'
+    assert abs(preview_b - 1000) < 120, f'preview spot lost after reload: {preview_b}'
 
 
 def test_scroll_memory_is_local_to_this_device(browser, base_url):

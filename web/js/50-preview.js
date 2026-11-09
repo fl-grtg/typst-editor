@@ -490,22 +490,25 @@ function pvAnchorBack(pv, a) {
 // --- Per-document scroll memory: editor + preview spot, this browser/device only ---
 const SCROLL_KEY = 'typst_scroll' // localStorage stays on this device: another machine keeps its own spots
 const SCROLL_MAX = 200 // bounded store: oldest documents fall out instead of growing forever
-let docScroll = {}
-try {
-  const s = JSON.parse(localStorage.getItem(SCROLL_KEY) || '{}')
-  if (s && typeof s === 'object' && !Array.isArray(s)) docScroll = s
-} catch (e) {}
+function scrollMap() { // read at every use: another tab may have saved a different document since load
+  try {
+    const s = JSON.parse(localStorage.getItem(SCROLL_KEY) || '{}')
+    if (s && typeof s === 'object' && !Array.isArray(s)) return s
+  } catch (e) {}
+  return {}
+}
 let scrollRestore = null // loaded on open; editor and preview apply it once their content is ready
 let scrollT = 0
 const scrollNum = v => Number.isFinite(+v) ? +v : 0
 function scrollRead(id) { // snapshot: a later save must not change the values this open restores
-  const s = docScroll[id]
+  const s = scrollMap()[id]
   if (!s || typeof s !== 'object') return null
   return { doc: id, epoch: 0, l: Math.max(1, scrollNum(s.l) || 1), lo: Math.max(0, scrollNum(s.lo)), p: s.p == null ? -1 : scrollNum(s.p), po: scrollNum(s.po), pt: Math.max(0, scrollNum(s.pt)), ed: false, pv: false }
 }
 function saveDocScroll() { // scroll, doc switch and pagehide write the latest spot: it survives reloads
   if (!docId || tplName || openedTrashed || !synced || window.suggestionDraft || window.changeSession) return // loading/trash/review: never overwrite a good spot with another buffer
-  const prev = docScroll[docId] && typeof docScroll[docId] === 'object' ? docScroll[docId] : {}
+  const all = scrollMap() // merge with what another tab may have written: only this document changes below
+  const prev = all[docId] && typeof all[docId] === 'object' ? all[docId] : {}
   const e = Object.assign({}, prev)
   if (!activeFile && cm.scrollDOM.clientHeight) { // file tab or hidden editor: keep the document's own main.typ spot
     const ed = cm.scrollDOM, block = cm.lineBlockAtHeight(ed.scrollTop)
@@ -518,10 +521,10 @@ function saveDocScroll() { // scroll, doc switch and pagehide write the latest s
     e.p = a.page; e.po = Math.round(a.off); e.pt = Math.round(a.top)
   }
   e.t = Date.now()
-  docScroll[docId] = e
-  const keys = Object.keys(docScroll)
-  if (keys.length > SCROLL_MAX) keys.sort((a, b) => scrollNum(docScroll[a].t) - scrollNum(docScroll[b].t)).slice(0, keys.length - SCROLL_MAX).forEach(k => delete docScroll[k])
-  try { localStorage.setItem(SCROLL_KEY, JSON.stringify(docScroll)) } catch (e) {} // quiet: a lost scroll spot must never evict draft stashes
+  all[docId] = e
+  const keys = Object.keys(all)
+  if (keys.length > SCROLL_MAX) keys.sort((a, b) => scrollNum(all[a].t) - scrollNum(all[b].t)).slice(0, keys.length - SCROLL_MAX).forEach(k => delete all[k])
+  try { localStorage.setItem(SCROLL_KEY, JSON.stringify(all)) } catch (e) {} // quiet: a lost scroll spot must never evict draft stashes
 }
 function queueDocScroll() {
   clearTimeout(scrollT)
