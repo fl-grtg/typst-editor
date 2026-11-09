@@ -507,22 +507,32 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   })
   slot.appendChild(box)
 }
-let pvAnim = 0
-function pvScrollStop() { cancelAnimationFrame(pvAnim) } // any deliberate scroll wins over a jump still in flight
-function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduced motion is requested
-  cancelAnimationFrame(pvAnim)
-  const from = pv.scrollTop, dy = y - from
+const scrollAnims = new WeakMap() // one running glide per element: a new target retargets from where it is now
+function smoothStop(el) {
+  const id = scrollAnims.get(el)
+  if (id) { cancelAnimationFrame(id); scrollAnims.delete(el) }
+}
+function smoothScroll(el, y, ms) { // in-out cubic bezier, very fast: small follow steps and page jumps share one feel
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  const target = Math.max(0, Math.min(max, y))
+  smoothStop(el)
   let calm = false
   try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
-  if (Math.abs(dy) < 240 || calm) { pv.scrollTop = y; return }
+  const from = el.scrollTop, dy = target - from
+  if (calm || Math.abs(dy) < 1) { el.scrollTop = target; return }
+  const dur = ms || Math.max(120, Math.min(240, 110 + Math.abs(dy) / 12))
   const t0 = performance.now()
   const step = now => {
-    const k = Math.min(1, (now - t0) / 220)
-    pv.scrollTop = from + dy * (1 - (1 - k) * (1 - k))
-    if (k < 1) pvAnim = requestAnimationFrame(step)
+    const k = Math.min(1, (now - t0) / dur)
+    const e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2
+    el.scrollTop = from + dy * e
+    if (k < 1) scrollAnims.set(el, requestAnimationFrame(step))
+    else scrollAnims.delete(el)
   }
-  pvAnim = requestAnimationFrame(step)
+  scrollAnims.set(el, requestAnimationFrame(step))
 }
+function pvScrollStop() { try { smoothStop($('preview')) } catch (e) {} } // any deliberate scroll wins over a jump still in flight
+function pvScrollTo(pv, y) { smoothScroll(pv, y) }
 const pvBox0 = $('preview') // guarded: unit tests slice this file with a bare $ stub
 if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
 function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
@@ -924,8 +934,8 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
     const r = el(e.line || e.tab != null ? 'button' : 'div', 'er')
     if (e.line) r.appendChild(el('span', 'ln', t('preview.errRow', { line: e.line, col: e.col ? ':' + e.col : '' })))
     r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ Â· (line|Zeile) \d+(:\d+)?$/, '')))
-    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { cm.dispatch({ selection: { anchor: cm.state.doc.line(e.jl).from }, scrollIntoView: true }); cm.focus() } }
-    if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) }, scrollIntoView: true }); cm.focus() } // list stays open: only the x closes it
+    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { const p = cm.state.doc.line(e.jl).from; cm.dispatch({ selection: { anchor: p } }); cmGlide(p); cm.focus() } }
+    if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) } }); cmGlide(p); cm.focus() } // list stays open: only the x closes it
     box.appendChild(r)
   })
   box.classList.add('errs')

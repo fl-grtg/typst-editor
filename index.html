@@ -1279,7 +1279,7 @@ document.addEventListener('submit', function (e) { // form is parsed below: capt
       <div id="rightCol">
         <div id="cdnLine" role="status" data-i18n="shell.cdnLine">Preparing live preview…</div>
         <div id="preview" tabindex="0" role="region" aria-label="Document preview" data-i18n-aria="shell.pvRegion"></div>
-        <div id="pvTools"><button id="syncBtn" aria-label="Follow between editor and preview" data-i18n-aria="shell.follow" class="on" aria-pressed="true" title="Follow between editor and preview" data-i18n-title="shell.follow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h8M4 10h8"/><path d="M6 4L4 6l2 2M10 8l2 2-2 2"/></svg></button><button id="followBtn" aria-label="Follow cursor, scrolling and jumps" data-i18n-aria="shell.followAll" class="on" aria-pressed="true" title="Follow cursor, scrolling and jumps" data-i18n-title="shell.followAll"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h10M3 8h10"/><path d="M6.5 11.5v3"/><path d="M4.5 12.5 6.5 14l2-1.5"/></svg></button><span class="grp"><button id="zMinus" aria-label="Smaller preview" data-i18n-aria="settings.zoomMinus" title="Smaller preview" data-i18n-title="settings.zoomMinus">−</button><span id="zoomV" aria-live="polite">110%</span><button id="zPlus" aria-label="Larger preview" data-i18n-aria="settings.zoomPlus" title="Larger preview" data-i18n-title="settings.zoomPlus">+</button><button id="fitBtn" aria-label="Fit page" data-i18n-aria="shell.fitPage" title="Fit page" data-i18n-title="shell.fitPage"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button></span></div>
+        <div id="pvTools"><button id="syncBtn" aria-label="Follow between editor and preview" data-i18n-aria="shell.follow" class="on" aria-pressed="true" title="Follow between editor and preview" data-i18n-title="shell.follow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h8M4 10h8"/><path d="M6 4L4 6l2 2M10 8l2 2-2 2"/></svg></button><button id="followBtn" aria-label="Follow cursor, scrolling and jumps" data-i18n-aria="shell.followAll" class="on" aria-pressed="true" title="Follow cursor, scrolling and jumps" data-i18n-title="shell.followAll"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.7 8s2.3-4.2 6.3-4.2S14.3 8 14.3 8s-2.3 4.2-6.3 4.2S1.7 8 1.7 8Z"/><circle cx="8" cy="8" r="1.9"/></svg></button><span class="grp"><button id="zMinus" aria-label="Smaller preview" data-i18n-aria="settings.zoomMinus" title="Smaller preview" data-i18n-title="settings.zoomMinus">−</button><span id="zoomV" aria-live="polite">110%</span><button id="zPlus" aria-label="Larger preview" data-i18n-aria="settings.zoomPlus" title="Larger preview" data-i18n-title="settings.zoomPlus">+</button><button id="fitBtn" aria-label="Fit page" data-i18n-aria="shell.fitPage" title="Fit page" data-i18n-title="shell.fitPage"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6"/><path d="M10 2.5h3.5V6"/><path d="M13.5 10v3.5H10"/><path d="M6 13.5H2.5V10"/></svg></button></span></div>
       </div>
     </div>
   </main>
@@ -2773,22 +2773,32 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   })
   slot.appendChild(box)
 }
-let pvAnim = 0
-function pvScrollStop() { cancelAnimationFrame(pvAnim) } // any deliberate scroll wins over a jump still in flight
-function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduced motion is requested
-  cancelAnimationFrame(pvAnim)
-  const from = pv.scrollTop, dy = y - from
+const scrollAnims = new WeakMap() // one running glide per element: a new target retargets from where it is now
+function smoothStop(el) {
+  const id = scrollAnims.get(el)
+  if (id) { cancelAnimationFrame(id); scrollAnims.delete(el) }
+}
+function smoothScroll(el, y, ms) { // in-out cubic bezier, very fast: small follow steps and page jumps share one feel
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  const target = Math.max(0, Math.min(max, y))
+  smoothStop(el)
   let calm = false
   try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
-  if (Math.abs(dy) < 240 || calm) { pv.scrollTop = y; return }
+  const from = el.scrollTop, dy = target - from
+  if (calm || Math.abs(dy) < 1) { el.scrollTop = target; return }
+  const dur = ms || Math.max(120, Math.min(240, 110 + Math.abs(dy) / 12))
   const t0 = performance.now()
   const step = now => {
-    const k = Math.min(1, (now - t0) / 220)
-    pv.scrollTop = from + dy * (1 - (1 - k) * (1 - k))
-    if (k < 1) pvAnim = requestAnimationFrame(step)
+    const k = Math.min(1, (now - t0) / dur)
+    const e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2
+    el.scrollTop = from + dy * e
+    if (k < 1) scrollAnims.set(el, requestAnimationFrame(step))
+    else scrollAnims.delete(el)
   }
-  pvAnim = requestAnimationFrame(step)
+  scrollAnims.set(el, requestAnimationFrame(step))
 }
+function pvScrollStop() { try { smoothStop($('preview')) } catch (e) {} } // any deliberate scroll wins over a jump still in flight
+function pvScrollTo(pv, y) { smoothScroll(pv, y) }
 const pvBox0 = $('preview') // guarded: unit tests slice this file with a bare $ stub
 if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
 function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
@@ -3190,8 +3200,8 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
     const r = el(e.line || e.tab != null ? 'button' : 'div', 'er')
     if (e.line) r.appendChild(el('span', 'ln', t('preview.errRow', { line: e.line, col: e.col ? ':' + e.col : '' })))
     r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ Â· (line|Zeile) \d+(:\d+)?$/, '')))
-    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { cm.dispatch({ selection: { anchor: cm.state.doc.line(e.jl).from }, scrollIntoView: true }); cm.focus() } }
-    if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) }, scrollIntoView: true }); cm.focus() } // list stays open: only the x closes it
+    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { const p = cm.state.doc.line(e.jl).from; cm.dispatch({ selection: { anchor: p } }); cmGlide(p); cm.focus() } }
+    if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) } }); cmGlide(p); cm.focus() } // list stays open: only the x closes it
     box.appendChild(r)
   })
   box.classList.add('errs')
@@ -4161,11 +4171,7 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
       d.title += ' · ' + t('docs.olPage', { n: page })
     }
     d.setAttribute('aria-label', t('docs.olGoTo', { line, text: m[2].slice(0, 60) }))
-    const goL = () => {
-      const p = posOfLine(getT(), line)
-      cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
-      cm.focus()
-    }
+    const goL = () => cmJump(posOfLine(getT(), line), false) // smooth jump; the preview follows the cursor
     d.onclick = goL
     kb(d, goL)
     box.appendChild(d)
@@ -6109,7 +6115,7 @@ function queueSyncPv(at) { // throttle: continuous cursor/scroll movement still 
 let cmWheelT = 0
 try { // wheel over the editor: the preview follows what is on screen, not only the cursor
   const sc = cm.scrollDOM
-  sc.addEventListener('wheel', () => { cmWheelT = Date.now() }, { passive: true })
+  sc.addEventListener('wheel', () => { cmWheelT = Date.now(); smoothStop(sc) }, { passive: true })
   sc.addEventListener('scroll', () => {
     if (!followAll || Date.now() - cmWheelT > 600) return // selection/scrollIntoView already syncs the cursor
     try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
@@ -6164,7 +6170,7 @@ async function pvJumpBest(needles, hint, pi, anchor) { // honest cross-file jump
     const total = cm.state.doc.lines || 1
     const atCur = locateNear(getT(), s, hint)
     if (atCur >= 0 && pvVerify(getT(), atCur, s)) { syncPage = pi; jumpPos(atCur + off); return true }
-    const wi = off ? syncText(s.slice(0, off)).split(' ').filter(Boolean).length : 0
+    const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
     const atNorm = syncNeedleAt(getT(), s, hint, wi)
     if (atNorm >= 0) { syncPage = pi; jumpPos(atNorm); return true }
     let srcs = []
@@ -6225,7 +6231,7 @@ function pvClickNeedles(items, it, x, cssW, baseW, col) { // clicked item first,
   return out
 }
 function syncText(text) {
-  return text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  return text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() // NFKC first: 𝐸 -> E -> e
 }
 function syncPlain(text) { // source markup -> the words the PDF actually shows (best effort, no parser)
   return syncText(String(text)
@@ -6388,8 +6394,7 @@ function syncToPv() {
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
-  pvScrollStop() // a jump in flight must never override the editor-driven sync
-  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
+  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pvScrollTo(pv, want) // same fast glide as every other jump, retargeted while typing
 }
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
@@ -6405,18 +6410,22 @@ function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (sh
   return best
 }
 let syncFlashT = 0
-function jumpPos(pos) { // editor jump to screen center + brief line flash (preview does not follow)
-  pvT = Date.now()
+function cmTop(pos) { // scrollTop that centers the line block under pos
+  const b = cm.lineBlockAt(pos), sc = cm.scrollDOM
+  return b.top + b.height / 2 - sc.clientHeight / 2
+}
+function cmGlide(pos) { try { smoothScroll(cm.scrollDOM, cmTop(pos)) } catch (e) {} }
+function cmJump(pos, holdPv) { // smooth editor jump + brief line flash; holdPv: a preview click keeps the preview where it is
+  pvT = holdPv ? Date.now() : 0
   const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, pos)))
   const deco = Decoration.set([Decoration.line({ class: 'cm-syncLine' }).range(line.from)])
-  cm.dispatch({
-    selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) },
-    effects: [EditorView.scrollIntoView(pos, { y: 'center' }), setSyncLine.of(deco)],
-  })
+  cm.dispatch({ selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) }, effects: [setSyncLine.of(deco)] })
   cm.focus()
+  cmGlide(pos)
   clearTimeout(syncFlashT)
   syncFlashT = setTimeout(() => { try { cm.dispatch({ effects: setSyncLine.of(Decoration.none) }) } catch (e) {} }, 850)
 }
+function jumpPos(pos) { cmJump(pos, true) } // preview click: editor glides, the preview stays put
 
 function pvClickCol(it, x, cssW, baseW) { // click x -> word start inside the PDF text item (no line starts anymore)
   const raw = it.s || '', body = raw.trim()
@@ -6696,7 +6705,8 @@ function paintFind(sel) { // hits blue, current orange; sel = also jump
     Decoration.mark({ class: i === findI ? 'cm-find-cur' : 'cm-find' }).range(h.a, h.b)), true)) })
   if (sel && findHits.length) {
     const h = findHits[findI]
-    cm.dispatch({ selection: { anchor: h.a, head: h.b }, effects: EditorView.scrollIntoView(h.a, { y: 'center' }) })
+    cm.dispatch({ selection: { anchor: h.a, head: h.b } })
+    cmGlide(h.a)
   }
   const q = $('fQ').value
   $('fN').textContent = findHits.length ? (findI >= 0 ? (findI + 1) + '/' + findHits.length : '' + findHits.length) : (q ? '0' : '')

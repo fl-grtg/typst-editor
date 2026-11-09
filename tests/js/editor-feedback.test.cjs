@@ -99,6 +99,11 @@ test('word mapping follows reflowed lines and inline markup', () => {
   assert.equal(ctx.syncNeedleAt(t, 'Eine Zeile mit hervorgehobenem Text und noch etwas danach', 3, 0), t.indexOf('Eine'))
   assert.equal(ctx.syncNeedleAt(t, 'Eine Zeile mit hervorgehobenem Text und noch etwas danach', 3, 5), t.indexOf('und'))
 })
+test('math italic glyphs normalize to the letters in the source', () => {
+  assert.equal(ctx.syncText('𝐸'), 'e')
+  const t = 'Inline math: $E = m c^2$.'
+  assert.equal(ctx.syncNeedleAt(t, 'Inline math: 𝐸 = 𝑚 𝑐 2 .', 1, 0), t.indexOf('Inline'))
+})
 test('click column maps to the start of the clicked word', () => {
   const c = vm.createContext({})
   vm.runInContext(code.slice(code.indexOf('function pvClickCol'), code.indexOf("$('preview').addEventListener")), c)

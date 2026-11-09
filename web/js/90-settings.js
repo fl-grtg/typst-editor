@@ -581,7 +581,7 @@ function queueSyncPv(at) { // throttle: continuous cursor/scroll movement still 
 let cmWheelT = 0
 try { // wheel over the editor: the preview follows what is on screen, not only the cursor
   const sc = cm.scrollDOM
-  sc.addEventListener('wheel', () => { cmWheelT = Date.now() }, { passive: true })
+  sc.addEventListener('wheel', () => { cmWheelT = Date.now(); smoothStop(sc) }, { passive: true })
   sc.addEventListener('scroll', () => {
     if (!followAll || Date.now() - cmWheelT > 600) return // selection/scrollIntoView already syncs the cursor
     try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
@@ -636,7 +636,7 @@ async function pvJumpBest(needles, hint, pi, anchor) { // honest cross-file jump
     const total = cm.state.doc.lines || 1
     const atCur = locateNear(getT(), s, hint)
     if (atCur >= 0 && pvVerify(getT(), atCur, s)) { syncPage = pi; jumpPos(atCur + off); return true }
-    const wi = off ? syncText(s.slice(0, off)).split(' ').filter(Boolean).length : 0
+    const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
     const atNorm = syncNeedleAt(getT(), s, hint, wi)
     if (atNorm >= 0) { syncPage = pi; jumpPos(atNorm); return true }
     let srcs = []
@@ -697,7 +697,7 @@ function pvClickNeedles(items, it, x, cssW, baseW, col) { // clicked item first,
   return out
 }
 function syncText(text) {
-  return text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  return text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() // NFKC first: 𝐸 -> E -> e
 }
 function syncPlain(text) { // source markup -> the words the PDF actually shows (best effort, no parser)
   return syncText(String(text)
@@ -860,8 +860,7 @@ function syncToPv() {
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
-  pvScrollStop() // a jump in flight must never override the editor-driven sync
-  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pv.scrollTop = want
+  if (Math.abs(want - pv.scrollTop) > SYNC_PX) pvScrollTo(pv, want) // same fast glide as every other jump, retargeted while typing
 }
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
@@ -877,18 +876,22 @@ function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (sh
   return best
 }
 let syncFlashT = 0
-function jumpPos(pos) { // editor jump to screen center + brief line flash (preview does not follow)
-  pvT = Date.now()
+function cmTop(pos) { // scrollTop that centers the line block under pos
+  const b = cm.lineBlockAt(pos), sc = cm.scrollDOM
+  return b.top + b.height / 2 - sc.clientHeight / 2
+}
+function cmGlide(pos) { try { smoothScroll(cm.scrollDOM, cmTop(pos)) } catch (e) {} }
+function cmJump(pos, holdPv) { // smooth editor jump + brief line flash; holdPv: a preview click keeps the preview where it is
+  pvT = holdPv ? Date.now() : 0
   const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, pos)))
   const deco = Decoration.set([Decoration.line({ class: 'cm-syncLine' }).range(line.from)])
-  cm.dispatch({
-    selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) },
-    effects: [EditorView.scrollIntoView(pos, { y: 'center' }), setSyncLine.of(deco)],
-  })
+  cm.dispatch({ selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) }, effects: [setSyncLine.of(deco)] })
   cm.focus()
+  cmGlide(pos)
   clearTimeout(syncFlashT)
   syncFlashT = setTimeout(() => { try { cm.dispatch({ effects: setSyncLine.of(Decoration.none) }) } catch (e) {} }, 850)
 }
+function jumpPos(pos) { cmJump(pos, true) } // preview click: editor glides, the preview stays put
 
 function pvClickCol(it, x, cssW, baseW) { // click x -> word start inside the PDF text item (no line starts anymore)
   const raw = it.s || '', body = raw.trim()

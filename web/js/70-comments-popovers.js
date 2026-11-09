@@ -261,11 +261,7 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
       d.title += ' · ' + t('docs.olPage', { n: page })
     }
     d.setAttribute('aria-label', t('docs.olGoTo', { line, text: m[2].slice(0, 60) }))
-    const goL = () => {
-      const p = posOfLine(getT(), line)
-      cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
-      cm.focus()
-    }
+    const goL = () => cmJump(posOfLine(getT(), line), false) // smooth jump; the preview follows the cursor
     d.onclick = goL
     kb(d, goL)
     box.appendChild(d)
