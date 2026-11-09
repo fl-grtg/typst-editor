@@ -213,9 +213,10 @@ async function switchTab(name, nosave, preserveView = false) { // true = switche
   clearTimeout(fileT) // old tab's pending timer must not fire into the new tab
   if (nosave) tabDirty = false // delete path: old text is gone by design
   tabSaveState(activeFile)
+  if (!activeFile) saveDocScroll() // leaving main.typ: keep its spot before the file buffer replaces it
   if (name && !isTplKey(name) && !lastFiles.some(f => f.name === name)) { try { lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files } catch (e) {} } // fresh list: new upload must not be dropped as 'deleted'
   if (my !== tabSeq || dk !== docId) return false
-  if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); paintErr(); queueRender(); return true }
+  if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); scrollApplyEditor(); paintErr(); queueRender(); return true }
   let text
   if (isTplKey(name)) {
     const tp = effTpl().find(x => x.name === tabName(name))

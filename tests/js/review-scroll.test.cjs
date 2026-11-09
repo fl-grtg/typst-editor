@@ -61,7 +61,7 @@ test('late whole-document acceptance echo leaves the displayed text and selectio
     dispatch(spec) { dispatches++; this.state = this.state.update(spec).state } }
   const c = vm.createContext({ cm, shadow: old, window: {}, ytext: { toString: () => accepted },
     getT: () => cm.state.doc.toString(), threads: [], activeFile: '', NO_HIST: [],
-    jumpWant() {}, reanchor() {}, paintOutline() {}, queueRender() {} })
+    jumpWant() {}, reanchor() {}, paintOutline() {}, queueRender() {}, scrollApplyEditor() {} })
   vm.runInContext(fs.readFileSync('web/js/40-editor-sync.js', 'utf8'), c)
   c.pullRemote({ delta: [{ delete: old.length }, { insert: accepted }] })
   assert.equal(c.shadow, accepted)

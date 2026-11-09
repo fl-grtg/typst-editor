@@ -358,6 +358,9 @@ async function resSync() { // SSE follow-up: fresh list first, open resource fol
   }
 }
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
+  clearTimeout(scrollT)
+  saveDocScroll() // previous doc: remember editor + preview spot before the buffers reset
+  scrollRestore = null
   try { if (docId && ytext && docRole !== 'reviewer' && !openedTrashed && (!wsLive() || !synced)) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline/unsynced main: Yjs dies with the provider, stash offers restore on reopen (openDoc drops it silently if converged)
   if (window.suggestionDraft && !stopSuggestionDraft(false)) stopSuggestionDraft()
   ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT)
@@ -504,6 +507,8 @@ async function openDoc(id) {
   if (tplName) setView('split')
   hidePops()
   docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
+  scrollRestore = wp >= 0 ? null : scrollRead(id) // a search hit wins: no saved spot may pull the view back
+  if (scrollRestore) scrollRestore.epoch = n
   openedTrashed = !!d.trashed
   if (docProject && !openedTrashed) shut.delete('project:' + docProject)
   const ro = d.role === 'reviewer' || openedTrashed // trash: read yes, write no
@@ -551,6 +556,7 @@ async function openDoc(id) {
     pushPresence()
   } else {
     setT(d.content || ''); shadow = d.content || ''; synced = true // no Yjs in trash: state from DB
+    scrollApplyEditor()
   }
   try { // pagehide backup: keepalive misses 409, restore stashed edits here
     let pend = null; const raw = localStorage.getItem('typst-pending-' + id)

@@ -26,7 +26,7 @@ function context(extra = {}) {
     tabCanEdit: () => true, isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.replace(/^@tpl\//, ''),
     tabReq: (key, text) => ({ url: key, body: { content: text } }),
     toast: () => {}, t: (key, args) => key + (args?.msg || ''), wc: () => '',
-    clearTimeout, fileT: null, myTpl: [], localStorage: { removeItem: () => {} },
+    clearTimeout, fileT: null, myTpl: [], localStorage: { removeItem: () => {} }, saveDocScroll() {},
     fileStashKey: (doc, key) => doc + key, queueFileSave: () => { c.rearmed++ }, rearmed: 0,
     $: id => { if (!elements.has(id)) elements.set(id, { style: {}, textContent: '' }); return elements.get(id) },
     ...extra,
