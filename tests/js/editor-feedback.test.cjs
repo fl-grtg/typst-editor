@@ -39,6 +39,12 @@ test('a figure caption further down still names the page of its call', () => {
   assert.equal(ctx.syncAnchor(['#figure('], 1, pages), null)
   assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 1)
 })
+test('lines inside a figure call stay on the caption page', () => {
+  const lines = ['= Chart', '#figure(', '  align(center)[', '    #let data = (', '      ("A", 40),', '    )', '  ],', '  caption: [Simple bar diagram.],', ')', '', '= Next']
+  const pages = [page(['Chart']), page(['Figure 1: Simple bar diagram.', 'Next'])]
+  assert.equal(ctx.syncAnchor(lines, 4, pages), null)
+  assert.equal(ctx.syncNearHit(lines, 4, pages, { page: 0, endPage: 1, endLine: 10 }).pi, 1)
+})
 test('prefiltered completion results are recomputed after typing', () => {
   const src = read('20-completions.js')
   const start = src.indexOf('const T_KW')

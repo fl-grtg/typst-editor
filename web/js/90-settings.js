@@ -864,6 +864,29 @@ function pvViewPage(pv) { // page at the viewport center: what the reader is act
   for (let k = 0; k < slots.length; k++) if (slots[k].getBoundingClientRect().bottom > mid) return k
   return -1
 }
+function pvCallEnd(lines, from) { // line with the closing bracket of a call opened at `from` (best effort)
+  let d = 0
+  for (let ln = from; ln <= lines.length; ln++) {
+    const s = (lines[ln - 1] || '').replace(/\/\/.*$/, '').replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    for (const c of s) d += c === '(' || c === '[' ? 1 : c === ')' || c === ']' ? -1 : 0
+    if (d <= 0) return ln
+  }
+  return lines.length
+}
+function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call: its own caption names the page
+  let from = -1
+  for (let ln = line; ln >= Math.max(1, line - 80) && from < 0; ln--) {
+    const s = (lines[ln - 1] || '').trim()
+    if (/^=+\s/.test(s)) break
+    if (/^#(?:figure|table|image)\s*\(/.test(s)) from = ln
+  }
+  if (from < 0) return null
+  const to = pvCallEnd(lines, from)
+  if (line > to) return null
+  for (let ln = from + 1; ln <= to; ln++)
+    if (/^caption\s*:/.test((lines[ln - 1] || '').trim())) return syncAnchor(lines, ln, pages, sec)
+  return null
+}
 function syncNearHit(lines, line, pages, sec) { // blank/command lines still move the paper: next content for a command, the text above for a blank
   const scan = (from, to, dir) => {
     for (let ln = from; dir > 0 ? ln <= to : ln >= to; ln += dir) {
@@ -876,20 +899,9 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   }
   const back = () => scan(line - 1, Math.max(1, line - 12), -1)
   const fwd = () => scan(line + 1, Math.min(lines.length, line + 12), 1)
-  const cap = () => { // a figure call may sit far above its own caption: that text still names its page
-    if (!/^#(?:figure|table|image)\s*\(/.test((lines[line - 1] || '').trim())) return null
-    const to = sec ? Math.min(lines.length, sec.endLine) : Math.min(lines.length, line + 40)
-    for (let ln = line + 1; ln <= to; ln++) {
-      const s = (lines[ln - 1] || '').trim()
-      if (/^=+\s/.test(s) || /^#(?:figure|table|image)\s*\(/.test(s)) return null
-      if (!/^caption\s*:/.test(s)) continue
-      const hit = syncAnchor(lines, ln, pages, sec)
-      if (hit) return hit
-    }
-    return null
-  }
+  const hint = () => pvFigureHint(lines, line, pages, sec)
   const cmd = pvCmdLine(lines[line - 1]) // #pagebreak()/#figure(: the next content
-  return cmd ? (fwd() || cap() || back()) : (back() || fwd())
+  return cmd ? (fwd() || hint() || back()) : (hint() || back() || fwd())
 }
 function syncToPv() {
   if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession)) return
