@@ -177,7 +177,7 @@
     if (openFor === s) close(false)
     else {
       var list = typeof s.sideMenuItems === 'function' ? s.sideMenuItems() : []
-      if (list.length) show(s, list, 'sidebar', 'right')
+      if (list.length) show(s, list, 'sidebar', 'left') // opens rightward from the three-dot like the header menus
     }
   }, true)
   document.addEventListener('click', function (e) {
@@ -200,7 +200,7 @@
       var s = e.target.closest && e.target.closest('[data-side-menu]')
       if (s && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
         var list = typeof s.sideMenuItems === 'function' ? s.sideMenuItems() : []
-        if (list.length) { e.preventDefault(); show(s, list, 'sidebar', 'right'); focusItem(0) }
+        if (list.length) { e.preventDefault(); show(s, list, 'sidebar', 'left'); focusItem(0) }
       }
       return
     }
