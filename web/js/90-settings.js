@@ -566,13 +566,15 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
     if (zP) zP.disabled = pvZoom >= PV_MAX
   } catch (e) {}
 }
-let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, pvT = 0, syncView = 0 // click sync editor<->preview, last hit page, scroll-follow pos
+let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = 0 // click sync editor<->preview, last hit page, scroll-follow pos
 let followAll = true // true: cursor/scroll/jumps move the preview; false: only a click syncs
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
 try { const s = localStorage.getItem('typst_follow_all'); if (s === '0' || s === '1') followAll = s === '1' } catch (e) {}
 function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
 function applyFollowBtn() { const b = $('followBtn'); if (!b) return; b.classList.toggle('on', followAll); b.setAttribute('aria-pressed', followAll) }
+let syncSkip = false // our own jump selects a line: that selection is not a cursor move
 function queueSyncPv(at) { // throttle: continuous cursor/scroll movement still updates the preview (no wait-for-idle)
+  if (syncSkip) return
   if (!followAll) return
   syncView = at || 0
   if (syncT) return // a run is already scheduled and reads the latest position
@@ -587,6 +589,31 @@ try { // wheel over the editor: the preview follows what is on screen, not only 
     try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
   }, { passive: true })
 } catch (e) {}
+let syncEdT = 0
+function queueSyncEd() { // preview scroll -> editor view: throttled, never moves the cursor
+  if (!followAll || !syncOn || !docId || tplName || activeFile) return
+  if (syncEdT) return
+  syncEdT = setTimeout(() => { syncEdT = 0; syncToEd() }, SYNC_MS)
+}
+function syncToEd() {
+  if (!followAll || !syncOn || !docId || tplName || activeFile) return
+  const pv = $('preview')
+  if (!pv.clientHeight || document.body.classList.contains('editonly')) return
+  const pi = pvViewPage(pv), slot = pi >= 0 ? pv.querySelectorAll('.pvPage')[pi] : null
+  if (!slot || !(pvTexts[pi] || []).length) return
+  const pr = pv.getBoundingClientRect(), sr = slot.getBoundingClientRect()
+  const frac = Math.max(0, Math.min(1, (pr.top + pv.clientHeight / 2 - sr.top) / (sr.height || 1)))
+  const vh = pvTexts[pi][0].vh || 1
+  const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
+  cmWheelT = 0 // the reader owns the editor view now: no editor-wheel follow for this gesture
+  smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
+}
+try { $('preview').addEventListener('scroll', () => { // reader scroll: the editor view moves along
+  const pv = $('preview')
+  if (Math.abs(pv.scrollTop - pvSelfTop) < 2) return // this app wrote it: follow or a jump, not the reader
+  if (syncT) { clearTimeout(syncT); syncT = 0 } // the reader took over: no pending cursor sync may yank the preview back
+  queueSyncEd()
+}, { passive: true }) } catch (e) {}
 function pvPageHint(pi, total, n, at, frac) { // click page -> source line: section window first, then layout ratio
   const f0 = typeof frac === 'number' && isFinite(frac) ? Math.max(0, Math.min(1, frac)) : 0.5
   if (at && at.sec) {
@@ -595,6 +622,7 @@ function pvPageHint(pi, total, n, at, frac) { // click page -> source line: sect
     const f = ((pi - at.sec.page) + f0) / Math.max(1, span)
     return Math.max(1, Math.min(total, Math.round(a + f * Math.max(0, b - a))))
   }
+  if (at && at.next) return Math.max(1, Math.min(total, at.next.line)) // above the first heading: that heading is the honest anchor
   return Math.max(1, Math.min(total, Math.round((pi + f0) / Math.max(1, n) * total) + 1))
 }
 function pvCanvasList() { // virtual slots first, fallback bare canvases
@@ -851,7 +879,7 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   return cmd ? (fwd() || back()) : (back() || fwd())
 }
 function syncToPv() {
-  if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession) || Date.now() - pvT < 1000) return
+  if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession)) return
   if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
@@ -875,13 +903,23 @@ function syncToPv() {
   if (Math.abs(dy) > 300) smoothScroll(pv, want) // a page jump gets the long in-out handles
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
 }
+function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the same destination
+  if (!followAll || !syncOn || !docId || tplName || activeFile || !dest) return
+  const items = pvTexts[dest.page] || [], slot = pvSlots[dest.page]
+  if (!items.length || !slot) return
+  const hPt = (+slot.dataset.w || 0) * (+slot.dataset.r || 0)
+  const frac = dest.top != null && hPt > 0 ? Math.max(0, Math.min(1, 1 - dest.top / hPt)) : 0
+  const vh = items[0].vh || hPt
+  const line = pvPageHint(dest.page, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(dest.page, Math.min(vh, frac * vh + vh * 0.02)), frac)
+  jumpPos(posOfLine(getT(), line))
+}
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
   s = (s || '').trim()
   if (s.length < 2) return -1
   const hp = posOfLine(t, hint)
-  let best = -1, bd = 1e12, p = -1, n = 0
-  while ((p = t.indexOf(s, p + 1)) >= 0 && n++ < 50) {
+  let best = -1, bd = Infinity, p = -1
+  while ((p = t.indexOf(s, p + 1)) >= 0) {
     if ((p && pvWordChar(t[p - 1])) || (p + s.length < t.length && pvWordChar(t[p + s.length]))) continue
     const dd = Math.abs(p - hp)
     if (dd < bd) { bd = dd; best = p }
@@ -893,14 +931,22 @@ function cmTop(pos) { // scrollTop that centers the line block under pos
   const b = cm.lineBlockAt(pos), sc = cm.scrollDOM
   return b.top + b.height / 2 - sc.clientHeight / 2
 }
-function cmGlide(pos) { try { smoothScroll(cm.scrollDOM, cmTop(pos)) } catch (e) {} }
+function cmGlide(pos) { // same rule as the preview: a real jump glides, a small step follows without restart
+  try {
+    const sc = cm.scrollDOM, y = cmTop(pos)
+    if (Math.abs(y - sc.scrollTop) > 300) smoothScroll(sc, y)
+    else smoothFollow(sc, y)
+  } catch (e) {}
+}
 function cmJump(pos, holdPv) { // smooth editor jump + brief line flash; holdPv: a preview click keeps the preview where it is
-  pvT = holdPv ? Date.now() : 0
+  if (syncT) { clearTimeout(syncT); syncT = 0 } // the jump owns the next sync, no stale cursor target
   const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, pos)))
   const deco = Decoration.set([Decoration.line({ class: 'cm-syncLine' }).range(line.from)])
-  cm.dispatch({ selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) }, effects: [setSyncLine.of(deco)] })
+  syncSkip = true // this selection is the jump, not a reader cursor move
+  try { cm.dispatch({ selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) }, effects: [setSyncLine.of(deco)] }) } finally { syncSkip = false }
   cm.focus()
   cmGlide(pos)
+  if (!holdPv) { syncView = 0; syncToPv() } // outline/find jump: both panes start their glide in the same frame
   clearTimeout(syncFlashT)
   syncFlashT = setTimeout(() => { try { cm.dispatch({ effects: setSyncLine.of(Decoration.none) }) } catch (e) {} }, 850)
 }
@@ -934,6 +980,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
   if (!syncOn || !docId || tplName) return
   const pv = $('preview')
+  smoothStop(pv) // an explicit click wins over a jump or follow still in flight
   const cv = e.target.closest ? e.target.closest('canvas') : null
   const pi = cv && pvTexts.length ? pvCanvasList().indexOf(cv) : -1 // canvas only, ignore .empty divs
   let at = null

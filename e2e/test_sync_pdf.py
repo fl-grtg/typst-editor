@@ -5,6 +5,10 @@ test_1: a `#link("…")` becomes a real anchor over the canvas; clicking it open
 test_2: an internal `#link(<label>)` scrolls the preview to the destination page.
 test_3: the internal jump glides through several frames instead of teleporting.
 test_4: the sidebar outline shows the real page number from the PDF outline.
+test_5: an internal link moves the editor cursor to the same destination.
+test_6: a manual preview scroll moves the editor view, never the cursor.
+test_7: the outline strips Typst labels such as `<second>`.
+test_8: an outline click glides editor and preview to the same section.
 """
 from helpers import create_doc, register, type_source
 from playwright.sync_api import expect
@@ -24,6 +28,11 @@ SOURCE = """= Start
 
 Second page body.
 """
+
+SCROLL_SOURCE = "\n\n#pagebreak()\n\n".join(
+    f"= Page {p}\n\n" + "\n\n".join(f"Body line {p} dot {i}." for i in range(1, 13))
+    for p in (1, 2, 3)
+)
 
 PAGE_TWO_IN_VIEW = """() => {
   const pv = document.getElementById('preview')
@@ -113,3 +122,64 @@ def test_4_outline_shows_pdf_page_numbers(page):
     badges = page.locator("#ol .pg")
     expect(badges).to_have_count(2, timeout=LINK_TIMEOUT)
     assert badges.all_inner_texts() == ["1", "2"]
+
+
+def test_5_internal_link_moves_the_editor_with_it(page):
+    register(page, "e2e_pdf_link_editor")
+    create_doc(page, "PDF link editor doc")
+    source, _ = _source(page)
+    type_source(page, source)
+    expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    jump = page.locator("#preview .pvLinks a[data-pv-link]")
+    expect(jump).to_have_count(1, timeout=LINK_TIMEOUT)
+
+    jump.click()  # link beats click-sync, but the editor follows the destination
+    page.wait_for_function("() => /^Ln 9:/.test(document.getElementById('pos').textContent)", timeout=LINK_TIMEOUT)
+    page.wait_for_function(PAGE_TWO_IN_VIEW, timeout=LINK_TIMEOUT)
+
+
+def test_6_preview_scroll_moves_the_editor_view_not_the_cursor(page):
+    register(page, "e2e_pdf_scroll")
+    create_doc(page, "PDF preview scroll doc")
+    type_source(page, SCROLL_SOURCE)
+    expect(page.locator("#preview .pvPage[data-done] canvas").last).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+Home")
+    page.wait_for_timeout(700)
+    assert page.locator("#pos").inner_text().startswith("Ln 1:")
+    before = page.locator("#cm .cm-scroller").evaluate("el => el.scrollTop")
+
+    page.locator("#preview").evaluate("el => { el.scrollTop = el.scrollHeight }")
+    page.wait_for_function(
+        "(before) => document.querySelector('#cm .cm-scroller').scrollTop > before + 300",
+        arg=before,
+        timeout=LINK_TIMEOUT,
+    )
+    assert page.locator("#pos").inner_text().startswith("Ln 1:"), "a reader scroll must not move the cursor"
+
+
+def test_7_outline_shows_headings_without_typst_labels(page):
+    register(page, "e2e_pdf_labels")
+    create_doc(page, "PDF label doc")
+    source, _ = _source(page)
+    type_source(page, source)
+    expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+
+    expect(page.locator("#ol .t")).to_have_count(2, timeout=LINK_TIMEOUT)
+    assert page.locator("#ol .t").all_inner_texts() == ["Start", "Second"]
+
+
+def test_8_outline_click_moves_editor_and_preview_together(page):
+    register(page, "e2e_pdf_outline_jump")
+    create_doc(page, "PDF outline jump doc")
+    source, _ = _source(page)
+    type_source(page, source)
+    expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    expect(page.locator("#ol .pg")).to_have_count(2, timeout=LINK_TIMEOUT)
+
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+Home")
+    page.wait_for_timeout(700)
+    page.locator("#ol .doc").nth(1).click()
+    page.wait_for_function("() => /^Ln 9:/.test(document.getElementById('pos').textContent)", timeout=LINK_TIMEOUT)
+    page.wait_for_function(PAGE_TWO_IN_VIEW, timeout=LINK_TIMEOUT)

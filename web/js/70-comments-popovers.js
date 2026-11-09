@@ -249,9 +249,10 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
     const m = ln.match(/^(=+)\s+(.+)$/)
     if (!m) return
     const line = i + 1, d = document.createElement('div')
+    const text = m[2].replace(/<[^<>]+>/g, ' ').replace(/\s+/g, ' ').trim() || m[2].trim() // labels stay in the source
     d.className = 'doc ol-l' + Math.min(m[1].length, 3)
     d.setAttribute('role', 'button')
-    d.appendChild(el('span', 't', m[2].slice(0, 60)))
+    d.appendChild(el('span', 't', text.slice(0, 60)))
     d.title = t('docs.olLineTitle', { n: line })
     const hit = pvOlMatch(m[2], olAt)
     if (hit >= 0) { // real page from the last render: proves the heading made it onto paper
@@ -260,7 +261,7 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
       d.appendChild(el('span', 'pg', String(page)))
       d.title += ' · ' + t('docs.olPage', { n: page })
     }
-    d.setAttribute('aria-label', t('docs.olGoTo', { line, text: m[2].slice(0, 60) }))
+    d.setAttribute('aria-label', t('docs.olGoTo', { line, text: text.slice(0, 60) }))
     const goL = () => cmJump(posOfLine(getT(), line), false) // smooth jump; the preview follows the cursor
     d.onclick = goL
     kb(d, goL)

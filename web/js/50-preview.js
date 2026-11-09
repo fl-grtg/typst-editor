@@ -508,23 +508,27 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   slot.appendChild(box)
 }
 const scrollAnims = new WeakMap() // one animation per element: a jump and a follow never fight
+let pvSelfTop = -1 // last preview scrollTop this app wrote: a user scroll differs and moves the editor
+function pvSelfWrite(el) { if (el && el.id === 'preview') pvSelfTop = el.scrollTop }
 function smoothStop(el) {
   const a = scrollAnims.get(el)
   if (a) { cancelAnimationFrame(a.raf); scrollAnims.delete(el) }
 }
-function smoothScroll(el, y) { // jump: quintic in-out, long handles, zero velocity at both ends
+function smoothScroll(el, y) { // jump: quintic in-out, one fixed duration so editor and preview arrive together
   const max = Math.max(0, el.scrollHeight - el.clientHeight)
   const target = Math.max(0, Math.min(max, y))
+  const running = scrollAnims.get(el)
+  if (running && running.jump && Math.abs(running.target - target) < 1) return // already flying there
   smoothStop(el)
   let calm = false
   try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
   const from = el.scrollTop, dy = target - from
-  if (calm || Math.abs(dy) < 1) { el.scrollTop = target; return }
-  const dur = Math.max(220, Math.min(650, 190 + Math.sqrt(Math.abs(dy)) * 5.2))
-  const t0 = performance.now(), a = { raf: 0 }
+  if (calm || Math.abs(dy) < 1) { el.scrollTop = target; pvSelfWrite(el); return }
+  const dur = 320, t0 = performance.now(), a = { jump: true, target, raf: 0 }
   const step = now => {
     const k = Math.min(1, (now - t0) / dur)
     el.scrollTop = from + dy * k * k * k * (k * (6 * k - 15) + 10) // smootherstep: no overshoot, no hard start
+    pvSelfWrite(el)
     if (k < 1) a.raf = requestAnimationFrame(step)
     else scrollAnims.delete(el)
   }
@@ -536,13 +540,12 @@ function smoothFollow(el, y) { // cursor/scroll follow: new targets keep positio
   const target = Math.max(0, Math.min(max, y))
   let calm = false
   try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
-  if (calm) { smoothStop(el); el.scrollTop = target; return }
+  if (calm) { smoothStop(el); el.scrollTop = target; pvSelfWrite(el); return }
   let a = scrollAnims.get(el)
   if (a && a.follow) { a.target = target; return }
   smoothStop(el)
-  if (Math.abs(target - el.scrollTop) < 1) { el.scrollTop = target; return }
-  const dist = Math.abs(target - el.scrollTop)
-  a = { follow: true, target, v: 0, t: performance.now(), omega: Math.max(14, Math.min(22, 22 - Math.log2(Math.max(1, dist / 200)) * 3)), raf: 0 }
+  if (Math.abs(target - el.scrollTop) < 1) { el.scrollTop = target; pvSelfWrite(el); return }
+  a = { follow: true, target, v: 0, t: performance.now(), omega: 28, raf: 0 }
   const step = now => {
     const dt = Math.max(0.001, Math.min(0.05, (now - a.t) / 1000))
     a.t = now
@@ -550,8 +553,10 @@ function smoothFollow(el, y) { // cursor/scroll follow: new targets keep positio
     const nx = a.target + (c + (a.v + a.omega * c) * dt) * e
     a.v = (a.v - (a.v + a.omega * c) * a.omega * dt) * e
     el.scrollTop = nx
+    pvSelfWrite(el)
     if (Math.abs(nx - a.target) < 0.5 && Math.abs(a.v) < 4) {
       el.scrollTop = a.target
+      pvSelfWrite(el)
       scrollAnims.delete(el)
       return
     }
@@ -659,6 +664,7 @@ if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('click', e => { /
   if (!L || !L.dest) return
   e.preventDefault() // hash href: keep the URL and the scroll position of the app
   pvGotoTarget(L.dest)
+  pvSyncDest(L.dest) // follow mode: the editor moves to the same destination
 })
 async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors + links: sync works past the visible window
   try {
@@ -692,6 +698,7 @@ function pvAnchorBack(pv, a) {
     const r = slots[a.page].getBoundingClientRect(), pr = pv.getBoundingClientRect()
     pv.scrollTop += (r.top - pr.top) - a.off
   } else if (a) pv.scrollTop = Math.min(a.top, Math.max(0, pv.scrollHeight - pv.clientHeight))
+  pvSelfWrite(pv)
 }
 // --- Per-document scroll memory: editor + preview spot, this browser/device only ---
 const SCROLL_KEY = 'typst_scroll' // localStorage stays on this device: another machine keeps its own spots
@@ -762,6 +769,7 @@ function scrollApplyPreview() { // page + offset survive new page sizes and zoom
     if (pv.scrollHeight <= pv.clientHeight) return
     pv.scrollTop = Math.min(r.pt, pv.scrollHeight - pv.clientHeight)
   }
+  pvSelfWrite(pv)
   r.pv = true
 }
 
@@ -807,6 +815,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     pvLinks = texts.map(() => []) // fallback: no annotation overlay (bare canvases)
     try { pvTextDone = texts.map(() => true) } catch (e) {}
     preview.scrollTop = st
+    pvSelfWrite(preview)
     scrollApplyPreview() // fallback render of a reopened doc: back to its saved page + offset
     pvOutline = []
     pvLoadOutline(doc, id).catch(() => {})

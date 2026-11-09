@@ -85,7 +85,7 @@ def test_follow_toggle_keeps_the_preview_still_but_clicks_still_jump(page):
     expect(page.locator("#followBtn")).to_have_attribute("aria-pressed", "false")
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+End")
-    page.wait_for_timeout(700)  # longer than the 150 ms sync throttle
+    page.wait_for_timeout(700)  # longer than the 40 ms sync throttle
     assert not page.evaluate(PAGE_IN_VIEW, 2)  # cursor moved, preview stayed
 
     body = page.locator('.pvPage[data-page="2"] canvas')
@@ -105,9 +105,9 @@ def test_sync_wins_over_a_running_jump_animation(page):
 
     link = page.locator('.pvPage[data-page="1"] .pvLinks a[data-pv-link]').first
     expect(link).to_have_count(1)
-    link.dispatch_event("click")  # animated jump towards page 2, focus stays in the editor
-    page.keyboard.press("End")  # cursor moves: this sync must win over the animation
-    page.wait_for_timeout(400)  # longer than the 220 ms animation
+    link.dispatch_event("click")  # animated jump towards page 2, the editor cursor follows
+    page.keyboard.press("ControlOrMeta+Home")  # cursor moves: this sync must win over the animation
+    page.wait_for_timeout(600)  # longer than the 320 ms animation
     page.wait_for_function(PAGE_IN_VIEW, arg=1, timeout=PREVIEW_TIMEOUT)
 
 

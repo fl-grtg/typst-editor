@@ -99,6 +99,13 @@ test('word mapping follows reflowed lines and inline markup', () => {
   assert.equal(ctx.syncNeedleAt(t, 'Eine Zeile mit hervorgehobenem Text und noch etwas danach', 3, 0), t.indexOf('Eine'))
   assert.equal(ctx.syncNeedleAt(t, 'Eine Zeile mit hervorgehobenem Text und noch etwas danach', 3, 5), t.indexOf('und'))
 })
+test('a cursor hint finds a late repeated word past fifty earlier hits', () => {
+  const c = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p } })
+  vm.runInContext(code.slice(code.indexOf('function pvWordChar'), code.indexOf('function cmTop')), c)
+  const t = Array.from({ length: 80 }, (_, i) => `word line ${i}`).join('\n')
+  const at = c.locateNear(t, 'word', 75)
+  assert.equal(t.slice(0, at).split('\n').length, 75)
+})
 test('math italic glyphs normalize to the letters in the source', () => {
   assert.equal(ctx.syncText('𝐸'), 'e')
   const t = 'Inline math: $E = m c^2$.'
@@ -111,7 +118,7 @@ test('a short label run never jumps past the matched caption', () => {
 })
 test('click column maps to the start of the clicked word', () => {
   const c = vm.createContext({})
-  vm.runInContext(code.slice(code.indexOf('function pvClickCol'), code.indexOf("$('preview').addEventListener")), c)
+  vm.runInContext(code.slice(code.indexOf('function pvClickCol'), code.indexOf("$('preview').addEventListener('click'")), c)
   const item = { s: 'Die erste Methode sammelt', x0: 0, w: 100, vw: 100 }
   assert.equal(c.pvClickCol(item, 5, 100, 100), 0) // "Die"
   assert.equal(c.pvClickCol(item, 50, 100, 100), 10) // "Methode"
