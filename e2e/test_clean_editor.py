@@ -106,6 +106,113 @@ def test_bib_draft_marks_and_opens_changed_input_immediately(page):
     assert next(r for r in resources if r['name'] == 'sources.bib')['content'] == base
 
 
+def test_bib_form_adds_custom_field(page):
+    register(page, 'bib_add_field')
+    create_doc(page, 'Added field')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Added field')
+    project = document['project_id']
+    base = '@book{key, title={Sample}, author={Doe, Jane}, year={2026}}\n'
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'sources.bib', 'content': base}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Added field').click()
+    page.locator('#own .doc .t').filter(has_text='sources.bib').click()
+    page.get_by_role('button', name='Add field', exact=True).click()
+    page.fill('#mInp', 'isbn')
+    page.click('#mYes')
+    isbn = page.locator('.bibField').filter(has=page.locator('span', has_text=re.compile('^isbn$')))
+    expect(isbn.locator('input')).to_be_focused()
+    expect(page.locator('#cm .cm-content')).not_to_contain_text('isbn')  # the empty row never reaches the document
+    with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources'), timeout=15_000) as saved:
+        isbn.locator('input').fill('978-3-16-148410-0')
+    assert saved.value.ok
+    resources = page.request.get(f'/api/projects/{project}/resources').json()['resources']
+    assert 'isbn = {978-3-16-148410-0}' in next(r for r in resources if r['name'] == 'sources.bib')['content']
+
+
+def test_bib_form_pending_field_survives_entry_rename(page):
+    register(page, 'bib_pending_rename')
+    create_doc(page, 'Pending rename')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Pending rename')
+    project = document['project_id']
+    base = '@book{first, title={Sample}}\n@misc{second, title={Other}}\n'
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'sources.bib', 'content': base}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Pending rename').click()
+    page.locator('#own .doc .t').filter(has_text='sources.bib').click()
+    page.get_by_role('button', name='Add field', exact=True).click()
+    page.fill('#mInp', 'isbn')
+    page.click('#mYes')
+    page.locator('.bibField[data-field="$entryKey"] input').fill('renamed')
+    entries = page.locator('.bibList .bibEntry')
+    entries.nth(1).click()
+    entries.nth(0).click()
+    page.locator('.bibMoreFields summary').click()
+    isbn = page.locator('.bibField[data-field="isbn"]')
+    expect(isbn.locator('input')).to_have_value('')
+    with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources'), timeout=15_000) as saved:
+        isbn.locator('input').fill('978-3-16-148410-0')
+    assert saved.value.ok
+    content = next(r for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'] if r['name'] == 'sources.bib')['content']
+    assert content.startswith('@book{renamed,')
+    assert 'isbn = {978-3-16-148410-0}' in content
+
+
+def test_bib_form_add_field_rejects_duplicate_invalid_and_cancel(page):
+    register(page, 'bib_add_field_checks')
+    create_doc(page, 'Field checks')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Field checks')
+    project = document['project_id']
+    base = '@book{key, title={Sample}, author={Doe, Jane}, year={2026}}\n'
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'sources.bib', 'content': base}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Field checks').click()
+    page.locator('#own .doc .t').filter(has_text='sources.bib').click()
+    add = page.get_by_role('button', name='Add field', exact=True)
+    add.click()
+    expect(page.locator('#mInp')).to_have_attribute('placeholder', 'e.g. isbn')
+    page.fill('#mInp', 'title')
+    page.click('#mYes')
+    expect(page.locator('#toast')).to_contain_text('Field already exists')
+    title = page.locator('.bibField').filter(has=page.locator('span', has_text=re.compile('^Title$')))
+    expect(title.locator('textarea')).to_be_focused()
+    add.click()
+    page.fill('#mInp', '2isbn')
+    page.click('#mYes')
+    expect(page.locator('#toast')).to_contain_text('Use letters, digits, - and _ only')
+    add.click()
+    page.fill('#mInp', 'isbn')
+    page.click('#mNo')
+    expect(page.locator('.bibField').filter(has=page.locator('span', has_text=re.compile('^isbn$')))).to_have_count(0)
+    resources = page.request.get(f'/api/projects/{project}/resources').json()['resources']
+    assert next(r for r in resources if r['name'] == 'sources.bib')['content'] == base
+
+
+def test_bib_form_add_field_accepts_ui_label_names(page):
+    register(page, 'bib_add_field_labels')
+    create_doc(page, 'Field labels')
+    document = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Field labels')
+    project = document['project_id']
+    base = '@book{key, title={Sample}, author={Doe, Jane}, year={2026}}\n'
+    assert page.request.post(f'/api/projects/{project}/resources', data={'name': 'sources.bib', 'content': base}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Field labels').click()
+    page.locator('#own .doc .t').filter(has_text='sources.bib').click()
+    for name, value in [('Type', 'article'), ('constructor', 'value')]:
+        page.get_by_role('button', name='Add field', exact=True).click()
+        page.fill('#mInp', name)
+        page.click('#mYes')
+        row = page.locator(f'.bibField[data-field="{name}"]')
+        expect(row.locator('input')).to_have_count(1)
+        expect(row.locator('span').first).to_have_text(name)
+        assert row.evaluate('r => !!r.closest(".bibMoreFields")')
+        with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources'), timeout=15_000) as saved:
+            row.locator('input').fill(value)
+        assert saved.value.ok
+    content = next(r for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'] if r['name'] == 'sources.bib')['content']
+    assert 'Type = {article}' in content
+    assert 'constructor = {value}' in content
+
+
 def test_csv_review_accepts_and_discards_only_clicked_cell(page):
     register(page, 'csv_cell_review')
     create_doc(page, 'Cell review')

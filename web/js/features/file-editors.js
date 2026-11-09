@@ -4,7 +4,7 @@ const bibPanel = el('div', 'bibEditor'); bibPanel.hidden = true; $('editWrap').a
 const emptyFileLanguage = []
 let bibEditing = false
 let bibQuery = ''
-let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, bibProposal = null, bibOriginal = false, validationTimer = 0
+let bibSource = null, bibSelected = 0, bibRaw = false, bibIdentity = '', bibEditable = false, bibProposal = null, bibOriginal = false, validationTimer = 0, bibPending = new Map()
 function parseBib(text) {
   const entries = [], re = /@(\w+)\s*([{(])/g; let match
   while ((match = re.exec(text))) {
@@ -73,7 +73,7 @@ function paintBib() {
   $('cmWrap').style.paddingTop = ''
   if (!on) { bibSource = null; return }
   const identity = [docId, tplName, activeFile].join('/')
-  if (identity !== bibIdentity) { bibIdentity = identity; bibSelected = 0; bibRaw = false; bibQuery = '' }
+  if (identity !== bibIdentity) { bibIdentity = identity; bibSelected = 0; bibRaw = false; bibQuery = ''; bibPending.clear() }
   $('cmWrap').hidden = !bibRaw
   bibPanel.hidden = bibRaw
   const source = getT(), editable = cm.state.facet(EditorView.editable)
@@ -115,20 +115,26 @@ function paintBib() {
   const entry = entries[bibSelected]
   if (!entry) { form.append(el('p', null, t('editor.emptyEntries'))); return }
   if (entry.invalid) { form.append(el('p', null, t('editor.bibInvalid'))); return }
+  const labels = new Map([
+    ['title', t('editor.field_title')], ['author', t('editor.field_author')], ['year', t('editor.field_year')],
+    ['doi', t('editor.field_doi')], ['url', t('editor.field_url')],
+  ])
+  const pending = bibPending.get(entry.key) || new Set()
+  const names = [...new Set(['title', 'author', 'year', 'doi', 'url', ...entry.fields.map(f => f.name), ...pending, 'publisher', 'journal'])]
   let target = form
   const proposalPainters = []
   const metadata = el('div', 'bibMetadata'); form.append(metadata); target = metadata
-  function field(label, value, save, multiline, disabled) {
-    const row = el('label', 'bibField'), input = el(label === t('editor.entryType') ? 'select' : multiline ? 'textarea' : 'input')
+  function field(label, value, save, multiline, disabled, name = label, select = false) {
+    const row = el('label', 'bibField'); row.dataset.field = name
+    const input = el(select ? 'select' : multiline ? 'textarea' : 'input')
     if (input.tagName === 'SELECT') for (const type of [...new Set([value, 'book', 'article', 'inproceedings', 'incollection', 'thesis', 'report', 'online', 'misc'])]) { const option = el('option', null, type); option.value = type; input.append(option) }
     if (multiline) input.rows = 1
     const caption = el('span', null, label)
     function paintProposal() {
       const original = window.changeSession?.files.get(sessionKey(sessionCurrent()))
-      const fieldName = Object.entries({ title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }).find(([, text]) => text === label)?.[0] || label
-      const name = label === t('editor.entryKey') ? '$key' : label === t('editor.entryType') ? '$type' : fieldName
-      const field = original && sessionBibField(original, { entry: bibSelected, name })
-      const range = e => !e ? null : label === t('editor.entryKey') ? { from: e.keyFrom, to: e.keyTo, value: e.key } : label === t('editor.entryType') ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === fieldName)
+      const sessionName = name === '$entryKey' ? '$key' : name === '$entryType' ? '$type' : name
+      const field = original && sessionBibField(original, { entry: bibSelected, name: sessionName })
+      const range = e => !e ? null : name === '$entryKey' ? { from: e.keyFrom, to: e.keyTo, value: e.key } : name === '$entryType' ? { from: e.typeFrom, to: e.typeTo, value: e.type } : e.fields.find(f => f.name === name)
       const current = range(parseBib(getT())[bibSelected]), old = field?.before
       const proposed = !!original && !field.ambiguous && (old?.value || '') !== (current?.value || '') && sessionFieldIndex(current?.from, current?.to, old) >= 0
       row.classList.toggle('bib-proposed', proposed); caption.classList.toggle('proposalFieldAction', proposed)
@@ -139,7 +145,7 @@ function paintBib() {
         caption.onclick = input.onclick = e => {
           if (e.currentTarget === caption) e.preventDefault()
           const latest = range(parseBib(getT())[bibSelected])
-          openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name })
+          openSessionField(latest?.from, latest?.to, row, old, null, { entry: bibSelected, name: sessionName })
         }
         caption.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); caption.click() } }
       }
@@ -153,7 +159,7 @@ function paintBib() {
       if (multiline) { input.style.height = '38px'; input.style.height = Math.min(134, Math.max(38, input.scrollHeight)) + 'px' }
       const latest = parseBib(getT())[bibSelected]
       if (!latest || latest.invalid) return
-      if (label === t('editor.field_year') && input.value && !/^\d{4}$/.test(input.value)) { input.setCustomValidity(t('editor.yearHint')); return }
+      if (name === 'year' && input.value && !/^\d{4}$/.test(input.value)) { input.setCustomValidity(t('editor.yearHint')); return }
       input.setCustomValidity('')
       bibEditing = true
       try { save(latest, input.value) } finally { bibEditing = false }
@@ -165,16 +171,44 @@ function paintBib() {
     input.onchange = input.oninput
     row.append(input); target.append(row)
   }
-  field(t('editor.entryKey'), entry.key, (e, value) => { if (/^[\w:.-]+$/.test(value) && !parseBib(getT()).some((x, i) => i !== bibSelected && x.key === value)) replaceBib(e.keyFrom, e.keyTo, value) })
-  field(t('editor.entryType'), entry.type, (e, value) => { if (/^[a-zA-Z]+$/.test(value)) replaceBib(e.typeFrom, e.typeTo, value) })
+  field(t('editor.entryKey'), entry.key, (e, value) => {
+    if (!/^[\w:.-]+$/.test(value) || parseBib(getT()).some((x, i) => i !== bibSelected && x.key === value)) return
+    // Pending rows are keyed by entry key: move them along when the key changes.
+    const pending = bibPending.get(e.key)
+    if (pending) { bibPending.delete(e.key); bibPending.set(value, pending) }
+    replaceBib(e.keyFrom, e.keyTo, value)
+  }, false, false, '$entryKey')
+  field(t('editor.entryType'), entry.type, (e, value) => { if (/^[a-zA-Z]+$/.test(value)) replaceBib(e.typeFrom, e.typeTo, value) }, false, false, '$entryType', true)
   const mainFields = el('div', 'bibMainFields'), extras = el('details', 'bibMoreFields'); extras.append(el('summary', null, t('editor.moreFields')))
-  form.append(mainFields, extras)
-  const names = [...new Set(['title', 'author', 'year', 'doi', 'url', ...entry.fields.map(f => f.name), 'publisher', 'journal'])]
-  const labels = { title: t('editor.field_title'), author: t('editor.field_author'), year: t('editor.field_year'), doi: t('editor.field_doi'), url: t('editor.field_url') }
+  function focusField(name) {
+    const row = [...bibPanel.querySelectorAll('.bibField')].find(r => r.dataset.field?.toLowerCase() === name.toLowerCase())
+    if (!row) return
+    const more = bibPanel.querySelector('.bibMoreFields'); if (more) more.open = true
+    row.scrollIntoView({ block: 'nearest' }); row.querySelector('input, textarea, select')?.focus()
+  }
+  const addField = el('button', 'ibtn bibAddField'); addField.innerHTML = svgI('<path d="M8 3v10M3 8h10"/>')
+  addField.title = t('editor.addField'); addField.setAttribute('aria-label', addField.title); addField.disabled = !editable
+  addField.onclick = async () => {
+    const identity = bibIdentity, key = entry.key
+    const value = await ask(t('editor.addField'), { ph: t('editor.fieldNamePh'), maxLen: 64 })
+    if (!value || identity !== bibIdentity || !cm.state.facet(EditorView.editable)) return
+    const name = value.trim()
+    if (!/^[A-Za-z][\w-]*$/.test(name)) { toast(t('editor.fieldNameInvalid')); return }
+    const latest = parseBib(getT()).find(e => e.key === key)
+    if (!latest || latest.invalid) return
+    const pending = bibPending.get(key) || new Set()
+    const taken = new Set(['title', 'author', 'year', 'doi', 'url', 'publisher', 'journal', ...latest.fields.map(f => f.name.toLowerCase()), ...[...pending].map(f => f.toLowerCase())])
+    if (taken.has(name.toLowerCase())) { toast(t('editor.fieldExists')); focusField(name); return }
+    // Keep the new row in the form only. It reaches the file once it has a value.
+    pending.add(name); bibPending.set(key, pending)
+    bibSource = null; paintBib(); focusField(name)
+  }
+  const moreBar = el('div', 'bibMoreBar'); moreBar.append(extras, addField)
+  form.append(mainFields, moreBar)
   names.forEach(name => {
     const existing = entry.fields.find(f => f.name === name)
-    target = labels[name] ? mainFields : extras
-    field(labels[name] || name, existing?.value || '', (e, value) => {
+    target = labels.has(name) ? mainFields : extras
+    field(labels.get(name) || name, existing?.value || '', (e, value) => {
       const f = e.fields.find(f => f.name === name)
       if (f && !f.simple) return
       // Keep macros, unknown fields and comments outside the edited value intact.
@@ -182,10 +216,11 @@ function paintBib() {
       for (const ch of value) { if (ch === '{') depth++; if (ch === '}') depth-- }
       if (depth !== 0) return
       if (!value) { if (f) replaceBib(f.statementFrom, f.statementTo, ''); return }
+      bibPending.get(e.key)?.delete(name)
       const text = '{' + value + '}'
       if (f) replaceBib(f.from, f.to, text)
       else { const before = getT().slice(e.from, e.end).trimEnd(); replaceBib(e.end, e.end, (before.endsWith(',') ? '' : ',') + '\n  ' + name + ' = ' + text + ',\n') }
-    }, ['title', 'author'].includes(name), existing && !existing.simple)
+    }, ['title', 'author'].includes(name), existing && !existing.simple, name)
   })
   const remove = el('button', 'btn', t('editor.deleteEntry')); remove.disabled = !editable
   remove.onclick = async () => {
@@ -193,7 +228,7 @@ function paintBib() {
     if (!await ask(t('editor.deleteEntry') + ': ' + key, { noInput: true, danger: true, ok: t('common.delete') })) return
     if (identity !== bibIdentity) return
     const latest = parseBib(getT()).find(e => e.key === key)
-    if (latest) replaceBib(latest.from, latest.to, '')
+    if (latest) { bibPending.delete(latest.key); replaceBib(latest.from, latest.to, '') }
   }
   const footer = el('div', 'bibFooter'); footer.append(remove); form.append(footer)
 }
