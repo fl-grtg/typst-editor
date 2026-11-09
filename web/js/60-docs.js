@@ -507,7 +507,7 @@ async function openDoc(id) {
   if (tplName) setView('split')
   hidePops()
   docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
-  scrollRestore = scrollRead(id)
+  scrollRestore = wp >= 0 ? null : scrollRead(id) // a search hit wins: no saved spot may pull the view back
   if (scrollRestore) scrollRestore.epoch = n
   openedTrashed = !!d.trashed
   if (docProject && !openedTrashed) shut.delete('project:' + docProject)

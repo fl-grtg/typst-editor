@@ -23,9 +23,9 @@ def _scroll_to(page, editor_top, preview_top):
     page.wait_for_timeout(600)
 
 
-def _long_source(name):
+def _long_source(name, count=15):
     return '\n\n#pagebreak()\n\n'.join(
-        f'= {name} {i}\n\nBody text for {name} {i}.' for i in range(1, 16)
+        f'= {name} {i}\n\nBody text for {name} {i}.' for i in range(1, count + 1)
     )
 
 
@@ -116,6 +116,40 @@ def test_scroll_memory_survives_another_tab(ctx):
     preview_b = second.locator('#preview').evaluate('el => el.scrollTop')
     assert abs(editor_b - 700) < 80, f'editor spot lost after reload: {editor_b}'
     assert abs(preview_b - 1000) < 120, f'preview spot lost after reload: {preview_b}'
+
+
+def test_search_hit_wins_over_scroll_restore(page):
+    register(page, 'e2e_scroll_search')
+    create_doc(page, 'Search vs scroll')
+    page.click('#cm .cm-content')
+    page.keyboard.press('ControlOrMeta+A')
+    assert page.evaluate("(t) => document.execCommand('insertText', false, t)", _long_source('Section', count=30))
+    expect(page.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    _follow_off(page)
+    _scroll_to(page, 900, 1200)
+    saved = page.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
+    assert saved > 800
+
+    page.reload()
+    page.wait_for_function('window.__booted === true')
+    _open_doc(page, 'Search vs scroll')
+    expect(page.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    page.wait_for_timeout(600)
+    restored = page.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
+    assert abs(restored - saved) < 80, f'saved spot not restored: {saved} -> {restored}'
+
+    page.fill('#q', 'Section 30')
+    expect(page.locator('#qCount')).not_to_have_text('', timeout=15_000)  # results painted
+    hit = page.locator('#own .doc').filter(has_text='Search vs scroll').first
+    expect(hit).to_be_visible()
+    hit.click()
+    expect(page.locator('#title')).to_have_text('Search vs scroll')
+    expect(page.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    page.wait_for_timeout(800)  # restore runs in a frame after sync
+
+    hit_top = page.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
+    assert hit_top > saved + 500, f'search hit overwritten by saved spot: {saved} -> {hit_top}'
+    expect(page.locator('#cm .cm-line').filter(has_text='Section 30').first).to_be_visible()
 
 
 def test_scroll_memory_is_local_to_this_device(browser, base_url):
