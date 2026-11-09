@@ -451,7 +451,7 @@ function pvBoxes(tc, v) { // textContent -> click anchors in viewport px (raster
   return tc.items.map(it => {
     const w = (it.width || 0) * ax, h = (it.height || 0) * ay
     const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-    return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
+    return { s: it.str, x: x + w / 2, x0: x, w, h: h || 10, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
   })
 }
 const PV_LINK_SCHEME = /^(https?|mailto):/i // only schemes a browser tab may open safely from a PDF

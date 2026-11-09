@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const read = name => fs.readFileSync('web/js/' + name, 'utf8')
 const code = read('90-settings.js')
-const ctx = vm.createContext({})
+const ctx = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p } })
 vm.runInContext(code.slice(code.indexOf('function syncText'), code.indexOf('function syncToPv')), ctx)
 const page = texts => texts.map((s, y) => ({ s, y: y * 20, vh: 800 }))
 
@@ -94,6 +94,18 @@ test('confirmation dialog clicks do not close the history popover', () => {
   assert.ok(handler.includes("if (e.target.closest('#modal')) return"))
 })
 
+test('word mapping follows reflowed lines and inline markup', () => {
+  const t = '= Titel\n\nEine Zeile mit #emph[hervorgehobenem] Text\nund noch etwas danach'
+  assert.equal(ctx.syncNeedleAt(t, 'Eine Zeile mit hervorgehobenem Text und noch etwas danach', 3, 0), t.indexOf('Eine'))
+  assert.equal(ctx.syncNeedleAt(t, 'Eine Zeile mit hervorgehobenem Text und noch etwas danach', 3, 5), t.indexOf('und'))
+})
+test('click column maps to the start of the clicked word', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvClickCol'), code.indexOf("$('preview').addEventListener")), c)
+  const item = { s: 'Die erste Methode sammelt', x0: 0, w: 100, vw: 100 }
+  assert.equal(c.pvClickCol(item, 5, 100, 100), 0) // "Die"
+  assert.equal(c.pvClickCol(item, 50, 100, 100), 10) // "Methode"
+})
 test('preview heading clicks resolve the matching source section on the same page', async () => {
   const lines = ['== First section', '=== D: Beobachtung', '== Second section', '=== D: Beobachtung']
   const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
@@ -101,5 +113,6 @@ test('preview heading clicks resolve the matching source section on the same pag
   const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
   vm.runInContext(code.slice(code.indexOf('async function pvJumpBest'), code.indexOf('function syncToPv')), c)
   assert.equal(await c.pvJumpBest('D: Beobachtung', 1, 0, pages[0][3]), true)
-  assert.deepEqual(jumps, [lines.slice(0, 3).join('\n').length + 1])
+  const start = lines.slice(0, 3).join('\n').length + 1
+  assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers
 })

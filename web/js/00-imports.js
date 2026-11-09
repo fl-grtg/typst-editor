@@ -47,7 +47,7 @@ let lastC = '' // last comment state, poll renders only on change
 let user = '', docId = '', docRole = '', docTitle = '', ydoc = null, prov = null, ytext = null, shadow = '', saveT = 0, tplT = 0 // separate timers: doc vs template save (no race)
 let filesDirty = true, filesAt = 0, shadowSig = '' // file list cache (no GET per keystroke) + mapped shadow signature (no remap per keystroke)
 const FILES_TTL = 15000 // collaborators' uploads show up within this window
-const SAVE_MS = 2500, RENDER_MS = 300, POLL_MS = 5000, SYNC_MS = 150, CLICK_PX = 130, SYNC_PX = 40 // debounce/intervals + click radius (canvas px) + scroll quiet (px)
+const SAVE_MS = 2500, RENDER_MS = 300, POLL_MS = 5000, SYNC_MS = 150, CLICK_PX = 130, SYNC_PX = 8 // debounce/intervals + click radius (canvas px) + scroll quiet (px)
 const SEARCH_MS = 350, DIFF_MAX = 400, DIFF_OUT = 120 // search debounce, diff line caps
 function clampSplit(w) { return Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, w)) } // fn not const: top init runs first (TDZ fix)
 const QUOTE_MAX = 120, AV_SIZE = 64 // comment quote, avatar px
