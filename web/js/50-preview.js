@@ -523,7 +523,8 @@ function pvScrollTo(pv, y) { // gentle on big jumps, instant when small or reduc
   }
   pvAnim = requestAnimationFrame(step)
 }
-$('preview').addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
+const pvBox0 = $('preview') // guarded: unit tests slice this file with a bare $ stub
+if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
 function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
   if (!target) return
   const pv = $('preview'), s = pvSlots[target.page]
@@ -599,7 +600,7 @@ function pvPageMeta(doc, p, scale) { // one page: text anchors + link boxes (ind
     return { items: pvBoxes(tc, v), links: await pvPageLinks(doc, page, v) }
   })
 }
-$('preview').addEventListener('click', e => { // internal PDF destination: external links open natively
+if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('click', e => { // internal PDF destination: external links open natively
   const a = e.target.closest ? e.target.closest('.pvLinks a[data-pv-link]') : null
   if (!a) return
   const slot = a.closest('.pvPage'), pi = slot ? +slot.dataset.page - 1 : -1
