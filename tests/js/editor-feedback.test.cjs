@@ -313,3 +313,14 @@ test('preview heading clicks resolve the matching source section on the same pag
   const start = lines.slice(0, 3).join('\n').length + 1
   assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers
 })
+test('a heading-like line inside a raw block never ends the enclosing call', () => {
+  const lines = ['= Chart', '#figure(', '  box[```typst', '= Fake heading', '```', '  ]', ')', '', '= Next']
+  assert.equal(ctx.pvCallEnd(lines, 2), 7)
+})
+test('the word caption in prose or a heading is not a caption option', () => {
+  const pages = [page(['The caption: Figure 2 is shown here.', 'The caption: Foo', 'Figure 2', 'Foo'])]
+  const prose = 'The caption: [Figure 2] is shown here.'
+  assert.equal(ctx.syncAnchor([prose], 1, pages).it.s, 'The caption: Figure 2 is shown here.')
+  assert.equal(ctx.syncAnchor(['= The caption: [Foo]'], 1, pages).it.s, 'The caption: Foo')
+  assert.equal(ctx.syncAnchor(['  caption: [Fundamental constants.],'], 1, [page(['Fundamental constants.'])]).it.s, 'Fundamental constants.')
+})

@@ -788,6 +788,7 @@ function scrollApplyEditor() { // after Yjs sync: line + offset survive edits ab
   requestAnimationFrame(() => {
     if (r.epoch !== openN || r.doc !== docId) return
     cm.scrollDOM.scrollTop = Math.min(top, Math.max(0, cm.scrollDOM.scrollHeight - cm.scrollDOM.clientHeight))
+    pvSelfWrite(cm.scrollDOM) // restore, not a reader scroll: the saved preview spot must win
   })
 }
 function scrollApplyPreview() { // page + offset survive new page sizes and zoom changes

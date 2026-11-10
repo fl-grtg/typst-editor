@@ -610,9 +610,12 @@ function syncToEd() {
   const vh = pvTexts[pi][0].vh || 1
   const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
   const items = pvTexts[pi], vw = items[0].vw || 1
-  for (const { it } of pvNearItems(items, vw / 2, frac * vh, 1, 1, null).slice(0, 3)) { // real text under the reading point: exact, even inside large figures
+  const near = pvNearItems(items, vw / 2, frac * vh, 1, 1, null).filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95).slice(0, 3) // no running header/footer
+  for (const { it } of near) { // real text under the reading point: exact, even inside large figures
     const pos = pvHerePos(pvClickNeedles(items, it, 0), line, pi, it)
-    if (pos >= 0) { smoothFollow(cm.scrollDOM, cmTop(pos)); return }
+    if (pos < 0) continue
+    const ln = cm.state.doc.lineAt(pos).number, sec = pvSecAtLine(ln)
+    if (!sec ? pi === 0 : sec.page <= pi && pi <= sec.endPage) { smoothFollow(cm.scrollDOM, cmTop(pos)); return } // another page's text (header, repeated title): not this spot
   }
   smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
 }
@@ -825,7 +828,7 @@ function syncAnchor(lines, line, pages, sec) { // source line -> word box on pap
   if (!raw || pvCmdLine(raw)) return null // "#figure(" must never match a generated "Figure 1:" caption prefix
   const head = raw.match(/^(=+)\s+(.+)$/)
   if (head) raw = head[2] // heading: the title, not the "=" markers
-  const cap = raw.match(/caption\s*:\s*\[([^\]]*)\]/) // figure caption: the visible words, not the option name
+  const cap = !head && /^(?:caption\s*:|#(?:figure|table|image|listing|algorithm)\b)/.test(raw) && raw.match(/caption\s*:\s*\[([^\]]*)\]/) // a real caption option, not the word in prose
   raw = cap ? cap[1] : raw.replace(/^caption\s*:\s*/, '')
   const exact = syncPlain(raw)
   if (exact.length < 4) return null
@@ -914,7 +917,7 @@ function pvCallEnd(lines, from) { // line with the closing bracket of a call ope
   let d = 0, block = 0, str = false, raw = 0
   for (let ln = from; ln <= lines.length; ln++) {
     const s = lines[ln - 1] || ''
-    if (ln > from && /^=+\s/.test(s.trim())) return ln - 1 // an open call never swallows the next section
+    if (ln > from && !block && !str && !raw && /^=+\s/.test(s.trim())) return ln - 1 // an open call never swallows the next section
     for (let i = 0; i < s.length; i++) {
       const c = s[i], n = s[i + 1]
       if (block) { // /* … */ (nested): parens inside are prose
@@ -1147,10 +1150,17 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
       const first = srcHeadings(getT())[0]
       let topY = Infinity
       if (first) {
-        const pre = getT().split('\n').slice(0, first.line - 1).some(l => l.trim() && !pvCmdLine(l)) // real text above the heading keeps its own click target
+        const pre = srcMask(getT()).split('\n').slice(0, first.line - 1).some(l => { // comments/labels/statements are not visible text
+          const s = l.trim()
+          return !!s && !pvCmdLine(s) && !/^#(?:set|show|let|import|include)\b/.test(s) && !!syncShow(s).trim()
+        })
         if (!pre) {
           const h = syncAnchor(getT().split('\n'), first.line, pvTexts, pvSecAtLine(first.line))
           if (h && h.pi === 0) topY = (h.it.y - (h.it.h || 10) / 2) * sy
+          else { // first heading on a later page: page 1 is the generated outline, its first entry is the boundary
+            const links = (pvLinks[0] || []).filter(L => L.dest)
+            if (links.length) topY = Math.min(...links.map(L => L.y0)) * sy
+          }
         }
       } else for (const it of items) if (it.s.trim()) topY = Math.min(topY, (it.y - (it.h || 10) / 2) * sy) // no heading: only the margin above all text
       if (isFinite(topY) && y < topY) {

@@ -153,6 +153,87 @@ Beta body.
     page.wait_for_function("() => /^Ln 1:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
 
 
+def test_click_above_a_multi_page_outline_lands_on_the_document_top(page):
+    register(page, "e2e_click_top_later")
+    create_doc(page, "Click top later doc")
+    type_source(page, """#outline()
+
+#pagebreak()
+
+= Chapter 1
+
+Chapter body.
+""")
+    expect(page.locator("#preview .pvPage")).to_have_count(2, timeout=PREVIEW_TIMEOUT)
+    expect(page.locator("#ol .pg")).to_have_count(1, timeout=PREVIEW_TIMEOUT)
+    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")
+    page.wait_for_timeout(900)
+    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+    assert box
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + 6)  # page margin above the generated contents
+    page.wait_for_function("() => /^Ln 1:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+
+
+def test_a_comment_before_the_first_heading_keeps_the_top_click_on_the_document(page):
+    register(page, "e2e_click_top_note")
+    create_doc(page, "Click top comment doc")
+    type_source(page, """#outline()
+// a note, not visible text
+= Alpha
+
+Alpha body.
+
+#pagebreak()
+
+= Beta
+
+Beta body.
+""")
+    _ready(page, 2)
+    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")
+    page.wait_for_timeout(700)
+    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+    assert box
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + 6)
+    page.wait_for_function("() => /^Ln 1:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+
+
+def test_a_running_header_never_drags_the_editor_to_page_one(page):
+    register(page, "e2e_click_header")
+    create_doc(page, "Header sync doc")
+    body = "\n".join(f"Body line {i} on this page." for i in range(1, 21))
+    type_source(page, f"""#set page(header: [My Paper], numbering: "1")
+
+= Alpha
+
+{body}
+
+#pagebreak()
+
+= Beta
+
+{body}
+
+#pagebreak()
+
+= Gamma
+
+{body}
+""")
+    _ready(page, 3)
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+Home")  # editor view starts at the document top
+    page.wait_for_timeout(700)
+    page.evaluate("""() => {
+      const pv = document.getElementById('preview')
+      const p = pv.querySelector('.pvPage[data-page="3"]')
+      pv.scrollTop += p.getBoundingClientRect().top - pv.getBoundingClientRect().top - pv.clientHeight / 2 + 10
+    }""")
+    page.wait_for_timeout(1200)  # reading point just inside page 3: the running header is the nearest text
+    top = page.locator("#cm .cm-scroller").evaluate("el => el.scrollTop")
+    assert top > 300, f"header text dragged the editor view back to line 1 (scrollTop {top})"
+
+
 def test_scrolling_up_after_a_page_bottom_click_keeps_the_editor_view(page):
     register(page, "e2e_click_scrollup")
     create_doc(page, "Click scroll up doc")
@@ -171,5 +252,6 @@ def test_scrolling_up_after_a_page_bottom_click_keeps_the_editor_view(page):
     page.mouse.wheel(0, -100)  # reader scrolls up: the editor view must not jump down
     page.wait_for_timeout(900)
     after = page.locator("#cm .cm-scroller").evaluate("el => el.scrollTop")
-    assert after <= before + 30, f"scroll up moved the editor down: {before} -> {after}"
+    assert abs(after - before) < 250, f"one wheel tick moved the editor view too far: {before} -> {after}"
+    assert 52 <= _line(page) <= 58, "the wheel tick must keep the table caption line"
 

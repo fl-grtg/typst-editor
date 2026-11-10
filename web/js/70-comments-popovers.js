@@ -412,9 +412,10 @@ function movePop() {
     if (cm.contentDOM.style.paddingTop !== padding + 'px') {
       cm.contentDOM.style.paddingTop = padding + 'px'
       cm.dispatch({ effects: EditorView.scrollIntoView(Math.min(from, text.length), { y: 'start', yMargin: padding }) })
-      requestAnimationFrame(movePop)
+      requestAnimationFrame(() => { pvSelfWrite(cm.scrollDOM); movePop() }) // placement, not a reader scroll
     } else if (!first || first.top < editor.top + 90) {
       cm.scrollDOM.scrollTop = Math.max(0, cm.lineBlockAt(Math.min(from, text.length)).top - padding)
+      pvSelfWrite(cm.scrollDOM) // popover placement is no reader scroll
       requestAnimationFrame(movePop)
     }
     return

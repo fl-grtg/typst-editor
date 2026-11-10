@@ -379,7 +379,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   cmpWarns = []; cmpDiags = []; errKey = ''; errLines = []; tabDirty = false; tabPins = new Set(); tabState.clear(); tabVersions.clear(); tabSig = ''; clearTimeout(tabT)
   prov?.destroy(); ydoc?.destroy(); prov = ydoc = ytext = null
   const wd = $('wsDot'); if (wd) { wd.style.background = '#8e8e93'; wd.title = t('docs.offline') }; const wt0 = $('wsTxt'); if (wt0) wt0.textContent = t('docs.offline')
-  threads = []; members = []; lastC = ''; marks = new Set(); syncPage = 0 // do not carry click page into next doc
+  threads = []; members = []; lastC = ''; marks = new Set(); syncPage = 0; syncEdOff = 0 // do not carry click page/reading point into next doc
   docProject = ''; docResReadonly = true
   activeFile = ''; clearTimeout(fileT); bibKeys = [] // tabs closed (see paintTabs)
   $('tabs').style.display = 'none'
