@@ -304,6 +304,26 @@ test('click column follows the rendered pixels of a justified line', () => {
   assert.equal(c.pvClickCol(item, 70, 100, 100, cv), 3) // space after "bb" closer to "bb"
   assert.equal(c.pvClickCol(item, 85, 100, 100, cv), 6) // wide space closer to "cc"
 })
+test('click column maps scaled canvas pixels through the item offset', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvCharW'), code.indexOf("$('preview').addEventListener('click'")), c)
+  const img = { width: 180, height: 10, data: new Uint8ClampedArray(180 * 10 * 4) }
+  for (const [a, b] of [[0, 10], [22, 30], [34, 40], [60, 80]]) for (let x = a; x <= b; x++) for (let y = 0; y < 10; y++) {
+    const i = (y * 180 + x) * 4
+    img.data[i + 3] = 255
+  }
+  const cv = { width: 200, height: 20, getContext: () => ({ getImageData: () => img }) }
+  const item = { s: 'aa bb cc', x0: 10, w: 180, vw: 200, y: 10, h: 10, vh: 20 }
+  // cssW 100 for a 200 px backing: clicks arrive in CSS px, boxes in canvas px
+  assert.equal(c.pvClickCol(item, 6, 100, 200, cv), 0) // "aa" at canvas 10-20
+  assert.equal(c.pvClickCol(item, 20, 100, 200, cv), 3) // inner gap of "bb" merged: 32-50
+  assert.equal(c.pvClickCol(item, 30, 100, 200, cv), 3) // gap tie stays left
+  assert.equal(c.pvClickCol(item, 44, 100, 200, cv), 6) // "cc" at canvas 70-90
+  const blind = { width: 180, height: 10, data: new Uint8ClampedArray(180 * 10 * 4) }
+  for (let x = 0; x < 180; x++) for (let y = 0; y < 10; y++) blind.data[(y * 180 + x) * 4 + 3] = x < 80 ? 255 : 0 // one run: no word boxes
+  const gone = { width: 200, height: 20, getContext: () => ({ getImageData: () => blind }) }
+  assert.equal(c.pvClickCol(item, 95, 100, 200, gone), 6) // estimate still lands on the last word
+})
 test('caption prefixes and table rows become needles the source can match', () => {
   const c = vm.createContext({})
   vm.runInContext(code.slice(code.indexOf('function pvCaptionCut'), code.indexOf('function syncToPv')), c)

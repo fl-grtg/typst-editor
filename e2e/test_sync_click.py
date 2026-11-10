@@ -87,8 +87,10 @@ def test_click_columns_stay_on_the_words_of_a_justified_line(page):
     box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
     assert box
     y = box["y"] + box["height"] * 0.5  # blank space below the paragraph: its lines still own the column
+    maxfx = min(0.95, (page.viewport_size["width"] - box["x"] - 4) / box["width"])  # clicks must stay on screen
+    assert maxfx > 0.5, "the page is mostly outside the test viewport"
     cols = []
-    for fx in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+    for fx in [maxfx * i / 6 for i in range(1, 7)]:
         page.mouse.click(box["x"] + box["width"] * fx, y)
         page.wait_for_timeout(600)
         assert _line(page) == 5, "a blank click left the paragraph"
