@@ -57,7 +57,7 @@
 #symPop .grid button:hover { background: var(--hover); }
 .mbox { position: absolute; top: 100%; left: 0; z-index: var(--z-pop); min-width: 160px; padding: 4px; background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop); }
 .mbox button { display: block; width: 100%; min-height: 30px; padding: 5px 10px; text-align: left; background: none; border: 0; box-shadow: none; border-radius: var(--r-xs); font-size: 13px; color: var(--text); }
-.mbox button:hover { background: var(--ink); color: var(--on-ink); }
+.mbox button:hover { background: var(--hover); color: var(--text); }
 
 /* Comments */
 #pop { position: absolute; left: 56px; z-index: var(--z-pop); width: 320px; max-width: calc(100vw - 32px); max-height: 80vh; overflow: auto; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); font-size: 13px; }
