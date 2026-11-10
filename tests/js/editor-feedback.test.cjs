@@ -350,29 +350,31 @@ test('a wrapped paragraph gives the click its whole block as needle', () => {
   assert.equal(nd[0].off, 21) // prefix "aa bb cc dd ee ff " + column 3
   assert.equal(nd[1].s, 'gg hh') // the single line stays as fallback
   assert.equal(nd[1].off, 3)
-  const tight = item('kk ll', 140) // 1.6*h below: generous leading is still one paragraph
+  const tight = item('kk ll', 142) // 1.8*h below: generous leading is still one paragraph
   assert.equal(c.pvClickNeedles([...lines, tight], tight, 0)[0].s, 'aa bb cc dd ee ff gg hh kk ll')
-  const far = item('mm nn', 148) // 2.4*h below the last line: a new paragraph
+  const far = item('mm nn', 143) // 1.9*h below the last line: a new paragraph
   assert.equal(c.pvClickNeedles([...lines, far], far, 3)[0].s, 'mm nn')
 })
-test('a line-break hyphen and a caption prefix keep the block offset exact', () => {
+test('line-break hyphens keep both the compound and the rejoined word', () => {
   const c = vm.createContext({})
   vm.runInContext(code.slice(code.indexOf('function pvCaptionCut'), code.indexOf('function syncToPv')), c)
   const item = (s, y) => ({ s, x0: 10, w: s.length * 8, y, h: 10, vw: 100 })
   const hyphen = [item('Silben-', 100), item('trennung im Text', 112)]
   const nd = c.pvClickNeedles(hyphen, hyphen[1], 0)
-  assert.equal(nd[0].s, 'Silbentrennung im Text') // the break hyphen rejoins the source word
-  assert.equal(nd[0].off, 6) // the clicked fragment starts at "trennung" inside the word
+  assert.deepEqual(Array.from(nd.slice(0, 2), n => [n.s, n.off]), [
+    ['Silben-trennung im Text', 7], // real compound: the hyphen stays in the needle
+    ['Silbentrennung im Text', 6], // automatic hyphenation: the source word is rejoined
+  ])
+  const compound = [item('E-', 100), item('Mail im Alltag', 112)]
+  const nc = c.pvClickNeedles(compound, compound[1], 0)
+  assert.deepEqual(Array.from(nc.slice(0, 2), n => [n.s, n.off]), [
+    ['E-Mail im Alltag', 2], // the kept hyphen is part of the offset
+    ['EMail im Alltag', 1], // stripped variant keeps its own offset
+  ])
   const cap = [item('Table 1: aa', 100), item('bb cc', 112)]
   const ndc = c.pvClickNeedles(cap, cap[1], 0)
   assert.equal(ndc[0].s, 'aa bb cc') // generated prefix is not part of the source caption
   assert.equal(ndc[0].off, 3)
-})
-test('a long block needle verifies its own tail, not just the first 80 chars', () => {
-  const c = vm.createContext({})
-  vm.runInContext(code.slice(code.indexOf('function pvVerify'), code.indexOf('function syncToPv')), c)
-  const s = 'aa bb ' + 'cc '.repeat(40) + 'longestword'
-  assert.equal(c.pvVerify('(' + s + ')', 1, s), true)
 })
 test('heading anchors pick the big heading item, not the same word in the body', () => {
   const pages = [[{ s: 'Diskussion', y: 100, h: 30 }, { s: 'Die Diskussion verbindet Methoden', y: 200, h: 22 }]]

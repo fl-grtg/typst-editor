@@ -610,7 +610,9 @@ function syncToEd() {
   const vh = pvTexts[pi][0].vh || 1
   const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
   const items = pvTexts[pi], vw = items[0].vw || 1
-  const near = pvNearItems(items, vw / 2, frac * vh, 1, 1, null).filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95).slice(0, 8) // no running header/footer; single letters must not crowd out the text
+  const near = pvNearItems(items, vw / 2, frac * vh, 1, 1, null) // no running header/footer, no needle-less lone letters
+    .filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95
+      && (syncText(it.s || '').length >= 4 || pvBlockLines(items, it).length > 1)).slice(0, 3)
   for (const { it } of near) { // real text under the reading point: exact, even inside large figures
     const pos = pvHerePos(pvClickNeedles(items, it, 0), line, pi, it)
     if (pos < 0) continue
@@ -643,11 +645,6 @@ function pvCanvasList() { // virtual slots first, fallback bare canvases
   if (sl.length) return [...sl]
   return [...pv.querySelectorAll('canvas')]
 }
-function pvVerify(t, at, s) { // context must contain the click word: longest token guards short cells
-  const um = (t || '').slice(Math.max(0, at - 80), at + s.length + 80) // a block needle's long word can sit far from its start
-  const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
-  return w.length < 4 || um.includes(w) || um.includes(s.trim())
-}
 function pvHerePos(needles, hint, pi, anchor) { // source position of the best needle in the current file; -1: none
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
   const cur = activeFile || ''
@@ -671,7 +668,7 @@ function pvHerePos(needles, hint, pi, anchor) { // source position of the best n
       if (matches.length > 1) continue
     }
     const atCur = locateNear(getT(), s, hint)
-    if (atCur >= 0 && pvVerify(getT(), atCur, s)) return atCur + off
+    if (atCur >= 0) return atCur + off
     const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
     const atNorm = syncNeedleAt(getT(), s, hint, wi)
     if (atNorm >= 0) return atNorm
@@ -702,7 +699,7 @@ async function pvJumpBest(needles, hint, pi, anchor) { // current file, else the
       const lines = txt ? txt.split('\n').length : 1
       const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
       const at = locateNear(txt, s, h2)
-      if (at >= 0 && pvVerify(txt, at, s)) {
+      if (at >= 0) {
         if (found) { dup = true; break }
         found = { key: src.key }
       }
@@ -738,19 +735,21 @@ function pvBlockLines(items, it) { // paragraph around the click: same left edge
 }
 function pvBlockNeedle(items, it, col) { // whole paragraph: a wrapped, repeated line is ambiguous on its own
   const block = pvBlockLines(items, it)
-  if (block.length < 2) return null
-  let s = '', off = 0, soft = false
-  for (const o of block) {
-    const t = String(o.s || '').trim()
-    if (!t) continue
-    if (s && soft) s = s.slice(0, -1) // line-break hyphen: the source word continues on the next line
-    const sep = s && !soft ? 1 : 0
-    if (o === it) off = s.length + sep + (col || 0)
-    s += (sep ? ' ' : '') + t
-    soft = /[-\u2010\u00ad]$/.test(t)
-  }
-  const cut = pvCaptionCut(s)
-  return { s: s.slice(cut), off: Math.max(0, off - cut) }
+  if (block.length < 2) return []
+  return [false, true].map(drop => { // real compound first ("E-Mail"), automatic hyphenation second ("Silbentrennung")
+    let s = '', off = 0, soft = false
+    for (const o of block) {
+      const t = String(o.s || '').trim()
+      if (!t) continue
+      if (s && soft && drop) s = s.slice(0, -1) // the source word continues on the next line
+      const sep = s && !soft ? 1 : 0
+      if (o === it) off = s.length + sep + (col || 0)
+      s += (sep ? ' ' : '') + t
+      soft = /[-\u2010\u00ad]$/.test(t)
+    }
+    const cut = pvCaptionCut(s)
+    return { s: s.slice(cut), off: Math.max(0, off - cut) }
+  })
 }
 function pvClickNeedles(items, it, col) { // clicked item first; short cells and math glyphs add their PDF line
   const out = [], seen = new Set()
@@ -763,8 +762,7 @@ function pvClickNeedles(items, it, col) { // clicked item first; short cells and
     return true
   }
   const raw = String(it.s || '').trim(), cut = pvCaptionCut(raw), body = raw.slice(cut)
-  const blk = pvBlockNeedle(items, it, col)
-  if (blk) add(blk.s, blk.off) // paragraph context first: prose wraps one source line over several PDF lines
+  for (const blk of pvBlockNeedle(items, it, col)) add(blk.s, blk.off) // paragraph context first: prose wraps one source line over several PDF lines
   if (/\p{L}/u.test(body)) add(body, (col || 0) - cut)
   if (/\p{L}{3}/u.test(body)) return out // a real word needs no line guessing
   for (const tol of [10, 20]) { // short cells, numbers and math glyphs: the row is the context
