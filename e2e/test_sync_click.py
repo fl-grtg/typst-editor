@@ -100,6 +100,29 @@ def test_click_columns_stay_on_the_words_of_a_justified_line(page):
     assert len(set(cols)) >= 3, f"clicks kept one column: {cols}"
 
 
+def test_click_columns_survive_wrapped_single_letter_words(page):
+    register(page, "e2e_click_letters")
+    create_doc(page, "Click letter doc")
+    para = " ".join(list("abcdefghij" * 24))  # 240 one-letter words on one source line
+    type_source(page, "#set par(justify: true)\n\n= Alpha\n\n" + para + "\n")
+    _ready(page, 1)
+    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+    assert box
+    fx = 0.15  # just inside the left edge of every rendered line
+    cols = []
+    for fy in (0.108, 0.125, 0.142, 0.159):  # the four PDF lines of the wrapped paragraph
+        page.mouse.click(box["x"] + box["width"] * fx, box["y"] + box["height"] * fy)
+        page.wait_for_timeout(600)
+        assert _line(page) == 5, f"click on line {fy} left the paragraph"
+        cols.append(_col(page))
+    assert cols[0] < 20, f"the first line did not start at the paragraph: {cols}"
+    for i in range(1, 4):  # every PDF line continues one source line: 62 words + 62 spaces = 124 chars
+        assert abs(cols[i] - (cols[i - 1] + 124)) <= 20, f"line {i} landed on a repeated word: {cols}"
+    page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)  # far below the paragraph
+    page.wait_for_timeout(600)
+    assert _line(page) == 5 and _col(page) > 1, "a blank click fell back to the heading above"
+
+
 def test_follow_toggle_keeps_the_preview_still_but_clicks_still_jump(page):
     register(page, "e2e_click_follow")
     create_doc(page, "Follow toggle doc")

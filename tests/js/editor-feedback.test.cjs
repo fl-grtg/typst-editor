@@ -340,6 +340,19 @@ test('caption prefixes and table rows become needles the source can match', () =
   const label = item('A', 20, 0)
   assert.deepEqual(Array.from(c.pvClickNeedles([label, item('B', 20, 20)], label, 0)), []) // a lone letter has no usable needle
 })
+test('a wrapped paragraph gives the click its whole block as needle', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvCaptionCut'), code.indexOf('function syncToPv')), c)
+  const item = (s, y) => ({ s, x0: 10, w: s.length * 8, y, h: 10, vw: 100 })
+  const lines = [item('aa bb cc', 100), item('dd ee ff', 112), item('gg hh', 124)]
+  const nd = c.pvClickNeedles(lines, lines[2], 3) // click on "hh" of the last line
+  assert.equal(nd[0].s, 'aa bb cc dd ee ff gg hh') // the paragraph repeats: the block is unique
+  assert.equal(nd[0].off, 21) // prefix "aa bb cc dd ee ff " + column 3
+  assert.equal(nd[1].s, 'gg hh') // the single line stays as fallback
+  assert.equal(nd[1].off, 3)
+  const far = item('ii jj', 160) // next paragraph: a normal gap ends the block
+  assert.equal(c.pvClickNeedles([...lines, far], far, 3)[0].s, 'ii jj')
+})
 test('heading anchors pick the big heading item, not the same word in the body', () => {
   const pages = [[{ s: 'Diskussion', y: 100, h: 30 }, { s: 'Die Diskussion verbindet Methoden', y: 200, h: 22 }]]
   assert.equal(ctx.syncAnchor(['= Diskussion'], 1, pages).it.s, 'Diskussion')
