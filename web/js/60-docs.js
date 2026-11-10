@@ -364,7 +364,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   try { if (docId && ytext && docRole !== 'reviewer' && !openedTrashed && (!wsLive() || !synced)) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline/unsynced main: Yjs dies with the provider, stash offers restore on reopen (openDoc drops it silently if converged)
   if (window.suggestionDraft && !stopSuggestionDraft(false)) stopSuggestionDraft()
   ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT); syncT = 0
-  pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null
+  pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null; pvLinks = []; pvOutline = []; pvOutlineGen = -1 // old PDF layer must never badge/link the next doc
   if (window.Present?.isOn()) window.Present.exit()
   window.docTpl = []; docResAt = 0
   wantPos = -1 // old search jump must not fire in next doc

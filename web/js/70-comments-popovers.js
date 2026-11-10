@@ -245,16 +245,14 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
   box.replaceChildren()
   if (!docId || tplName) return
   let olAt = 0
-  getT().split('\n').forEach((ln, i) => {
-    const m = ln.match(/^(=+)\s+(.+)$/)
-    if (!m) return
-    const line = i + 1, d = document.createElement('div')
-    const text = m[2].replace(/<[^<>]+>/g, ' ').replace(/\s+/g, ' ').trim() || m[2].trim() // labels stay in the source
-    d.className = 'doc ol-l' + Math.min(m[1].length, 3)
+  for (const h of srcHeadings(getT())) { // raw blocks/comments never contribute headings
+    const line = h.line, d = document.createElement('div')
+    const text = syncShow(h.title) || h.title.trim() // labels stay in the source, never in the sidebar
+    d.className = 'doc ol-l' + Math.min(h.level, 3)
     d.setAttribute('role', 'button')
     d.appendChild(el('span', 't', text.slice(0, 60)))
     d.title = t('docs.olLineTitle', { n: line })
-    const hit = pvOlMatch(m[2], olAt)
+    const hit = pvOlMatch(h.title, olAt, true) // badges keep the last outline during a re-render (no flicker)
     if (hit >= 0) { // real page from the last render: proves the heading made it onto paper
       olAt = hit + 1
       const page = pvOutline[hit].page + 1
@@ -262,11 +260,11 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
       d.title += ' · ' + t('docs.olPage', { n: page })
     }
     d.setAttribute('aria-label', t('docs.olGoTo', { line, text: text.slice(0, 60) }))
-    const goL = () => cmJump(posOfLine(getT(), line), false) // smooth jump; the preview follows the cursor
+    const goL = () => cmJump(posOfLine(getT(), line), false, true) // smooth jump; preview follows even with follow off
     d.onclick = goL
     kb(d, goL)
     box.appendChild(d)
-  })
+  }
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.olEmpty')))
 }
 function wc() { // word count for #pos display

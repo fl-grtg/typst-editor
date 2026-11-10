@@ -84,7 +84,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
       if (u.docChanged || u.selectionSet) { errTipHover = null; errTipHide(); requestAnimationFrame(() => { if (!errTipHover) errTipCursor() }) } // cursor on an error line: message stays without hovering; positioned after layout so the anchor tracks exactly
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
       if (u.selectionSet) try { updCNewTip() } catch (e) {}
-      if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
+      if (u.selectionSet || u.docChanged) { cmSelT = Date.now(); queueSyncPv() } // cursor follows into preview (sync on)
       if (u.selectionSet || u.docChanged) try { updPos() } catch (e) {} // F24 status: Ln/Col/words follow cursor
     })]
 const cm = new EditorView({ parent: $('cm'), extensions: cmExtensions })

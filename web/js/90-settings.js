@@ -566,26 +566,29 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
     if (zP) zP.disabled = pvZoom >= PV_MAX
   } catch (e) {}
 }
-let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = 0 // click sync editor<->preview, last hit page, scroll-follow pos
+let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = -1 // click sync editor<->preview, last hit page, scroll-follow pos (-1: use cursor)
 let followAll = true // true: cursor/scroll/jumps move the preview; false: only a click syncs
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
 try { const s = localStorage.getItem('typst_follow_all'); if (s === '0' || s === '1') followAll = s === '1' } catch (e) {}
 function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
 function applyFollowBtn() { const b = $('followBtn'); if (!b) return; b.classList.toggle('on', followAll); b.setAttribute('aria-pressed', followAll) }
 let syncSkip = false // our own jump selects a line: that selection is not a cursor move
+let cmSelT = 0 // last cursor move: an editor scroll right after it is cursor-follow, not a reader scroll
 function queueSyncPv(at) { // throttle: continuous cursor/scroll movement still updates the preview (no wait-for-idle)
   if (syncSkip) return
   if (!followAll) return
-  syncView = at || 0
+  syncView = Number.isFinite(at) ? at : -1
   if (syncT) return // a run is already scheduled and reads the latest position
   syncT = setTimeout(() => { syncT = 0; syncToPv() }, SYNC_MS)
 }
-let cmWheelT = 0
 try { // wheel over the editor: the preview follows what is on screen, not only the cursor
   const sc = cm.scrollDOM
-  sc.addEventListener('wheel', () => { cmWheelT = Date.now(); smoothStop(sc) }, { passive: true })
+  sc.addEventListener('wheel', () => smoothStop(sc), { passive: true })
   sc.addEventListener('scroll', () => {
-    if (!followAll || Date.now() - cmWheelT > 600) return // selection/scrollIntoView already syncs the cursor
+    if (!followAll || syncSkip) return
+    if (smoothWrote(sc)) return // our own glide/follow wrote it
+    if (Date.now() - cmSelT < 150) return // a cursor move already synced the cursor
+    smoothStop(sc) // scrollbar drag/touch/page key: the reader owns the editor view
     try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
   }, { passive: true })
 } catch (e) {}
@@ -605,12 +608,12 @@ function syncToEd() {
   const frac = Math.max(0, Math.min(1, (pr.top + pv.clientHeight / 2 - sr.top) / (sr.height || 1)))
   const vh = pvTexts[pi][0].vh || 1
   const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
-  cmWheelT = 0 // the reader owns the editor view now: no editor-wheel follow for this gesture
   smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
 }
 try { $('preview').addEventListener('scroll', () => { // reader scroll: the editor view moves along
   const pv = $('preview')
   if (Math.abs(pv.scrollTop - pvSelfTop) < 2) return // this app wrote it: follow or a jump, not the reader
+  smoothStop(pv) // scrollbar drag/touch/keyboard: the reader wins over a running animation
   if (syncT) { clearTimeout(syncT); syncT = 0 } // the reader took over: no pending cursor sync may yank the preview back
   queueSyncEd()
 }, { passive: true }) } catch (e) {}
@@ -618,7 +621,7 @@ function pvPageHint(pi, total, n, at, frac) { // click page -> source line: sect
   const f0 = typeof frac === 'number' && isFinite(frac) ? Math.max(0, Math.min(1, frac)) : 0.5
   if (at && at.sec) {
     const a = at.sec.line, b = at.next ? at.next.line - 1 : total
-    const span = at.next ? at.next.page - at.sec.page + 1 : Math.max(1, n - at.sec.page)
+    const span = at.next ? Math.max(1, at.next.page - at.sec.page) : Math.max(1, n - at.sec.page)
     const f = ((pi - at.sec.page) + f0) / Math.max(1, span)
     return Math.max(1, Math.min(total, Math.round(a + f * Math.max(0, b - a))))
   }
@@ -739,20 +742,40 @@ function syncText(text) {
 }
 function syncPlain(text) { // source markup -> the words the PDF actually shows (best effort, no parser)
   return syncText(String(text)
-    .replace(/<[^>]*>/g, ' ') // labels never reach the paper
+    .replace(/<[A-Za-z_][\w:.-]*>/g, ' ') // labels only: "a < b" stays readable
     .replace(/#[a-zA-Z]\w*(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?\[([^\]]*)\]/g, ' $1 ') // #link(..)[text], #emph[..], #grid(columns: (1fr, 1fr))[..]: keep the visible text
     .replace(/[`*_]/g, ' '))
+}
+function syncShow(text) { // source markup -> display text: casing kept, labels/markup dropped
+  return String(text)
+    .replace(/<[A-Za-z_][\w:.-]*>/g, ' ')
+    .replace(/#[a-zA-Z]\w*(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?\[([^\]]*)\]/g, ' $1 ')
+    .replace(/[`*_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function syncNormMap(line) { // normalized text + raw offset of every normalized char (math/ligatures keep their position)
+  let s = '', map = []
+  for (let i = 0; i < line.length;) {
+    const ch = String.fromCodePoint(line.codePointAt(i))
+    const n = ch.normalize('NFKC').toLowerCase()
+    for (let k = 0; k < n.length; k++) map.push(i)
+    s += n
+    i += ch.length
+  }
+  return { s, map }
 }
 function syncWords(t) { // source words in document order with their raw line/offset (markup and reflow safe)
   const out = []
   t.split('\n').forEach((line, i) => {
     const plain = syncPlain(line)
     if (!plain) return
+    const { s, map } = syncNormMap(line)
     let from = 0
     for (const w of plain.split(' ')) {
       if (!w) continue
-      const at = line.toLowerCase().indexOf(w, from)
-      out.push({ w, ln: i + 1, at: at >= 0 ? at : from })
+      const at = s.indexOf(w, from)
+      out.push({ w, ln: i + 1, at: at >= 0 && map[at] != null ? map[at] : from })
       if (at >= 0) from = at + w.length
     }
   })
@@ -762,11 +785,16 @@ function syncNeedleAt(t, needle, hint, wi) { // PDF text -> source pos of its wi
   const words = syncWords(t), want = syncText(needle).split(' ')
   const w0 = Math.max(0, wi || 0)
   if (!want[0]) return -1
+  const soft = /[-\u2010\u00ad]$/.test(String(needle).trim()) // line-break hyphen: the source has the whole word
   let best = -1, bd = Infinity
   for (let i = 0; i < words.length; i++) {
-    if (words[i].w !== want[0]) continue
+    if (!(want.length === 1 && soft ? words[i].w.startsWith(want[0]) : words[i].w === want[0])) continue
     let n = 0
-    while (n < want.length && i + n < words.length && words[i + n].w === want[n]) n++
+    while (n < want.length && i + n < words.length) {
+      const last = n === want.length - 1
+      if (!(last && soft ? words[i + n].w.startsWith(want[n]) : words[i + n].w === want[n])) break
+      n++
+    }
     if (n < Math.min(3, want.length) || w0 >= n) continue // the clicked word must be inside the matched run
     const d = Math.abs(words[i].ln - hint)
     if (d < bd) { bd = d; best = i }
@@ -775,13 +803,19 @@ function syncNeedleAt(t, needle, hint, wi) { // PDF text -> source pos of its wi
   const w = words[Math.min(words.length - 1, best + w0)]
   return posOfLine(t, w.ln) + w.at
 }
-function pvCmdLine(s) { s = String(s || '').trim(); return /^#[\w-]+(?:\s*(?:\([^)]*\)|[\(\[]))?$/.test(s) || /^[\w-]+\s*[\(\[]$/.test(s) } // bare command (also "table("): no rendered words to anchor
+function pvCmdLine(s) { // bare command (also "table(", "#set page("): no rendered words to anchor
+  s = String(s || '').trim()
+  return /^#[\w-]+(?:\s*(?:\([^)]*\)|[\(\[]))?$/.test(s) // #figure(, #pagebreak()
+    || /^[\w-]+\s*[\(\[]$/.test(s) // bare table(
+    || /^#(?:set|show|let|import|include)\b[^\[]*$/.test(s) // #set page(, #show heading.where(...): no content block
+}
 function syncAnchor(lines, line, pages, sec) { // source line -> word box on paper, section window first
   let raw = (lines[line - 1] || '').trim()
   if (!raw || pvCmdLine(raw)) return null // "#figure(" must never match a generated "Figure 1:" caption prefix
   const head = raw.match(/^(=+)\s+(.+)$/)
   if (head) raw = head[2] // heading: the title, not the "=" markers
-  raw = raw.replace(/^caption\s*:\s*/, '') // figure caption: the visible words, not the option name
+  const cap = raw.match(/caption\s*:\s*\[([^\]]*)\]/) // figure caption: the visible words, not the option name
+  raw = cap ? cap[1] : raw.replace(/^caption\s*:\s*/, '')
   const exact = syncPlain(raw)
   if (exact.length < 4) return null
   const p0 = sec ? Math.max(0, sec.page) : 0
@@ -866,9 +900,10 @@ function pvViewPage(pv) { // page at the viewport center: what the reader is act
   return -1
 }
 function pvCallEnd(lines, from) { // line with the closing bracket of a call opened at `from` (best effort)
-  let d = 0, block = 0, str = false
+  let d = 0, block = 0, str = false, raw = 0
   for (let ln = from; ln <= lines.length; ln++) {
     const s = lines[ln - 1] || ''
+    if (ln > from && /^=+\s/.test(s.trim())) return ln - 1 // an open call never swallows the next section
     for (let i = 0; i < s.length; i++) {
       const c = s[i], n = s[i + 1]
       if (block) { // /* … */ (nested): parens inside are prose
@@ -876,8 +911,31 @@ function pvCallEnd(lines, from) { // line with the closing bracket of a call ope
         continue
       }
       if (str) { if (c === '\\') i++; else if (c === '"') str = false; continue } // strings may span lines
-      if (c === '/' && n === '*') { block = 1; i++; continue }
-      if (c === '/' && n === '/') break
+      if (raw) { // `raw` and ```blocks```: brackets are text
+        if (c === '`') {
+          let r = 1
+          while (s[i + r] === '`') r++
+          if (r >= raw) raw = 0
+          i += r - 1
+        }
+        continue
+      }
+      if (c === '\\') { i++; continue } // escaped bracket in markup: \) does not close
+      if (c === '`') {
+        let r = 1
+        while (s[i + r] === '`') r++
+        raw = r
+        i += r - 1
+        continue
+      }
+      if (c === '/' && (n === '/' || n === '*')) { // bare URLs (https://…) are not comments
+        const before = s.slice(0, i)
+        const url = /(?:^|\s)[a-z][a-z0-9+.-]*:$/i.test(before) || /(?:^|\s)[a-z][a-z0-9+.-]*:\/\/\S*$/i.test(before)
+        if (url) { i++; continue }
+        if (n === '/') break
+        block = 1; i++
+        continue
+      }
       if (c === '"') { str = true; continue }
       d += c === '(' || c === '[' ? 1 : c === ')' || c === ']' ? -1 : 0
     }
@@ -885,12 +943,14 @@ function pvCallEnd(lines, from) { // line with the closing bracket of a call ope
   }
   return lines.length
 }
-function pvFigureStart(lines, line) { // line of the figure/table/image call that owns `line` (0: none)
-  for (let ln = line; ln >= Math.max(1, line - 80); ln--) {
+function pvFigureStart(lines, line) { // outermost figure/table/image call that contains `line` (0: none)
+  const cand = []
+  for (let ln = line; ln >= 1; ln--) {
     const s = (lines[ln - 1] || '').trim()
-    if (/^=+\s/.test(s)) return 0
-    if (/^#(?:figure|table|image)\s*\(/.test(s)) return ln
+    if (/^=+\s/.test(s)) break
+    if (/^#(?:figure|table|image)\s*\(/.test(s)) cand.push(ln)
   }
+  for (let k = cand.length - 1; k >= 0; k--) if (line <= pvCallEnd(lines, cand[k])) return cand[k] // farthest open call wins
   return 0
 }
 function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call: its own caption names the page
@@ -898,8 +958,20 @@ function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call:
   if (!from) return null
   const to = pvCallEnd(lines, from)
   if (line > to) return null
-  for (let ln = from + 1; ln <= to; ln++)
-    if (/^caption\s*:/.test((lines[ln - 1] || '').trim())) return syncAnchor(lines, ln, pages, sec)
+  let cap = 0 // inside caption: [ … ] spanning lines: its text lines are the anchor
+  for (let ln = from; ln <= to; ln++) {
+    const s = (lines[ln - 1] || '').trim()
+    if (cap) {
+      const hit = syncAnchor(lines, ln, pages, sec)
+      if (hit) return hit
+      if (s.includes(']')) cap = 0
+      continue
+    }
+    if (!/(?:^|[\s,])caption\s*:/.test(s)) continue // same-line captions start on the opener itself
+    if (!s.includes(']')) cap = 1
+    const hit = syncAnchor(lines, ln, pages, sec)
+    if (hit) return hit
+  }
   return null
 }
 function syncNearHit(lines, line, pages, sec) { // blank/command lines still move the paper: next content for a command, the text above for a blank
@@ -921,13 +993,14 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   const cmd = pvCmdLine(lines[line - 1]) // #pagebreak()/#figure(: the next content
   return hint() || (cmd ? (fwd() || back()) : (back() || fwd()))
 }
-function syncToPv() {
-  if (!syncOn || !followAll || !docId || tplName || (activeFile && !window.changeSession)) return
+function syncToPv(force) { // force: explicit navigation (outline/find), works even with follow off
+  if (!syncOn || (!followAll && !force) || !docId || tplName || (activeFile && !window.changeSession)) return
   if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
-  const lines = getT().split('\n'), line = cm.state.doc.lineAt(syncView || cm.state.selection.main.head).number
-  syncView = 0
+  const lines = getT().split('\n'), at = syncView >= 0 ? syncView : cm.state.selection.main.head
+  const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, at))).number
+  syncView = -1
   const sec = pvSecAtLine(line)
   const hit = syncAnchor(lines, line, pvTexts, sec) || syncNearHit(lines, line, pvTexts, sec)
   if (!hit) { // no matching words: still show the section page, but never yank the preview out of it
@@ -981,7 +1054,7 @@ function cmGlide(pos) { // same rule as the preview: a real jump glides, a small
     else smoothFollow(sc, y)
   } catch (e) {}
 }
-function cmJump(pos, holdPv) { // smooth editor jump + brief line flash; holdPv: a preview click keeps the preview where it is
+function cmJump(pos, holdPv, forcePv) { // smooth editor jump + brief line flash; holdPv: a preview click keeps the preview where it is; forcePv: explicit navigation
   if (syncT) { clearTimeout(syncT); syncT = 0 } // the jump owns the next sync, no stale cursor target
   const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, pos)))
   const deco = Decoration.set([Decoration.line({ class: 'cm-syncLine' }).range(line.from)])
@@ -989,7 +1062,7 @@ function cmJump(pos, holdPv) { // smooth editor jump + brief line flash; holdPv:
   try { cm.dispatch({ selection: { anchor: Math.max(line.from, Math.min(line.to, pos)) }, effects: [setSyncLine.of(deco)] }) } finally { syncSkip = false }
   cm.focus()
   cmGlide(pos)
-  if (!holdPv) { syncView = 0; syncToPv() } // outline/find jump: both panes start their glide in the same frame
+  if (!holdPv) { syncView = -1; syncToPv(forcePv) } // outline/find jump: both panes start their glide in the same frame
   clearTimeout(syncFlashT)
   syncFlashT = setTimeout(() => { try { cm.dispatch({ effects: setSyncLine.of(Decoration.none) }) } catch (e) {} }, 850)
 }
@@ -1019,22 +1092,25 @@ function pvNearItems(items, x, y, sx, sy, skip) { // nearest readable text: a dr
     .sort((a, b) => a.d - b.d)
     .slice(0, 8)
 }
+function pvOlEq(pdfText, srcTitle) { // same heading; a numbering prefix on the PDF side is fine
+  const x = syncPlain(pdfText), y = syncPlain(srcTitle)
+  if (!x || !y) return false
+  return x === y || x.replace(/^(?:\d+(?:\s+\d+)*|[a-z]|[ivxlcdm]+)\s+/, '') === y
+}
 function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered #outline(): keep the cursor at the outline, not on a heading below
-  const lines = getT().split('\n')
-  const oi = lines.findIndex(l => /^\s*#outline\s*\(/.test(l))
-  if (oi < 0) return 0
-  const heads = lines.filter(l => /^=+\s/.test(l)).map(l => syncPlain(l.replace(/^=+\s+/, ''))).filter(Boolean)
+  const oi = srcOutlineLine(getT()) // real #outline( only: a fenced code sample is not the outline
+  if (!oi) return 0
+  const heads = srcHeadings(getT()).map(h => h.title).filter(Boolean)
   const pad = 12 // one blank line around an entry still belongs to the outline
   for (const L of pvLinks[pi] || []) {
     if (!L.dest) continue // external links are not outline entries
     const mid = (L.y0 + L.y1) / 2, hh = Math.max(6, (L.y1 - L.y0) / 2 + 2)
     const entry = items.some(it => {
       if (it.x0 >= L.x1 || it.x0 + it.w <= L.x0 || Math.abs(it.y - mid) > hh) return false
-      const t = syncPlain(it.s)
-      return t && heads.some(h => h.includes(t) || t.includes(h))
+      return heads.some(h => pvOlEq(it.s, h)) // exact heading, not a loose substring
     })
     if (!entry) continue
-    if (x >= L.x0 * sx - pad && x <= L.x1 * sx + pad && y >= L.y0 * sy - pad && y <= L.y1 * sy + pad) return oi + 1
+    if (x >= L.x0 * sx - pad && x <= L.x1 * sx + pad && y >= L.y0 * sy - pad && y <= L.y1 * sy + pad) return oi
   }
   return 0
 }

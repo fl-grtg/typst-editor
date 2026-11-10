@@ -4,9 +4,21 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const read = name => fs.readFileSync('web/js/' + name, 'utf8')
 const code = read('90-settings.js')
+const pvCode = read('50-preview.js')
+const syncSlice = code.slice(code.indexOf('function syncText'), code.indexOf('function syncToPv'))
+const pvSlice = pvCode.slice(pvCode.indexOf('function srcMask'), pvCode.indexOf('function pvSecAt'))
+const outlineSlice = code.slice(code.indexOf('function pvOlEq'), code.indexOf("$('preview').addEventListener('click'"))
 const ctx = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p } })
-vm.runInContext(code.slice(code.indexOf('function syncText'), code.indexOf('function syncToPv')), ctx)
+vm.runInContext(syncSlice, ctx)
 const page = texts => texts.map((s, y) => ({ s, y: y * 20, vh: 800 }))
+function outlineCtx(extra) { // real source parser + heading matcher, not stubs
+  const c = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p },
+    renderN: 1, pvOutline: [], pvOutlineGen: 1, ...extra })
+  vm.runInContext(syncSlice, c)
+  vm.runInContext(pvSlice, c)
+  vm.runInContext(outlineSlice, c)
+  return c
+}
 
 test('sync uses the complete heading rather than a shared word', () => {
   const pages = [page(['A: Ziel', 'B: Materialien & Chemikalien', 'D: Beobachtung', 'E: Erklärung & Auswertung'])]
@@ -46,13 +58,10 @@ test('lines inside a figure call stay on the caption page', () => {
   assert.equal(ctx.syncNearHit(lines, 4, pages, { page: 0, endPage: 1, endLine: 10 }).pi, 1)
 })
 test('blank clicks around a rendered outline keep the outline line', () => {
-  const src = read('90-settings.js')
-  const c = vm.createContext({
+  const c = outlineCtx({
     pvLinks: [[{ x0: 10, y0: 100, x1: 300, y1: 116, dest: { page: 1 } }]],
     getT: () => '#outline()\n\n= Alpha\n\nText\n\n#pagebreak()\n\n= Beta\n',
-    syncPlain: t => String(t).toLowerCase(),
   })
-  vm.runInContext(src.slice(src.indexOf('function pvOutlineClick'), src.indexOf("$('preview').addEventListener('click'")), c)
   const items = [{ s: 'Alpha', x0: 20, y: 108, w: 40 }]
   assert.equal(c.pvOutlineClick(0, items, 30, 124, 1, 1), 1) // one blank line below the entry
   assert.equal(c.pvOutlineClick(0, items, 30, 160, 1, 1), 0) // body text below the block
@@ -60,20 +69,30 @@ test('blank clicks around a rendered outline keep the outline line', () => {
   assert.equal(c.pvOutlineClick(1, items, 30, 124, 1, 1), 0) // page without outline links
 })
 test('an outline test per entry never covers the blank space up to a body link', () => {
-  const src = read('90-settings.js')
-  const c = vm.createContext({
+  const c = outlineCtx({
     pvLinks: [[
       { x0: 10, y0: 100, x1: 300, y1: 116, dest: { page: 0 } }, // outline entry
       { x0: 10, y0: 400, x1: 300, y1: 416, dest: { page: 1 } }, // body link with the same title
     ]],
     getT: () => '#outline()\n\n= Alpha\n\n#link(<alpha>)[Alpha]\n',
-    syncPlain: t => String(t).toLowerCase(),
   })
-  vm.runInContext(src.slice(src.indexOf('function pvOutlineClick'), src.indexOf("$('preview').addEventListener('click'")), c)
   const entry = [{ s: 'Alpha', x0: 20, y: 108, w: 40 }]
   const body = [{ s: 'Alpha', x0: 20, y: 408, w: 40 }]
   assert.equal(c.pvOutlineClick(0, entry, 30, 124, 1, 1), 1) // blank line under the outline entry
   assert.equal(c.pvOutlineClick(0, body, 30, 300, 1, 1), 0) // between outline and body link: no union
+})
+test('a body link sharing only a word with a heading is not an outline entry', () => {
+  const c = outlineCtx({
+    pvLinks: [[{ x0: 10, y0: 400, x1: 300, y1: 416, dest: { page: 1 } }]],
+    getT: () => '#outline()\n\n= Introduction\n\n#link(<x>)[Intro]\n',
+  })
+  assert.equal(c.pvOutlineClick(0, [{ s: 'Intro', x0: 20, y: 408, w: 40 }], 30, 402, 1, 1), 0)
+})
+test('outline detection ignores fenced code and comments', () => {
+  const c = outlineCtx({})
+  const t = ['```typst', '#outline()', '= Fake heading', '```', '', '/* #outline()', '= Also fake */', '', '= Real heading', '', '#outline()'].join('\n')
+  assert.deepEqual(Array.from(c.srcHeadings(t), h => [h.line, h.title]), [[9, 'Real heading']])
+  assert.equal(c.srcOutlineLine(t), 11)
 })
 test('brackets inside block comments or strings do not end a figure early', () => {
   const lines = ['#figure(', '  /* ) ] /* still */ ) */', '  "a ) string",', '  box[rect()],', '  caption: [Panel layout note.],', ')']
@@ -81,6 +100,76 @@ test('brackets inside block comments or strings do not end a figure early', () =
   const pages = [page(['Figure 1: Panel layout note.'])]
   assert.equal(ctx.pvFigureHint(lines, 4, pages).pi, 0)
   assert.equal(ctx.syncNearHit(lines, 4, pages).pi, 0)
+})
+test('URLs do not start a comment that swallows the closing bracket', () => {
+  const lines = ['#figure(', '  image("x.png"),', '  caption: [See https://example.com],', ')', '', '#pagebreak()', '', '= Next page', 'Body.']
+  assert.equal(ctx.pvCallEnd(lines, 1), 4)
+  const pages = [page(['Figure 1: See https://example.com']), page(['Next page', 'Body.'])]
+  assert.equal(ctx.syncNearHit(lines, 6, pages).pi, 1)
+})
+test('raw text and escapes stay text inside a call', () => {
+  const raw = ['#figure(', '  image("x.png"),', '  body: [`a ) b`],', '  caption: [Bars],', ')']
+  assert.equal(ctx.pvCallEnd(raw, 1), 5)
+  const esc = ['#figure(', '  box[escaped \\) bracket],', '  caption: [Escaped.],', ')']
+  assert.equal(ctx.pvCallEnd(esc, 1), 4)
+  const pages = [page(['Figure 1: Bars'])]
+  assert.equal(ctx.pvFigureHint(raw, 3, pages).pi, 0)
+})
+test('a short caption on the figure opener still names its page', () => {
+  const lines = ['= Chart', '#pagebreak()', '#figure(image("x.png"), caption: [Bars])']
+  const pages = [page(['Chart']), page(['Figure 1: Bars'])]
+  assert.equal(ctx.syncNearHit(lines, 3, pages).pi, 1)
+})
+test('caption text on its own line names the figure page', () => {
+  const lines = ['#figure(', '  box[rect()],', '  caption: [', '    Bars chart.', '  ],', ')']
+  const pages = [page(['Figure 1: Bars chart.'])]
+  assert.equal(ctx.pvFigureHint(lines, 2, pages).pi, 0)
+})
+test('the outermost open figure owns a nested table', () => {
+  const lines = ['#figure(', '  table(', '    [A], [B],', '    caption: [Inner table.],', '  ),', '  caption: [Outer figure.],', ')']
+  assert.equal(ctx.pvFigureStart(lines, 3), 1)
+  assert.equal(ctx.pvCallEnd(lines, 1), 7)
+})
+test('comparisons survive label stripping while real labels disappear', () => {
+  assert.equal(ctx.syncPlain('if a < b and c > d then'), 'if a b and c d then')
+  assert.equal(ctx.syncPlain('$a < b > c$'), 'a b c')
+  assert.equal(ctx.syncPlain('see <fig:chart> and <tab:x>'), 'see and')
+})
+test('source headings skip raw blocks, comments and inline markup', () => {
+  const c = outlineCtx({})
+  const t = ['= #link("x")[Quelle]', '', '```typst', '= Fake', '```', '', '/* = Also fake */', '= **Bold** real'].join('\n')
+  assert.deepEqual(Array.from(c.srcHeadings(t), h => h.title), ['#link("x")[Quelle]', '**Bold** real'])
+  assert.equal(c.syncShow('**Bold** real'), 'Bold real')
+})
+test('outline matching tolerates template numbering and inline markup', () => {
+  const c = outlineCtx({ pvOutline: [{ title: '1.2 Einleitung', page: 0 }, { title: 'A. Anhang', page: 1 }, { title: 'A Brief History', page: 2 }] })
+  assert.equal(c.pvOlMatch('Einleitung', 0), 0)
+  assert.equal(c.pvOlMatch('Anhang', 1), 1)
+  assert.equal(c.pvOlMatch('A Brief History', 2), 2)
+  assert.equal(c.pvOlMatch('#link("x")[Quelle]', 0), -1)
+  c.pvOutlineGen = 0 // outline of an older render: no pages it could honestly give
+  assert.equal(c.pvOlMatch('Einleitung', 0), -1)
+})
+test('section interpolation reaches the next heading at the last page', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvPageHint'), code.indexOf('function pvCanvasList')), c)
+  assert.equal(c.pvPageHint(1, 21, 3, { sec: { line: 1, page: 0 }, next: { line: 21, page: 2 } }, 1), 20) // last line before the next heading
+  assert.equal(c.pvPageHint(0, 11, 2, { sec: { line: 1, page: 0 }, next: { line: 11, page: 1 } }, 1), 10)
+})
+test('word offsets follow NFKC-normalized math glyphs', () => {
+  const words = ctx.syncWords('$𝐸 = mc^2$ text here')
+  assert.equal(words.find(w => w.w === 'e').at, 1) // the math variable, not the e in "text"
+})
+test('a line-break hyphen still finds its source word', () => {
+  const t = 'Hyphenation is long.'
+  assert.equal(ctx.syncNeedleAt(t, 'Hyphen-', 1, 0), 0)
+})
+test('multi-line set/show commands are commands, not text anchors', () => {
+  assert.equal(ctx.pvCmdLine('#set page('), true)
+  assert.equal(ctx.pvCmdLine('#set page(margin: 2cm)'), true)
+  assert.equal(ctx.pvCmdLine('#let x = 1'), true)
+  assert.equal(ctx.pvCmdLine('#show heading.where(level: 1): it => [Hi]'), false)
+  assert.equal(ctx.pvCmdLine('normal prose'), false)
 })
 test('a figure without a caption never borrows the next caption', () => {
   const lines = ['= Chart', '#figure(', '  box[rect()],', ')', '', '#figure(', '  box[circle()],', '  caption: [Next figure.],', ')']

@@ -1,6 +1,6 @@
 // --- Typst preview: main file + uploads as shadow files in compiler ---
 let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // text anchors per page: click hits exact (tables too)
-let pvLinks = [], pvOutline = [] // PDF layer: link boxes per page (viewport units) + outline with resolved pages
+let pvLinks = [], pvOutline = [], pvOutlineGen = -1 // PDF layer: link boxes per page (viewport units) + outline with resolved pages + render generation it belongs to
 let cmpWarns = [] // compiler warnings of the last good render (shown as yellow marks, never block)
 let cmpWait = 0, lastInfra = false // compiler missing / last render infra error (watchdog heals)
 const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived (exports only; preview compiles in the worker below)
@@ -417,7 +417,10 @@ async function pvDraw(slot, doc, id, detached) { // rasterize one slot (backing 
     pvPaintLinks(slot, p - 1)
     try { pvTextDone[p - 1] = true } catch (e) {}
     slot.dataset.done = '1'
-  } finally { delete slot.dataset.busy }
+  } finally {
+    delete slot.dataset.busy
+    if (slot.isConnected) pvSweep() // a draw that finished after its page left the buffer still frees its backing
+  }
 }
 function pvEvict(slot) { // free backing of far pages (slot keeps layout, text anchors stay for sync)
   if (!slot.dataset.done || slot.dataset.busy) return
@@ -507,8 +510,17 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
   slot.appendChild(box)
 }
 const scrollAnims = new WeakMap() // one animation per element: a jump and a follow never fight
+const selfTops = new WeakMap() // last scrollTop this app wrote per element (editor and preview)
 let pvSelfTop = -1 // last preview scrollTop this app wrote: a user scroll differs and moves the editor
-function pvSelfWrite(el) { if (el && el.id === 'preview') pvSelfTop = el.scrollTop }
+function pvSelfWrite(el) {
+  if (!el) return
+  selfTops.set(el, el.scrollTop)
+  if (el.id === 'preview') pvSelfTop = el.scrollTop
+}
+function smoothWrote(el) { // a scroll event caused by our own glide/follow, not by the reader
+  const t = selfTops.get(el)
+  return t != null && Math.abs((el.scrollTop || 0) - t) < 2
+}
 function smoothStop(el) {
   const a = scrollAnims.get(el)
   if (a) { cancelAnimationFrame(a.raf); scrollAnims.delete(el) }
@@ -523,6 +535,7 @@ function smoothScroll(el, y) { // jump: quintic in-out, one fixed duration so ed
   try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
   const from = el.scrollTop, dy = target - from
   if (calm || Math.abs(dy) < 1) { el.scrollTop = target; pvSelfWrite(el); return }
+  pvSelfWrite(el) // mark the start: a scroll event still in flight from before must not stop this animation
   const dur = 320, t0 = performance.now(), a = { jump: true, target, raf: 0 }
   const step = now => {
     const k = Math.min(1, (now - t0) / dur)
@@ -544,6 +557,7 @@ function smoothFollow(el, y) { // cursor/scroll follow: new targets keep positio
   if (a && a.follow) { a.target = target; return }
   smoothStop(el)
   if (Math.abs(target - el.scrollTop) < 1) { el.scrollTop = target; pvSelfWrite(el); return }
+  pvSelfWrite(el) // mark the start: a scroll event still in flight from before must not stop this follow
   a = { follow: true, target, v: 0, t: performance.now(), omega: 28, raf: 0 }
   const step = now => {
     const dt = Math.max(0.001, Math.min(0.05, (now - a.t) / 1000))
@@ -599,27 +613,49 @@ async function pvLoadOutline(doc, id) { // bookmarks with pages: the honest anch
   await walk(root, 0)
   if (id !== renderN) return
   pvOutline = out
+  pvOutlineGen = id // sync only trusts the outline of the render that is on screen
   try { paintOutline() } catch (e) {} // sidebar badges follow the PDF, not the cursor
 }
-function pvOlNorm(s) { return syncText(String(s).replace(/<[^>]*>/g, ' ')).replace(/^\d+(\s+\d+)*\s*/, '') } // heading text: no labels, no "1.2 "
-function pvOlMatch(text, from) { // PDF bookmark index for a source heading, in document order; -1: not in the outline
-  if (!pvOutline.length) return -1
+function srcMask(t) { // document with raw blocks and comments blanked (newlines kept): structure regexes only see real markup
+  return String(t)
+    .replace(/```[\s\S]*?```/g, m => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '))
+    .replace(/`[^`\n]*`/g, m => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, m => m.replace(/[^\n]/g, ' '))
+}
+function srcHeadings(t) { // source headings outside raw blocks/comments (line, level, raw title)
+  const lines = String(t).split('\n'), mask = srcMask(t).split('\n'), out = []
+  for (let i = 0; i < lines.length && i < mask.length; i++) {
+    const m = mask[i].match(/^(=+)\s+/)
+    if (m) out.push({ line: i + 1, level: m[1].length, title: lines[i].slice(m[0].length) })
+  }
+  return out
+}
+function srcOutlineLine(t) { // line of a real #outline( call outside raw/code (0: none)
+  const i = srcMask(t).split('\n').findIndex(s => /#outline\s*\(/.test(s))
+  return i < 0 ? 0 : i + 1
+}
+function pvOlNorm(s) { return syncPlain(String(s)).replace(/^\d+(?:\s+\d+)*\s+/, '') } // heading text: no labels/markup, no "1.2 "
+function pvOlBare(s) { return pvOlNorm(s).replace(/^(?:\d+(?:\s+\d+)*|[a-z]|[ivxlcdm]+)\s+/, '') } // also letters/roman: template numbering
+function pvOlMatch(text, from, anyGen) { // PDF bookmark index for a source heading, in document order; -1: not in the outline
+  if (!pvOutline.length || (!anyGen && pvOutlineGen !== renderN)) return -1
   const want = pvOlNorm(text)
   if (!want) return -1
   for (let k = from; k < pvOutline.length; k++) if (pvOlNorm(pvOutline[k].title) === want) return k
+  const bare = pvOlBare(text)
+  for (let k = from; k < pvOutline.length; k++) if (bare && pvOlBare(pvOutline[k].title) === bare) return k
   return -1
 }
 function pvSections() { // source heading line -> PDF page, in document order (the anchor chain)
+  if (pvOutlineGen !== renderN) return [] // outline of an older render: no pages it could honestly give
   const out = []
   let at = 0
-  getT().split('\n').forEach((ln, i) => {
-    const m = ln.match(/^(=+)\s+(.+)$/)
-    if (!m) return
-    const k = pvOlMatch(m[2], at)
-    if (k < 0) return
+  for (const h of srcHeadings(getT())) {
+    const k = pvOlMatch(h.title, at)
+    if (k < 0) continue
     at = k + 1
-    out.push({ line: i + 1, page: pvOutline[k].page, title: m[2] })
-  })
+    out.push({ line: h.line, page: pvOutline[k].page, title: h.title })
+  }
   return out
 }
 function pvSecAt(page) { // preview page -> section start + the next section (both may be null)
@@ -816,8 +852,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     preview.scrollTop = st
     pvSelfWrite(preview)
     scrollApplyPreview() // fallback render of a reopened doc: back to its saved page + offset
-    pvOutline = []
-    pvLoadOutline(doc, id).catch(() => {})
+    pvLoadOutline(doc, id).catch(() => {}) // badges keep the last outline until the new one is ready
     clearErr() // running again: clear marks
     lastInfra = false
   } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
