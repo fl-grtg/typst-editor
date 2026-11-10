@@ -278,10 +278,31 @@ test('a short label run never jumps past the matched caption', () => {
 })
 test('click column maps to the start of the clicked word', () => {
   const c = vm.createContext({})
-  vm.runInContext(code.slice(code.indexOf('function pvClickCol'), code.indexOf("$('preview').addEventListener('click'")), c)
+  vm.runInContext(code.slice(code.indexOf('function pvCharW'), code.indexOf("$('preview').addEventListener('click'")), c)
   const item = { s: 'Die erste Methode sammelt', x0: 0, w: 100, vw: 100 }
   assert.equal(c.pvClickCol(item, 5, 100, 100), 0) // "Die"
   assert.equal(c.pvClickCol(item, 50, 100, 100), 10) // "Methode"
+  assert.equal(c.pvClickCol(item, 34, 100, 100), 4) // end of "erste": the word the reader finished, not 0
+  assert.equal(c.pvClickCol(item, 36, 100, 100), 10) // just inside "Methode"
+  assert.equal(c.pvClickCol(item, 68, 100, 100), 18) // space after "Methode": the next word, not the line start
+  assert.equal(c.pvClickCol(item, 120, 100, 100), 18) // past the line end: the last word
+})
+test('click column follows the rendered pixels of a justified line', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvCharW'), code.indexOf("$('preview').addEventListener('click'")), c)
+  const img = { width: 100, height: 10, data: new Uint8ClampedArray(100 * 10 * 4) }
+  for (const [a, b] of [[2, 10], [60, 68], [90, 98]]) for (let x = a; x <= b; x++) for (let y = 0; y < 10; y++) {
+    const i = (y * 100 + x) * 4
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = 0
+    img.data[i + 3] = 255
+  }
+  const cv = { width: 100, height: 100, getContext: () => ({ getImageData: () => img }) }
+  const item = { s: 'aa bb cc', x0: 0, w: 100, vw: 100, y: 0, h: 10, vh: 100 }
+  assert.equal(c.pvClickCol(item, 4, 100, 100, cv), 0) // "aa"
+  assert.equal(c.pvClickCol(item, 12, 100, 100, cv), 0) // just past "aa": still "aa"
+  assert.equal(c.pvClickCol(item, 64, 100, 100, cv), 3) // stretched space: pixels say "bb", the char guess says "cc"
+  assert.equal(c.pvClickCol(item, 70, 100, 100, cv), 3) // space after "bb" closer to "bb"
+  assert.equal(c.pvClickCol(item, 85, 100, 100, cv), 6) // wide space closer to "cc"
 })
 test('caption prefixes and table rows become needles the source can match', () => {
   const c = vm.createContext({})

@@ -49,6 +49,12 @@ def _line(page) -> int:
     return int(m.group(1))
 
 
+def _col(page) -> int:
+    m = re.match(r"Ln \d+:(\d+)", page.locator("#pos").inner_text())
+    assert m, "status line has no column"
+    return int(m.group(1))
+
+
 def _ready(page, headings: int) -> None:
     expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
     expect(page.locator("#ol .pg")).to_have_count(headings, timeout=PREVIEW_TIMEOUT)  # anchor chain + links ready
@@ -69,6 +75,27 @@ def test_click_preview_lands_in_the_clicked_section(page):
     body.click(position={"x": 400, "y": 500})  # blank second page: nearest readable text stays in the section
     page.wait_for_function("() => /^Ln [789]:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
     assert 7 <= _line(page) <= 9
+
+
+def test_click_columns_stay_on_the_words_of_a_justified_line(page):
+    register(page, "e2e_click_col")
+    create_doc(page, "Click column doc")
+    para = ("Die erste Methode sammelt alle Werte und vergleicht sie danach mit dem "
+            "gespeicherten Ergebnis der letzten Runde. ") * 3
+    type_source(page, "#set par(justify: true)\n\n= Alpha\n\n" + para.strip() + "\n")
+    _ready(page, 1)
+    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+    assert box
+    y = box["y"] + box["height"] * 0.5  # blank space below the paragraph: its lines still own the column
+    cols = []
+    for fx in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        page.mouse.click(box["x"] + box["width"] * fx, y)
+        page.wait_for_timeout(600)
+        assert _line(page) == 5, "a blank click left the paragraph"
+        col = _col(page)
+        assert col > 1 and para[col - 1] != " " and para[col - 2] == " ", f"click at {fx} missed a word start"
+        cols.append(col)
+    assert len(set(cols)) >= 3, f"clicks kept one column: {cols}"
 
 
 def test_follow_toggle_keeps_the_preview_still_but_clicks_still_jump(page):

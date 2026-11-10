@@ -1084,15 +1084,71 @@ function cmJump(pos, holdPv, forcePv) { // smooth editor jump + brief line flash
 }
 function jumpPos(pos) { cmJump(pos, true) } // preview click: editor glides, the preview stays put
 
-function pvClickCol(it, x, cssW, baseW) { // click x -> word start inside the PDF text item (no line starts anymore)
+function pvCharW(c) { // rough proportional widths: a straight character count picks the neighbour word
+  if (c === ' ') return 0.25
+  if ('iljtf'.includes(c)) return 0.3
+  if ('mwMW'.includes(c)) return 0.8
+  if (c >= 'A' && c <= 'Z') return 0.65
+  if (c >= '0' && c <= '9') return 0.5
+  if (".,;:!|'’".includes(c)) return 0.25
+  if ('()[]'.includes(c)) return 0.33
+  return 0.5
+}
+function pvTextW(s) { let w = 0; for (const c of s) w += pvCharW(c); return w }
+function pvPxWords(cv, it) { // word boxes from the rendered page: justified spaces are wider than any width guess
+  try {
+    const n = (it.s || '').trim().split(/\s+/).length, ctx = n && cv.getContext ? cv.getContext('2d') : null
+    if (!ctx) return null
+    const px = cv.width / (it.vw || cv.width), py = cv.height / (it.vh || cv.height)
+    const x0 = Math.max(0, Math.floor(it.x0 * px)), x1 = Math.min(cv.width, Math.ceil((it.x0 + it.w) * px))
+    const y0 = Math.max(0, Math.floor((it.y - (it.h || 10) / 2) * py)), y1 = Math.min(cv.height, Math.ceil((it.y + (it.h || 10) / 2) * py))
+    if (x1 - x0 < 2 || y1 - y0 < 2) return null
+    const img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0), W = img.width, H = img.height, d = img.data, ink = new Uint8Array(W)
+    for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) {
+      const i = (y * W + x) * 4
+      if (d[i + 3] > 24 && 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] < 190) { ink[x] = 1; break }
+    }
+    const runs = []
+    for (let x = 0; x < W; x++) {
+      const last = runs[runs.length - 1]
+      if (!ink[x]) continue
+      if (last && last[1] === x - 1) last[1] = x
+      else runs.push([x, x])
+    }
+    if (runs.length < n) return null // touching letters: no honest word boxes left
+    while (runs.length > n) { // merge the narrowest gap: a letter gap, never a word space
+      let g = 0
+      for (let i = 1; i < runs.length; i++) if (runs[i][0] - runs[i - 1][1] < runs[g + 1][0] - runs[g][1]) g = i - 1
+      runs[g][1] = runs[g + 1][1]
+      runs.splice(g + 1, 1)
+    }
+    return runs.map(r => [x0 + r[0], x0 + r[1]])
+  } catch (e) { return null }
+}
+function pvClickCol(it, x, cssW, baseW, cv) { // click x -> the clicked word, not the line start
   const raw = it.s || '', body = raw.trim()
   if (!body) return 0
+  const words = [...body.matchAll(/\S+/g)]
+  const boxes = cv && !/[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(body) ? pvPxWords(cv, it) : null
+  if (boxes) { // rendered pixels: exact word edges, even across justified spaces
+    const at = x * (cv.width / cssW), d = boxes.map(b => at < b[0] ? b[0] - at : at > b[1] ? at - b[1] : 0)
+    let best = 0
+    for (let i = 1; i < d.length; i++) if (d[i] < d[best]) best = i // ties go left: the end of a word belongs to it
+    return words[best].index
+  }
   const scale = cssW / (it.vw || baseW || 1), w = (it.w || 0) * scale
   if (w <= 0) return 0
   const lead = raw.length - raw.trimStart().length
-  const ci = Math.max(0, Math.min(body.length - 1, Math.round((x - (it.x0 || 0) * scale) / w * raw.length) - lead))
-  const m = [...body.matchAll(/\S+/g)].find(m => ci >= m.index && ci < m.index + m[0].length)
-  return m ? m.index : 0
+  const at = (x - (it.x0 || 0) * scale) / w * pvTextW(raw) // estimate when the canvas was evicted
+  let cum = 0, best = 0, bd = Infinity
+  for (let i = 0; i < raw.length;) {
+    if (/\s/.test(raw[i])) { cum += pvCharW(raw[i]); i++; continue }
+    const from = i, begin = cum
+    while (i < raw.length && !/\s/.test(raw[i])) { cum += pvCharW(raw[i]); i++ }
+    const d = at < begin ? begin - at : at > cum ? at - cum : 0
+    if (d < bd) { bd = d; best = from - lead }
+  }
+  return best
 }
 function pvItemDist(it, x, y, sx, sy) { // CSS distance to the text box, never to its center: long lines stay clickable everywhere
   const x0 = (it.x0 || 0) * sx, x1 = x0 + (it.w || 0) * sx
@@ -1188,12 +1244,13 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     const file0 = activeFile
     if (best) {
       const hint = hintAt(yv)
-      const col = pvClickCol(best, x, r.width, cv.width)
+      const col = pvClickCol(best, x, r.width, cv.width, cv)
       if (await pvJumpBest(pvClickNeedles(items, best, col), hint, pi, best)) return
     }
     if (!best || activeFile === file0) { // clicked text missed: try the nearest readable text in this file
       for (const { it: near } of pvNearItems(items, x, y, sx, sy, best)) {
-        if (pvJumpHere(pvClickNeedles(items, near, 0), hintAt(near.y), pi, near)) return
+        const col = pvClickCol(near, x, r.width, cv.width, cv) // blank space above/below a line still has a word column
+        if (pvJumpHere(pvClickNeedles(items, near, col), hintAt(near.y), pi, near)) return
       }
     }
     syncPage = pi >= 0 ? pi : syncPage // even without hit: next sync starts on click page
