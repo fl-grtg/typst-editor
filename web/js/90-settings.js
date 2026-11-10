@@ -610,7 +610,7 @@ function syncToEd() {
   const vh = pvTexts[pi][0].vh || 1
   const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
   const items = pvTexts[pi], vw = items[0].vw || 1
-  const near = pvNearItems(items, vw / 2, frac * vh, 1, 1, null).filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95).slice(0, 3) // no running header/footer
+  const near = pvNearItems(items, vw / 2, frac * vh, 1, 1, null).filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95).slice(0, 8) // no running header/footer; single letters must not crowd out the text
   for (const { it } of near) { // real text under the reading point: exact, even inside large figures
     const pos = pvHerePos(pvClickNeedles(items, it, 0), line, pi, it)
     if (pos < 0) continue
@@ -644,7 +644,7 @@ function pvCanvasList() { // virtual slots first, fallback bare canvases
   return [...pv.querySelectorAll('canvas')]
 }
 function pvVerify(t, at, s) { // context must contain the click word: longest token guards short cells
-  const um = (t || '').slice(Math.max(0, at - 80), at + 80)
+  const um = (t || '').slice(Math.max(0, at - 80), at + s.length + 80) // a block needle's long word can sit far from its start
   const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
   return w.length < 4 || um.includes(w) || um.includes(s.trim())
 }
@@ -730,7 +730,7 @@ function pvBlockLines(items, it) { // paragraph around the click: same left edge
     && Math.abs((o.x0 || 0) - x) < 1 && Math.abs((o.h || 0) - h) < 3).sort((a, b) => a.y - b.y)
   const i = same.indexOf(it)
   if (i < 0) return [it]
-  const step = (a, b) => { const dy = (b.y || 0) - (a.y || 0); return dy > 1 && dy <= h * 1.5 }
+  const step = (a, b) => { const dy = (b.y || 0) - (a.y || 0); return dy > 1 && dy <= h * 1.8 } // generous leading still one paragraph
   let a = i, b = i
   while (a > 0 && step(same[a - 1], same[a])) a--
   while (b < same.length - 1 && step(same[b], same[b + 1])) b++
@@ -739,12 +739,15 @@ function pvBlockLines(items, it) { // paragraph around the click: same left edge
 function pvBlockNeedle(items, it, col) { // whole paragraph: a wrapped, repeated line is ambiguous on its own
   const block = pvBlockLines(items, it)
   if (block.length < 2) return null
-  let s = '', off = 0
+  let s = '', off = 0, soft = false
   for (const o of block) {
     const t = String(o.s || '').trim()
     if (!t) continue
-    if (o === it) off = s.length + (s ? 1 : 0) + (col || 0)
-    s += (s ? ' ' : '') + t
+    if (s && soft) s = s.slice(0, -1) // line-break hyphen: the source word continues on the next line
+    const sep = s && !soft ? 1 : 0
+    if (o === it) off = s.length + sep + (col || 0)
+    s += (sep ? ' ' : '') + t
+    soft = /[-\u2010\u00ad]$/.test(t)
   }
   const cut = pvCaptionCut(s)
   return { s: s.slice(cut), off: Math.max(0, off - cut) }
