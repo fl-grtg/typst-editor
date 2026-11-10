@@ -127,3 +127,49 @@ def test_chart_clicks_land_on_the_caption_not_on_a_heading(page):
     for fx, fy in [(.371, .158), (.374, .089), (.377, .142), (.503, .176), (.622, .143)]:
         page.mouse.click(box["x"] + box["width"] * fx, box["y"] + box["height"] * fy)
         page.wait_for_function("() => /^Ln 104:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+
+
+def test_click_above_the_first_heading_lands_on_the_document_top(page):
+    register(page, "e2e_click_top")
+    create_doc(page, "Click top doc")
+    type_source(page, """#outline()
+
+= Alpha
+
+Alpha body.
+
+#pagebreak()
+
+= Beta
+
+Beta body.
+""")
+    _ready(page, 2)
+    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")  # page top in view
+    page.wait_for_timeout(700)
+    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+    assert box
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + 6)  # top margin above the generated contents
+    page.wait_for_function("() => /^Ln 1:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+
+
+def test_scrolling_up_after_a_page_bottom_click_keeps_the_editor_view(page):
+    register(page, "e2e_click_scrollup")
+    create_doc(page, "Click scroll up doc")
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+A")
+    assert page.evaluate("(t) => document.execCommand('insertText', false, t)", CHART_SOURCE)
+    expect(page.locator('#preview .pvPage[data-page="2"][data-done] canvas')).to_be_visible(timeout=PREVIEW_TIMEOUT)
+    page.evaluate("() => { document.getElementById('preview').scrollTop = 600 }")  # page 2 owns the viewport center
+    page.wait_for_timeout(900)
+    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+    assert box
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] - 10)  # bottom of page 1: the table caption
+    page.wait_for_timeout(900)
+    assert 52 <= _line(page) <= 58, "the click should land on the table caption at the end of page 1"
+    before = page.locator("#cm .cm-scroller").evaluate("el => el.scrollTop")
+    page.mouse.wheel(0, -100)  # reader scrolls up: the editor view must not jump down
+    page.wait_for_timeout(900)
+    after = page.locator("#cm .cm-scroller").evaluate("el => el.scrollTop")
+    assert after <= before + 30, f"scroll up moved the editor down: {before} -> {after}"
+

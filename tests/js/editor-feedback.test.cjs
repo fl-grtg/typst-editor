@@ -308,7 +308,7 @@ test('preview heading clicks resolve the matching source section on the same pag
   const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
   const jumps = []
   const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
-  vm.runInContext(code.slice(code.indexOf('function pvJumpHere'), code.indexOf('function syncToPv')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvHerePos'), code.indexOf('function syncToPv')), c)
   assert.equal(await c.pvJumpBest([{ s: 'D: Beobachtung', off: 0 }], 1, 0, pages[0][3]), true)
   const start = lines.slice(0, 3).join('\n').length + 1
   assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers

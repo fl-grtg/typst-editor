@@ -567,6 +567,7 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
   } catch (e) {}
 }
 let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = -1 // click sync editor<->preview, last hit page, scroll-follow pos (-1: use cursor)
+let syncEdOff = 0 // preview click point relative to the viewport center: scroll-follow starts where the reader clicked
 let followAll = true // true: cursor/scroll/jumps move the preview; false: only a click syncs
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
 try { const s = localStorage.getItem('typst_follow_all'); if (s === '0' || s === '1') followAll = s === '1' } catch (e) {}
@@ -602,12 +603,17 @@ function syncToEd() {
   if (!followAll || !syncOn || !docId || tplName || activeFile) return
   const pv = $('preview')
   if (!pv.clientHeight || document.body.classList.contains('editonly')) return
-  const pi = pvViewPage(pv), slot = pi >= 0 ? pv.querySelectorAll('.pvPage')[pi] : null
+  const pi = pvViewPage(pv, syncEdOff), slot = pi >= 0 ? pv.querySelectorAll('.pvPage')[pi] : null
   if (!slot || !(pvTexts[pi] || []).length) return
   const pr = pv.getBoundingClientRect(), sr = slot.getBoundingClientRect()
-  const frac = Math.max(0, Math.min(1, (pr.top + pv.clientHeight / 2 - sr.top) / (sr.height || 1)))
+  const frac = Math.max(0, Math.min(1, (pr.top + pv.clientHeight / 2 + syncEdOff - sr.top) / (sr.height || 1)))
   const vh = pvTexts[pi][0].vh || 1
   const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
+  const items = pvTexts[pi], vw = items[0].vw || 1
+  for (const { it } of pvNearItems(items, vw / 2, frac * vh, 1, 1, null).slice(0, 3)) { // real text under the reading point: exact, even inside large figures
+    const pos = pvHerePos(pvClickNeedles(items, it, 0), line, pi, it)
+    if (pos >= 0) { smoothFollow(cm.scrollDOM, cmTop(pos)); return }
+  }
   smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
 }
 try { $('preview').addEventListener('scroll', () => { // reader scroll: the editor view moves along
@@ -639,7 +645,7 @@ function pvVerify(t, at, s) { // context must contain the click word: longest to
   const w = (s.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] || '')
   return w.length < 4 || um.includes(w) || um.includes(s.trim())
 }
-function pvJumpHere(needles, hint, pi, anchor) { // current file: exact word first, then the clicked word of a reflowed run
+function pvHerePos(needles, hint, pi, anchor) { // source position of the best needle in the current file; -1: none
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
   const cur = activeFile || ''
   for (const nd of list) {
@@ -658,18 +664,23 @@ function pvJumpHere(needles, hint, pi, anchor) { // current file: exact word fir
         pos += text.length + 1
       })
       matches.sort((a, b) => a.distance - b.distance)
-      if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) {
-        syncPage = pi; jumpPos(matches[0].pos); return true
-      }
+      if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) return matches[0].pos
       if (matches.length > 1) continue
     }
     const atCur = locateNear(getT(), s, hint)
-    if (atCur >= 0 && pvVerify(getT(), atCur, s)) { syncPage = pi; jumpPos(atCur + off); return true }
+    if (atCur >= 0 && pvVerify(getT(), atCur, s)) return atCur + off
     const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
     const atNorm = syncNeedleAt(getT(), s, hint, wi)
-    if (atNorm >= 0) { syncPage = pi; jumpPos(atNorm); return true }
+    if (atNorm >= 0) return atNorm
   }
-  return false
+  return -1
+}
+function pvJumpHere(needles, hint, pi, anchor) { // current file: exact word first, then the clicked word of a reflowed run
+  const pos = pvHerePos(needles, hint, pi, anchor)
+  if (pos < 0) return false
+  syncPage = pi
+  jumpPos(pos)
+  return true
 }
 async function pvJumpBest(needles, hint, pi, anchor) { // current file, else the unique owner, else stay
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
@@ -893,8 +904,8 @@ function pvRuns(text) { // 6..3 word runs, 12+ chars: lines with inline markup s
     }
   return out
 }
-function pvViewPage(pv) { // page at the viewport center: what the reader is actually looking at
-  const pr = pv.getBoundingClientRect(), mid = pr.top + pv.clientHeight / 2
+function pvViewPage(pv, off) { // page at the reading point: viewport center, shifted to the last preview click
+  const pr = pv.getBoundingClientRect(), mid = pr.top + pv.clientHeight / 2 + (off || 0)
   const slots = pv.querySelectorAll('.pvPage')
   for (let k = 0; k < slots.length; k++) if (slots[k].getBoundingClientRect().bottom > mid) return k
   return -1
@@ -1015,6 +1026,7 @@ function syncToPv(force) { // force: explicit navigation (outline/find), works e
   const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
+  syncEdOff = 0 // the preview centers the cursor target: the reading point is the center again
   const dy = want - pv.scrollTop
   if (Math.abs(dy) > 300) smoothScroll(pv, want) // a page jump gets the long in-out handles
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
@@ -1028,6 +1040,7 @@ function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the 
   const vh = items[0].vh || hPt
   const line = pvPageHint(dest.page, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(dest.page, Math.min(vh, frac * vh + vh * 0.02)), frac)
   jumpPos(posOfLine(getT(), line))
+  syncEdOff = -$('preview').clientHeight * 0.38 // destination sits 12% below the preview top: scroll-follow starts there
 }
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
@@ -1129,6 +1142,26 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     const vw = (items[0] && items[0].vw) || cv.width || 1
     const vh = (items[0] && items[0].vh) || cv.height || 1
     const sx = r.width / vw, sy = r.height / vh
+    syncEdOff = Math.max(1 - pv.clientHeight / 2, Math.min(pv.clientHeight / 2 - 1, e.clientY - (pv.getBoundingClientRect().top + pv.clientHeight / 2)))
+    if (pi === 0 && items.length) { // above the first heading: the document top (#outline/title), not the first heading
+      const first = srcHeadings(getT())[0]
+      let topY = Infinity
+      if (first) {
+        const pre = getT().split('\n').slice(0, first.line - 1).some(l => l.trim() && !pvCmdLine(l)) // real text above the heading keeps its own click target
+        if (!pre) {
+          const h = syncAnchor(getT().split('\n'), first.line, pvTexts, pvSecAtLine(first.line))
+          if (h && h.pi === 0) topY = (h.it.y - (h.it.h || 10) / 2) * sy
+        }
+      } else for (const it of items) if (it.s.trim()) topY = Math.min(topY, (it.y - (it.h || 10) / 2) * sy) // no heading: only the margin above all text
+      if (isFinite(topY) && y < topY) {
+        const lines = getT().split('\n')
+        let ln = 1
+        while (ln < lines.length && !lines[ln - 1].trim()) ln++
+        syncPage = 0
+        jumpPos(posOfLine(getT(), ln))
+        return
+      }
+    }
     const ol = pvOutlineClick(pi, items, x, y, sx, sy)
     if (ol) { syncPage = pi; jumpPos(posOfLine(getT(), ol)); return } // beside an outline entry: stay at the outline line
     const rr = CLICK_PX / 2 // CSS pixels, independent of zoom and render scale
