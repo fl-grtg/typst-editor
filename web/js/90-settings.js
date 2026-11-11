@@ -662,19 +662,22 @@ function pvPosIn(txt, s, off, hint) { // exact needle first, then its words acro
   const words = pvNormWords(s)
   if (!words.length) return -1
   const o = Math.max(0, Math.min(off, s.length))
-  let wi = words.length - 1, woff = words[wi].end - words[wi].start // past the last word: its end
+  let wi = words.length - 1, k = words[wi].text.length // past the last word: its end
   for (let i = 0; i < words.length; i++) {
-    if (o <= words[i].end) { wi = i; woff = Math.max(0, Math.min(words[i].end - words[i].start, o - words[i].start)); break }
+    if (o <= words[i].end) { wi = i; k = words[i].map.filter(r => r < o).length; break } // normalized index under the click
   }
   const p = syncNeedleAt(txt, s, hint, wi)
-  return p < 0 ? -1 : p + woff // the same letter inside the matched source word
+  if (p < 0) return -1
+  const word = (txt.slice(p).match(/^[\p{L}\p{N}\p{M}]+/u) || [''])[0]
+  const nm = syncNormMap(word) // source word: NFD (a+¨) and ligatures have their own lengths
+  return p + (k < nm.map.length ? nm.map[k] : word.length) // the same letter inside the matched source word
 }
 function pvNormWords(s) { // syncText words with their raw span: "don’t" -> don@0-3, t@4-5
   const { s: n, map } = syncNormMap(s)
   const out = []
   for (const m of n.matchAll(/[\p{L}\p{N}]+/gu)) {
     const at = m.index, end = at + m[0].length
-    out.push({ start: map[at], end: end < n.length ? map[end] : s.length, text: m[0] })
+    out.push({ start: map[at], end: end < n.length ? map[end] : s.length, text: m[0], map: map.slice(at, end) })
   }
   return out
 }
@@ -1349,7 +1352,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   while (line > 1 && !lines[line - 1].trim()) line-- // snap to paragraph start
   jumpPos(posOfLine(getT(), line))
 })
-$('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_sync', syncOn ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} }
+$('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_sync', syncOn ? 1 : 0); lsSet('typst_follow_all', followAll ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} } // also pins the eye: the legacy fallback must not leak into new sessions
 $('followBtn').onclick = () => { followAll = !followAll; lsSet('typst_follow_all', followAll ? 1 : 0); applyFollowBtn() }
 applySyncBtn() // F25: persisted follow state on boot
 applyFollowBtn()

@@ -411,9 +411,10 @@ async function pvDraw(slot, doc, id, detached) { // rasterize one slot (backing 
     pvFitCanvas(c) // CSS size only, not canvas.width
     const tc = await page.getTextContent() // click anchors: each visible word knows its spot
     if (id !== renderN) return
-    pvTexts[p - 1] = pvBoxes(tc, v)
+    const boxes = pvBoxes(tc, v)
     pvLinks[p - 1] = await pvPageLinks(doc, page, v)
     if (id !== renderN) return
+    pvTexts[p - 1] = boxes // after both awaits: a newer render never inherits old anchors
     pvPaintLinks(slot, p - 1)
     try { pvTextDone[p - 1] = true } catch (e) {}
     slot.dataset.done = '1'
@@ -501,7 +502,7 @@ function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no up
     a.style.width = ((L.x1 - L.x0) / L.vw * 100) + '%'
     a.style.height = ((L.y1 - L.y0) / L.vh * 100) + '%'
     if (L.url) { a.href = L.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = L.url }
-    else { // internal destination: click jumps the preview, never the editor
+    else { // internal destination: scrolls the preview, and click sync takes the source along
       a.href = '#'; a.title = t('preview.linkPage', { n: L.dest.page + 1 })
       a.dataset.pvLink = String(i)
     }
