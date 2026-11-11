@@ -6382,7 +6382,7 @@ function pvClickNeedles(items, it, col) { // clicked item first; short cells and
   if (/\p{L}/u.test(body)) add(body, (col || 0) - cut)
   if (/\p{L}{3}/u.test(body)) return out // a real word needs no line guessing
   for (const tol of [10, 20]) { // short cells, numbers and math glyphs: the row is the context
-    const line = items.filter(o => Math.abs(o.y - it.y) <= tol).sort((a, b) => a.x0 - b.x0)
+    const line = items.filter(o => !o.rot && Math.abs(o.y - it.y) <= tol).sort((a, b) => a.x0 - b.x0)
     let s = '', off = 0
     for (const o of line) {
       const t = String(o.s || '').trim()

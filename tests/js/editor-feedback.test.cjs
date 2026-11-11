@@ -353,7 +353,7 @@ test('rotated text runs stay out of clicks but keep their anchors', () => {
     { str: 'Normal', transform: [1, 0, 0, 1, 20, 30], width: 50, height: 10 },
     { str: 'Seitwärts', transform: [0, 1, -1, 0, 100, 200], width: 40, height: 10 },
     { str: 'Schräg', transform: [1, 0.005, -0.005, 1, 50, 60], width: 30, height: 10 },
-    { str: 'Gedreht', transform: [0, 1, -1, 0, 30, 10], width: 30, height: 10 }, // same edge and line as "Normal"
+    { str: 'Gedreht', transform: [0, 1, -1, 0, 20, 48], width: 30, height: 10 }, // same edge as "Normal", one line below
   ] }
   const boxes = c.pvBoxes(tc, v)
   assert.deepEqual(Array.from(boxes, b => b.s), ['Normal', 'Seitwärts', 'Schräg', 'Gedreht']) // anchors still name the rotated word
@@ -366,6 +366,8 @@ test('rotated text runs stay out of clicks but keep their anchors', () => {
   assert.equal(boxes[0].h, 10)
   assert.equal(boxes[0].x, 45)
   assert.equal(boxes[0].y, 25)
+  assert.equal(boxes[3].x0, boxes[0].x0) // the fixture really shares the paragraph edge
+  assert.equal(boxes[3].y, 43) // and sits within one generous line step below it
   vm.runInContext(code.slice(code.indexOf('function pvBlockLines'), code.indexOf('function pvBlockNeedle')), c)
   assert.deepEqual(Array.from(c.pvBlockLines(boxes, boxes[0]), b => b.s), ['Normal']) // a turned run never joins the paragraph needle
   const near = c.pvNearItems(boxes, -80, 300, 1, 1, null) // right on the turned run: its box is a lie, the neighbours are not
@@ -381,6 +383,8 @@ test('caption prefixes and table rows become needles the source can match', () =
   const row = c.pvClickNeedles(cells, cell, 0)
   assert.deepEqual(Array.from(row, n => n.s), ['Alpha 12.4 mg']) // short cells need the line context
   assert.equal(row[0].off, 11) // clicked cell "mg" starts after "Alpha 12.4 "
+  const turned = { ...item('Gedreht', 10, 60), rot: true }
+  assert.deepEqual(Array.from(c.pvClickNeedles([...cells, turned], cell, 0), n => n.s), ['Alpha 12.4 mg']) // a turned run never joins the row
   const capIt = item('Table 1: Fundamental constants.', 10, 0)
   const cap = c.pvClickNeedles([capIt], capIt, 9)
   assert.equal(cap[0].s, 'Fundamental constants.')
