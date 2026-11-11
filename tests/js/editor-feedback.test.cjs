@@ -475,6 +475,8 @@ test('a wrapped needle keeps the clicked letter across apostrophes', () => {
   assert.equal(c.pvPosIn(src, pdf, 6, 1), 6) // the t after the apostrophe, not stuck at the quote
   assert.equal(c.pvPosIn(src, pdf, 7, 1), 7) // its end
   assert.equal(c.pvPosIn(src, pdf, 8, 1), 8) // start of "know"
+  const nfd = 'Ba\u0308r und Wein\nsecond line' // decomposed ä: NFD in the source, NFC in the PDF
+  assert.equal(c.pvPosIn(nfd, 'Bär und Wein', 3, 1), 3) // the r after the ä, not the next word
 })
 test('click column never lands inside a surrogate pair', () => {
   const c = vm.createContext({})

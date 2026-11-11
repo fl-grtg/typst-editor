@@ -572,6 +572,7 @@ let syncEdX = -1 // clicked column as a share of the page width: two-column prev
 let syncEdMiss = false // follow hit a page whose text index was still being built: retry once it is done
 let followAll = true // true: cursor/scroll/jumps move the preview; false: only a click syncs
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
+followAll = syncOn // before the split one flag switched both: a sync-off user stays off
 try { const s = localStorage.getItem('typst_follow_all'); if (s === '0' || s === '1') followAll = s === '1' } catch (e) {}
 function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.toggle('on', syncOn); b.setAttribute('aria-pressed', syncOn) } // F25: button mirrors persisted state
 function applyFollowBtn() { const b = $('followBtn'); if (!b) return; b.classList.toggle('on', followAll); b.setAttribute('aria-pressed', followAll) }
@@ -661,27 +662,20 @@ function pvPosIn(txt, s, off, hint) { // exact needle first, then its words acro
   const words = pvNormWords(s)
   if (!words.length) return -1
   const o = Math.max(0, Math.min(off, s.length))
-  let wi = words.length - 1, woff = words[wi].text.length // past the last word: its end
+  let wi = words.length - 1, woff = words[wi].end - words[wi].start // past the last word: its end
   for (let i = 0; i < words.length; i++) {
-    if (o <= words[i].end) { wi = i; woff = Math.max(0, Math.min(words[i].text.length, o - words[i].start)); break }
+    if (o <= words[i].end) { wi = i; woff = Math.max(0, Math.min(words[i].end - words[i].start, o - words[i].start)); break }
   }
   const p = syncNeedleAt(txt, s, hint, wi)
   return p < 0 ? -1 : p + woff // the same letter inside the matched source word
 }
-function pvNormWords(s) { // syncText words with their raw offset: "don’t" -> don@0, t@4
+function pvNormWords(s) { // syncText words with their raw span: "don’t" -> don@0-3, t@4-5
+  const { s: n, map } = syncNormMap(s)
   const out = []
-  let cur = null
-  for (let i = 0; i < s.length;) {
-    const ch = String.fromCodePoint(s.codePointAt(i))
-    for (const c of ch.normalize('NFKC').toLowerCase()) {
-      if (/[\p{L}\p{N}]/u.test(c)) {
-        if (!cur) cur = { start: i, text: '' }
-        cur.text += c
-      } else if (cur) { cur.end = i; out.push(cur); cur = null }
-    }
-    i += ch.length
+  for (const m of n.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const at = m.index, end = at + m[0].length
+    out.push({ start: map[at], end: end < n.length ? map[end] : s.length, text: m[0] })
   }
-  if (cur) { cur.end = s.length; out.push(cur) }
   return out
 }
 function pvHerePos(needles, hint, pi, anchor) { // source position of the best needle in the current file; -1: none
@@ -835,11 +829,12 @@ function syncShow(text) { // source markup -> display text: casing kept, labels/
 function syncNormMap(line) { // normalized text + raw offset of every normalized char (math/ligatures keep their position)
   let s = '', map = []
   for (let i = 0; i < line.length;) {
-    const ch = String.fromCodePoint(line.codePointAt(i))
-    const n = ch.normalize('NFKC').toLowerCase()
+    let j = i + (line.codePointAt(i) > 0xffff ? 2 : 1) // one code point …
+    while (j < line.length && /\p{M}/u.test(String.fromCodePoint(line.codePointAt(j)))) j += line.codePointAt(j) > 0xffff ? 2 : 1 // … plus its marks: a+¨ -> ä
+    const n = line.slice(i, j).normalize('NFKC').toLowerCase()
     for (let k = 0; k < n.length; k++) map.push(i)
     s += n
-    i += ch.length
+    i = j
   }
   return { s, map }
 }
@@ -1102,7 +1097,7 @@ function syncToPv(force) { // force: explicit navigation (outline/find), works e
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
 }
 function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the same destination
-  if (!followAll || !syncOn || !docId || tplName || activeFile || !dest) return
+  if (!syncOn || !docId || tplName || activeFile || !dest) return // a link click is a click: the eye does not gate it
   const items = pvTexts[dest.page] || [], slot = pvSlots[dest.page]
   if (!items.length || !slot) return
   const hPt = (+slot.dataset.w || 0) * (+slot.dataset.r || 0)

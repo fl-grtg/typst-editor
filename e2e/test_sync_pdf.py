@@ -137,6 +137,14 @@ def test_5_internal_link_moves_the_editor_with_it(page):
     page.wait_for_function("() => /^Ln 9:/.test(document.getElementById('pos').textContent)", timeout=LINK_TIMEOUT)
     page.wait_for_function(PAGE_TWO_IN_VIEW, timeout=LINK_TIMEOUT)
 
+    page.click("#followBtn")  # eye off: a link is still a click, so the source must follow
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+Home")
+    page.wait_for_timeout(600)
+    assert page.locator("#pos").inner_text().startswith("Ln 1:")
+    jump.click()
+    page.wait_for_function("() => /^Ln 9:/.test(document.getElementById('pos').textContent)", timeout=LINK_TIMEOUT)
+
 
 def test_6_preview_scroll_moves_the_editor_view_not_the_cursor(page):
     register(page, "e2e_pdf_scroll")
