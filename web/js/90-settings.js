@@ -1352,7 +1352,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   while (line > 1 && !lines[line - 1].trim()) line-- // snap to paragraph start
   jumpPos(posOfLine(getT(), line))
 })
-$('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_sync', syncOn ? 1 : 0); lsSet('typst_follow_all', followAll ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} } // also pins the eye: the legacy fallback must not leak into new sessions
+$('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_follow_all', followAll ? 1 : 0); lsSet('typst_sync', syncOn ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} } // eye first: a dropped second write must not re-arm the legacy fallback
 $('followBtn').onclick = () => { followAll = !followAll; lsSet('typst_follow_all', followAll ? 1 : 0); applyFollowBtn() }
 applySyncBtn() // F25: persisted follow state on boot
 applyFollowBtn()
