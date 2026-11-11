@@ -30,7 +30,6 @@ def test_mention_and_change_notice_in_the_inbox(browser, base_url, tmp_path_fact
         expect(item).to_have_count(1)
         expect(item).to_contain_text("inbox_alice mentioned you")
         bob.wait_for_timeout(500)
-        bob.screenshot(path="/tmp/claude-1000/inbox.png")
         item.click()
         expect(bob.locator("#title")).to_have_text("Shared")
         expect(bob.locator("#pop")).to_be_visible()  # the comment card on that line is open
@@ -54,7 +53,6 @@ def test_mention_and_change_notice_in_the_inbox(browser, base_url, tmp_path_fact
         expect(card).to_be_visible()
         expect(card.locator(".chgFile", has_text="lib.typ")).to_have_count(1)  # path without project name
         expect(card.locator(".chgLine.add", has_text="second line")).to_have_count(1)
-        bob.screenshot(path="/tmp/claude-1000/inbox-changes.png")
         bob.keyboard.press("Escape")  # closing marks everything as seen
         expect(bob.locator("#inboxN")).to_be_hidden()
         assert bob.request.get(f"/api/projects/{pid}/watch").json()["base"] != ""
@@ -75,7 +73,6 @@ def test_watch_level_from_the_bell_on_the_project_row(page):
     box = page.locator("#watchBox")
     expect(box.locator(".wItem[aria-checked=true]")).to_contain_text("Mentions and suggestions")
     page.wait_for_timeout(800)
-    page.screenshot(path="/tmp/claude-1000/watch-menu.png")
     box.locator(".wItem", has_text="Everything").click()
     expect(box).to_have_count(0)
     expect(head.locator("button.mini.on")).to_have_count(1)  # stays visible: not the default anymore

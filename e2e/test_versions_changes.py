@@ -33,7 +33,6 @@ def test_name_checkpoint_rename_compare_and_delete(page):
     if not page.locator("#histPop").is_visible():
         page.click("#histBtn")
     page.wait_for_timeout(300)
-    page.screenshot(path="/tmp/claude-1000/history.png")
     # change something, then compare the checkpoint with the current project
     page.click("#cm .cm-content")
     page.keyboard.press("Control+Home")
@@ -53,7 +52,6 @@ def test_name_checkpoint_rename_compare_and_delete(page):
     expect(card.locator(".chgSum")).to_contain_text("+2")
     fold = card.locator(".chgFold")
     expect(fold).to_have_count(1)
-    page.screenshot(path="/tmp/claude-1000/changes.png")
     fold.click()  # hidden context opens
     expect(card.locator(".chgFold")).to_have_count(0)
     expect(card.locator(".chgLine.ctx", has_text="line 10 of")).to_have_count(1)
