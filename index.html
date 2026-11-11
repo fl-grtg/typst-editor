@@ -3930,6 +3930,7 @@ function closeView() { // no doc open: buttons off, empty view in
   $('tools').style.display = 'none'; $('pvTools').style.display = 'none'
   paintEmpty()
   paintTabs() // hides the tab bar: no doc open
+  paintOwn(); paintShared(lastShared) // clear the active row highlight
   setT(''); gutter(); paintOutline()
 }
 async function openDoc(id) {
