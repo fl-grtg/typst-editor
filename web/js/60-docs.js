@@ -358,6 +358,7 @@ async function resSync() { // SSE follow-up: fresh list first, open resource fol
   }
 }
 function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
+  $('emptyCard')?.remove()
   clearTimeout(scrollT)
   saveDocScroll() // previous doc: remember editor + preview spot before the buffers reset
   scrollRestore = null

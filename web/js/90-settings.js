@@ -528,6 +528,7 @@ matchMedia('(max-width:720px)').addEventListener('change', m => { // back on des
 function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode button)
   document.body.classList.toggle('read', m === 'read')
   document.body.classList.toggle('editonly', m === 'editor')
+  updateEmptyStep()
   for (const [id, on] of [['vEdit', m === 'editor'], ['vSplit', m === 'split'], ['vRead', m === 'read']]) {
     $(id).classList.toggle('on', on)
     $(id).setAttribute('aria-pressed', on)

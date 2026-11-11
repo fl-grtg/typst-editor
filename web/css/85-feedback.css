@@ -1,11 +1,14 @@
 /* ==========================================================================
    Empty state, toast
    ========================================================================== */
-#emptyCard { max-width: 420px; margin: 9vh auto 0; padding: 30px; text-align: left; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-pop); }
-#emptyCard h2 { margin: 0 0 4px; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
-#emptyCard .sub { margin: 0 0 16px; color: var(--sub); font-size: 13px; }
-#emptyCard .step { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; font-size: 13px; background: none; border: 0; box-shadow: none; padding: 0; min-height: 0; font-weight: 400; }
-#emptyCard .step .n { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--hover); color: var(--text); font-weight: 650; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+#emptyCard { width: calc(100% - 32px); max-width: 500px; margin: 0; padding: 32px; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-xl); box-shadow: var(--sh-pop); }
+#emptyCard h2 { margin: 0 0 8px; font-size: 22px; font-weight: 650; letter-spacing: -.025em; }
+#emptyCard .sub { margin: 0 0 22px; color: var(--sub); font-size: 14px; }
+#emptyCard .step { display: flex; align-items: flex-start; gap: 12px; margin: 14px 0; font-size: 14px; line-height: 1.5; background: none; border: 0; box-shadow: none; padding: 0; min-height: 0; font-weight: 400; }
+#emptyCard .step .n { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--hover); color: var(--text); font-weight: 650; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+#emptyCard .createLink { color: var(--acc); font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; white-space: nowrap; }
+#emptyCard .createLink:hover { color: var(--text); }
+#emptyCard .createLink:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; border-radius: 2px; }
 #emptyCard .ctaRow { display: flex; gap: 8px; margin-top: 20px; }
 #emptyCard button { flex: 1; min-height: 34px; padding: 7px 14px; font-size: 13px; border-radius: var(--r-sm); margin: 0; }
 #emptyCard .hint { margin: 16px 0 0; font-size: 12px; color: var(--faint); }
@@ -34,5 +37,5 @@
 #wsTxt.is-off { color: var(--faint); }
 
 
-#preview:has(#emptyCard) { overflow: hidden; }
-#emptyCard { position: absolute; left: 50%; top: 50%; width: calc(100% - 32px); max-width: 460px; margin: 0; transform: translate(-50%, -50%) scale(var(--empty-scale, 1)); transform-origin: center; }
+#mid:has(#emptyCard) { position: relative; }
+#emptyCard { position: absolute; z-index: 20; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(var(--empty-scale, 1)); transform-origin: center; }
