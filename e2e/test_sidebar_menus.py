@@ -97,6 +97,9 @@ def test_sidebar_menu_keyboard_escape_returns_focus(page):
     menu = page.locator("#menu")
     expect(menu).to_be_visible()
     expect(menu.locator("button").first).to_be_focused()
+    response = page.request.post("/api/docs/create", data={"title": "Keyboard refresh", "content": ""})  # repaints the sidebar under the open menu
+    assert response.ok, response.text()
+    expect(page.locator("#own .doc .t", has_text="Keyboard refresh")).to_be_visible()
     page.keyboard.press("Escape")
     expect(menu).to_be_hidden()
     expect(more).to_be_focused()

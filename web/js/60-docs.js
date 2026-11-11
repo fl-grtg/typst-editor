@@ -132,6 +132,7 @@ function updNavFade() { // bottom fade only while more content below
 }
 function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
   const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
+  div.dataset.docId = x.id // stable across sidebar repaints: an open row menu can refocus its new button
   div.setAttribute('role', 'button')
   div.appendChild(el('span', 't', shared && !bare ? t('docs.sharedRow', { owner: x.owner, title: x.title }) : x.title))
   const roleName = ({ owner: t('common.roleOwner'), editor: t('common.roleEditor'), reviewer: t('common.roleReader') })[x.role] || x.role
