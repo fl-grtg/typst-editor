@@ -568,6 +568,8 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
 }
 let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = -1 // click sync editor<->preview, last hit page, scroll-follow pos (-1: use cursor)
 let syncEdOff = 0 // preview click point relative to the viewport center: scroll-follow starts where the reader clicked
+let syncEdX = -1 // clicked column of the page: two-column previews must follow that column, not the gutter
+let syncEdMiss = false // follow hit a page whose text index was still being built: retry once it is done
 let followAll = true // true: cursor/scroll/jumps move the preview; false: only a click syncs
 try { const s = localStorage.getItem('typst_sync'); if (s === '0' || s === '1') syncOn = s === '1' } catch (e) {} // F25: follow persisted (string compare: +null === 0 would flip the default)
 try { const s = localStorage.getItem('typst_follow_all'); if (s === '0' || s === '1') followAll = s === '1' } catch (e) {}
@@ -604,13 +606,15 @@ function syncToEd() {
   const pv = $('preview')
   if (!pv.clientHeight || document.body.classList.contains('editonly')) return
   const pi = pvViewPage(pv, syncEdOff), slot = pi >= 0 ? pv.querySelectorAll('.pvPage')[pi] : null
-  if (!slot || !(pvTexts[pi] || []).length) return
+  if (!slot) return
+  if (!(pvTexts[pi] || []).length) { syncEdMiss = true; return } // pvTextAll retries the follow when the index is ready
+  syncEdMiss = false
   const pr = pv.getBoundingClientRect(), sr = slot.getBoundingClientRect()
   const frac = Math.max(0, Math.min(1, (pr.top + pv.clientHeight / 2 + syncEdOff - sr.top) / (sr.height || 1)))
   const vh = pvTexts[pi][0].vh || 1
   const line = pvPageHint(pi, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(pi, frac * vh), frac)
   const items = pvTexts[pi], vw = items[0].vw || 1
-  const near = pvNearItems(items, vw / 2, frac * vh, 1, 1, null) // no running header/footer, no needle-less lone letters
+  const near = pvNearItems(items, syncEdX >= 0 ? syncEdX : vw / 2, frac * vh, 1, 1, null) // no running header/footer, no needle-less lone letters
     .filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95
       && (syncText(it.s || '').length >= 4 || pvBlockLines(items, it).length > 1)).slice(0, 3)
   for (const { it } of near) { // real text under the reading point: exact, even inside large figures
@@ -1023,6 +1027,7 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   const scan = (from, to, dir) => {
     for (let ln = from; dir > 0 ? ln <= to : ln >= to; ln += dir) {
       const s = (lines[ln - 1] || '').trim()
+      if (dir < 0 && /^#pagebreak\b/.test(s)) return null // a blank line after the break belongs to the next page
       if (!s) continue
       const hit = syncAnchor(lines, ln, pages, sec)
       if (hit) return hit
@@ -1061,6 +1066,7 @@ function syncToPv(force) { // force: explicit navigation (outline/find), works e
   const want = pv.scrollTop + cr.top - pr.top + hit.it.y * cr.height / (hit.it.vh || cv.height || 1) - pv.clientHeight / 2
   syncPage = hit.pi
   syncEdOff = 0 // the preview centers the cursor target: the reading point is the center again
+  syncEdX = -1
   const dy = want - pv.scrollTop
   if (Math.abs(dy) > 300) smoothScroll(pv, want) // a page jump gets the long in-out handles
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
@@ -1075,6 +1081,7 @@ function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the 
   const line = pvPageHint(dest.page, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(dest.page, Math.min(vh, frac * vh + vh * 0.02)), frac)
   jumpPos(posOfLine(getT(), line))
   syncEdOff = -$('preview').clientHeight * 0.38 // destination sits 12% below the preview top: scroll-follow starts there
+  syncEdX = -1
 }
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
@@ -1219,6 +1226,7 @@ function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered
 }
 $('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then nearest text, else section
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
+  if (window.Present?.isOn()) return // slides: a click advances the deck, never moves the hidden editor
   if (!syncOn || !docId || tplName) return
   const pv = $('preview')
   smoothStop(pv) // an explicit click wins over a jump or follow still in flight
@@ -1234,6 +1242,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     const vh = (items[0] && items[0].vh) || cv.height || 1
     const sx = r.width / vw, sy = r.height / vh
     syncEdOff = Math.max(1 - pv.clientHeight / 2, Math.min(pv.clientHeight / 2 - 1, e.clientY - (pv.getBoundingClientRect().top + pv.clientHeight / 2)))
+    syncEdX = x / sx // the clicked column keeps owning follow on two-column pages
     if (pi === 0 && items.length) { // above the first heading: the document top (#outline/title), not the first heading
       const first = srcHeadings(getT())[0]
       let topY = Infinity

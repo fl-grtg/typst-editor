@@ -107,6 +107,11 @@ test('URLs do not start a comment that swallows the closing bracket', () => {
   const pages = [page(['Figure 1: See https://example.com']), page(['Next page', 'Body.'])]
   assert.equal(ctx.syncNearHit(lines, 6, pages).pi, 1)
 })
+test('a blank line after a pagebreak follows the next page', () => {
+  const lines = ['= Alpha', 'Alpha body.', '#pagebreak()', '', 'Beta body.']
+  const pages = [page(['Alpha', 'Alpha body.']), page(['Beta body.'])]
+  assert.equal(ctx.syncNearHit(lines, 4, pages).pi, 1) // the pagebreak wins over the text above
+})
 test('raw text and escapes stay text inside a call', () => {
   const raw = ['#figure(', '  image("x.png"),', '  body: [`a ) b`],', '  caption: [Bars],', ')']
   assert.equal(ctx.pvCallEnd(raw, 1), 5)
@@ -323,6 +328,23 @@ test('click column maps scaled canvas pixels through the item offset', () => {
   for (let x = 0; x < 180; x++) for (let y = 0; y < 10; y++) blind.data[(y * 180 + x) * 4 + 3] = x < 80 ? 255 : 0 // one run: no word boxes
   const gone = { width: 200, height: 20, getContext: () => ({ getImageData: () => blind }) }
   assert.equal(c.pvClickCol(item, 95, 100, 200, gone), 6) // estimate still lands on the last word
+})
+test('rotated text runs never become horizontal click boxes', () => {
+  const c = vm.createContext({})
+  vm.runInContext(pvCode.slice(pvCode.indexOf('function pvBoxes'), pvCode.indexOf('const PV_LINK_SCHEME')), c)
+  const v = { transform: [1, 0, 0, 1, 0, 0], width: 600, height: 800 }
+  const tc = { items: [
+    { str: 'Normal', transform: [1, 0, 0, 1, 20, 30], width: 50, height: 10 },
+    { str: 'Seitwärts', transform: [0, 1, -1, 0, 100, 200], width: 40, height: 10 },
+    { str: 'Schräg', transform: [1, 0.05, -0.05, 1, 50, 60], width: 30, height: 10 },
+  ] }
+  const boxes = c.pvBoxes(tc, v)
+  assert.deepEqual(Array.from(boxes, b => b.s), ['Normal']) // rotated runs would stretch their box over the whole line
+  assert.equal(boxes[0].x0, 20)
+  assert.equal(boxes[0].w, 50)
+  assert.equal(boxes[0].h, 10)
+  assert.equal(boxes[0].x, 45)
+  assert.equal(boxes[0].y, 25)
 })
 test('caption prefixes and table rows become needles the source can match', () => {
   const c = vm.createContext({})
