@@ -29,6 +29,7 @@ from backend.routers import (
     frontend,
     library_copy,
     notifications,
+    project_folders,
     projects,
     readmode,
     share,
@@ -225,6 +226,7 @@ app.include_router(auth.router)
 app.include_router(docs.router)
 app.include_router(templates.router)
 app.include_router(projects.router)
+app.include_router(project_folders.router)
 app.include_router(change_packages.router)
 app.include_router(library_copy.router)
 app.include_router(share.router)

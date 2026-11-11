@@ -177,6 +177,7 @@ def payload(con, project_id: str, user: str) -> dict:
         files.extend(dict(x) for x in con.execute("SELECT doc_id,path AS name,size FROM files WHERE doc_id=? ORDER BY path", (d["id"],)))
         d.pop("content")
         d["role"] = db.role_on(con, user, d["id"])
+    folders = [x[0] for x in con.execute("SELECT path FROM project_folders WHERE project_id=? ORDER BY path", (project_id,))] if r != "guest" else []
     return {**dict(p), "role": r, "can_edit_library": r in ("owner", "editor"),
-            "documents": docs, "resources": [{"name": x["name"], "updated_at": x["updated_at"]} for x in library],
+            "folders": folders, "documents": docs, "resources": [{"name": x["name"], "updated_at": x["updated_at"]} for x in library],
             "files": files}

@@ -181,6 +181,12 @@ CREATE TABLE IF NOT EXISTS project_resources (
  PRIMARY KEY(project_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS project_folders (
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ path TEXT NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(project_id, path)
+);
+
 CREATE TABLE IF NOT EXISTS project_snapshots (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
  content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,

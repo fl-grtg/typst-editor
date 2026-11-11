@@ -67,7 +67,7 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                         while con.execute('SELECT 1 FROM project_resources WHERE project_id=? AND name=?', (target, target_name)).fetchone():
                             number += 1
                             target_name = resources.copy_name(name, number)
-                    target_name = resource_name(target_name)
+                    target_name = resource_name(target_name, new=True)
                     if name not in shelf:
                         raise HTTPException(404, 'Module not found')
                     if source == target and move and name == target_name:
@@ -90,7 +90,7 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                         while store.stat(target_doc, target_name):
                             number += 1
                             target_name = resources.copy_name(name, number)
-                    target_name = safe_name(target_name)
+                    target_name = safe_name(target_name, new=True)
                     if not con.execute('SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0', (doc_id, source)).fetchone() or not con.execute('SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0', (target_doc, target)).fetchone():
                         raise HTTPException(404, 'Source or target document not found')
                     if (doc_id, name) == (target_doc, target_name):

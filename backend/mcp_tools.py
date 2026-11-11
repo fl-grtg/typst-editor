@@ -933,7 +933,7 @@ def op_upload(user: str, cap: str, path: str, content_base64: str, filename: str
         raise _bad("Invalid base64") from None
     if len(data) > UPLOAD_MAX:
         raise _bad("Max 10 MB")
-    n = docfiles.safe_name(fname)
+    n = docfiles.safe_name(fname, new=True)
     with locks._named_lock(f"upload:{doc_id}"):
         _recheck_edit(user, cap, doc_id)
         uf = FastUploadFile(file=io.BytesIO(data), filename=n)

@@ -38,8 +38,8 @@ class ProjectDoc(BaseModel):
     content: str = Field(default="", max_length=200001)
 
 
-def resource_name(name: str) -> str:
-    n = safe_name(name)
+def resource_name(name: str, *, new: bool = False) -> str:
+    n = safe_name(name, new=new)
     if not resources.kind_of(n) or resources.is_reserved(n):
         raise HTTPException(400, "Unsupported or reserved resource name")
     return n
@@ -184,7 +184,7 @@ def list_resources(project_id: str, user: str = Depends(deps.me)) -> dict:
 @router.post("/api/projects/{project_id}/resources")
 def save_resource(project_id: str, b: ResourceSave, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "templates")
-    name = resource_name(b.name)
+    name = resource_name(b.name, new=True)
     size = len(b.content.encode("utf-8"))
     if size > MAX_TXT:
         raise HTTPException(413, "Text resource exceeds 200 KB")
@@ -237,7 +237,7 @@ def delete_resource(project_id: str, name: str, version: str, req: Request, user
 @router.post("/api/projects/{project_id}/docs")
 def create_document(project_id: str, b: ProjectDoc, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "create")
-    folder = safe_name(b.folder + "/placeholder.typ").rsplit("/", 1)[0] if b.folder else ""
+    folder = safe_name(b.folder + "/placeholder.typ", new=True).rsplit("/", 1)[0] if b.folder else ""
     if not b.title.strip() or len(b.content.encode("utf-8")) > MAX_TXT:
         raise HTTPException(400, "Invalid title or content too large")
     with db.tx() as con:
@@ -320,7 +320,7 @@ class EntryRename(BaseModel):
 @router.post("/api/projects/{project_id}/rename-entry-preview")
 def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "files_list")
-    name, target = safe_name(b.name), safe_name(b.target)
+    name, target = safe_name(b.name), safe_name(b.target, new=True)
     con = db.connect()
     try:
         projects.require(con, project_id, user, edit=True)
@@ -333,7 +333,7 @@ def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: st
             except FileNotFoundError:
                 raise HTTPException(404, "File not found") from None
         else:
-            target = resource_name(target)
+            target = resource_name(target, new=True)
             row = con.execute("SELECT updated_at,content FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
             if not row:
                 raise HTTPException(404, "Resource not found")
@@ -367,7 +367,7 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
     from backend.services.locks import _named_lock
 
     deps.limited(req, "rename")
-    old, target = safe_name(b.name), safe_name(b.target)
+    old, target = safe_name(b.name), safe_name(b.target, new=True)
     with _named_lock(f"upload:{b.doc_id}"):
         renamed = False
         source = destination = None
@@ -409,7 +409,7 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
             with db.tx() as con:
                 projects.require(con, project_id, user, edit=True)
                 if not b.doc_id:
-                    target = resource_name(target)
+                    target = resource_name(target, new=True)
                     if con.execute("SELECT 1 FROM project_resources WHERE project_id=? AND name=?", (project_id, target)).fetchone():
                         raise HTTPException(409, "Name already exists")
                     # #7: also no case-variant duplicate inside the module
