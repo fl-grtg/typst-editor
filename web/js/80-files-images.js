@@ -493,11 +493,15 @@ $('tabs').addEventListener('wheel', e => {
 }, { passive: false })
 
 function updateFileView() {
-  const file = !!tplName || !!activeFile
+  const file = !!tplName // personal module without a document: no preview; file tabs of a document keep the document preview
+  const tab = !!activeFile && !!docId && !tplName
   document.body.classList.toggle('file-view', file)
   if (file) { clearTimeout(renderT); ++renderN }
   $('viewSeg').style.display = file || !docId ? 'none' : ''
   $('pvTools').style.display = file || !docId ? 'none' : ''
+  const pvFor = $('pvFor')
+  pvFor.hidden = !tab
+  if (tab) pvFor.textContent = t('preview.forDoc', { title: (docTitle || $('title').textContent).replace(/\.typ$/i, '') + '.typ' })
   const filename = tplName || (activeFile ? tabName(activeFile) : 'main.typ')
   const extension = filename.split('.').pop().toLowerCase()
   paintImageFile(filename)

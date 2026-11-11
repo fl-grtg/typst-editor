@@ -74,3 +74,5 @@ body.present #preview:focus-visible { outline: none; }
 body.present-switch aside, body.present-switch .sbPanel, body.present-switch .sbRail,
 body.present-switch #leftCol, body.present-switch #rightCol, body.present-switch #preview,
 body.present-switch .pvPage { transition: none !important; }
+#pvFor { flex: none; padding: 5px 14px; font-size: 12px; color: var(--sub); background: var(--card); border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pvFor[hidden] { display: none; }

@@ -286,7 +286,7 @@ async function shadowAll(main) { // files + templates as shadow: main-thread fal
   await $typst.addSource('/main.typ', main)
   return current()
 }
-const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName || (!!activeFile && !window.changeSession) // render epoch/doc/file guard
+const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName // render epoch/doc guard: file tabs keep the document preview alive
 function pvSrcList() { // live source texts for honest cross-file anchors: [{key, text}]
   const out = []
   try {
@@ -308,7 +308,7 @@ function pvSrcList() { // live source texts for honest cross-file anchors: [{key
 }
 async function render() {
   const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName || (activeFile && !window.changeSession)) return
+  if (!myDoc || myTplName) return
   pvBar() // zoom pill extras once (needs consts from later files)
   if (pvWorkerFail || !pvEnsureWorker()) { await renderDirect(id, preview); return } // no worker: main-thread compile
   if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
@@ -815,7 +815,7 @@ function scrollApplyPreview() { // page + offset survive new page sizes and zoom
 async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   const myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName || (activeFile && !window.changeSession)) return
+  if (!myDoc || myTplName) return
   if (pvObs) pvObs.disconnect()
   pvSlots = []; pvPageSize = null // bare canvases below: drop slot state (zoom clicks size them directly)
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; ensureTypst().then(() => { if (docId) render() }).catch(() => {}); return } // loads in background, renders after
