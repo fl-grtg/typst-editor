@@ -282,25 +282,42 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
 function openTutorial() {
   window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
 }
+function emptyStepTwo() {
+  const mode = document.body.classList
+  return t(mode.contains('editonly') ? 'docs.emptyS2Editor' : mode.contains('read') ? 'docs.emptyS2Preview' : 'docs.emptyS2')
+}
+function updateEmptyStep() {
+  const step = $('emptyCard')?.querySelectorAll('.step')[1]
+  if (!step) return
+  step.lastElementChild.textContent = emptyStepTwo()
+  fitEmptyCard()
+}
 function paintEmpty() { // onboarding card instead of pick-left note
+  $('emptyCard')?.remove()
   const card = el('div'); card.id = 'emptyCard'
-  card.appendChild(el('h2', null, t('docs.emptyTitle')))
+  card.appendChild(el('h2', null, t('docs.emptyTitle', { name: user || '?' })))
   card.appendChild(el('p', 'sub', t('docs.emptySub')))
-  ;[t('docs.emptyS1'), t('docs.emptyS2'), t('docs.emptyS3')].forEach((s, i) => {
+  ;[t('docs.emptyS1'), emptyStepTwo(), t('docs.emptyS3')].forEach((s, i) => {
     const st = el('div', 'step')
     st.appendChild(el('span', 'n', String(i + 1)))
-    st.appendChild(el('span', null, s))
+    const copy = el('span')
+    if (i === 0) {
+      const [before, after] = s.split('{createLink}')
+      copy.append(document.createTextNode(before))
+      const link = el('a', 'createLink', t('docs.emptyCreateLink'))
+      link.href = '#new-document'
+      link.onclick = async e => {
+        e.preventDefault()
+        const details = await askNewDoc()
+        if (details) await createNewDocument(details)
+      }
+      copy.append(link, document.createTextNode(after))
+    } else copy.textContent = s
+    st.appendChild(copy)
     card.appendChild(st)
   })
-  const hint = el('p', 'hint')
-  hint.appendChild(el('kbd', null, '?'))
-  hint.append(document.createTextNode(' ' + t('docs.emptyHintHelp') + ' · '))
-  hint.appendChild(el('kbd', null, t('docs.emptyKbdFind')))
-  hint.append(document.createTextNode(' ' + t('docs.emptyHintFind') + ' · '))
-  hint.appendChild(el('kbd', null, t('docs.emptyKbdSave')))
-  hint.append(document.createTextNode(' ' + t('docs.emptyHintSave')))
-  card.appendChild(hint)
-  $('preview').replaceChildren(card)
+  $('preview').replaceChildren()
+  $('mid').appendChild(card)
 
 }
 const lineOf = pos => getT().slice(0, pos).split('\n').length

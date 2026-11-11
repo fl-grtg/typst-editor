@@ -62,6 +62,7 @@ function refreshLang() {
   try { paintThemeBtn() } catch (e) {}
   try { if (typeof paintSecs === 'function') paintSecs() } catch (e) {}
   try { if (typeof paintMe === 'function' && user) paintMe() } catch (e) {}
+  try { if ($('emptyCard') && typeof paintEmpty === 'function') paintEmpty() } catch (e) {}
   try { if (typeof updPos === 'function') updPos() } catch (e) {}
   try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
   try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
@@ -528,6 +529,7 @@ matchMedia('(max-width:720px)').addEventListener('change', m => { // back on des
 function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode button)
   document.body.classList.toggle('read', m === 'read')
   document.body.classList.toggle('editonly', m === 'editor')
+  updateEmptyStep()
   for (const [id, on] of [['vEdit', m === 'editor'], ['vSplit', m === 'split'], ['vRead', m === 'read']]) {
     $(id).classList.toggle('on', on)
     $(id).setAttribute('aria-pressed', on)

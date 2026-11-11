@@ -55,14 +55,14 @@ function enhanceEmpty() {
   })
   wrap.appendChild(grid)
   card.appendChild(wrap)
+  fitEmptyCard()
 }
-new MutationObserver(enhanceEmpty).observe(document.getElementById('preview'), { childList: true })
 
 function fitEmptyCard() {
-  const card = document.getElementById('emptyCard'), preview = document.getElementById('preview')
+  const card = document.getElementById('emptyCard'), mid = document.getElementById('mid')
   if (!card) return
-  const scale = Math.min(1, (preview.clientHeight - 32) / card.offsetHeight, (preview.clientWidth - 32) / card.offsetWidth)
+  const scale = Math.min(1, (mid.clientHeight - 32) / card.offsetHeight, (mid.clientWidth - 32) / card.offsetWidth)
   card.style.setProperty('--empty-scale', Math.max(.1, scale))
 }
-new ResizeObserver(fitEmptyCard).observe(document.getElementById('preview'))
-new MutationObserver(fitEmptyCard).observe(document.getElementById('preview'), { childList: true, subtree: true })
+new MutationObserver(() => { enhanceEmpty(); fitEmptyCard() }).observe(document.getElementById('mid'), { childList: true })
+new ResizeObserver(fitEmptyCard).observe(document.getElementById('mid'))

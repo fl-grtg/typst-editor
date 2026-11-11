@@ -9,6 +9,11 @@ function paintMe() { // own blob in user box (image not color, missing = color)
   const sub = document.createElement('small')
   sub.textContent = t('login.settingsLink')
   who.appendChild(sub)
+  const greeting = $('emptyCard')?.querySelector('h2')
+  if (greeting) {
+    greeting.textContent = t('docs.emptyTitle', { name: user || '?' })
+    fitEmptyCard()
+  }
 }
 let avatarV = 0
 const avUrl = n => `/api/avatar/${encodeURIComponent(n)}?v=${avatarV}`
@@ -111,6 +116,19 @@ function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery 
     setTimeout(() => { if (ov.style.display !== 'none') { inp.focus(); inp.select() } }, 30)
   })
 }
+async function createNewDocument(details) {
+  if (!details) return
+  const button = $('new')
+  button.disabled = true
+  try {
+    await openDoc((await api('POST', '/api/docs/create', {
+      title: (details.title || '').trim() || t('projects.new'),
+      content: galleryContent(details.tpl),
+      folder: ''
+    })).id)
+  } catch (e) { toast(e.message) }
+  finally { button.disabled = false }
+}
 function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (like askNewDoc, not 3 cascades)
   return new Promise(res => {
     if (askRes) askRes(null)
@@ -135,10 +153,7 @@ $('new').onclick = async () => {
   if (k === 1) { $('docPick').click(); return }
   if (k !== 0) return
   const r = await askNewDoc()
-  if (!r) return
-  const b = $('new'); b.disabled = true
-  try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('projects.new'), content: galleryContent(r.tpl), folder: '' })).id) }
-  catch (e) { toast(e.message) } finally { b.disabled = false }
+  await createNewDocument(r)
 }
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
