@@ -88,6 +88,7 @@
         it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), checked: !!(window.Present && window.Present.isOn()) }),
         SEP,
         it(t('menu.sidebar'), function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
+        it(t('menu.clickSync'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
         it(t('menu.follow'), function () { click('followBtn') }, { checked: pressed('followBtn'), on: !edit && !read }),
         SEP,
         it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: M + '+', on: !edit }),

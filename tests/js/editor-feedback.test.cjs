@@ -462,6 +462,26 @@ test('a wrapped paragraph in an included file is found across source line breaks
   assert.equal(c.activeFile, 'inc.typ')
   assert.deepEqual(c.jumps, [inc.indexOf('Alpha')]) // the PDF line spans two source lines
 })
+test('a wrapped needle keeps the clicked letter across apostrophes', () => {
+  const c = vm.createContext({
+    posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p },
+  })
+  vm.runInContext(code.slice(code.indexOf('function pvWordChar'), code.indexOf('function cmTop')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvPosIn'), code.indexOf('function syncToPv')), c)
+  const src = 'I don’t know\nsecond line'
+  const pdf = "I don't know" // smart quote in the source, straight quote in the PDF text
+  assert.equal(c.pvPosIn(src, pdf, 2, 1), 2) // start of "don’t"
+  assert.equal(c.pvPosIn(src, pdf, 5, 1), 5) // after "don", before the apostrophe
+  assert.equal(c.pvPosIn(src, pdf, 6, 1), 6) // the t after the apostrophe, not stuck at the quote
+  assert.equal(c.pvPosIn(src, pdf, 7, 1), 7) // its end
+  assert.equal(c.pvPosIn(src, pdf, 8, 1), 8) // start of "know"
+})
+test('click column never lands inside a surrogate pair', () => {
+  const c = vm.createContext({})
+  vm.runInContext(code.slice(code.indexOf('function pvCharW'), code.indexOf("$('preview').addEventListener('click'")), c)
+  assert.equal(c.pvClickChar('a😀b', 0.2), 1) // before the emoji
+  assert.equal(c.pvClickChar('a😀b', 0.5), 3) // behind the emoji, measured in code units
+})
 test('a heading-like line inside a raw block never ends the enclosing call', () => {
   const lines = ['= Chart', '#figure(', '  box[```typst', '= Fake heading', '```', '  ]', ')', '', '= Next']
   assert.equal(ctx.pvCallEnd(lines, 2), 7)

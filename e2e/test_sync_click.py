@@ -118,12 +118,16 @@ def test_click_columns_stay_on_the_letters_of_a_justified_line(page):
         page.wait_for_timeout(600)
         assert _line(page) == 5, "a blank click left the paragraph"
         col = _col(page)
-        assert 1 < col <= len(para) + 1 and (para[col - 2] != " " or (col <= len(para) and para[col - 1] != " ")), \
-            f"click at {fx} left the words: column {col}"
+        assert 1 < col <= len(para) + 1, f"click at {fx} left the line: column {col}"
+        before = para[col - 2]
+        after = para[col - 1] if col <= len(para) else " "
+        assert before != " " or after != " ", f"click at {fx} landed between words: column {col}"
         cols.append(col)
+    # no monotonic check: a click below the paragraph lands on whichever wrapped
+    # PDF line owns its x, so columns jump between different rendered lines
     assert len(set(cols)) >= 3, f"clicks kept one column: {cols}"
     inner = [col for col in cols if 1 < col <= len(para) and para[col - 2] != " " and para[col - 1] != " "]
-    assert inner, f"every click landed on a word edge instead of a letter: {cols}"
+    assert len(inner) >= 3, f"too few clicks landed on a letter: {cols}"
 
 
 def test_click_columns_survive_wrapped_single_letter_words(page):

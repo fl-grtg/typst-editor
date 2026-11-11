@@ -566,7 +566,7 @@ function paintSteps() { // dead clicks give no feedback: disable at the bounds (
     if (zP) zP.disabled = pvZoom >= PV_MAX
   } catch (e) {}
 }
-let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = -1 // click sync editor<->preview, last hit page, scroll-follow pos (-1: use cursor)
+let syncOn = true, syncT = 0, syncPage = 0, syncMiss = false, syncView = -1 // click sync preview->editor, last hit page, scroll-follow pos (-1: use cursor)
 let syncEdOff = 0 // preview click point relative to the viewport center: scroll-follow starts where the reader clicked
 let syncEdX = -1 // clicked column as a share of the page width: two-column previews follow that column, not the gutter
 let syncEdMiss = false // follow hit a page whose text index was still being built: retry once it is done
@@ -626,9 +626,7 @@ function syncToEd() {
   }
   smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
 }
-try { $('preview').addEventListener('wheel', () => { // a reader wheel wins over a glide that keeps writing the same spot
-  const pv = $('preview')
-  smoothStop(pv)
+try { $('preview').addEventListener('wheel', () => { // a reader wheel wins over a pending sync retry
   if (syncT) { clearTimeout(syncT); syncT = 0 } // no pending cursor sync may yank the preview back
   syncMiss = false // nor the retry from a render that started before the reader scrolled
 }, { passive: true }) } catch (e) {}
@@ -660,14 +658,31 @@ function pvCanvasList() { // virtual slots first, fallback bare canvases
 function pvPosIn(txt, s, off, hint) { // exact needle first, then its words across source line breaks and markup
   const at = locateNear(txt, s, hint)
   if (at >= 0) return at + off
-  let w0 = Math.max(0, Math.min(off, s.length))
-  while (w0 > 0 && !/\s/.test(s[w0 - 1])) w0-- // start of the clicked word
-  const wi = Math.min(syncText(s).split(' ').filter(Boolean).length - 1,
-    syncText(s.slice(0, off)).split(' ').filter(Boolean).length - (off > w0 ? 1 : 0))
-  const p = syncNeedleAt(txt, s, hint, Math.max(0, wi))
-  if (p < 0) return -1
-  const word = syncText(s.slice(w0)).split(' ')[0] || ''
-  return p + Math.min(off - w0, word.length) // the same letter inside the matched source word
+  const words = pvNormWords(s)
+  if (!words.length) return -1
+  const o = Math.max(0, Math.min(off, s.length))
+  let wi = words.length - 1, woff = words[wi].text.length // past the last word: its end
+  for (let i = 0; i < words.length; i++) {
+    if (o <= words[i].end) { wi = i; woff = Math.max(0, Math.min(words[i].text.length, o - words[i].start)); break }
+  }
+  const p = syncNeedleAt(txt, s, hint, wi)
+  return p < 0 ? -1 : p + woff // the same letter inside the matched source word
+}
+function pvNormWords(s) { // syncText words with their raw offset: "don’t" -> don@0, t@4
+  const out = []
+  let cur = null
+  for (let i = 0; i < s.length;) {
+    const ch = String.fromCodePoint(s.codePointAt(i))
+    for (const c of ch.normalize('NFKC').toLowerCase()) {
+      if (/[\p{L}\p{N}]/u.test(c)) {
+        if (!cur) cur = { start: i, text: '' }
+        cur.text += c
+      } else if (cur) { cur.end = i; out.push(cur); cur = null }
+    }
+    i += ch.length
+  }
+  if (cur) { cur.end = s.length; out.push(cur) }
+  return out
 }
 function pvHerePos(needles, hint, pi, anchor) { // source position of the best needle in the current file; -1: none
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
@@ -1087,7 +1102,7 @@ function syncToPv(force) { // force: explicit navigation (outline/find), works e
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
 }
 function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the same destination
-  if (!followAll || !docId || tplName || activeFile || !dest) return
+  if (!followAll || !syncOn || !docId || tplName || activeFile || !dest) return
   const items = pvTexts[dest.page] || [], slot = pvSlots[dest.page]
   if (!items.length || !slot) return
   const hPt = (+slot.dataset.w || 0) * (+slot.dataset.r || 0)
@@ -1183,10 +1198,11 @@ function pvClickChar(word, frac) { // fraction across a word -> the character bo
   for (const c of word) total += pvCharW(c)
   const at = Math.max(0, Math.min(1, frac)) * total
   let cum = 0, i = 0
-  for (; i < word.length; i++) {
-    const w = pvCharW(word[i])
+  for (const c of word) {
+    const w = pvCharW(c)
     if (at < cum + w / 2) break // nearest boundary: the right half of a letter puts the caret behind it
     cum += w
+    i += c.length // code units: never stop inside a surrogate pair
   }
   return i
 }
