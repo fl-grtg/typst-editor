@@ -100,3 +100,18 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     assert [r["name"] for r in page.request.get(f"/api/projects/{pid}/resources").json()["resources"]] == ["parts/intro.typ"]
     expect(page.locator("#tabs button.tab", has_text="intro.typ")).to_have_count(1)
     expect(page.locator("#tabs button.tab[aria-selected=true]", has_text="intro.typ")).to_have_count(1)
+
+
+def test_drag_entries_into_a_folder_and_back_to_the_project_root(page):
+    did, pid = _setup(page, "folder_dnd")
+    names = lambda: [r["name"] for r in page.request.get(f"/api/projects/{pid}/resources").json()["resources"]]  # noqa: E731
+    row = page.locator("aside .doc.sub", has_text="other.typ")
+    page.locator("aside .fhd.folder", has_text="lib").scroll_into_view_if_needed()
+    row.drag_to(page.locator("aside .fhd.folder", has_text="lib"))
+    page.click("#mYes")  # references are listed, never rewritten: confirm
+    expect(page.locator("aside .doc.sub[title='lib/other.typ']")).to_have_count(1)
+    assert names() == ["lib/other.typ", "lib/style.typ"]
+    page.locator("aside .doc.sub[title='lib/other.typ']").drag_to(page.locator("aside .project-group").filter(has_text="Main").first.locator(".fhd.project"))
+    page.click("#mYes")
+    expect(page.locator("aside .doc.sub[title='other.typ']")).to_have_count(1)
+    assert names() == ["lib/style.typ", "other.typ"]
