@@ -385,10 +385,30 @@ test('preview heading clicks resolve the matching source section on the same pag
   const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
   const jumps = []
   const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
-  vm.runInContext(code.slice(code.indexOf('function pvHerePos'), code.indexOf('function syncToPv')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvPosIn'), code.indexOf('function syncToPv')), c)
   assert.equal(await c.pvJumpBest([{ s: 'D: Beobachtung', off: 0 }], 1, 0, pages[0][3]), true)
   const start = lines.slice(0, 3).join('\n').length + 1
   assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers
+})
+test('a wrapped paragraph in an included file is found across source line breaks', async () => {
+  const main = '= Main\n\n#include "inc.typ"\n'
+  const inc = '= Inc\n\nAlpha beta gamma\ndelta epsilon zeta\n'
+  const c = vm.createContext({
+    activeFile: 'main.typ', docId: 'd', openN: 1, syncPage: 0, jumps: [],
+    getT: () => (c.activeFile === 'inc.typ' ? inc : main),
+    pvSrcList: () => [{ key: 'inc.typ', text: inc }],
+    switchTab: async key => { c.activeFile = key; return true },
+    cm: { state: { doc: { lines: 3 } } },
+    posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p },
+    jumpPos: pos => c.jumps.push(pos),
+    get pvTexts() { return [page(['Alpha beta gamma delta epsilon zeta'])] },
+  })
+  vm.runInContext(code.slice(code.indexOf('function pvWordChar'), code.indexOf('function cmTop')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvPosIn'), code.indexOf('function syncToPv')), c)
+  const needle = { s: 'Alpha beta gamma delta epsilon zeta', off: 0 }
+  assert.equal(await c.pvJumpBest([needle], 1, 0, null), true)
+  assert.equal(c.activeFile, 'inc.typ')
+  assert.deepEqual(c.jumps, [inc.indexOf('Alpha')]) // the PDF line spans two source lines
 })
 test('a heading-like line inside a raw block never ends the enclosing call', () => {
   const lines = ['= Chart', '#figure(', '  box[```typst', '= Fake heading', '```', '  ]', ')', '', '= Next']

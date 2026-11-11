@@ -645,6 +645,12 @@ function pvCanvasList() { // virtual slots first, fallback bare canvases
   if (sl.length) return [...sl]
   return [...pv.querySelectorAll('canvas')]
 }
+function pvPosIn(txt, s, off, hint) { // exact needle first, then its words across source line breaks and markup
+  const at = locateNear(txt, s, hint)
+  if (at >= 0) return at + off
+  const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
+  return syncNeedleAt(txt, s, hint, wi)
+}
 function pvHerePos(needles, hint, pi, anchor) { // source position of the best needle in the current file; -1: none
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
   const cur = activeFile || ''
@@ -667,11 +673,8 @@ function pvHerePos(needles, hint, pi, anchor) { // source position of the best n
       if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) return matches[0].pos
       if (matches.length > 1) continue
     }
-    const atCur = locateNear(getT(), s, hint)
-    if (atCur >= 0) return atCur + off
-    const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
-    const atNorm = syncNeedleAt(getT(), s, hint, wi)
-    if (atNorm >= 0) return atNorm
+    const at = pvPosIn(getT(), s, off, hint)
+    if (at >= 0) return at
   }
   return -1
 }
@@ -698,7 +701,7 @@ async function pvJumpBest(needles, hint, pi, anchor) { // current file, else the
       const txt = src.text || ''
       const lines = txt ? txt.split('\n').length : 1
       const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
-      const at = locateNear(txt, s, h2)
+      const at = pvPosIn(txt, s, off, h2)
       if (at >= 0) {
         if (found) { dup = true; break }
         found = { key: src.key }
@@ -711,8 +714,8 @@ async function pvJumpBest(needles, hint, pi, anchor) { // current file, else the
       if (doc !== docId || epoch !== openN || activeFile !== found.key) return false
       const t = getT(), lines = cm.state.doc.lines || 1
       const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
-      const at = locateNear(t, s, h2)
-      if (at >= 0) { jumpPos(at + off); return true }
+      const at = pvPosIn(t, s, off, h2)
+      if (at >= 0) { jumpPos(at); return true }
     }
   }
   return false
@@ -1224,6 +1227,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   let at = null
   if (cv && pvTexts.length) {
     const items = pi >= 0 ? (pvTexts[pi] || []) : []
+    if (!items.length && !pvTextDone[pi]) return // render between reset and swap: the old canvas has no anchors yet
     const r = cv.getBoundingClientRect()
     const x = e.clientX - r.left, y = e.clientY - r.top
     const vw = (items[0] && items[0].vw) || cv.width || 1

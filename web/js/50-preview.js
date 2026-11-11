@@ -694,10 +694,10 @@ function pvPageMeta(doc, p, scale) { // one page: text anchors + link boxes (ind
 if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('click', e => { // internal PDF destination: external links open natively
   const a = e.target.closest ? e.target.closest('.pvLinks a[data-pv-link]') : null
   if (!a) return
+  e.preventDefault() // hash href: never let a stale link layer touch the URL and the app scroll
   const slot = a.closest('.pvPage'), pi = slot ? +slot.dataset.page - 1 : -1
   const L = pi >= 0 ? (pvLinks[pi] || [])[+a.dataset.pvLink] : null
   if (!L || !L.dest) return
-  e.preventDefault() // hash href: keep the URL and the scroll position of the app
   pvGotoTarget(L.dest)
   pvSyncDest(L.dest) // follow mode: the editor moves to the same destination
 })
