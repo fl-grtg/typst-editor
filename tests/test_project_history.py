@@ -62,3 +62,38 @@ def test_project_rename_entries_and_editor_delete(c):
     login(c, 'bob')
     assert c.post(url, json={'name': 'new.typ', 'target': 'bad.typ'}).status_code == 403
     assert c.post(f'/api/projects/{pid}/snapshots', json={}).status_code == 403
+
+
+def test_checkpoint_rename_delete_rights_and_compare(c):
+    register_user(c, 'alice')
+    register_user(c, 'bob')
+    login(c, 'alice')
+    did = c.post('/api/docs/create', json={'title': 'Doc', 'content': 'one'}).json()['id']
+    pid = c.get(f'/api/docs/{did}').json()['project_id']
+    assert c.post(f'/api/projects/{pid}/members', json={'username': 'bob', 'role': 'editor'}).status_code == 200
+    first = c.post(f'/api/projects/{pid}/snapshots', json={'label': ''}).json()['id']
+    assert c.patch(f'/api/projects/{pid}/snapshots/{first}', json={'label': 'Draft 1'}).json() == {'label': 'Draft 1', 'kind': 'manual'}
+    listed = c.get(f'/api/projects/{pid}/snapshots').json()['snapshots']
+    assert ('Draft 1', 'alice') in [(s['label'], s['author']) for s in listed]
+    login(c, 'bob')
+    bobs = c.post(f'/api/projects/{pid}/snapshots', json={'label': 'Bob'}).json()['id']
+    assert c.delete(f'/api/projects/{pid}/snapshots/{first}').status_code == 403  # alice's, bob is not owner
+    assert c.patch(f'/api/projects/{pid}/snapshots/{first}', json={'label': 'Renamed by editor'}).status_code == 200
+    # compare two stored checkpoints and a missing one
+    cmp = c.get(f'/api/projects/{pid}/snapshots/{first}', params={'against': bobs}).json()
+    assert cmp['changes'] == [] and cmp['against']['id'] == bobs and cmp['against']['label'] == 'Bob'
+    assert c.get(f'/api/projects/{pid}/snapshots/{first}', params={'against': 'nope'}).status_code == 404
+    assert c.delete(f'/api/projects/{pid}/snapshots/{bobs}').status_code == 200  # own checkpoint
+    login(c, 'alice')
+    assert c.delete(f'/api/projects/{pid}/snapshots/{first}').status_code == 200  # owner
+    assert c.delete(f'/api/projects/{pid}/snapshots/{first}').status_code == 404
+
+
+def test_naming_an_automatic_checkpoint_keeps_it(c):
+    register_user(c, 'alice')
+    did = c.post('/api/docs/create', json={'title': 'Doc'}).json()['id']
+    pid = c.get(f'/api/docs/{did}').json()['project_id']
+    with db.tx() as con:
+        con.execute("INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind) VALUES ('ps_auto',?,'{}','','2000-01-01T00:00:00+00:00','auto')", (pid,))
+    assert c.patch(f'/api/projects/{pid}/snapshots/ps_auto', json={'label': 'Release'}).json()['kind'] == 'manual'
+    assert c.patch(f'/api/projects/{pid}/snapshots/ps_auto', json={'label': ''}).json()['kind'] == 'manual'

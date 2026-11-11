@@ -104,12 +104,12 @@ def _retain(con: sqlite3.Connection, project_id: str) -> None:
         f"({','.join('?' * len(keep))})", (project_id, *keep))
 
 
-def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual') -> str:
+def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual', author: str = '') -> str:
     content = json.dumps(state, ensure_ascii=False, sort_keys=True)
     owner = con.execute('SELECT owner FROM projects WHERE id=?', (project_id,)).fetchone()[0]
     sid = db.new_id('ps_')
-    con.execute('INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind) VALUES (?,?,?,?,?,?)',
-                (sid, project_id, content, label, db.now_iso(), kind))
+    con.execute('INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind,author) VALUES (?,?,?,?,?,?,?)',
+                (sid, project_id, content, label, db.now_iso(), kind, author))
     _retain(con, project_id)
     quota.check_quota(owner, 0, con)
     return sid

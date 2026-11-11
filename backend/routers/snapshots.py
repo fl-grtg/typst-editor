@@ -7,7 +7,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend import config, db, deps, sync
-from backend.schemas import SnapNew, SnapRestore
+from backend.schemas import SnapNew, SnapRename, SnapRestore
 from backend.services import quota
 from backend.services.snapshots import prune_snaps
 
@@ -124,7 +124,7 @@ def list_project_snaps(project_id: str, req: Request, user: str = Depends(deps.m
     con = db.connect()
     try:
         projects.require(con, project_id, user)
-        return {"snapshots": [dict(r) for r in con.execute("SELECT id,label,kind,created_at,LENGTH(CAST(content AS BLOB)) AS size FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC", (project_id,))]}
+        return {"snapshots": [dict(r) for r in con.execute("SELECT id,label,kind,author,created_at,LENGTH(CAST(content AS BLOB)) AS size FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC", (project_id,))]}
     finally:
         con.close()
 
@@ -136,14 +136,15 @@ def make_project_snap(project_id: str, b: SnapNew, req: Request, user: str = Dep
     with project_history.prepared(project_id, user) as (state, expected), db.tx() as con:
         projects.require(con, project_id, user, edit=True)
         project_history.unchanged(con, project_id, expected)
-        sid = project_history.save(con, project_id, state, b.label.strip())
+        sid = project_history.save(con, project_id, state, b.label.strip(), author=user)
         owner = con.execute("SELECT owner FROM projects WHERE id=?", (project_id,)).fetchone()[0]
     quota.invalidate_quota_cache(owner)
     return {"id": sid}
 
 
 @router.get("/api/projects/{project_id}/snapshots/{sid}")
-def get_project_snap(project_id: str, sid: str, req: Request, user: str = Depends(deps.me)) -> dict:
+def get_project_snap(project_id: str, sid: str, req: Request, against: str = "current", user: str = Depends(deps.me)) -> dict:
+    """Changes from checkpoint `sid` to `against` ("current" = the live project, or another checkpoint id)."""
     import json
 
     from backend.services import project_history, projects
@@ -151,19 +152,44 @@ def get_project_snap(project_id: str, sid: str, req: Request, user: str = Depend
     con = db.connect()
     try:
         projects.require(con, project_id, user)
-        row = con.execute("SELECT content,label,created_at FROM project_snapshots WHERE id=? AND project_id=?", (sid, project_id)).fetchone()
+        row = con.execute("SELECT content,label,kind,author,created_at FROM project_snapshots WHERE id=? AND project_id=?", (sid, project_id)).fetchone()
         if not row:
             raise HTTPException(404, "Checkpoint not found")
+        other = None
+        if against != "current":
+            other = con.execute("SELECT content,label,created_at FROM project_snapshots WHERE id=? AND project_id=?", (against, project_id)).fetchone()
+            if not other:
+                raise HTTPException(404, "Checkpoint not found")
         saved = json.loads(row["content"])
-        with project_history.prepared(project_id, user) as (current, _):
-            pass
+        if other:
+            current = json.loads(other["content"])
+        else:
+            with project_history.prepared(project_id, user) as (current, _):
+                pass
         old_files, new_files = project_history.diff_files(saved), project_history.diff_files(current)
         changes = [{"name": name, "before": old_files.get(name, ""), "after": new_files.get(name, ""),
                     "status": "added" if name not in old_files else "deleted" if name not in new_files else "modified"}
                    for name in sorted(old_files.keys() | new_files.keys()) if old_files.get(name) != new_files.get(name)]
-        return {**dict(row), "content": project_history.diff_text(saved), "current_content": project_history.diff_text(current), "changes": changes}
+        return {**dict(row), "content": project_history.diff_text(saved), "current_content": project_history.diff_text(current), "changes": changes,
+                "against": {"id": against, "label": other["label"] if other else "", "created_at": other["created_at"] if other else ""}}
     finally:
         con.close()
+
+
+@router.patch("/api/projects/{project_id}/snapshots/{sid}")
+def rename_project_snap(project_id: str, sid: str, b: SnapRename, req: Request, user: str = Depends(deps.me)) -> dict:
+    """Name a checkpoint. A named automatic checkpoint becomes permanent (kind 'manual')."""
+    from backend.services import projects
+    deps.limited(req, "snapshots")
+    label = b.label.strip()
+    with db.tx() as con:
+        projects.require(con, project_id, user, edit=True)
+        row = con.execute("SELECT kind FROM project_snapshots WHERE id=? AND project_id=?", (sid, project_id)).fetchone()
+        if not row:
+            raise HTTPException(404, "Checkpoint not found")
+        kind = "manual" if label else row["kind"]
+        con.execute("UPDATE project_snapshots SET label=?,kind=? WHERE id=?", (label, kind, sid))
+    return {"label": label, "kind": kind}
 
 
 @router.delete("/api/projects/{project_id}/snapshots/{sid}")
@@ -171,8 +197,13 @@ def delete_project_snap(project_id: str, sid: str, req: Request, user: str = Dep
     from backend.services import projects, quota
     deps.limited(req, "snapshots")
     with db.tx() as con:
-        projects.require(con, project_id, user, owner=True)
+        projects.require(con, project_id, user, edit=True)
         owner = con.execute("SELECT owner FROM projects WHERE id=?", (project_id,)).fetchone()[0]
+        row = con.execute("SELECT author FROM project_snapshots WHERE project_id=? AND id=?", (project_id, sid)).fetchone()
+        if not row:
+            raise HTTPException(404, "Checkpoint not found")
+        if user != owner and user != row["author"]:
+            raise HTTPException(403, "Only the owner or the author can delete a checkpoint")
         con.execute("DELETE FROM project_snapshots WHERE project_id=? AND id=?", (project_id, sid))
     quota.invalidate_quota_cache(owner)
     return {"ok": True}
@@ -233,7 +264,7 @@ def _restore_project_state(project_id: str, sid: str, b: SnapRestore, user: str)
                     saved = con.execute('SELECT content FROM docs WHERE id=?', (did,)).fetchone()[0]
                     if live is not None and live != saved and not b.force:
                         raise HTTPException(409, 'Project has unsaved live changes; retry with force')
-                project_history.save(con, project_id, before, 'Before restore', kind='auto')
+                project_history.save(con, project_id, before, 'Before restore', kind='auto', author=user)
                 extra = 0
                 for d in state['documents']:
                     old = con.execute('SELECT content,yjs FROM docs WHERE id=?', (d['id'],)).fetchone()

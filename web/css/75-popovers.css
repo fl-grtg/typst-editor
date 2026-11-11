@@ -210,3 +210,41 @@ body.settings-open #modal { z-index: 302; }
 #pop .proposalCells .tx { background: var(--acc-soft); }
 .proposalBibField { margin-top: 10px; white-space: pre-wrap; }
 .proposalBibField > b { font-size: 12px; color: var(--sub); }
+
+/* Change screen: blurred overlay like the other dialogs, green/red line diff */
+.chgOverlay {
+  position: fixed; inset: 0; z-index: var(--z-modal); display: flex; align-items: center; justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top)) 16px 16px; background: rgba(10, 12, 16, .32);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.chgCard { display: flex; flex-direction: column; width: min(1100px, 100%); height: min(760px, 100%); background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); overflow: hidden; }
+.chgHead { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line-2); flex-wrap: wrap; }
+.chgHead b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.chgSum { font-size: 12.5px; color: var(--sub); }
+.chgSp { flex: 1; }
+.chgVs { font-size: 12.5px; color: var(--sub); }
+.chgAgainst { max-width: 220px; min-height: 30px; font-size: 12.5px; }
+.plus { color: #1a7f37; font-weight: 600; }
+.minus { color: var(--danger); font-weight: 600; }
+.chgBody { display: flex; flex: 1; min-height: 0; }
+.chgFiles { width: 260px; flex: none; overflow: auto; padding: 8px; border-right: 1px solid var(--line-2); }
+.chgFiles button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; text-align: left; font-size: 12.5px; background: none; border: 0; border-radius: var(--r-sm); color: var(--text); }
+.chgFiles button:hover { background: var(--hover); }
+.chgFiles button.on { background: var(--press); }
+.chgFiles .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chgFiles .cnt { flex: none; font-size: 11.5px; }
+.chgFiles .st { flex: none; width: 16px; text-align: center; font-style: normal; font-weight: 700; color: var(--sub); }
+.chgFiles .st.added { color: #1a7f37; } .chgFiles .st.deleted { color: var(--danger); }
+.chgView { flex: 1; min-width: 0; overflow: auto; }
+.chgEmpty { padding: 24px; color: var(--sub); font-size: 13px; }
+.chgCode { font: 12px/1.55 var(--mono, ui-monospace, monospace); min-width: max-content; }
+.chgLine { display: flex; white-space: pre; }
+.chgLine .no { flex: none; width: 44px; padding-right: 8px; text-align: right; color: var(--sub); opacity: .7; user-select: none; }
+.chgLine .sg { flex: none; width: 18px; text-align: center; font-weight: 700; user-select: none; }
+.chgLine .tx { padding-right: 16px; }
+.chgLine.add { background: rgba(46, 160, 67, .16); } .chgLine.add .sg { color: #1a7f37; }
+.chgLine.del { background: var(--danger-soft); } .chgLine.del .sg { color: var(--danger); }
+.chgFold { padding: 2px 12px; color: var(--sub); background: var(--hover); font-size: 11.5px; }
+@media (max-width: 720px) { .chgBody { flex-direction: column; } .chgFiles { width: auto; max-height: 30%; border-right: 0; border-bottom: 1px solid var(--line-2); } }
+@media (prefers-reduced-transparency: reduce) { .chgOverlay { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+.chgHead button { border: 0; background: none; box-shadow: none; }

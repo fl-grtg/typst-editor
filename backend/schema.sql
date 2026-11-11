@@ -190,7 +190,8 @@ CREATE TABLE IF NOT EXISTS project_folders (
 CREATE TABLE IF NOT EXISTS project_snapshots (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
  content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
- kind TEXT NOT NULL DEFAULT 'manual' -- 'auto' (system, pruned by retention) vs 'manual' (never auto-pruned)
+ kind TEXT NOT NULL DEFAULT 'manual', -- 'auto' (system, pruned by retention) vs 'manual' (never auto-pruned)
+ author TEXT NOT NULL DEFAULT '' -- who saved it ('' = system/older)
 );
 
 CREATE TABLE IF NOT EXISTS trash_entries (

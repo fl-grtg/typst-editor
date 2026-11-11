@@ -13,7 +13,7 @@ async function renderHist() {
   const canEdit = ['owner', 'editor'].includes(projects.find(p => p.id === project)?.role || docRole)
   const p = $('histPop'); p.replaceChildren()
   const save = el('button', 'save primary', t('history.saveSnap'))
-  save.onclick = async () => { if (doc !== docId || epoch !== openN) return; save.disabled = true; const old = save.textContent; save.textContent = t('history.saving'); try { if (!await flushTab() || !await flushTpl()) { save.disabled = false; return }; await api('POST', historyUrl(doc), {}); if (doc === docId && epoch === openN) renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
+  save.onclick = async () => { if (doc !== docId || epoch !== openN) return; let label = ''; if (historyUrl(doc).includes('/projects/')) { const v = await ask(t('history.saveSnap'), { ph: t('history.namePh'), ok: t('common.save') }); if (v == null || doc !== docId || epoch !== openN) return; label = String(v).trim() } save.disabled = true; const old = save.textContent; save.textContent = t('history.saving'); try { if (!await flushTab() || !await flushTpl()) { save.disabled = false; return }; await api('POST', historyUrl(doc), label ? { label } : {}); if (doc === docId && epoch === openN) renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
   save.hidden = !canEdit; p.appendChild(save)
   let list = []
   try { list = (await api('GET', historyUrl(doc))).snapshots }
@@ -23,9 +23,17 @@ async function renderHist() {
   list.forEach(s => {
     const row = el('div', 'srow')
     const kib = Math.round(s.size / 1024)
-    row.appendChild(el('span', 't', ago(s.created_at) + (s.label ? ' · ' + s.label : '') + t('history.sizeKb', { kb: kib })))
+    row.appendChild(el('span', 't', ago(s.created_at) + (s.label ? ' · ' + s.label : '') + (s.author ? ' · ' + s.author : '') + t('history.sizeKb', { kb: kib })))
     const df = el('button', null, t('history.compare')); df.title = t('history.compareTitle'); df.setAttribute('aria-label', df.title)
-    df.onclick = () => showDiff(s.id, row, doc)
+    const projUrl = historyUrl(doc).includes('/projects/')
+    df.onclick = () => projUrl ? openChanges({ url: historyUrl(doc), sid: s.id, list, title: s.label || ago(s.created_at) }) : showDiff(s.id, row, doc)
+    const rn = icoBtn(null, ICO_EDIT); rn.title = t('history.renameSnap'); rn.setAttribute('aria-label', rn.title); rn.hidden = !canEdit || !projUrl
+    rn.onclick = async e => {
+      e.stopPropagation()
+      const v = await ask(t('history.renameSnap'), { value: s.label || '', ph: t('history.namePh') })
+      if (v == null || doc !== docId || epoch !== openN) return
+      try { await api('PATCH', `${historyUrl(doc)}/${s.id}`, { label: String(v).trim() }); if (doc === docId && epoch === openN) renderHist() } catch (err) { toast(err.message) }
+    }
     const rs = el('button', null, t('docs.restore')); rs.title = t('history.restoreTitle'); rs.setAttribute('aria-label', rs.title)
     rs.hidden = !canEdit
     rs.onclick = async () => {
@@ -42,7 +50,7 @@ async function renderHist() {
       }
       doRestore()
     }
-    const xx = icoBtn(null, ICO_X); xx.title = t('history.delSnap'); xx.setAttribute('aria-label', xx.title); xx.hidden = docRole !== 'owner'
+    const xx = icoBtn(null, ICO_X); xx.title = t('history.delSnap'); xx.setAttribute('aria-label', xx.title); xx.hidden = projUrl ? !(projects.find(p => p.id === project)?.role === 'owner' || (s.author && s.author === user)) : docRole !== 'owner'
     xx.onclick = async e => {
       e.stopPropagation()
       if (!await ask(t('history.delSnapConfirm'), { noInput: true, ok: t('common.delete'), danger: true })) return
@@ -50,7 +58,7 @@ async function renderHist() {
       try { await api('DELETE', `${historyUrl(doc)}/${s.id}`); if (doc === docId && epoch === openN) renderHist() }
       catch (e) { toast(e.message) }
     }
-    row.append(df, rs, xx); p.appendChild(row)
+    row.append(df, rn, rs, xx); p.appendChild(row)
   })
 }
 function lineDiff(a, b) { // LCS on lines (caps see above), output max DIFF_OUT lines

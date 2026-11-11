@@ -96,6 +96,10 @@ class SnapNew(BaseModel):
     label: str = Field(default="", max_length=80)
 
 
+class SnapRename(BaseModel):
+    label: str = Field(default="", max_length=80)
+
+
 class SnapRestore(BaseModel):
     force: bool = False
 
