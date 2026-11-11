@@ -95,13 +95,14 @@ $('renBtn').onclick = async () => { // pencil behind title (owner only, template
     .catch(e => toast(e.message))
   } finally { renBusy = false }
 }
-function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
+function askNewDoc(uploadTitle, headTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
   return new Promise(res => {
     if (askRes) askRes(null)
     const prev = document.activeElement
     const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
-    $('mHead').textContent = t('docs.newDocTitle')
-    const inp = $('mInp'); inp.style.display = ''; inp.value = uploadTitle || t('docs.newDocTitle'); inp.placeholder = t('docs.titlePh'); inp.setAttribute('aria-label', t('docs.titlePh'))
+    const head = headTitle || t('docs.newDocTitle')
+    $('mHead').textContent = head
+    const inp = $('mInp'); inp.style.display = ''; inp.value = uploadTitle || head; inp.placeholder = t('docs.titlePh'); inp.setAttribute('aria-label', t('docs.titlePh'))
     const row = document.querySelector('#mCard .mRow'); row.style.display = ''
     const yes = $('mYes'); yes.disabled = false; yes.textContent = t('common.create'); yes.style.background = ''; yes.style.color = ''
     const box = document.createElement('div'); box.id = 'mExtra'
@@ -139,10 +140,10 @@ function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (l
   })
 }
 $('new').onclick = async () => {
-  const k = await askPick(t('docs.newPick'), [[t('docs.pickDoc'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
+  const k = await askPick(t('docs.newPick'), [[t('docs.newProject'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
   if (k === 1) { $('docPick').click(); return }
   if (k !== 0) return
-  const r = await askNewDoc()
+  const r = await askNewDoc(null, t('docs.newProjectTitle'))
   if (!r) return
   const b = $('new'); b.disabled = true
   try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('projects.new'), content: galleryContent(r.tpl), folder: '' })).id) }

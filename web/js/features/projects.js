@@ -147,7 +147,6 @@ function paintProjects(box, shared) {
     const wl = watchLevels[p.id] || WATCH_DEFAULT
     const bell = projectAction(h, watchIcon(wl), t('inbox.watchBtn', { level: watchLabel(wl) }), () => openWatchBox(p, bell))
     bell.setAttribute('aria-haspopup', 'menu'); bell.dataset.menuLabel = t('inbox.watchMenu')
-    if (wl !== WATCH_DEFAULT) bell.classList.add('on') // non-default level stays visible without hovering
     if (p.role === 'owner') {
       projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p, h))
       projectAction(h, ICO_TRASH, t('common.delete'), () => deleteProject(p)).dataset.menuDanger = ''

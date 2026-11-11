@@ -179,7 +179,10 @@ async function closeTab(k) { // closing only hides the tab; the file stays in th
   if (!openTabs.includes(a)) return
   if (k === activeFile) {
     const i = items.indexOf(k), next = items[i - 1] ?? items[i + 1]
-    if (next === undefined) return // the last tab stays open
+    if (next === undefined) { // last tab: back to the empty view
+      if (!await flushTab()) return
+      openTabs = openTabs.filter(x => x !== a); tabStoreSave(); tabSig = ''; closeView(); return
+    }
     if (!await switchTab(next)) return
   }
   openTabs = openTabs.filter(x => x !== a); tabStoreSave(); tabSig = ''; paintTabs()
@@ -188,12 +191,17 @@ async function closeOtherTabs(k) {
   if (k !== activeFile && !await switchTab(k)) return
   openTabs = openTabs.filter(x => x === tabAbs(k)); tabStoreSave(); tabSig = ''; paintTabs()
 }
+async function closeAllTabs() {
+  if (!await flushTab()) return
+  openTabs = []; tabStoreSave(); tabSig = ''; closeView()
+}
 async function tabMenu(k, name) {
   const items = tabItems(), choices = [[t('files.tabClose'), '']]
-  if (items.length > 1) choices.push([t('files.tabCloseOthers'), ''])
+  if (items.length > 1) choices.push([t('files.tabCloseOthers'), ''], [t('files.tabCloseAll'), ''])
   const i = await askPick(name, choices)
   if (i === 0) return closeTab(k)
   if (i === 1) return closeOtherTabs(k)
+  if (i === 2) return closeAllTabs()
 }
 const tabErrs = k => cmpDiags.filter(d => d && d.path === tabPath(k)).length
 function queueTabs() { clearTimeout(tabT); tabT = setTimeout(paintTabs, 350) } // cheap: repaints only when the set or state changed

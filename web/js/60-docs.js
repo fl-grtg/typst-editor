@@ -491,6 +491,7 @@ function closeView() { // no doc open: buttons off, empty view in
   $('roBanner').style.display = 'none'
   $('tools').style.display = 'none'; $('pvTools').style.display = 'none'
   paintEmpty()
+  paintTabs() // hides the tab bar: no doc open
   setT(''); gutter(); paintOutline()
 }
 async function openDoc(id) {

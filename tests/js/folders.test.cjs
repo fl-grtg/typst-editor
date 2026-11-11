@@ -92,8 +92,10 @@ test('open tab keys are stable across documents', () => {
   assert.equal(c.tabRel('f:o/img/x.png'), 'img/x.png')
 })
 
-test('closing a tab only hides it and activates the left neighbour; the last tab stays', async () => {
-  const c = tabsCtx({ projects: [{ id: 'p', entries: { documents: [{ id: 'd' }], resources: [{ name: 'a.typ' }, { name: 'b.typ' }], files: [] } }] })
+test('closing a tab hides it and activates the left neighbour; the last tab closes the view', async () => {
+  let closed = 0
+  const c = tabsCtx({ projects: [{ id: 'p', entries: { documents: [{ id: 'd' }], resources: [{ name: 'a.typ' }, { name: 'b.typ' }], files: [] } }],
+    flushTab: async () => true, closeView: () => { closed++ } })
   vm.runInContext("openTabs = ['d:d', 'r:a.typ', 'r:b.typ']; openTabsScope = 'p'; activeFile = '@tpl/b.typ'", c)
   const switched = []
   c.switchTab = async k => { switched.push(k); c.activeFile = k; return true }
@@ -102,8 +104,9 @@ test('closing a tab only hides it and activates the left neighbour; the last tab
   assert.deepEqual(Array.from(vm.runInContext('openTabs', c)), ['d:d', 'r:a.typ'])
   await c.closeTab('')
   assert.deepEqual(Array.from(vm.runInContext('openTabs', c)), ['r:a.typ'])
-  await c.closeTab('@tpl/a.typ') // the only one left
-  assert.deepEqual(Array.from(vm.runInContext('openTabs', c)), ['r:a.typ'])
+  await c.closeTab('@tpl/a.typ') // the only one left: back to the empty view
+  assert.deepEqual(Array.from(vm.runInContext('openTabs', c)), [])
+  assert.equal(closed, 1)
 })
 
 test('renaming a folder keeps its tabs, in memory and in storage', () => {
