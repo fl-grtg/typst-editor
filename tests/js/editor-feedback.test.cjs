@@ -296,16 +296,16 @@ test('a short label run never jumps past the matched caption', () => {
   assert.equal(ctx.syncNeedleAt(t, 'Simple bar diagram. A B C D', 6, 4), -1) // clicked "A" is outside the caption run
   assert.equal(ctx.syncNeedleAt(t, 'Simple bar diagram.', 6, 0), t.indexOf('Simple'))
 })
-test('click column maps to the start of the clicked word', () => {
+test('click column maps to the nearest letter boundary', () => {
   const c = vm.createContext({})
   vm.runInContext(code.slice(code.indexOf('function pvCharW'), code.indexOf("$('preview').addEventListener('click'")), c)
   const item = { s: 'Die erste Methode sammelt', x0: 0, w: 100, vw: 100 }
-  assert.equal(c.pvClickCol(item, 5, 100, 100), 0) // "Die"
-  assert.equal(c.pvClickCol(item, 50, 100, 100), 10) // "Methode"
-  assert.equal(c.pvClickCol(item, 34, 100, 100), 4) // end of "erste": the word the reader finished, not 0
-  assert.equal(c.pvClickCol(item, 36, 100, 100), 10) // just inside "Methode"
+  assert.equal(c.pvClickCol(item, 5, 100, 100), 1) // inside "Die": behind the D
+  assert.equal(c.pvClickCol(item, 50, 100, 100), 13) // inside "Methode": behind "Met"
+  assert.equal(c.pvClickCol(item, 34, 100, 100), 9) // just past "erste": the word end, not 0
+  assert.equal(c.pvClickCol(item, 36, 100, 100), 10) // just inside "Methode": its start
   assert.equal(c.pvClickCol(item, 68, 100, 100), 18) // space after "Methode": the next word, not the line start
-  assert.equal(c.pvClickCol(item, 120, 100, 100), 18) // past the line end: the last word
+  assert.equal(c.pvClickCol(item, 120, 100, 100), 25) // past the line end: the last word end
 })
 test('click column follows the rendered pixels of a justified line', () => {
   const c = vm.createContext({})
@@ -318,11 +318,11 @@ test('click column follows the rendered pixels of a justified line', () => {
   }
   const cv = { width: 100, height: 100, getContext: () => ({ getImageData: () => img }) }
   const item = { s: 'aa bb cc', x0: 0, w: 100, vw: 100, y: 0, h: 10, vh: 100 }
-  assert.equal(c.pvClickCol(item, 4, 100, 100, cv), 0) // "aa"
-  assert.equal(c.pvClickCol(item, 12, 100, 100, cv), 0) // just past "aa": still "aa"
-  assert.equal(c.pvClickCol(item, 64, 100, 100, cv), 3) // stretched space: pixels say "bb", the char guess says "cc"
-  assert.equal(c.pvClickCol(item, 70, 100, 100, cv), 3) // space after "bb" closer to "bb"
-  assert.equal(c.pvClickCol(item, 85, 100, 100, cv), 6) // wide space closer to "cc"
+  assert.equal(c.pvClickCol(item, 4, 100, 100, cv), 1) // inside "aa": behind the first a
+  assert.equal(c.pvClickCol(item, 12, 100, 100, cv), 2) // just past "aa": still "aa", its end
+  assert.equal(c.pvClickCol(item, 64, 100, 100, cv), 4) // stretched space: pixels say "bb", the char guess says "cc"
+  assert.equal(c.pvClickCol(item, 70, 100, 100, cv), 5) // space after "bb" closer to "bb": its end
+  assert.equal(c.pvClickCol(item, 85, 100, 100, cv), 6) // wide space closer to "cc": its start
 })
 test('click column maps scaled canvas pixels through the item offset', () => {
   const c = vm.createContext({})
@@ -335,14 +335,14 @@ test('click column maps scaled canvas pixels through the item offset', () => {
   const cv = { width: 200, height: 20, getContext: () => ({ getImageData: () => img }) }
   const item = { s: 'aa bb cc', x0: 10, w: 180, vw: 200, y: 10, h: 10, vh: 20 }
   // cssW 100 for a 200 px backing: clicks arrive in CSS px, boxes in canvas px
-  assert.equal(c.pvClickCol(item, 6, 100, 200, cv), 0) // "aa" at canvas 10-20
-  assert.equal(c.pvClickCol(item, 20, 100, 200, cv), 3) // inner gap of "bb" merged: 32-50
-  assert.equal(c.pvClickCol(item, 30, 100, 200, cv), 3) // gap tie stays left
-  assert.equal(c.pvClickCol(item, 44, 100, 200, cv), 6) // "cc" at canvas 70-90
+  assert.equal(c.pvClickCol(item, 6, 100, 200, cv), 0) // "aa" at canvas 10-20, behind the first a is a tie
+  assert.equal(c.pvClickCol(item, 20, 100, 200, cv), 4) // inside "bb", inner gap of "bb" merged: 32-50
+  assert.equal(c.pvClickCol(item, 30, 100, 200, cv), 5) // gap tie stays left: the end of "bb"
+  assert.equal(c.pvClickCol(item, 44, 100, 200, cv), 8) // inside "cc" at canvas 70-90: its end
   const blind = { width: 180, height: 10, data: new Uint8ClampedArray(180 * 10 * 4) }
   for (let x = 0; x < 180; x++) for (let y = 0; y < 10; y++) blind.data[(y * 180 + x) * 4 + 3] = x < 80 ? 255 : 0 // one run: no word boxes
   const gone = { width: 200, height: 20, getContext: () => ({ getImageData: () => blind }) }
-  assert.equal(c.pvClickCol(item, 95, 100, 200, gone), 6) // estimate still lands on the last word
+  assert.equal(c.pvClickCol(item, 95, 100, 200, gone), 8) // estimate still lands on the last word end
 })
 test('rotated text runs stay out of clicks but keep their anchors', () => {
   const c = vm.createContext({})

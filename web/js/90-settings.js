@@ -592,17 +592,18 @@ try { // wheel over the editor: the preview follows what is on screen, not only 
     if (smoothWrote(sc)) return // our own glide/follow wrote it
     if (Date.now() - cmSelT < 150) return // a cursor move already synced the cursor
     smoothStop(sc) // scrollbar drag/touch/page key: the reader owns the editor view
+    syncEdMiss = false // a pending follow from the preview must not pull the editor back
     try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
   }, { passive: true })
 } catch (e) {}
 let syncEdT = 0
 function queueSyncEd() { // preview scroll -> editor view: throttled, never moves the cursor
-  if (!followAll || !syncOn || !docId || tplName || activeFile) return
+  if (!followAll || !docId || tplName || activeFile) return
   if (syncEdT) return
   syncEdT = setTimeout(() => { syncEdT = 0; syncToEd() }, SYNC_MS)
 }
 function syncToEd() {
-  if (!followAll || !syncOn || !docId || tplName || activeFile) return
+  if (!followAll || !docId || tplName || activeFile) return
   const pv = $('preview')
   if (!pv.clientHeight || document.body.classList.contains('editonly')) return
   const pi = pvViewPage(pv, syncEdOff), slot = pi >= 0 ? pv.querySelectorAll('.pvPage')[pi] : null
@@ -625,11 +626,18 @@ function syncToEd() {
   }
   smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
 }
+try { $('preview').addEventListener('wheel', () => { // a reader wheel wins over a glide that keeps writing the same spot
+  const pv = $('preview')
+  smoothStop(pv)
+  if (syncT) { clearTimeout(syncT); syncT = 0 } // no pending cursor sync may yank the preview back
+  syncMiss = false // nor the retry from a render that started before the reader scrolled
+}, { passive: true }) } catch (e) {}
 try { $('preview').addEventListener('scroll', () => { // reader scroll: the editor view moves along
   const pv = $('preview')
   if (Math.abs(pv.scrollTop - pvSelfTop) < 2) return // this app wrote it: follow or a jump, not the reader
   smoothStop(pv) // scrollbar drag/touch/keyboard: the reader wins over a running animation
   if (syncT) { clearTimeout(syncT); syncT = 0 } // the reader took over: no pending cursor sync may yank the preview back
+  syncMiss = false // nor the retry from a render that started before the reader scrolled
   queueSyncEd()
 }, { passive: true }) } catch (e) {}
 function pvPageHint(pi, total, n, at, frac) { // click page -> source line: section window first, then layout ratio
@@ -652,8 +660,14 @@ function pvCanvasList() { // virtual slots first, fallback bare canvases
 function pvPosIn(txt, s, off, hint) { // exact needle first, then its words across source line breaks and markup
   const at = locateNear(txt, s, hint)
   if (at >= 0) return at + off
-  const wi = off ? Math.min(syncText(s).split(' ').filter(Boolean).length - 1, syncText(s.slice(0, off)).split(' ').filter(Boolean).length) : 0
-  return syncNeedleAt(txt, s, hint, wi)
+  let w0 = Math.max(0, Math.min(off, s.length))
+  while (w0 > 0 && !/\s/.test(s[w0 - 1])) w0-- // start of the clicked word
+  const wi = Math.min(syncText(s).split(' ').filter(Boolean).length - 1,
+    syncText(s.slice(0, off)).split(' ').filter(Boolean).length - (off > w0 ? 1 : 0))
+  const p = syncNeedleAt(txt, s, hint, Math.max(0, wi))
+  if (p < 0) return -1
+  const word = syncText(s.slice(w0)).split(' ')[0] || ''
+  return p + Math.min(off - w0, word.length) // the same letter inside the matched source word
 }
 function pvHerePos(needles, hint, pi, anchor) { // source position of the best needle in the current file; -1: none
   const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
@@ -1045,7 +1059,7 @@ function syncNearHit(lines, line, pages, sec) { // blank/command lines still mov
   return hint() || (cmd ? (fwd() || back()) : (back() || fwd()))
 }
 function syncToPv(force) { // force: explicit navigation (outline/find), works even with follow off
-  if (!syncOn || (!followAll && !force) || !docId || tplName || (activeFile && !window.changeSession)) return
+  if ((!followAll && !force) || !docId || tplName || (activeFile && !window.changeSession)) return
   if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
@@ -1073,7 +1087,7 @@ function syncToPv(force) { // force: explicit navigation (outline/find), works e
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
 }
 function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the same destination
-  if (!followAll || !syncOn || !docId || tplName || activeFile || !dest) return
+  if (!followAll || !docId || tplName || activeFile || !dest) return
   const items = pvTexts[dest.page] || [], slot = pvSlots[dest.page]
   if (!items.length || !slot) return
   const hPt = (+slot.dataset.w || 0) * (+slot.dataset.r || 0)
@@ -1164,7 +1178,19 @@ function pvPxWords(cv, it) { // word boxes from the rendered page: justified spa
     return runs.map(r => [x0 + r[0], x0 + r[1]])
   } catch (e) { return null }
 }
-function pvClickCol(it, x, cssW, baseW, cv) { // click x -> the clicked word, not the line start
+function pvClickChar(word, frac) { // fraction across a word -> the character boundary under the click
+  let total = 0
+  for (const c of word) total += pvCharW(c)
+  const at = Math.max(0, Math.min(1, frac)) * total
+  let cum = 0, i = 0
+  for (; i < word.length; i++) {
+    const w = pvCharW(word[i])
+    if (at < cum + w / 2) break // nearest boundary: the right half of a letter puts the caret behind it
+    cum += w
+  }
+  return i
+}
+function pvClickCol(it, x, cssW, baseW, cv) { // click x -> the clicked letter, not the word start
   const raw = it.s || '', body = raw.trim()
   if (!body) return 0
   const words = [...body.matchAll(/\S+/g)]
@@ -1173,21 +1199,22 @@ function pvClickCol(it, x, cssW, baseW, cv) { // click x -> the clicked word, no
     const at = x * (cv.width / cssW), d = boxes.map(b => at < b[0] ? b[0] - at : at > b[1] ? at - b[1] : 0)
     let best = 0
     for (let i = 1; i < d.length; i++) if (d[i] < d[best]) best = i // ties go left: the end of a word belongs to it
-    return words[best].index
+    const b = boxes[best], f = b[1] > b[0] ? (at - b[0]) / (b[1] - b[0]) : 1
+    return words[best].index + pvClickChar(words[best][0], f)
   }
   const scale = cssW / (it.vw || baseW || 1), w = (it.w || 0) * scale
   if (w <= 0) return 0
   const lead = raw.length - raw.trimStart().length
   const at = (x - (it.x0 || 0) * scale) / w * pvTextW(raw) // estimate when the canvas was evicted
-  let cum = 0, best = 0, bd = Infinity
+  let cum = 0, best = 0, bd = Infinity, inside = 0
   for (let i = 0; i < raw.length;) {
     if (/\s/.test(raw[i])) { cum += pvCharW(raw[i]); i++; continue }
     const from = i, begin = cum
     while (i < raw.length && !/\s/.test(raw[i])) { cum += pvCharW(raw[i]); i++ }
     const d = at < begin ? begin - at : at > cum ? at - cum : 0
-    if (d < bd) { bd = d; best = from - lead }
+    if (d < bd) { bd = d; best = from - lead; inside = pvClickChar(raw.slice(from, i), (at - begin) / Math.max(0.01, cum - begin)) }
   }
-  return best
+  return best + inside
 }
 function pvItemDist(it, x, y, sx, sy) { // CSS distance to the text box, never to its center: long lines stay clickable everywhere
   const x0 = (it.x0 || 0) * sx, x1 = x0 + (it.w || 0) * sx

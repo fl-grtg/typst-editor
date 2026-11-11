@@ -96,7 +96,7 @@ def test_pv3_long_doc_virtualized_anchor_and_follow(page):
     big_n = sum(1 for w in widths if w > 16)
     assert 1 <= big_n <= 12, f"virtualization off: {big_n} of {len(widths)} rasterized"
     old = slots.first.element_handle()
-    page.click("#syncBtn")  # follow off: isolate scroll preservation
+    page.click("#followBtn")  # follow off: isolate scroll preservation
     page.locator("#preview").evaluate("el => el.scrollTo(0, el.scrollHeight)")
     page.wait_for_timeout(500)
     before = page.locator("#preview").evaluate("el => el.scrollTop")
@@ -108,7 +108,7 @@ def test_pv3_long_doc_virtualized_anchor_and_follow(page):
     page.wait_for_function("(el) => !el.isConnected", arg=old, timeout=BIG_TIMEOUT)
     after = page.locator("#preview").evaluate("el => el.scrollTop")
     assert abs(after - before) < 600, f"scroll lost on re-render: {before} -> {after}"
-    page.click("#syncBtn")  # follow on: cursor jumps move the preview
+    page.click("#followBtn")  # follow on: cursor jumps move the preview
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+Home")
     page.wait_for_function(

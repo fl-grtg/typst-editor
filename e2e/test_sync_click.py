@@ -61,6 +61,29 @@ def _ready(page, headings: int) -> None:
     expect(page.locator("#preview .pvPage")).to_have_count(headings)
 
 
+def _reader_top(page) -> None:
+    # A real reader input stops a running follow/jump even when that glide
+    # writes the same spot. Then park the view exactly on the page top.
+    pv = page.locator("#preview")
+    box = pv.bounding_box()
+    assert box
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, -4000)
+    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")
+
+
+PAGE_ONE_AT_TOP = """() => {
+  const pv = document.getElementById('preview'), cv = pv.querySelector('.pvPage[data-page="1"] canvas')
+  if (!cv) return false
+  const d = cv.getBoundingClientRect().top - pv.getBoundingClientRect().top
+  return d >= -2 && d < 40
+}"""
+
+
+def _assert_pv_top(page) -> None:
+    assert page.evaluate(PAGE_ONE_AT_TOP), "a late sync moved the preview away from the document top"
+
+
 def test_click_preview_lands_in_the_clicked_section(page):
     register(page, "e2e_click_sec")
     create_doc(page, "Click section doc")
@@ -77,7 +100,7 @@ def test_click_preview_lands_in_the_clicked_section(page):
     assert 7 <= _line(page) <= 9
 
 
-def test_click_columns_stay_on_the_words_of_a_justified_line(page):
+def test_click_columns_stay_on_the_letters_of_a_justified_line(page):
     register(page, "e2e_click_col")
     create_doc(page, "Click column doc")
     para = ("Die erste Methode sammelt alle Werte und vergleicht sie danach mit dem "
@@ -95,9 +118,12 @@ def test_click_columns_stay_on_the_words_of_a_justified_line(page):
         page.wait_for_timeout(600)
         assert _line(page) == 5, "a blank click left the paragraph"
         col = _col(page)
-        assert col > 1 and para[col - 1] != " " and para[col - 2] == " ", f"click at {fx} missed a word start"
+        assert 1 < col <= len(para) + 1 and (para[col - 2] != " " or (col <= len(para) and para[col - 1] != " ")), \
+            f"click at {fx} left the words: column {col}"
         cols.append(col)
     assert len(set(cols)) >= 3, f"clicks kept one column: {cols}"
+    inner = [col for col in cols if 1 < col <= len(para) and para[col - 2] != " " and para[col - 1] != " "]
+    assert inner, f"every click landed on a word edge instead of a letter: {cols}"
 
 
 def test_click_columns_survive_wrapped_single_letter_words(page):
@@ -143,6 +169,29 @@ def test_follow_toggle_keeps_the_preview_still_but_clicks_still_jump(page):
     body = page.locator('.pvPage[data-page="2"] canvas')
     body.click(position={"x": 300, "y": 110})  # an explicit click still finds its line
     page.wait_for_function("() => /^Ln [789]:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+
+
+def test_eye_alone_follows_the_cursor_but_never_jumps_on_clicks(page):
+    register(page, "e2e_click_eye")
+    create_doc(page, "Eye only doc")
+    type_source(page, SOURCE)
+    _ready(page, 2)
+
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+Home")
+    page.wait_for_function(PAGE_IN_VIEW, arg=1, timeout=PREVIEW_TIMEOUT)
+
+    page.click("#syncBtn")  # click sync off, follow stays on
+    expect(page.locator("#syncBtn")).to_have_attribute("aria-pressed", "false")
+    expect(page.locator("#followBtn")).to_have_attribute("aria-pressed", "true")
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+End")
+    page.wait_for_function(PAGE_IN_VIEW, arg=2, timeout=PREVIEW_TIMEOUT)  # the eye alone follows the cursor
+
+    before = page.locator("#pos").inner_text()
+    page.locator('.pvPage[data-page="2"] canvas').click(position={"x": 300, "y": 30})  # beta heading
+    page.wait_for_timeout(700)  # longer than the 40 ms sync throttle
+    assert page.locator("#pos").inner_text() == before, "a click moved the cursor although click sync is off"
 
 
 def test_sync_wins_over_a_running_jump_animation(page):
@@ -197,8 +246,9 @@ Alpha body.
 Beta body.
 """)
     _ready(page, 2)
-    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")  # page top in view
+    _reader_top(page)  # page top in view
     page.wait_for_timeout(700)
+    _assert_pv_top(page)
     box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
     assert box
     page.mouse.click(box["x"] + box["width"] / 2, box["y"] + 6)  # top margin above the generated contents
@@ -218,8 +268,9 @@ Chapter body.
 """)
     expect(page.locator("#preview .pvPage")).to_have_count(2, timeout=PREVIEW_TIMEOUT)
     expect(page.locator("#ol .pg")).to_have_count(1, timeout=PREVIEW_TIMEOUT)
-    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")
+    _reader_top(page)
     page.wait_for_timeout(900)
+    _assert_pv_top(page)
     box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
     assert box
     page.mouse.click(box["x"] + box["width"] / 2, box["y"] + 6)  # page margin above the generated contents
@@ -242,8 +293,9 @@ Alpha body.
 Beta body.
 """)
     _ready(page, 2)
-    page.evaluate("() => { document.getElementById('preview').scrollTop = 0 }")
+    _reader_top(page)
     page.wait_for_timeout(700)
+    _assert_pv_top(page)
     box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
     assert box
     page.mouse.click(box["x"] + box["width"] / 2, box["y"] + 6)
