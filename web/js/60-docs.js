@@ -132,6 +132,7 @@ function updNavFade() { // bottom fade only while more content below
 }
 function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
   const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
+  div.dataset.docId = x.id // stable across sidebar repaints: an open row menu can refocus its new button
   div.setAttribute('role', 'button')
   div.appendChild(el('span', 't', shared && !bare ? t('docs.sharedRow', { owner: x.owner, title: x.title }) : x.title))
   const roleName = ({ owner: t('common.roleOwner'), editor: t('common.roleEditor'), reviewer: t('common.roleReader') })[x.role] || x.role
@@ -363,8 +364,8 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   scrollRestore = null
   try { if (docId && ytext && docRole !== 'reviewer' && !openedTrashed && (!wsLive() || !synced)) { const c = ytext.toString(); if (c) lsSet('typst-pending-' + docId, JSON.stringify({ t: Date.now(), c })) } } catch (e) {} // offline/unsynced main: Yjs dies with the provider, stash offers restore on reopen (openDoc drops it silently if converged)
   if (window.suggestionDraft && !stopSuggestionDraft(false)) stopSuggestionDraft()
-  ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT)
-  pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null
+  ++renderN; ++tabSeq; clearTimeout(renderT); clearTimeout(syncT); syncT = 0
+  pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null; pvLinks = []; pvOutline = []; pvOutlineGen = -1 // old PDF layer must never badge/link the next doc
   if (window.Present?.isOn()) window.Present.exit()
   window.docTpl = []; docResAt = 0
   wantPos = -1 // old search jump must not fire in next doc
@@ -379,7 +380,7 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   cmpWarns = []; cmpDiags = []; errKey = ''; errLines = []; tabDirty = false; tabPins = new Set(); tabState.clear(); tabVersions.clear(); tabSig = ''; clearTimeout(tabT)
   prov?.destroy(); ydoc?.destroy(); prov = ydoc = ytext = null
   const wd = $('wsDot'); if (wd) { wd.style.background = '#8e8e93'; wd.title = t('docs.offline') }; const wt0 = $('wsTxt'); if (wt0) wt0.textContent = t('docs.offline')
-  threads = []; members = []; lastC = ''; marks = new Set(); syncPage = 0 // do not carry click page into next doc
+  threads = []; members = []; lastC = ''; marks = new Set(); syncPage = 0; syncEdOff = 0; syncEdX = -1; syncEdMiss = false // do not carry click page/reading point into next doc
   docProject = ''; docResReadonly = true
   activeFile = ''; clearTimeout(fileT); bibKeys = [] // tabs closed (see paintTabs)
   $('tabs').style.display = 'none'

@@ -239,29 +239,32 @@ const ICO_CHECK = svgI('<path d="M3.5 8.5l3 3 6-7"/>')
 const ICO_SEND = svgI('<path d="M8 13V3"/><path d="M4 7l4-4 4 4"/>')
 const icoBtn = (cls, svg) => { const b = el('button', cls); b.innerHTML = svg; return b }
 const ICO_TRASH = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg>'
-function paintOutline() { // collect = lines, click jumps to line
+function paintOutline() { // collect = lines, click jumps to line; page badge from the PDF outline
   const box = $('ol')
   if (!box) return
   box.replaceChildren()
   if (!docId || tplName) return
-  getT().split('\n').forEach((ln, i) => {
-    const m = ln.match(/^(=+)\s+(.+)$/)
-    if (!m) return
-    const line = i + 1, d = document.createElement('div')
-    d.className = 'doc ol-l' + Math.min(m[1].length, 3)
+  let olAt = 0
+  for (const h of srcHeadings(getT())) { // raw blocks/comments never contribute headings
+    const line = h.line, d = document.createElement('div')
+    const text = syncShow(h.title) || h.title.trim() // labels stay in the source, never in the sidebar
+    d.className = 'doc ol-l' + Math.min(h.level, 3)
     d.setAttribute('role', 'button')
-    d.appendChild(el('span', 't', m[2].slice(0, 60)))
+    d.appendChild(el('span', 't', text.slice(0, 60)))
     d.title = t('docs.olLineTitle', { n: line })
-    d.setAttribute('aria-label', t('docs.olGoTo', { line, text: m[2].slice(0, 60) }))
-    const goL = () => {
-      const p = posOfLine(getT(), line)
-      cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
-      cm.focus()
+    const hit = pvOlMatch(h.title, olAt, true) // badges keep the last outline during a re-render (no flicker)
+    if (hit >= 0) { // real page from the last render: proves the heading made it onto paper
+      olAt = hit + 1
+      const page = pvOutline[hit].page + 1
+      d.appendChild(el('span', 'pg', String(page)))
+      d.title += ' · ' + t('docs.olPage', { n: page })
     }
+    d.setAttribute('aria-label', t('docs.olGoTo', { line, text: text.slice(0, 60) }))
+    const goL = () => cmJump(posOfLine(getT(), line), false, true) // smooth jump; preview follows even with follow off
     d.onclick = goL
     kb(d, goL)
     box.appendChild(d)
-  })
+  }
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.olEmpty')))
 }
 function wc() { // word count for #pos display
@@ -409,9 +412,10 @@ function movePop() {
     if (cm.contentDOM.style.paddingTop !== padding + 'px') {
       cm.contentDOM.style.paddingTop = padding + 'px'
       cm.dispatch({ effects: EditorView.scrollIntoView(Math.min(from, text.length), { y: 'start', yMargin: padding }) })
-      requestAnimationFrame(movePop)
+      requestAnimationFrame(() => { pvSelfWrite(cm.scrollDOM); movePop() }) // placement, not a reader scroll
     } else if (!first || first.top < editor.top + 90) {
       cm.scrollDOM.scrollTop = Math.max(0, cm.lineBlockAt(Math.min(from, text.length)).top - padding)
+      pvSelfWrite(cm.scrollDOM) // popover placement is no reader scroll
       requestAnimationFrame(movePop)
     }
     return

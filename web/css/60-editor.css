@@ -56,6 +56,8 @@
 #cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
 #cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
 #cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
+#cmWrap .cm-syncLine { animation: syncFlash .8s ease-out; } /* preview -> editor: the target line lights up (dark mode) or darkens (light mode) */
+@keyframes syncFlash { 0%, 55% { background-color: var(--sync-flash); } 100% { background-color: transparent; } }
 #cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
 #cmWrap .cm-find-cur { background: rgba(255, 159, 10, .40); outline: 1px solid #ff9f0a; border-radius: 3px; }
 /* Lint (F1): compiler errors via @codemirror/lint. Var-driven so light/dark follow the theme (typstTheme untouched). */

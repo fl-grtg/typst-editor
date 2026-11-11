@@ -71,7 +71,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
     }, { key: 'Ctrl-Space', run: startCompletion }, ...foldKeymap]), // F10: fold shortcuts alongside completion keys
     minimalSetup, languageComp.of(typstSupport), Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), wrapComp.of(wrapOn ? EditorView.lineWrapping : []), tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
     autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
-    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField,
+    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField, syncLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
     spellCode, markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
@@ -84,7 +84,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
       if (u.docChanged || u.selectionSet) { errTipHover = null; errTipHide(); requestAnimationFrame(() => { if (!errTipHover) errTipCursor() }) } // cursor on an error line: message stays without hovering; positioned after layout so the anchor tracks exactly
       if (u.selectionSet || u.docChanged || u.focusChanged) pushPresence()
       if (u.selectionSet) try { updCNewTip() } catch (e) {}
-      if (u.selectionSet || u.docChanged) queueSyncPv() // cursor follows into preview (sync on)
+      if (u.selectionSet || u.docChanged) { cmSelT = Date.now(); queueSyncPv() } // cursor follows into preview (sync on)
       if (u.selectionSet || u.docChanged) try { updPos() } catch (e) {} // F24 status: Ln/Col/words follow cursor
     })]
 const cm = new EditorView({ parent: $('cm'), extensions: cmExtensions })

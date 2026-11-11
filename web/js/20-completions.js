@@ -320,6 +320,12 @@ const errLineField = StateField.define({
   update: (v, tr) => { for (const e of tr.effects) if (e.is(setErrLine)) v = e.value; return v.map(tr.changes) },
   provide: f => EditorView.decorations.from(f),
 })
+const setSyncLine = StateEffect.define() // preview -> editor jump: brief highlight of the target line
+const syncLineField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setSyncLine)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
 const setPeer = StateEffect.define() // remote cursor: colored bar, no blink
 const peerField = StateField.define({
   create: () => Decoration.none,

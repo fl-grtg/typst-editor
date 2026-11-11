@@ -13,8 +13,8 @@ def _open_doc(page, title):
 
 
 def _follow_off(page):
-    if page.locator('#syncBtn').evaluate("el => el.classList.contains('on')"):
-        page.click('#syncBtn')
+    if page.locator('#followBtn').evaluate("el => el.classList.contains('on')"):
+        page.click('#followBtn')
 
 
 def _scroll_to(page, editor_top, preview_top):
@@ -37,7 +37,7 @@ def test_editor_and_preview_scroll_survive_switch_and_reload(page):
     page.keyboard.press('ControlOrMeta+A')
     assert page.evaluate("(t) => document.execCommand('insertText', false, t)", source)
     expect(page.locator('#preview .pvPage[data-done]').first).to_be_visible(timeout=PREVIEW_TIMEOUT)
-    page.click('#syncBtn')  # follow off: the saved preview spot must win on reopen
+    page.click('#followBtn')  # follow off: the saved preview spot must win on reopen
 
     page.locator('#cm .cm-scroller').evaluate('el => el.scrollTo(0, 1400)')
     page.locator('#preview').evaluate('el => el.scrollTo(0, 1800)')

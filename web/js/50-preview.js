@@ -1,5 +1,6 @@
 // --- Typst preview: main file + uploads as shadow files in compiler ---
 let renderN = 0, renderT = 0, oldPdf = null, pvTexts = [] // text anchors per page: click hits exact (tables too)
+let pvLinks = [], pvOutline = [], pvOutlineGen = -1 // PDF layer: link boxes per page (viewport units) + outline with resolved pages + render generation it belongs to
 let cmpWarns = [] // compiler warnings of the last good render (shown as yellow marks, never block)
 let cmpWait = 0, lastInfra = false // compiler missing / last render infra error (watchdog heals)
 const typstReady = () => !!window.$typst?.resetShadow // true once lazy bundle arrived (exports only; preview compiles in the worker below)
@@ -341,6 +342,7 @@ async function render() {
     pvModeApply() // width/page zoom follows current layout
     pvTexts = Array.from({ length: n }, () => []) // dense: sync math indexes by page (holes would crash it)
     pvTextDone = Array.from({ length: n }, () => false)
+    pvLinks = Array.from({ length: n }, () => [])
     pvSlots = sizes.map((v, k) => {
       const s = document.createElement('div')
       s.className = 'pvPage'; s.dataset.page = k + 1; s.dataset.r = v.height / v.width; s.dataset.w = v.width
@@ -364,6 +366,7 @@ async function render() {
     scrollApplyPreview() // first render of a reopened doc: back to its saved page + offset
     pvWatch(doc, id, myDoc, myTplName) // visible pages (+ buffer) rasterize, far ones evict
     pvTextAll(doc, id, myDoc, myTplName) // text index for every page: sync works past the visible window
+    pvLoadOutline(doc, id).catch(() => {}) // badges keep the last outline until the new one is ready
     clearErr() // running again: clear marks
     cmpWarns = (wDiags || []).filter(d => d && d.severity === 'warning'); if (cmpWarns.length) paintErr()
     lastInfra = false
@@ -408,16 +411,17 @@ async function pvDraw(slot, doc, id, detached) { // rasterize one slot (backing 
     pvFitCanvas(c) // CSS size only, not canvas.width
     const tc = await page.getTextContent() // click anchors: each visible word knows its spot
     if (id !== renderN) return
-    const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
-    const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-    pvTexts[p - 1] = tc.items.map(it => {
-      const w = (it.width || 0) * ax, h = (it.height || 0) * ay
-      const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
-    })
+    const boxes = pvBoxes(tc, v), links = await pvPageLinks(doc, page, v)
+    if (id !== renderN) return
+    pvTexts[p - 1] = boxes // both anchors land after the last await: a newer render starts empty
+    pvLinks[p - 1] = links
+    pvPaintLinks(slot, p - 1)
     try { pvTextDone[p - 1] = true } catch (e) {}
     slot.dataset.done = '1'
-  } finally { delete slot.dataset.busy }
+  } finally {
+    delete slot.dataset.busy
+    if (slot.isConnected) pvSweep() // a draw that finished after its page left the buffer still frees its backing
+  }
 }
 function pvEvict(slot) { // free backing of far pages (slot keeps layout, text anchors stay for sync)
   if (!slot.dataset.done || slot.dataset.busy) return
@@ -444,32 +448,278 @@ function pvWatch(doc, id, myDoc, myTplName) { // draw on scroll into view (+2 vi
   }, { root: $('preview'), rootMargin: '200% 0' + 'px' }) // string split: one literal with space+letters trips check_i18n
   for (const s of pvSlots) pvObs.observe(s)
 }
-function pvIdxPage(doc, p, scale) { // one page textContent -> anchor list in backing px (raster-independent)
+function pvBoxes(tc, v) { // textContent -> click anchors in viewport px (raster-independent)
+  const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
+  const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
+  return tc.items.map(it => {
+    const m = it.transform || [], rot = Math.abs(m[1] || 0) >= 0.01 || Math.abs(m[2] || 0) >= 0.01 // rotated: keep the text for anchors, never for clicks
+    const w = (it.width || 0) * ax, h = (it.height || 0) * ay
+    const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
+    return { s: it.str, x: x + w / 2, x0: x, w, h: h || 10, y: y - (h || 10) / 2, vw: v.width, vh: v.height, rot }
+  })
+}
+const PV_LINK_SCHEME = /^(https?|mailto):/i // only schemes a browser tab may open safely from a PDF
+async function pvDestTarget(doc, dest) { // PDF destination (name or explicit array) -> page + top; null: unresolvable
+  try {
+    const d = typeof dest === 'string' ? await doc.getDestination(dest) : dest
+    if (!Array.isArray(d) || !d[0]) return null
+    const page = await doc.getPageIndex(d[0]) // 0-based
+    const kind = String((typeof d[1] === 'string' ? d[1] : d[1] && d[1].name) || '')
+    const top = kind === 'XYZ' ? d[3] : (kind === 'FitH' || kind === 'FitBH' ? d[2] : (kind === 'FitR' ? d[5] : null))
+    return { page, top: typeof top === 'number' && isFinite(top) ? top : null }
+  } catch (e) { return null } // broken destination: no jump, never throw into the render
+}
+async function pvPageLinks(doc, page, v) { // annotation layer: external URLs and internal jumps as boxes
+  let anns = []
+  try { anns = await page.getAnnotations() } catch (e) { return [] }
+  const out = []
+  for (const a of anns) {
+    if (!a || a.subtype !== 'Link' || !a.rect) continue
+    const r = v.convertToViewportRectangle(a.rect)
+    const box = { x0: Math.min(r[0], r[2]), y0: Math.min(r[1], r[3]), x1: Math.max(r[0], r[2]), y1: Math.max(r[1], r[3]), vw: v.width, vh: v.height }
+    if (box.x1 - box.x0 < 1 || box.y1 - box.y0 < 1) continue // invisible/degenerate: never a click target
+    const url = a.url || a.unsafeUrl || ''
+    if (url && PV_LINK_SCHEME.test(url)) { out.push({ ...box, url }); continue }
+    if (a.dest) {
+      const dest = await pvDestTarget(doc, a.dest)
+      if (dest) out.push({ ...box, dest })
+    }
+  }
+  return out
+}
+function pvPaintLinks(slot, pi) { // percent boxes: zoom and relayout need no update, browser does hit testing
+  if (!slot) return
+  const old = slot.querySelector('.pvLinks')
+  if (old) old.remove()
+  const links = pvLinks[pi] || []
+  if (!links.length) return
+  const box = document.createElement('div')
+  box.className = 'pvLinks'
+  links.forEach((L, i) => {
+    const a = document.createElement('a')
+    a.style.left = (L.x0 / L.vw * 100) + '%'
+    a.style.top = (L.y0 / L.vh * 100) + '%'
+    a.style.width = ((L.x1 - L.x0) / L.vw * 100) + '%'
+    a.style.height = ((L.y1 - L.y0) / L.vh * 100) + '%'
+    if (L.url) { a.href = L.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = L.url }
+    else { // internal destination: scrolls the preview, and click sync takes the source along
+      a.href = '#'; a.title = t('preview.linkPage', { n: L.dest.page + 1 })
+      a.dataset.pvLink = String(i)
+    }
+    a.setAttribute('aria-label', a.title)
+    box.appendChild(a)
+  })
+  slot.appendChild(box)
+}
+const scrollAnims = new WeakMap() // one animation per element: a jump and a follow never fight
+const selfTops = new WeakMap() // last scrollTop this app wrote per element (editor and preview)
+let pvSelfTop = -1 // last preview scrollTop this app wrote: a user scroll differs and moves the editor
+function pvSelfWrite(el) {
+  if (!el) return
+  selfTops.set(el, el.scrollTop)
+  if (el.id === 'preview') pvSelfTop = el.scrollTop
+}
+function smoothWrote(el) { // a scroll event caused by our own glide/follow, not by the reader
+  const t = selfTops.get(el)
+  return t != null && Math.abs((el.scrollTop || 0) - t) < 2
+}
+function smoothStop(el) {
+  const a = scrollAnims.get(el)
+  if (a) { cancelAnimationFrame(a.raf); scrollAnims.delete(el) }
+}
+function smoothScroll(el, y) { // jump: quintic in-out, one fixed duration so editor and preview arrive together
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  const target = Math.max(0, Math.min(max, y))
+  const running = scrollAnims.get(el)
+  if (running && running.jump && Math.abs(running.target - target) < 1) return // already flying there
+  smoothStop(el)
+  let calm = false
+  try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
+  const from = el.scrollTop, dy = target - from
+  if (calm || Math.abs(dy) < 1) { el.scrollTop = target; pvSelfWrite(el); return }
+  pvSelfWrite(el) // mark the start: a scroll event still in flight from before must not stop this animation
+  const dur = 320, t0 = performance.now(), a = { jump: true, target, raf: 0 }
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur)
+    el.scrollTop = from + dy * k * k * k * (k * (6 * k - 15) + 10) // smootherstep: no overshoot, no hard start
+    pvSelfWrite(el)
+    if (k < 1) a.raf = requestAnimationFrame(step)
+    else scrollAnims.delete(el)
+  }
+  scrollAnims.set(el, a)
+  a.raf = requestAnimationFrame(step)
+}
+function smoothFollow(el, y) { // cursor/scroll follow: new targets keep position and speed, so nothing restarts
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  const target = Math.max(0, Math.min(max, y))
+  let calm = false
+  try { calm = matchMedia('(prefers-reduced-motion: reduce)').matches } catch (e) {}
+  if (calm) { smoothStop(el); el.scrollTop = target; pvSelfWrite(el); return }
+  let a = scrollAnims.get(el)
+  if (a && a.follow) { a.target = target; return }
+  smoothStop(el)
+  if (Math.abs(target - el.scrollTop) < 1) { el.scrollTop = target; pvSelfWrite(el); return }
+  pvSelfWrite(el) // mark the start: a scroll event still in flight from before must not stop this follow
+  a = { follow: true, target, v: 0, t: performance.now(), omega: 28, raf: 0 }
+  const step = now => {
+    const dt = Math.max(0.001, Math.min(0.05, (now - a.t) / 1000))
+    a.t = now
+    const x = el.scrollTop, c = x - a.target, e = Math.exp(-a.omega * dt)
+    const nx = a.target + (c + (a.v + a.omega * c) * dt) * e
+    a.v = (a.v - (a.v + a.omega * c) * a.omega * dt) * e
+    el.scrollTop = nx
+    pvSelfWrite(el)
+    if (Math.abs(nx - a.target) < 0.5 && Math.abs(a.v) < 4) {
+      el.scrollTop = a.target
+      pvSelfWrite(el)
+      scrollAnims.delete(el)
+      return
+    }
+    a.raf = requestAnimationFrame(step)
+  }
+  scrollAnims.set(el, a)
+  a.raf = requestAnimationFrame(step)
+}
+function pvScrollStop() { try { smoothStop($('preview')) } catch (e) {} } // any deliberate scroll wins over a jump still in flight
+function pvScrollTo(pv, y) { smoothScroll(pv, y) }
+const pvBox0 = $('preview') // guarded: unit tests slice this file with a bare $ stub
+if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('wheel', pvScrollStop, { passive: true }) // user scroll wins over a jump animation
+function pvGotoTarget(target) { // internal jump: destination page, refined by its top coordinate
+  if (!target) return
+  const pv = $('preview'), s = pvSlots[target.page]
+  if (s) {
+    const pr = pv.getBoundingClientRect(), sr = s.getBoundingClientRect()
+    const hPt = +s.dataset.w * +s.dataset.r, cssH = parseFloat(s.style.height) || 0
+    let y = 0
+    if (target.top != null && hPt > 0 && cssH > 0) y = Math.max(0, Math.min(cssH, cssH * (1 - target.top / hPt)))
+    pvScrollTo(pv, pv.scrollTop + sr.top - pr.top + y - pv.clientHeight * 0.12)
+    return
+  }
+  const cv = pvCanvasList()[target.page] // fallback path: bare canvases, page top only
+  if (!cv) return
+  const pr = pv.getBoundingClientRect(), cr = cv.getBoundingClientRect()
+  pvScrollTo(pv, pv.scrollTop + cr.top - pr.top - pv.clientHeight * 0.12)
+}
+async function pvLoadOutline(doc, id) { // bookmarks with pages: the honest anchor chain for source -> PDF
+  let root = []
+  try { root = await doc.getOutline() || [] } catch (e) { return }
+  const out = []
+  const walk = async (list, depth) => {
+    for (const it of list || []) {
+      if (id !== renderN) return
+      const target = it && it.dest ? await pvDestTarget(doc, it.dest) : null
+      if (target) out.push({ title: String((it && it.title) || ''), page: target.page, depth })
+      if (it && it.items && it.items.length) await walk(it.items, depth + 1)
+    }
+  }
+  await walk(root, 0)
+  if (id !== renderN) return
+  pvOutline = out
+  pvOutlineGen = id // sync only trusts the outline of the render that is on screen
+  try { paintOutline() } catch (e) {} // sidebar badges follow the PDF, not the cursor
+}
+function srcMask(t) { // document with raw blocks and comments blanked (newlines kept): structure regexes only see real markup
+  return String(t)
+    .replace(/```[\s\S]*?```/g, m => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '))
+    .replace(/`[^`\n]*`/g, m => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, m => m.replace(/[^\n]/g, ' '))
+}
+function srcHeadings(t) { // source headings outside raw blocks/comments (line, level, raw title)
+  const lines = String(t).split('\n'), mask = srcMask(t).split('\n'), out = []
+  for (let i = 0; i < lines.length && i < mask.length; i++) {
+    const m = mask[i].match(/^(=+)\s+/)
+    if (m) out.push({ line: i + 1, level: m[1].length, title: lines[i].slice(m[0].length) })
+  }
+  return out
+}
+function srcOutlineLine(t) { // line of a real #outline( call outside raw/code (0: none)
+  const i = srcMask(t).split('\n').findIndex(s => /#outline\s*\(/.test(s))
+  return i < 0 ? 0 : i + 1
+}
+function pvOlNorm(s) { return syncPlain(String(s)).replace(/^\d+(?:\s+\d+)*\s+/, '') } // heading text: no labels/markup, no "1.2 "
+function pvOlBare(s) { return pvOlNorm(s).replace(/^(?:\d+(?:\s+\d+)*|[a-z]|[ivxlcdm]+)\s+/, '') } // also letters/roman: template numbering
+function pvOlMatch(text, from, anyGen) { // PDF bookmark index for a source heading, in document order; -1: not in the outline
+  if (!pvOutline.length || (!anyGen && pvOutlineGen !== renderN)) return -1
+  const want = pvOlNorm(text)
+  if (!want) return -1
+  for (let k = from; k < pvOutline.length; k++) if (pvOlNorm(pvOutline[k].title) === want) return k
+  const bare = pvOlBare(text)
+  for (let k = from; k < pvOutline.length; k++) if (bare && pvOlBare(pvOutline[k].title) === bare) return k
+  return -1
+}
+function pvSections() { // source heading line -> PDF page, in document order (the anchor chain)
+  if (pvOutlineGen !== renderN) return [] // outline of an older render: no pages it could honestly give
+  const out = []
+  let at = 0
+  for (const h of srcHeadings(getT())) {
+    const k = pvOlMatch(h.title, at)
+    if (k < 0) continue
+    at = k + 1
+    out.push({ line: h.line, page: pvOutline[k].page, title: h.title })
+  }
+  return out
+}
+function pvSecAt(page) { // preview page -> section start + the next section (both may be null)
+  const secs = pvSections()
+  let i = -1
+  for (let k = 0; k < secs.length && secs[k].page <= page; k++) i = k
+  return { sec: i >= 0 ? secs[i] : null, next: i >= 0 ? (secs[i + 1] || null) : null }
+}
+function pvSecAtLine(line) { // source line -> its section with inclusive page and line bounds
+  const secs = pvSections()
+  let i = -1
+  for (let k = 0; k < secs.length && secs[k].line <= line; k++) i = k
+  if (i < 0) return null
+  const sec = secs[i], next = secs[i + 1] || null
+  return { ...sec, endPage: next ? next.page : Math.max(0, pvTexts.length - 1), endLine: next ? next.line - 1 : Infinity }
+}
+function pvSecAtY(pi, y) { // preview point -> section: several headings share a page, so their height decides
+  const secs = pvSections(), lines = getT().split('\n')
+  let sec = null, next = null
+  for (const s of secs) {
+    if (s.page > pi) { next = s; break }
+    if (s.page < pi) { sec = s; continue }
+    const hit = syncAnchor(lines, s.line, pvTexts, { ...s, endPage: s.page })
+    if (!hit || hit.it.y <= y) sec = s
+    else { next = s; break }
+  }
+  return { sec, next }
+}
+function pvPageMeta(doc, p, scale) { // one page: text anchors + link boxes (indexed past the visible window)
   return doc.getPage(p).then(async page => {
     const v = page.getViewport({ scale })
     const tc = await page.getTextContent()
-    const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
-    const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-    return tc.items.map(it => {
-      const w = (it.width || 0) * ax, h = (it.height || 0) * ay
-      const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-      return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
-    })
+    return { items: pvBoxes(tc, v), links: await pvPageLinks(doc, page, v) }
   })
 }
-async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors: editor->preview reaches past the visible window
+if (pvBox0 && pvBox0.addEventListener) pvBox0.addEventListener('click', e => { // internal PDF destination: external links open natively
+  const a = e.target.closest ? e.target.closest('.pvLinks a[data-pv-link]') : null
+  if (!a) return
+  e.preventDefault() // hash href: never let a stale link layer touch the URL and the app scroll
+  const slot = a.closest('.pvPage'), pi = slot ? +slot.dataset.page - 1 : -1
+  const L = pi >= 0 ? (pvLinks[pi] || [])[+a.dataset.pvLink] : null
+  if (!L || !L.dest) return
+  pvGotoTarget(L.dest)
+  pvSyncDest(L.dest) // follow mode: the editor moves to the same destination
+})
+async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors + links: sync works past the visible window
   try {
     for (let p = 1; p <= pvTexts.length; p++) {
       if (pvStale(id, myDoc, myTplName)) return
       if (pvTextDone[p - 1]) continue
-      let items
-      try { items = await pvIdxPage(doc, p, pvScale) } catch (e) { continue }
+      let meta
+      try { meta = await pvPageMeta(doc, p, pvScale) } catch (e) { continue }
       if (pvStale(id, myDoc, myTplName)) return
-      pvTexts[p - 1] = items
+      pvTexts[p - 1] = meta.items
+      pvLinks[p - 1] = meta.links
+      pvPaintLinks(pvSlots[p - 1], p - 1)
       try { pvTextDone[p - 1] = true } catch (e) {}
       if (p % 8 === 0) await new Promise(r => setTimeout(r, 0)) // yield: typing stays fluid on long docs
     }
   } catch (e) {}
+  if (syncMiss) queueSyncPv() // a sync that ran before the new page text was indexed: retry once it is
+  if (syncEdMiss) { syncEdMiss = false; queueSyncEd() } // one retry now that the text index is complete
 }
 function pvAnchorRead(pv) { // first visible slot + offset (scrollTop alone drifts when heights change)
   const pr = pv.getBoundingClientRect(), top = pv.scrollTop
@@ -486,6 +736,7 @@ function pvAnchorBack(pv, a) {
     const r = slots[a.page].getBoundingClientRect(), pr = pv.getBoundingClientRect()
     pv.scrollTop += (r.top - pr.top) - a.off
   } else if (a) pv.scrollTop = Math.min(a.top, Math.max(0, pv.scrollHeight - pv.clientHeight))
+  pvSelfWrite(pv)
 }
 // --- Per-document scroll memory: editor + preview spot, this browser/device only ---
 const SCROLL_KEY = 'typst_scroll' // localStorage stays on this device: another machine keeps its own spots
@@ -540,6 +791,7 @@ function scrollApplyEditor() { // after Yjs sync: line + offset survive edits ab
   requestAnimationFrame(() => {
     if (r.epoch !== openN || r.doc !== docId) return
     cm.scrollDOM.scrollTop = Math.min(top, Math.max(0, cm.scrollDOM.scrollHeight - cm.scrollDOM.clientHeight))
+    pvSelfWrite(cm.scrollDOM) // restore, not a reader scroll: the saved preview spot must win
   })
 }
 function scrollApplyPreview() { // page + offset survive new page sizes and zoom changes
@@ -556,6 +808,7 @@ function scrollApplyPreview() { // page + offset survive new page sizes and zoom
     if (pv.scrollHeight <= pv.clientHeight) return
     pv.scrollTop = Math.min(r.pt, pv.scrollHeight - pv.clientHeight)
   }
+  pvSelfWrite(pv)
   r.pv = true
 }
 
@@ -588,13 +841,7 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
       sizeCanvas(c) // CSS width only, not canvas.width
       const tc = await page.getTextContent() // click anchors: each visible word knows its spot
       if (pvStale(id, myDoc, myTplName)) return
-      const [a, b, cc, d, ee, ff] = v.transform // text space -> canvas px
-      const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-      texts.push(tc.items.map(it => {
-        const w = (it.width || 0) * ax, h = (it.height || 0) * ay
-        const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-        return { s: it.str, x: x + w / 2, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
-      }))
+      texts.push(pvBoxes(tc, v))
       pages.push(c)
     }
     if (pvStale(id, myDoc, myTplName)) return
@@ -604,9 +851,12 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     const st = preview.scrollTop // read at swap time: follow-scroll during render is kept
     preview.replaceChildren(...pages)
     pvTexts = texts
+    pvLinks = texts.map(() => []) // fallback: no annotation overlay (bare canvases)
     try { pvTextDone = texts.map(() => true) } catch (e) {}
     preview.scrollTop = st
-    scrollApplyPreview() // fallback render of a reopened doc: same saved page + offset
+    pvSelfWrite(preview)
+    scrollApplyPreview() // fallback render of a reopened doc: back to its saved page + offset
+    pvLoadOutline(doc, id).catch(() => {}) // badges keep the last outline until the new one is ready
     clearErr() // running again: clear marks
     lastInfra = false
   } catch (e) { if (!pvStale(id, myDoc, myTplName)) { // error: keep last render, red lines, never wrong empty text
@@ -760,8 +1010,8 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
     const r = el(e.line || e.tab != null ? 'button' : 'div', 'er')
     if (e.line) r.appendChild(el('span', 'ln', t('preview.errRow', { line: e.line, col: e.col ? ':' + e.col : '' })))
     r.appendChild(el('span', 'em', e.msg.split('\n')[0].replace(/ Â· (line|Zeile) \d+(:\d+)?$/, '')))
-    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { cm.dispatch({ selection: { anchor: cm.state.doc.line(e.jl).from }, scrollIntoView: true }); cm.focus() } }
-    if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) }, scrollIntoView: true }); cm.focus() } // list stays open: only the x closes it
+    if (!e.line && e.tab != null) r.onclick = async () => { await switchTab(e.tab); if (e.jl && e.jl <= cm.state.doc.lines) { const p = cm.state.doc.line(e.jl).from; cm.dispatch({ selection: { anchor: p } }); cmGlide(p); cm.focus() } }
+    if (e.line) r.onclick = () => { const p = errLivePos(e); cm.dispatch({ selection: { anchor: Math.max(0, Math.min(cm.state.doc.length, p)) } }); cmGlide(p); cm.focus() } // list stays open: only the x closes it
     box.appendChild(r)
   })
   box.classList.add('errs')
@@ -822,7 +1072,8 @@ function pvBar() { // page-fit button next to fit-width (shell untouched: button
 const pvStepPv = stepPv // hoisting: single module script, so function stepPv (90-settings) exists before this line runs
 stepPv = d => { if (pvZoomMode !== 'pct') pvModeSet('pct'); pvStepPv(d); pvRelayout() } // explicit % leaves fit modes, slots follow at once (not via the zoomV observer only)
 addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === '0') pvModeSet('pct') }) // window: real keys bubble here and the menu reset dispatches here (a document-capture listener would miss it)
-new MutationObserver(() => pvRelayout()).observe($('zoomV'), { childList: true, characterData: true, subtree: true }) // any zoom change relayouts slots
+const zoomV0 = $('zoomV') // guarded: a missing node must never kill the rest of the module (boot)
+if (zoomV0) new MutationObserver(() => pvRelayout()).observe(zoomV0, { childList: true, characterData: true, subtree: true }) // any zoom change relayouts slots
 addEventListener('resize', () => { if (!window.Present?.isOn() && pvZoomMode !== 'pct' && pvPageSize) { pvModeApply(); pvRelayout() } })
 new ResizeObserver(() => { if (pvZoomMode !== 'pct' && pvPageSize && !window.Present?.isOn()) { pvModeApply(); pvRelayout() } }).observe($('preview'))
 cm.scrollDOM.addEventListener('scroll', queueDocScroll)

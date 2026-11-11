@@ -16,7 +16,8 @@ function paintFind(sel) { // hits blue, current orange; sel = also jump
     Decoration.mark({ class: i === findI ? 'cm-find-cur' : 'cm-find' }).range(h.a, h.b)), true)) })
   if (sel && findHits.length) {
     const h = findHits[findI]
-    cm.dispatch({ selection: { anchor: h.a, head: h.b }, effects: EditorView.scrollIntoView(h.a, { y: 'center' }) })
+    cm.dispatch({ selection: { anchor: h.a, head: h.b } })
+    cmGlide(h.a)
   }
   const q = $('fQ').value
   $('fN').textContent = findHits.length ? (findI >= 0 ? (findI + 1) + '/' + findHits.length : '' + findHits.length) : (q ? '0' : '')

@@ -88,7 +88,8 @@
         it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), checked: !!(window.Present && window.Present.isOn()) }),
         SEP,
         it(t('menu.sidebar'), function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
-        it(t('menu.follow'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
+        it(t('menu.follow'), function () { click('followBtn') }, { checked: pressed('followBtn'), on: !edit && !read }),
+        it(t('menu.clickSync'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
         SEP,
         it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: M + '+', on: !edit }),
         it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: M + '\u2212', on: !edit }),
@@ -116,13 +117,23 @@
     }
   }
 
+  function liveAnchor(f) { // a sidebar repaint may replace the row under an open menu: focus the same row again
+    if (f.isConnected) return f
+    var row = f.closest && f.closest('[data-package-key],[data-doc-id]'), key = row && row.dataset.packageKey, doc = row && row.dataset.docId
+    var now = doc ? Array.prototype.slice.call(document.querySelectorAll('[data-doc-id]')).filter(function (r) { return r.dataset.docId === doc })[0]
+      : key ? Array.prototype.slice.call(document.querySelectorAll('[data-package-key]')).filter(function (r) { return r.dataset.packageKey === key })[0] : null
+    if (now) return now.querySelector('[data-side-menu]') || f
+    var group = f.closest && f.closest('[data-project-id]'), id = group && group.dataset.projectId
+    var again = id && Array.prototype.slice.call(document.querySelectorAll('[data-project-id]')).filter(function (g) { return g.dataset.projectId === id })[0]
+    return again ? again.querySelector('.fhd.project [data-side-menu]') || f : f
+  }
   function close(refocus) {
     if (!openFor) return
     openFor.setAttribute('aria-expanded', 'false')
     var f = openFor
     openFor = null; items = []; idx = -1
     menu.hidden = true; menu.replaceChildren()
-    if (refocus && f) f.focus()
+    if (refocus && f) liveAnchor(f).focus()
   }
   window.closeMenu = close // header pops live in module scope, close the menu through this
   function focusItem(i) {

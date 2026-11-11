@@ -86,6 +86,7 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 #ol .ol-l1 { font-weight: 600; }
 #ol .ol-l2 { padding-left: 20px; font-size: 12.5px; }
 #ol .ol-l3 { padding-left: 32px; font-size: 12.5px; color: var(--sub); }
+#ol .pg { flex: none; padding-left: 6px; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
 #userBox { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-size: 13px; }
 #userMain { flex: 1; min-width: 0; height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 12px; cursor: pointer; transition: background-color .12s ease; border: 1px solid transparent; }
 #userMain:hover { background: var(--hover); }
@@ -117,7 +118,7 @@ aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-
 
 /* View modes */
 body.read #leftCol, body.read #split { display: none; }
-body.read #syncBtn, body.editonly #syncBtn { display: none; }
+body.read #syncBtn, body.read #followBtn, body.editonly #syncBtn, body.editonly #followBtn { display: none; }
 body.editonly #rightCol, body.editonly #split, body.editonly #vsplit { display: none; }
 body.editonly #leftCol { width: 100% !important; }
 body.editonly #pvTools { display: none; }

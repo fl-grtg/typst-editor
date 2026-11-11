@@ -194,9 +194,9 @@ addEventListener('keydown', e => { // Ctrl/Cmd+Alt+PageDown/PageUp: next/previou
 function tabSaveState(k) { try { const s = cm.state.selection.main; tabState.set(k, { a: s.anchor, h: s.head, top: cm.scrollDOM.scrollTop }) } catch (e) {} }
 function tabRestoreState(k) {
   const s = tabState.get(k), n = cm.state.doc.length
-  if (!s) { cm.scrollDOM.scrollTop = 0; return }
+  if (!s) { cm.scrollDOM.scrollTop = 0; pvSelfWrite(cm.scrollDOM); return }
   cm.dispatch({ selection: { anchor: Math.min(s.a, n), head: Math.min(s.h, n) } })
-  requestAnimationFrame(() => { cm.scrollDOM.scrollTop = s.top })
+  requestAnimationFrame(() => { cm.scrollDOM.scrollTop = s.top; pvSelfWrite(cm.scrollDOM) })
 }
 async function switchTab(name, nosave, preserveView = false) { // true = switched, false = blocked/stale (caller keeps focus where it is)
   if (window.suggestionDraft && !await leaveSuggestionDraft()) return false
