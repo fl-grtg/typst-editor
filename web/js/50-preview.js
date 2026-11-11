@@ -450,13 +450,11 @@ function pvWatch(doc, id, myDoc, myTplName) { // draw on scroll into view (+2 vi
 function pvBoxes(tc, v) { // textContent -> click anchors in viewport px (raster-independent)
   const tr = v.transform, a = tr[0], b = tr[1], cc = tr[2], d = tr[3], ee = tr[4], ff = tr[5]
   const ax = Math.abs(a) || 1, ay = Math.abs(d) || 1
-  return tc.items.filter(it => { // rotated runs have no honest horizontal hit box: leave them to their neighbours
-    const m = it.transform || []
-    return Math.abs(m[1] || 0) < 0.01 && Math.abs(m[2] || 0) < 0.01
-  }).map(it => {
+  return tc.items.map(it => {
+    const m = it.transform || [], rot = Math.abs(m[1] || 0) >= 0.01 || Math.abs(m[2] || 0) >= 0.01 // rotated: keep the text for anchors, never for clicks
     const w = (it.width || 0) * ax, h = (it.height || 0) * ay
     const x = a * it.transform[4] + cc * it.transform[5] + ee, y = b * it.transform[4] + d * it.transform[5] + ff
-    return { s: it.str, x: x + w / 2, x0: x, w, h: h || 10, y: y - (h || 10) / 2, vw: v.width, vh: v.height }
+    return { s: it.str, x: x + w / 2, x0: x, w, h: h || 10, y: y - (h || 10) / 2, vw: v.width, vh: v.height, rot }
   })
 }
 const PV_LINK_SCHEME = /^(https?|mailto):/i // only schemes a browser tab may open safely from a PDF
@@ -720,7 +718,7 @@ async function pvTextAll(doc, id, myDoc, myTplName) { // every page gets anchors
     }
   } catch (e) {}
   if (syncMiss) queueSyncPv() // a sync that ran before the new page text was indexed: retry once it is
-  if (syncEdMiss) queueSyncEd() // same for editor follow: the page text it needed is now indexed
+  if (syncEdMiss) { syncEdMiss = false; queueSyncEd() } // one retry now that the text index is complete
 }
 function pvAnchorRead(pv) { // first visible slot + offset (scrollTop alone drifts when heights change)
   const pr = pv.getBoundingClientRect(), top = pv.scrollTop

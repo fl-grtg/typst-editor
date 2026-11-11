@@ -9,6 +9,7 @@ const syncSlice = code.slice(code.indexOf('function syncText'), code.indexOf('fu
 const pvSlice = pvCode.slice(pvCode.indexOf('function srcMask'), pvCode.indexOf('function pvSecAt'))
 const outlineSlice = code.slice(code.indexOf('function pvOlEq'), code.indexOf("$('preview').addEventListener('click'"))
 const ctx = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p } })
+vm.runInContext(pvCode.slice(pvCode.indexOf('function srcMask'), pvCode.indexOf('function pvSecAt')), ctx)
 vm.runInContext(syncSlice, ctx)
 const page = texts => texts.map((s, y) => ({ s, y: y * 20, vh: 800 }))
 function outlineCtx(extra) { // real source parser + heading matcher, not stubs
@@ -111,6 +112,20 @@ test('a blank line after a pagebreak follows the next page', () => {
   const lines = ['= Alpha', 'Alpha body.', '#pagebreak()', '', 'Beta body.']
   const pages = [page(['Alpha', 'Alpha body.']), page(['Beta body.'])]
   assert.equal(ctx.syncNearHit(lines, 4, pages).pi, 1) // the pagebreak wins over the text above
+})
+test('a blank line before a pagebreak stays on the page above', () => {
+  assert.equal(ctx.syncNearHit(['', '#pagebreak()', 'Beta body.'], 1, [page([]), page(['Beta body.'])]), null) // page 2 is below the break
+  assert.equal(ctx.syncNearHit(['Alpha body.', '', '#pagebreak()', 'Beta body.'], 2, [page(['Alpha body.']), page(['Beta body.'])]).it.s, 'Alpha body.')
+})
+test('a column break separates the two columns like a pagebreak', () => {
+  const lines = ['Left column text.', '', '#colbreak()', '', 'Right column text.']
+  const pages = [page(['Left column text.', 'Right column text.'])]
+  assert.equal(ctx.syncNearHit(lines, 4, pages).it.s, 'Right column text.')
+})
+test('a pagebreak inside a fenced example is not a page boundary', () => {
+  const lines = ['= Alpha', '```typst', '#pagebreak()', '```', '', 'Body text.']
+  const pages = [page(['Alpha']), page(['Body text.'])]
+  assert.equal(ctx.syncNearHit(lines, 5, pages).it.s, 'Alpha') // the example renders right here, not on page 2
 })
 test('raw text and escapes stay text inside a call', () => {
   const raw = ['#figure(', '  image("x.png"),', '  body: [`a ) b`],', '  caption: [Bars],', ')']
@@ -329,22 +344,29 @@ test('click column maps scaled canvas pixels through the item offset', () => {
   const gone = { width: 200, height: 20, getContext: () => ({ getImageData: () => blind }) }
   assert.equal(c.pvClickCol(item, 95, 100, 200, gone), 6) // estimate still lands on the last word
 })
-test('rotated text runs never become horizontal click boxes', () => {
+test('rotated text runs stay out of clicks but keep their anchors', () => {
   const c = vm.createContext({})
   vm.runInContext(pvCode.slice(pvCode.indexOf('function pvBoxes'), pvCode.indexOf('const PV_LINK_SCHEME')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvItemDist'), code.indexOf('function pvOlEq')), c)
   const v = { transform: [1, 0, 0, 1, 0, 0], width: 600, height: 800 }
   const tc = { items: [
     { str: 'Normal', transform: [1, 0, 0, 1, 20, 30], width: 50, height: 10 },
     { str: 'Seitwärts', transform: [0, 1, -1, 0, 100, 200], width: 40, height: 10 },
-    { str: 'Schräg', transform: [1, 0.05, -0.05, 1, 50, 60], width: 30, height: 10 },
+    { str: 'Schräg', transform: [1, 0.005, -0.005, 1, 50, 60], width: 30, height: 10 },
   ] }
   const boxes = c.pvBoxes(tc, v)
-  assert.deepEqual(Array.from(boxes, b => b.s), ['Normal']) // rotated runs would stretch their box over the whole line
+  assert.deepEqual(Array.from(boxes, b => b.s), ['Normal', 'Seitwärts', 'Schräg']) // anchors still name the rotated word
+  assert.equal(boxes[0].rot, false)
+  assert.equal(boxes[1].rot, true)
+  assert.equal(boxes[2].rot, false) // a tiny skew still gets an honest horizontal box
   assert.equal(boxes[0].x0, 20)
   assert.equal(boxes[0].w, 50)
   assert.equal(boxes[0].h, 10)
   assert.equal(boxes[0].x, 45)
   assert.equal(boxes[0].y, 25)
+  const near = c.pvNearItems(boxes, -80, 300, 1, 1, null) // right on the turned run: its box is a lie, the neighbours are not
+  assert.equal(near.length, 2)
+  assert.ok(near.every(({ it }) => !it.rot))
 })
 test('caption prefixes and table rows become needles the source can match', () => {
   const c = vm.createContext({})
