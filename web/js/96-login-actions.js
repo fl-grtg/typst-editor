@@ -67,6 +67,7 @@ async function login(u, p) {
     paintMe()
     const hadJoin = !!new URLSearchParams(location.search).get('join')
     try { await sidebar(); } catch (e) {}
+    loadInbox().catch(() => {}) // bell + unread count do not wait for the SSE stream
     watchSidebar()
     await loadTpl(); const joined = await checkJoin()
     if (openN === 0 && !docId && !tplName && !hadJoin && !joined) {
@@ -266,6 +267,7 @@ api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
   paintMe()
   const hadJoin = !!new URLSearchParams(location.search).get('join')
   try { await sidebar(); } catch (e) {}
+  loadInbox().catch(() => {}) // bell + unread count do not wait for the SSE stream
   watchSidebar()
   await loadTpl(); const joined = await checkJoin()
   if (openN === 0 && !docId && !tplName && !hadJoin && !joined) {

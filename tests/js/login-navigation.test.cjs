@@ -14,7 +14,7 @@ test('late session initialization respects an already-started document navigatio
       api: async () => ({ user: 'alice' }), loadSpell() {}, paintMe() {},
       $: () => ({ style: {}, classList: { add() {} } }), cm: { measure() {} },
       openN, docId: '', tplName: '', URLSearchParams, location: { search: '' },
-      sidebar: async () => {}, watchSidebar() {}, loadTpl: async () => {}, checkJoin: async () => false,
+      sidebar: async () => {}, watchSidebar() {}, loadInbox: async () => {}, loadTpl: async () => {}, checkJoin: async () => false,
       lastOwn: [{ id: 'tutorial', title: 'Tutorial' }], lastShared: [], openDoc: id => opened.push(id),
       console,
     })

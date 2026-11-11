@@ -115,3 +115,19 @@ def test_drag_entries_into_a_folder_and_back_to_the_project_root(page):
     page.click("#mYes")
     expect(page.locator("aside .doc.sub[title='other.typ']")).to_have_count(1)
     assert names() == ["lib/style.typ", "other.typ"]
+
+
+def test_last_tab_closes_to_the_plain_welcome_screen(page):
+    register(page, "welcome_close")
+    page.request.post("/api/docs/create", data={"title": "Only", "content": "x"})
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+    if page.locator("#tabs button.tab").count() == 0:
+        page.locator("aside .doc.sub", has_text="Only").first.click()
+    expect(page.locator("#tabs button.tab")).to_have_count(1)
+    page.locator("#tabs button.tab").last.click(button="right")
+    page.locator("#modal button.pk", has_text="Close tab").first.click()
+    expect(page.locator("#title")).to_have_text("Welcome")
+    expect(page.locator("#emptyCard")).to_be_visible()
+    expect(page.locator("#emptyCard .step")).to_have_count(3)
+    expect(page.locator("#emptyCard #galQuick")).to_have_count(0)  # no decorative, dead template grid

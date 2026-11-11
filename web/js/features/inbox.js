@@ -9,7 +9,6 @@ async function loadInbox() {
 }
 function paintInboxBadge() {
   const b = $('inboxBtn'), n = $('inboxN')
-  b.hidden = !user
   n.hidden = !inboxUnread
   n.textContent = inboxUnread > 99 ? '99+' : String(inboxUnread)
   const label = t('inbox.title') + (inboxUnread ? ' (' + inboxUnread + ')' : '')

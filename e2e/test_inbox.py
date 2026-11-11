@@ -83,3 +83,11 @@ def test_watch_level_from_the_bell_on_the_project_row(page):
     expect(bell).to_be_hidden()  # hover-only, even with a non-default level
     head.hover()
     expect(bell).to_be_visible()
+
+
+def test_inbox_bell_is_visible_without_the_event_stream(page):
+    register(page, "bell_no_sse")
+    page.route("**/api/events", lambda route: route.abort())
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+    expect(page.locator("#inboxBtn")).to_be_visible()

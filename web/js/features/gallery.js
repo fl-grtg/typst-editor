@@ -35,29 +35,6 @@ function galleryCard(g, sel, onPick) { // thumb + title + desc, keyboard-operabl
   b.onclick = onPick
   return b
 }
-function enhanceEmpty() {
-  const card = document.getElementById('emptyCard')
-  if (!card || document.getElementById('galQuick')) return
-  const wrap = el('div', 'galQuick')
-  wrap.id = 'galQuick'
-  wrap.appendChild(el('p', 'sub', t('gallery.quickTitle')))
-  const grid = el('div', 'galGrid')
-  GALLERY.forEach((g, i) => {
-    const b = document.createElement('div')
-    b.className = 'gq'
-    const img = document.createElement('img')
-    img.src = galleryThumb(g.id)
-    img.alt = ''
-    img.loading = 'lazy'
-    b.append(img, document.createTextNode(t(g.tk)))
-    b.setAttribute('aria-label', t(g.tk) + ' – ' + t(g.sk))
-    grid.appendChild(b)
-  })
-  wrap.appendChild(grid)
-  card.appendChild(wrap)
-}
-new MutationObserver(enhanceEmpty).observe(document.getElementById('preview'), { childList: true })
-
 function fitEmptyCard() {
   const card = document.getElementById('emptyCard'), preview = document.getElementById('preview')
   if (!card) return
