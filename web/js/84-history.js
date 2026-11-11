@@ -20,23 +20,21 @@ async function renderHist() {
   catch (e) { if (doc === docId && epoch === openN) p.appendChild(el('div', 'srow', t('history.loadError', { msg: e.message }))); return }
   if (doc !== docId || epoch !== openN) return
   if (!list.length) { const em = el('div', 'histEmpty'); em.textContent = t('history.autoHint'); p.appendChild(em) }
+  let lastDay = ''
   list.forEach(s => {
-    const row = el('div', 'srow')
-    const kib = Math.round(s.size / 1024)
-    row.appendChild(el('span', 't', ago(s.created_at) + (s.label ? ' · ' + s.label : '') + (s.author ? ' · ' + s.author : '') + t('history.sizeKb', { kb: kib })))
-    const df = el('button', null, t('history.compare')); df.title = t('history.compareTitle'); df.setAttribute('aria-label', df.title)
+    const day = dayLabel(s.created_at)
+    if (day !== lastDay) { p.appendChild(el('div', 'hDay', day)); lastDay = day }
     const projUrl = historyUrl(doc).includes('/projects/')
-    df.onclick = () => projUrl ? openChanges({ url: historyUrl(doc), sid: s.id, list, title: s.label || ago(s.created_at) }) : showDiff(s.id, row, doc)
-    const rn = icoBtn(null, ICO_EDIT); rn.title = t('history.renameSnap'); rn.setAttribute('aria-label', rn.title); rn.hidden = !canEdit || !projUrl
-    rn.onclick = async e => {
-      e.stopPropagation()
-      const v = await ask(t('history.renameSnap'), { value: s.label || '', ph: t('history.namePh') })
-      if (v == null || doc !== docId || epoch !== openN) return
-      try { await api('PATCH', `${historyUrl(doc)}/${s.id}`, { label: String(v).trim() }); if (doc === docId && epoch === openN) renderHist() } catch (err) { toast(err.message) }
-    }
-    const rs = el('button', null, t('docs.restore')); rs.title = t('history.restoreTitle'); rs.setAttribute('aria-label', rs.title)
-    rs.hidden = !canEdit
-    rs.onclick = async () => {
+    const row = el('div', 'srow')
+    const named = !!s.label && s.label !== 'Before restore'
+    const nm = s.label === 'Before restore' ? t('history.autoRestore') : s.label || (s.kind === 'auto' ? t('history.autoName') : t('history.unnamed'))
+    const tx = el('span', 't'); tx.append(el('span', 'nm' + (named ? '' : ' dim'), nm), el('span', 'meta', ago(s.created_at) + (s.author ? ' · ' + s.author : '')))
+    tx.title = new Date(s.created_at).toLocaleString() + t('history.sizeKb', { kb: Math.round(s.size / 1024) })
+    row.appendChild(tx)
+    const df = el('button', null, t('history.compare')); df.title = t('history.compareTitle'); df.setAttribute('aria-label', df.title)
+    df.onclick = () => projUrl ? openChanges({ url: historyUrl(doc), sid: s.id, list }) : showDiff(s.id, row, doc)
+    row.appendChild(df)
+    const doRestore0 = async () => {
       if (!await ask(t('history.restoreConfirm'), { noInput: true, ok: t('common.ok') })) return
       if (doc !== docId || epoch !== openN) return
       if (!await flushTab()) return
@@ -50,16 +48,35 @@ async function renderHist() {
       }
       doRestore()
     }
-    const xx = icoBtn(null, ICO_X); xx.title = t('history.delSnap'); xx.setAttribute('aria-label', xx.title); xx.hidden = projUrl ? !(projects.find(p => p.id === project)?.role === 'owner' || (s.author && s.author === user)) : docRole !== 'owner'
-    xx.onclick = async e => {
-      e.stopPropagation()
+    const rename = async () => {
+      const v = await ask(t('history.renameSnap'), { value: s.label === 'Before restore' ? '' : s.label || '', ph: t('history.namePh') })
+      if (v == null || doc !== docId || epoch !== openN) return
+      try { await api('PATCH', `${historyUrl(doc)}/${s.id}`, { label: String(v).trim() }); if (doc === docId && epoch === openN) renderHist() } catch (err) { toast(err.message) }
+    }
+    const del = async () => {
       if (!await ask(t('history.delSnapConfirm'), { noInput: true, ok: t('common.delete'), danger: true })) return
       if (doc !== docId || epoch !== openN) return
       try { await api('DELETE', `${historyUrl(doc)}/${s.id}`); if (doc === docId && epoch === openN) renderHist() }
       catch (e) { toast(e.message) }
     }
-    row.append(df, rn, rs, xx); p.appendChild(row)
+    const canDel = projUrl ? (projects.find(p => p.id === project)?.role === 'owner' || (s.author && s.author === user)) : docRole === 'owner'
+    const items = []
+    if (canEdit && projUrl) items.push({ label: t('history.renameSnap'), run: rename })
+    if (canEdit) items.push({ label: t('docs.restore'), title: t('history.restoreTitle'), run: doRestore0 })
+    if (canDel) items.push({ label: t('history.delSnap'), danger: true, run: del })
+    if (items.length) {
+      const more = icoBtn(null, ICO_MORE); more.title = t('shell.menuMore'); more.setAttribute('aria-label', more.title)
+      more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-expanded', 'false')
+      more.dataset.sideMenu = ''; more.sideMenuItems = () => items
+      row.appendChild(more)
+    }
+    p.appendChild(row)
   })
+}
+function dayLabel(iso) {
+  const d = new Date(iso), now = new Date(), start = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diff = Math.round((start(now) - start(d)) / 864e5)
+  return diff <= 0 ? t('common.today') : diff === 1 ? t('common.yesterday') : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' })
 }
 function lineDiff(a, b) { // LCS on lines (caps see above), output max DIFF_OUT lines
   const A = a.split('\n').slice(0, DIFF_MAX), B = b.split('\n').slice(0, DIFF_MAX)

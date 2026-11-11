@@ -26,13 +26,19 @@ function renderInbox() {
   all.onclick = async () => { try { await api('POST', '/api/notifications/read-all'); await loadInbox() } catch (e) { toast(e.message) } }
   top.append(el('b', null, t('inbox.title')), all); p.appendChild(top)
   if (!inboxItems.length) { p.appendChild(el('div', 'histEmpty', t('inbox.empty'))); return }
+  let lastDay = ''
   inboxItems.forEach(it => {
+    const day = dayLabel(it.created_at)
+    if (day !== lastDay) { p.appendChild(el('div', 'inDay', day)); lastDay = day }
     const row = el('button', 'inItem' + (it.is_read ? '' : ' unread'))
     row.type = 'button'
+    const ty = el('span', 'ty')
+    if (it.type === 'mention') ty.textContent = '@'
+    else ty.innerHTML = it.type === 'proposal' ? ICO_EDIT : '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg>'
     const tx = el('span', 'tx'); tx.appendChild(el('span', 'ln', inboxText(it)))
-    if (it.type === 'mention' && it.text) tx.appendChild(el('span', 'sub', it.text))
-    tx.appendChild(el('span', 'sub', ago(it.created_at)))
-    row.append(el('i', 'dot'), tx)
+    const sub = it.type === 'mention' ? it.text : it.type === 'changes' ? t('inbox.changesSub') : ''
+    if (sub) tx.appendChild(el('span', 'sub', sub))
+    row.append(ty, tx, el('span', 'tm', ago(it.created_at)))
     row.onclick = () => goInbox(it).catch(e => toast(e.message))
     p.appendChild(row)
   })
@@ -66,7 +72,7 @@ async function openProjectChanges(pid, name = '') { // everything that changed s
   const w = await api('GET', `/api/projects/${pid}/watch`)
   if (!w.base) { toast(t('inbox.noBase')); return }
   const list = (await api('GET', url)).snapshots
-  await openChanges({ url, sid: w.base, list, title: t('inbox.changesTitle', { project: name }),
+  await openChanges({ url, sid: w.base, list,
     onClose: () => api('POST', `/api/projects/${pid}/watch/seen`).then(loadInbox).catch(() => {}) })
 }
 // --- watch level per project: bell on the project row, small check-mark menu (like GitHub "Watch") ---
@@ -80,7 +86,7 @@ const watchLabel = l => l === 'all' ? t('inbox.lvlAll') : l === 'mentions' ? t('
 const watchSub = l => l === 'all' ? t('inbox.lvlAllSub') : l === 'mentions' ? t('inbox.lvlMentionsSub') : t('inbox.lvlProposalsSub')
 async function loadWatch() {
   const d = await api('GET', '/api/watch')
-  const next = Object.fromEntries(d.projects.map(w => [w.project_id, w.level]))
+  const next = Object.fromEntries(d.projects.filter(w => w.level !== WATCH_DEFAULT).map(w => [w.project_id, w.level])) // defaults are implicit: no repaint when nothing differs
   if (JSON.stringify(next) === JSON.stringify(watchLevels)) return // no repaint on every inbox event
   watchLevels = next
   if (!document.querySelector('aside input.renameInput')) { paintOwn(); paintShared(lastShared) }
@@ -99,7 +105,7 @@ function openWatchBox(p, btn) {
     row.onclick = async e => {
       e.stopPropagation(); closeWatchBox()
       if (l === cur) return
-      try { await api('PUT', `/api/projects/${p.id}/watch`, { level: l }); watchLevels[p.id] = l; paintOwn(); paintShared(lastShared) }
+      try { await api('PUT', `/api/projects/${p.id}/watch`, { level: l }); if (l === WATCH_DEFAULT) delete watchLevels[p.id]; else watchLevels[p.id] = l; paintOwn(); paintShared(lastShared) }
       catch (err) { toast(err.message) }
     }
     box.appendChild(row)

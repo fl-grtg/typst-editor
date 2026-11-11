@@ -97,3 +97,16 @@ def test_naming_an_automatic_checkpoint_keeps_it(c):
         con.execute("INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind) VALUES ('ps_auto',?,'{}','','2000-01-01T00:00:00+00:00','auto')", (pid,))
     assert c.patch(f'/api/projects/{pid}/snapshots/ps_auto', json={'label': 'Release'}).json()['kind'] == 'manual'
     assert c.patch(f'/api/projects/{pid}/snapshots/ps_auto', json={'label': ''}).json()['kind'] == 'manual'
+
+
+def test_changes_use_sidebar_paths_and_mark_binaries(c):
+    register_user(c, 'alice')
+    did = c.post('/api/docs/create', json={'title': 'Thesis', 'content': 'one'}).json()['id']
+    pid = c.get(f'/api/docs/{did}').json()['project_id']
+    sid = c.post(f'/api/projects/{pid}/snapshots', json={'label': 'base'}).json()['id']
+    c.post(f'/api/projects/{pid}/resources', json={'name': 'lib/style.typ', 'content': '#let a = 1'})
+    c.post(f'/api/docs/{did}/files', files={'f': ('logo.png', b'\x89PNG\x00\xff', 'image/png')})
+    rows = c.get(f'/api/projects/{pid}/snapshots/{sid}').json()['changes']
+    assert [(r['name'], r['status'], r['binary']) for r in rows] == [
+        ('lib/style.typ', 'added', False), ('logo.png', 'added', True)]  # no project name, no main.typ
+    assert rows[1]['after_size'] == 6 and rows[1]['after'] == ''

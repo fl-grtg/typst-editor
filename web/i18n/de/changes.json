@@ -1,1 +1,1 @@
-{"against":"Vergleichen mit","current":"Aktuelles Projekt","files":"{n} Datei(en)","thisDoc":"Dieses Dokument","title":"Änderungen","unchanged":"{n} unveränderte Zeilen","vs":"verglichen mit"}
+{"added":"neu","binAdded":"Binärdatei hinzugefügt ({b})","binChanged":"Binärdatei geändert ({a} → {b})","binDeleted":"Binärdatei gelöscht ({a})","bytes":"{n} Bytes","deleted":"gelöscht","expand":"{n} ausgeblendete Zeilen anzeigen","files":"{n} geänderte Datei(en)","lastSeen":"Zuletzt gesehen","none":"Keine Unterschiede.","since":"Änderungen seit","title":"Änderungen"}

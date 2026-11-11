@@ -25,5 +25,13 @@ test('foldOps collapses long unchanged runs but keeps context', () => {
   const folded = J(c.foldOps(c.lineOps(a.join('\n'), b.join('\n')), 3))
   assert.equal(folded.filter(o => o.k === '…').length, 2)
   assert.equal(folded.find(o => o.k === '…').n, 12)
+  assert.equal(folded.find(o => o.k === '…').hidden.length, 12) // kept for the click-to-expand
   assert.equal(folded.length, 10) // fold, 3 context, del, add, 3 context, fold
+})
+
+test('markInline highlights only the changed middle of a replaced line', () => {
+  const ops = J(c.markInline(c.lineOps('let color = red', 'let color = blue')))
+  assert.deepEqual(ops.map(o => o.hl), [[12, 15], [12, 16]])
+  const far = J(c.markInline(c.lineOps('abcdefgh', 'zzzzzzzz')))
+  assert.equal(far[0].hl, undefined) // nothing in common: no highlight, the whole line is changed anyway
 })

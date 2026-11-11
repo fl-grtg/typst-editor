@@ -166,10 +166,7 @@ def get_project_snap(project_id: str, sid: str, req: Request, against: str = "cu
         else:
             with project_history.prepared(project_id, user) as (current, _):
                 pass
-        old_files, new_files = project_history.diff_files(saved), project_history.diff_files(current)
-        changes = [{"name": name, "before": old_files.get(name, ""), "after": new_files.get(name, ""),
-                    "status": "added" if name not in old_files else "deleted" if name not in new_files else "modified"}
-                   for name in sorted(old_files.keys() | new_files.keys()) if old_files.get(name) != new_files.get(name)]
+        changes = project_history.changes(saved, current)
         return {**dict(row), "content": project_history.diff_text(saved), "current_content": project_history.diff_text(current), "changes": changes,
                 "against": {"id": against, "label": other["label"] if other else "", "created_at": other["created_at"] if other else ""}}
     finally:

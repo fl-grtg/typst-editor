@@ -52,7 +52,7 @@ def test_mention_and_change_notice_in_the_inbox(browser, base_url, tmp_path_fact
         expect(bob.locator("#title")).to_have_text("Shared")  # the project is opened behind the dialog
         card = bob.locator(".chgCard")
         expect(card).to_be_visible()
-        expect(card.locator(".chgFiles button", has_text="lib.typ")).to_have_count(1)
+        expect(card.locator(".chgFile", has_text="lib.typ")).to_have_count(1)  # path without project name
         expect(card.locator(".chgLine.add", has_text="second line")).to_have_count(1)
         bob.screenshot(path="/tmp/claude-1000/inbox-changes.png")
         bob.keyboard.press("Escape")  # closing marks everything as seen

@@ -132,6 +132,46 @@ def diff_files(state: dict) -> dict[str, str]:
     return files
 
 
+def diff_entries(state: dict) -> dict[str, dict]:
+    """Per entry: display path as shown in the sidebar (no project name, no internal main.typ), text or binary marker."""
+    out: dict[str, dict] = {}
+
+    def put(key: str, name: str, data: bytes | str) -> None:
+        if isinstance(data, str):
+            out[key] = {"name": name, "text": data, "binary": False, "size": len(data.encode()), "sig": data}
+            return
+        try:
+            out[key] = {"name": name, "text": data.decode("utf-8"), "binary": False, "size": len(data), "sig": data.decode("utf-8")}
+        except UnicodeDecodeError:
+            out[key] = {"name": name, "text": "", "binary": True, "size": len(data), "sig": hashlib.sha256(data).hexdigest()}
+
+    for d in state["documents"]:
+        folder = (d.get("folder") or "").strip("/")
+        put(f"d:{d['id']}", (folder + "/" if folder else "") + d["title"] + ".typ", d["content"])
+        for name, encoded in d["files"].items():
+            put(f"f:{d['id']}/{name}", name, base64.b64decode(encoded))
+    for name, content in state["resources"].items():
+        put(f"r:{name}", name, content)
+    return out
+
+
+def changes(old: dict, new: dict) -> list[dict]:
+    """File-level changes between two captured states, sorted by display path."""
+    a, b = diff_entries(old), diff_entries(new)
+    rows = []
+    for key in a.keys() | b.keys():
+        x, y = a.get(key), b.get(key)
+        if x and y and x["sig"] == y["sig"] and x["name"] == y["name"]:
+            continue
+        entry = y or x
+        assert entry is not None
+        rows.append({"name": entry["name"], "status": "added" if not x else "deleted" if not y else "modified",
+                     "binary": bool((x and x["binary"]) or (y and y["binary"])),
+                     "before": x["text"] if x else "", "after": y["text"] if y else "",
+                     "before_size": x["size"] if x else 0, "after_size": y["size"] if y else 0})
+    return sorted(rows, key=lambda r: (r["name"].casefold(), r["name"]))
+
+
 def diff_text(state: dict) -> str:
     return '\n\n'.join(f'=== {name} ===\n{content}' for name, content in sorted(diff_files(state).items()))
 
