@@ -85,8 +85,8 @@ def test_history_diff_compares_main_when_attachment_tab_is_open(page):
     project = page.request.get(f'/api/docs/{first}').json()['project_id']
     assert page.request.post(f'/api/projects/{project}/snapshots', data={}).ok
     _open(page, "Audit first")
+    page.locator("aside .doc.sub .t").filter(has_text="other.typ").click()
     expect(page.locator("#tabs button.tab").filter(has_text="other.typ")).to_be_visible()
-    page.locator("#tabs button.tab").filter(has_text="other.typ").click()
     expect(page.locator("#cm .cm-content")).to_contain_text("Completely different attachment")
     expect(page.locator("#histBtn")).to_be_visible()
     page.click("#histBtn")

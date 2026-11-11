@@ -26,9 +26,9 @@ def _new_file_tab(page, name):
     did = next(d['id'] for d in page.request.get('/api/docs').json()['own'] if d['title'].startswith('UI '))
     response = page.request.post(f'/api/docs/{did}/files/{name}.typ/text', data={'content': ''})
     assert response.ok, response.text()
+    page.locator('aside .doc.sub .t').filter(has_text=name + '.typ').click()  # tabs only list what was opened
     tab = page.locator('#tabs button.tab').filter(has_text=name + '.typ')
     expect(tab).to_be_visible()
-    tab.click()
     expect(tab).to_have_attribute('aria-selected', 'true')
 
 

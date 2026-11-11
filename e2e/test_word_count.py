@@ -27,17 +27,16 @@ def test_word_count_follows_tab_and_document_switches(page):
         data={'content': '@book{key, title={Some bibliography words here}, year={2026}}'},
     )
     assert response.ok, response.text()
+    page.locator('aside .doc.sub .t').filter(has_text='sources.bib').click()
     bib = page.locator('#tabs button.tab').filter(has_text='sources.bib')
     expect(bib).to_be_visible()
-    bib.click()
     expect(page.locator('#pos')).to_contain_text('6 words')  # active .bib text, not main.typ
     expect(page.locator('#save')).not_to_contain_text('words')  # save state stays clean
 
     response = page.request.post(f'/api/docs/{doc_id}/files/chapter.typ/text', data={'content': 'alpha beta gamma'})
     assert response.ok, response.text()
-    chapter = page.locator('#tabs button.tab').filter(has_text='chapter.typ')
-    expect(chapter).to_be_visible()
-    chapter.click()
+    page.locator('aside .doc.sub .t').filter(has_text='chapter.typ').click()
+    expect(page.locator('#tabs button.tab').filter(has_text='chapter.typ')).to_be_visible()
     expect(page.locator('#pos')).to_contain_text('3 words')
 
     response = page.request.post(
@@ -45,9 +44,8 @@ def test_word_count_follows_tab_and_document_switches(page):
         data={'content': 'alpha,beta,gamma\none,two,three\n'},
     )
     assert response.ok, response.text()
-    sheet = page.locator('#tabs button.tab').filter(has_text='data.csv')
-    expect(sheet).to_be_visible()
-    sheet.click()
+    page.locator('aside .doc.sub .t').filter(has_text='data.csv').click()
+    expect(page.locator('#tabs button.tab').filter(has_text='data.csv')).to_be_visible()
     expect(page.locator('#pos')).to_contain_text('2 words')  # table editor counts its source text
 
     response = page.request.post(
@@ -55,9 +53,8 @@ def test_word_count_follows_tab_and_document_switches(page):
         data={'content': '{"words": "one two three"}'},
     )
     assert response.ok, response.text()
-    config = page.locator('#tabs button.tab').filter(has_text='config.json')
-    expect(config).to_be_visible()
-    config.click()
+    page.locator('aside .doc.sub .t').filter(has_text='config.json').click()
+    expect(page.locator('#tabs button.tab').filter(has_text='config.json')).to_be_visible()
     expect(page.locator('#pos')).to_contain_text('4 words')
 
     response = page.request.post(
@@ -65,9 +62,8 @@ def test_word_count_follows_tab_and_document_switches(page):
         multipart={'f': {'name': 'pixel.png', 'mimeType': 'image/png', 'buffer': b'\x89PNG\r\n\x1a\n'}},
     )
     assert response.ok, response.text()
-    picture = page.locator('#tabs button.tab').filter(has_text='pixel.png')
-    expect(picture).to_be_visible()
-    picture.click()
+    page.locator('aside .doc.sub .t').filter(has_text='pixel.png').click()
+    expect(page.locator('#tabs button.tab').filter(has_text='pixel.png')).to_be_visible()
     expect(page.locator('#pos')).not_to_contain_text('words')  # binary placeholder has no word count
 
     page.locator('#tabs button.tab').first.click()

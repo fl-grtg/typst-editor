@@ -306,7 +306,8 @@ async function switchTab(name, nosave, preserveView = false) { // true = switche
   if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); scrollApplyEditor(); paintErr(); queueRender(); return true }
   let text
   if (isTplKey(name)) {
-    const tp = effTpl().find(x => x.name === tabName(name))
+    let tp = effTpl().find(x => x.name === tabName(name))
+    if (!tp && !window.changeSession) { await loadDocResources(true); tp = effTpl().find(x => x.name === tabName(name)) } // tab restored before the module list arrived
     if (my !== tabSeq || dk !== docId) return false
     if (!tp) { toast(t('files.tplGone')); return false }
     tabPins.add(tp.name); text = tp.content || ''

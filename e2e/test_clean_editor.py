@@ -303,8 +303,9 @@ def test_project_deletions_stage_undo_and_accept_without_live_delete(page, kind)
     expect(row).not_to_have_class(re.compile('package-deleted'))
     expect(page.locator('#tabs .tabw.on')).not_to_have_class(re.compile('package-deleted'))
     if kind == 'document':
-        page.locator('#tabs .tabw.on').hover()
-        page.locator('#tabs .tabw.on button.tx').click()
+        row.hover()
+        row.locator('button[title="Menu"]').click()
+        page.locator('#menu button').filter(has_text='Move to Trash').click()
     else:
         page.locator('#menubar [data-menu="file"]').click()
         page.locator('#menu button').filter(has_text='Move to Trash').click()
@@ -496,12 +497,12 @@ def test_review_across_empty_document_and_resource_toggle_preserve_view(page):
     expect(page.locator('#fPlus')).to_be_visible()
     page.locator('#suggestionToggle').click()
     page.wait_for_function('!!window.changeSession')
-    expect(page.locator('body')).to_have_class(re.compile(r'\bfile-view\b'))
-    expect(page.locator('#viewSeg')).not_to_be_visible()
+    expect(page.locator('body')).not_to_have_class(re.compile(r'\bfile-view\b'))  # a file tab keeps the document preview
+    expect(page.locator('#viewSeg')).to_be_visible()
     page.locator('#suggestionToggle').click()
     page.wait_for_function('!window.changeSession')
     expect(page.locator('#title')).to_have_text('sources.bib')
-    expect(page.locator('#viewSeg')).not_to_be_visible()
+    expect(page.locator('#viewSeg')).to_be_visible()
     expect(page.locator('#cm .cm-content')).to_contain_text('@book{key')
     assert errors == []
 

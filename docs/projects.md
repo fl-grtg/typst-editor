@@ -6,6 +6,14 @@ Ein Projekt kann mehrere unabhängig kompilierbare Typst-Dokumente enthalten. Al
 
 Der linke Projektbaum zeigt Dokumente, gemeinsame Ressourcen und lokale Dateien. Auch ein Projekt mit nur einem Dokument zeigt dieses als Untereintrag. Aktionen am Projekt sind Icons. Mitglieder werden ausschließlich über Teilen oben rechts verwaltet. Bei alten Einzelfreigaben bleibt der Zugriff auf das bisherige Dokument begrenzt; sie werden dort entsprechend gekennzeichnet.
 
+## Ordner, Tabs und Vorschau
+
+Innerhalb eines Projekts lassen sich Dokumente, Module und Dokumentdateien (Bilder, Daten) in Ordnern ablegen, höchstens zwei Ebenen tief (`kapitel/bilder/bild.png`). Das Projekt selbst zählt nicht mit. Ordner sind Pfadpräfixe: Module und Dateien tragen sie im Namen, Dokumente in `docs.folder`. Nur leere Ordner haben eine eigene Zeile (`project_folders`, Migration v27). Die Grenze gilt für neue und umbenannte Namen (REST, MCP, Änderungspakete); ältere tiefere Pfade, etwa aus ZIP-Importen, bleiben les- und kompilierbar, die Seitenleiste zeigt sie ab Ebene 2 gefaltet. Dokumente kompilieren unabhängig von ihrem Ordner immer als `/main.typ`; Typst-Pfade bleiben relativ zur importierenden Datei (oder absolut mit `/`).
+
+REST: `POST /api/projects/{id}/folders` (anlegen), `POST …/folders/rename` (verschiebt Module, Dateien, Dokumente und leere Unterordner; `409` bei Namenskollision, `400` wenn eine Ebene zu tief würde), `DELETE …/folders?path=` (nur leere Ordner, sonst `409`) und `POST …/docs/{doc}/folder`. Verweise in Typst-Quellen werden wie beim Datei-Rename nicht umgeschrieben.
+
+Die Tableiste zeigt nur geöffnete Dateien (pro Projekt im Browser gespeichert). Schließen löscht nichts; Anlegen und Löschen geschehen in der Seitenleiste. Ein Modul- oder Datei-Tab behält die Vorschau des zuletzt geöffneten Dokuments (Beschriftung „Vorschau: …“), Änderungen am Modul erscheinen live. Persönliche Module der privaten Sammlung haben keinen Dokumentkontext und damit keine Vorschau.
+
 ## Module übernehmen
 
 Mit mindestens Lesezugriff lassen sich Projektmodule in die eigene private Sammlung übernehmen. Private Module lassen sich in eigene oder gemeinsam bearbeitete Projekte übernehmen. Beim Einfügen eines privaten Moduls kopiert die Oberfläche zuerst das Modul ins Projekt und fügt anschließend den Verweis auf die Projektkopie ein.

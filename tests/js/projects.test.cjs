@@ -6,7 +6,7 @@ const source = readFileSync('web/js/features/projects.js', 'utf8')
 function setup(extra = {}) {
   const c = vm.createContext({ lastOwn: [], lastShared: [], docId: 'd', docProject: 'p', openN: 1, activeFile: '', docResReadonly: false,
     flushTab: async () => true, flushTpl: async () => true, loadTpl: async () => {},
-    loadDocResources: async () => true, sidebar: async () => {}, t: x => x, toast: () => {}, ...extra })
+    loadDocResources: async () => true, sidebar: async () => {}, t: x => x, toast: () => {}, tabRemapEntry: () => {}, tabRemapPrefix: () => {}, ...extra })
   vm.runInContext(source, c)
   return c
 }
@@ -141,10 +141,11 @@ test('project share preserves document-only guests without granting project memb
 
 test('same-named local and project resource tabs coexist', () => {
   const files = readFileSync('web/js/80-files-images.js', 'utf8')
-  const fn = files.slice(files.indexOf('function tabItems()'), files.indexOf('const tabErrs'))
+  const fn = files.slice(files.indexOf('const OPEN_TABS_KEY'), files.indexOf('const tabErrs'))
   const c = setup({ lastFiles: [{ name: 'foo.typ' }], TEXT_EXT: /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i, usedTpls: () => [],
-    tabPins: new Set(['foo.typ']), effTpl: () => [{ name: 'foo.typ' }], isTplKey: () => false, TPLK: '@tpl/' })
+    tabPins: new Set(['foo.typ']), effTpl: () => [{ name: 'foo.typ' }], isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.slice(5), TPLK: '@tpl/', projects: [] })
   vm.runInContext(fn, c)
+  vm.runInContext("openTabs = ['d:d', 'f:d/foo.typ', 'r:foo.typ']", c)
   assert.deepEqual(Array.from(c.tabItems()), ['', 'foo.typ', '@tpl/foo.typ'])
 })
 
@@ -213,13 +214,14 @@ test('sidebar callers share one request and schedule one follow-up', async () =>
 })
 
 
-test('project tabs contain every document, binary file and unused module', () => {
+test('project tabs list only what was opened, from any document or the module library', () => {
   const files = readFileSync('web/js/80-files-images.js', 'utf8')
   const fn = files.slice(files.indexOf('function projectTabEntry('), files.indexOf('const tabErrs'))
   const c = setup({ window: {}, projects: [{ id: 'p', documents: [{ id: 'd' }, { id: 'other' }],
-    files: [{ doc_id: 'd', name: 'image.png' }, { doc_id: 'other', name: 'data.csv' }], resources: [{ name: 'unused.typ' }] }],
-    lastFiles: [{ name: 'image.png' }], effTpl: () => [], TPLK: '@tpl/', isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.slice(5) })
+    files: [{ doc_id: 'd', name: 'image.png' }, { doc_id: 'other', name: 'data.csv' }, { doc_id: 'd', name: 'closed.png' }], resources: [{ name: 'unused.typ' }, { name: 'lib/closed.typ' }] }],
+    lastFiles: [{ name: 'image.png' }, { name: 'closed.png' }], effTpl: () => [], TPLK: '@tpl/', isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.slice(5) })
   vm.runInContext(fn, c)
+  vm.runInContext("openTabs = ['d:d', 'd:other', 'f:d/image.png', 'f:other/data.csv', 'r:unused.typ', 'r:gone.typ', 'f:d/gone.png']", c)
   assert.deepEqual(Array.from(c.tabItems()), ['', '@doc/other', 'image.png', '@file/other/data.csv', '@tpl/unused.typ'])
   assert.equal(c.projectTabEntry('@file/other/nested/data.csv').document, 'other')
   assert.equal(c.projectTabEntry('@file/other/nested/data.csv').name, 'nested/data.csv')
@@ -246,14 +248,19 @@ test('history remains project-wide for modules and read-only project members', (
   assert.equal(c.historyUrl(), '/api/docs/d/snapshots')
 })
 
-test('preview does not start a compiler for module or binary tabs', async () => {
+test('preview keeps compiling the document beside module and binary tabs, but not for a personal module', async () => {
   const preview = readFileSync('web/js/50-preview.js', 'utf8')
   const fn = preview.slice(preview.indexOf('async function render()'), preview.indexOf('async function renderDirect'))
-  const c = setup({ window: {}, tplName: '', activeFile: '@tpl/module.typ', renderN: 0, $: () => ({}), pvBar: () => assert.fail('must not compile file tab') })
+  let started = 0
+  const c = setup({ window: {}, tplName: '', activeFile: '@tpl/module.typ', renderN: 0, $: () => ({}), pvBar: () => { started++; throw new Error('stop') } })
   vm.runInContext(fn, c)
-  await c.render()
+  await assert.rejects(c.render(), /stop/)
   c.activeFile = 'image.png'
+  await assert.rejects(c.render(), /stop/)
+  assert.equal(started, 2)
+  c.tplName = 'personal.typ'
   await c.render()
+  assert.equal(started, 2)
 })
 
 
