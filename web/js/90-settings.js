@@ -730,7 +730,7 @@ function pvCaptionCut(s) { // Typst adds "Figure 1: " / "Table 1: " in front of 
 }
 function pvBlockLines(items, it) { // paragraph around the click: same left edge, same size, normal line step
   const x = it.x0 || 0, h = Math.max(1, it.h || 10)
-  const same = items.filter(o => o.s && o.s.trim()
+  const same = items.filter(o => o.s && o.s.trim() && !o.rot
     && Math.abs((o.x0 || 0) - x) < 1 && Math.abs((o.h || 0) - h) < 3).sort((a, b) => a.y - b.y)
   const i = same.indexOf(it)
   if (i < 0) return [it]
@@ -1227,7 +1227,7 @@ function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered
 }
 $('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then nearest text, else section
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
-  if (window.Present?.isOn()) return // slides: a click only drives the deck, never the hidden editor
+  if (window.Present?.isOn()) return // slides: a preview click must not move the hidden editor
   if (!syncOn || !docId || tplName) return
   const pv = $('preview')
   smoothStop(pv) // an explicit click wins over a jump or follow still in flight
@@ -1260,7 +1260,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
             if (links.length) topY = Math.min(...links.map(L => L.y0)) * sy
           }
         }
-      } else for (const it of items) if (it.s.trim()) topY = Math.min(topY, (it.y - (it.h || 10) / 2) * sy) // no heading: only the margin above all text
+      } else for (const it of items) if (!it.rot && it.s.trim()) topY = Math.min(topY, (it.y - (it.h || 10) / 2) * sy) // no heading: only the margin above all text
       if (isFinite(topY) && y < topY) {
         const lines = getT().split('\n')
         let ln = 1
@@ -1275,7 +1275,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     const rr = CLICK_PX / 2 // CSS pixels, independent of zoom and render scale
     let best = null, bd = rr * rr
     for (const it of items) {
-      if (!it.s.trim()) continue
+      if (!it.s.trim() || it.rot) continue // rotated runs have no honest horizontal box for a direct hit
       const dd = pvItemDist(it, x, y, sx, sy)
       if (dd < bd) { bd = dd; best = it }
     }

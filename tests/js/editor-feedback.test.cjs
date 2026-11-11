@@ -353,17 +353,21 @@ test('rotated text runs stay out of clicks but keep their anchors', () => {
     { str: 'Normal', transform: [1, 0, 0, 1, 20, 30], width: 50, height: 10 },
     { str: 'Seitwärts', transform: [0, 1, -1, 0, 100, 200], width: 40, height: 10 },
     { str: 'Schräg', transform: [1, 0.005, -0.005, 1, 50, 60], width: 30, height: 10 },
+    { str: 'Gedreht', transform: [0, 1, -1, 0, 30, 10], width: 30, height: 10 }, // same edge and line as "Normal"
   ] }
   const boxes = c.pvBoxes(tc, v)
-  assert.deepEqual(Array.from(boxes, b => b.s), ['Normal', 'Seitwärts', 'Schräg']) // anchors still name the rotated word
+  assert.deepEqual(Array.from(boxes, b => b.s), ['Normal', 'Seitwärts', 'Schräg', 'Gedreht']) // anchors still name the rotated word
   assert.equal(boxes[0].rot, false)
   assert.equal(boxes[1].rot, true)
   assert.equal(boxes[2].rot, false) // a tiny skew still gets an honest horizontal box
+  assert.equal(boxes[3].rot, true)
   assert.equal(boxes[0].x0, 20)
   assert.equal(boxes[0].w, 50)
   assert.equal(boxes[0].h, 10)
   assert.equal(boxes[0].x, 45)
   assert.equal(boxes[0].y, 25)
+  vm.runInContext(code.slice(code.indexOf('function pvBlockLines'), code.indexOf('function pvBlockNeedle')), c)
+  assert.deepEqual(Array.from(c.pvBlockLines(boxes, boxes[0]), b => b.s), ['Normal']) // a turned run never joins the paragraph needle
   const near = c.pvNearItems(boxes, -80, 300, 1, 1, null) // right on the turned run: its box is a lie, the neighbours are not
   assert.equal(near.length, 2)
   assert.ok(near.every(({ it }) => !it.rot))
