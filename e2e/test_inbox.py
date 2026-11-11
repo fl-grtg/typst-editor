@@ -75,8 +75,11 @@ def test_watch_level_from_the_bell_on_the_project_row(page):
     page.wait_for_timeout(800)
     box.locator(".wItem", has_text="Everything").click()
     expect(box).to_have_count(0)
-    expect(head.locator("button.mini.on")).to_have_count(1)  # stays visible: not the default anymore
     assert page.request.get(f"/api/projects/{pid}/watch").json()["level"] == "all"
     page.reload()
     page.wait_for_function("window.__booted === true")
-    expect(page.locator("aside .fhd.project", has_text="Doc").locator("button.mini.on")).to_have_count(1)
+    head = page.locator("aside .fhd.project", has_text="Doc")
+    bell = head.get_by_role("button", name="Notifications: Everything")
+    expect(bell).to_be_hidden()  # hover-only, even with a non-default level
+    head.hover()
+    expect(bell).to_be_visible()

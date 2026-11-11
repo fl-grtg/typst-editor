@@ -15,6 +15,12 @@ function projectAction(host, icon, label, run) {
 }
 function sidebarLiveHost(host, key) { // row actions can outlive a sidebar repaint (open menu, then a remote change)
   if (!host || host.isConnected) return host
+  if (!key && host.dataset.folderPath) { // folder row: same project, same path
+    const pid = host.closest('[data-project-id]')?.dataset.projectId
+    const group = pid && [...document.querySelectorAll('[data-project-id]')].find(g => g.dataset.projectId === pid)
+    const row = group && [...group.querySelectorAll('.fhd.folder')].find(r => r.dataset.folderPath === host.dataset.folderPath)
+    if (row) return row
+  }
   return key ? [...document.querySelectorAll('[data-package-key]')].find(row => row.dataset.packageKey === key) || host : host
 }
 function compactSidebarActions(host, keep = 0) {
