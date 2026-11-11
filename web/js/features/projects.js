@@ -152,6 +152,7 @@ function paintProjects(box, shared) {
     group.appendChild(h)
     if (shut.has(key)) return
     const tree = projectTree(p, entries)
+    group.classList.toggle('with-folders', tree.all.length > 0)
     const entryRow = (item, level) => {
       const { name, document, resource } = item
       const row = el('div', 'doc sub' + ((resource ? docProject === p.id && activeFile === TPLK + name : docId === document && activeFile === name) ? ' cur' : '')); row.appendChild(el('span', 't', item.label)); row.title = name

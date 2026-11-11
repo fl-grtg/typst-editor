@@ -356,8 +356,9 @@ body.file-view #leftCol { display: flex !important; width: 100% !important; flex
 .sidebar-drop { min-width: 0; border-radius: var(--r-sm); }
 
 /* Project folders: indent follows --lv (0 = project root, max 2 levels) */
-aside .doc.sub { margin-left: calc(12px + var(--lv, 0) * 12px); }
-aside .fhd.folder { margin-left: calc(12px + var(--lv, 0) * 12px); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
+aside .doc.sub { margin-left: calc(12px + var(--lv, 0) * 14px); }
+.project-group.with-folders .doc.sub { margin-left: calc(26px + var(--lv, 0) * 14px); } /* entries line up with the folder names beside the chevron */
+aside .fhd.folder { margin-left: calc(12px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
 aside .fhd.folder b { font-weight: 500; }
 aside .fhd.folder.drop-target { background: var(--acc-soft); outline: 1px solid var(--acc); }
 /* ==========================================================================
@@ -8762,6 +8763,7 @@ function paintProjects(box, shared) {
     group.appendChild(h)
     if (shut.has(key)) return
     const tree = projectTree(p, entries)
+    group.classList.toggle('with-folders', tree.all.length > 0)
     const entryRow = (item, level) => {
       const { name, document, resource } = item
       const row = el('div', 'doc sub' + ((resource ? docProject === p.id && activeFile === TPLK + name : docId === document && activeFile === name) ? ' cur' : '')); row.appendChild(el('span', 't', item.label)); row.title = name
