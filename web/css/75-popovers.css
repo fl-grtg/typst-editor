@@ -261,3 +261,8 @@ body.settings-open #modal { z-index: 302; }
 .inItem .ln { font-size: 13px; line-height: 1.35; }
 .inItem.unread .ln { font-weight: 600; }
 .inItem .sub { color: var(--sub); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#inboxPop .sTop { gap: 6px; }
+#inboxPop .sTop b { flex: 1; }
+#inboxPop .wRow { display: flex; align-items: center; gap: 8px; padding: 5px 4px; }
+#inboxPop .wRow .wn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+#inboxPop .wRow select { flex: none; width: 215px; min-height: 28px; font-size: 12.5px; }

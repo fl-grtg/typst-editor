@@ -49,6 +49,7 @@ def test_mention_and_change_notice_in_the_inbox(browser, base_url, tmp_path_fact
         expect(bob.locator("#inboxN")).to_have_text("1")
         bob.click("#inboxBtn")
         bob.locator("#inboxPop .inItem.unread").click()
+        expect(bob.locator("#title")).to_have_text("Shared")  # the project is opened behind the dialog
         card = bob.locator(".chgCard")
         expect(card).to_be_visible()
         expect(card.locator(".chgFiles button", has_text="lib.typ")).to_have_count(1)
@@ -62,13 +63,17 @@ def test_mention_and_change_notice_in_the_inbox(browser, base_url, tmp_path_fact
             c.close()
 
 
-def test_watch_level_in_project_menu(page):
+def test_watch_level_in_the_bell_popover(page):
     register(page, "watch_menu_user")
     page.request.post("/api/docs/create", data={"title": "Doc", "content": "x"})
     pid = page.request.get("/api/docs").json()["own"][0]["project_id"]
     page.reload()
     page.wait_for_function("window.__booted === true")
-    page.locator("aside [title=\"New\"]").first.click(force=True)
-    page.get_by_role("button", name="Notifications…").click()
-    page.get_by_role("button", name="Everything").click()
+    page.click("#inboxBtn")
+    page.get_by_role("button", name="Notification settings").click()
+    row = page.locator("#inboxPop .wRow", has_text="Doc")
+    expect(row.locator("select")).to_have_value("proposals")  # default
+    page.screenshot(path="/tmp/claude-1000/watch-menu.png")
+    row.locator("select").select_option("all")
+    page.wait_for_timeout(400)
     assert page.request.get(f"/api/projects/{pid}/watch").json()["level"] == "all"

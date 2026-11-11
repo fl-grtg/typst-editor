@@ -94,3 +94,11 @@ def test_changes_notice_for_level_all_is_coalesced_and_seen_moves_the_baseline(c
     after = c.get(f'/api/projects/{pid}/watch').json()
     assert after['seen_at'] > before['seen_at'] and after['base'] != before['base']  # baseline moved to the newest checkpoint
     assert c.get('/api/notifications').json()['unread'] == 0
+
+
+def test_watch_list_covers_every_member_project(c):
+    did, pid = _project(c)
+    login(c, 'bob')
+    assert [(w['project_id'], w['level']) for w in c.get('/api/watch').json()['projects'] if w['project_id'] == pid] == [(pid, 'proposals')]
+    c.put(f'/api/projects/{pid}/watch', json={'level': 'mentions'})
+    assert [w['level'] for w in c.get('/api/watch').json()['projects'] if w['project_id'] == pid] == ['mentions']

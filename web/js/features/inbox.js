@@ -18,12 +18,17 @@ function inboxText(it) {
   const v = { actor: it.actor, project: it.project_title || '', title: it.text }
   return it.type === 'mention' ? t('inbox.mention', v) : it.type === 'proposal' ? t('inbox.proposal', v) : it.type === 'changes' ? t('inbox.changes', v) : it.text
 }
+const ICO_SLIDERS = svgI('<path d="M2.5 5h11M2.5 11h11"/><circle cx="6" cy="5" r="1.6"/><circle cx="10" cy="11" r="1.6"/>')
+let inboxView = 'list'
 function renderInbox() {
+  if (inboxView === 'settings') return renderWatchSettings()
   const p = $('inboxPop'); p.replaceChildren()
   const top = el('div', 'sTop'), all = el('button', null, t('inbox.readAll'))
+  const gear = icoBtn(null, ICO_SLIDERS); gear.title = t('inbox.watchMenu'); gear.setAttribute('aria-label', gear.title)
+  gear.onclick = e => { e.stopPropagation(); inboxView = 'settings'; renderInbox() } // stop: the re-render detaches the target, the outside-click closer would shut the popover
   all.disabled = !inboxUnread
   all.onclick = async () => { try { await api('POST', '/api/notifications/read-all'); await loadInbox() } catch (e) { toast(e.message) } }
-  top.append(el('b', null, t('inbox.title')), all); p.appendChild(top)
+  top.append(el('b', null, t('inbox.title')), all, gear); p.appendChild(top)
   if (!inboxItems.length) { p.appendChild(el('div', 'histEmpty', t('inbox.empty'))); return }
   inboxItems.forEach(it => {
     const row = el('button', 'inItem' + (it.is_read ? '' : ' unread'))
@@ -36,7 +41,7 @@ function renderInbox() {
     p.appendChild(row)
   })
 }
-$('inboxBtn').onclick = e => { e.stopPropagation(); if (showPop('inboxPop')) { renderInbox(); loadInbox().catch(() => {}) } }
+$('inboxBtn').onclick = e => { e.stopPropagation(); if (showPop('inboxPop')) { inboxView = 'list'; renderInbox(); loadInbox().catch(() => {}) } }
 async function inboxLeaveSession() { return !window.changeSession || await endChangeSession() }
 async function goInbox(it) {
   hidePops()
@@ -57,6 +62,10 @@ async function goInbox(it) {
   if (it.type === 'changes') return openProjectChanges(it.project_id, it.project_title)
 }
 async function openProjectChanges(pid, name = '') { // everything that changed since the user last looked
+  if (docProject !== pid) { // show the project behind the dialog
+    const row = [...(lastOwn || []), ...(lastShared || [])].find(x => x.project_id === pid)
+    if (row && (!window.changeSession || await endChangeSession())) await openDoc(row.id)
+  }
   const url = `/api/projects/${pid}/snapshots`
   const w = await api('GET', `/api/projects/${pid}/watch`)
   if (!w.base) { toast(t('inbox.noBase')); return }
@@ -64,14 +73,27 @@ async function openProjectChanges(pid, name = '') { // everything that changed s
   await openChanges({ url, sid: w.base, list, title: t('inbox.changesTitle', { project: name }),
     onClose: () => api('POST', `/api/projects/${pid}/watch/seen`).then(loadInbox).catch(() => {}) })
 }
-// watch level of a project (project menu)
+// watch level per project: small settings view inside the bell popover
 const watchLabel = l => l === 'all' ? t('inbox.lvlAll') : l === 'mentions' ? t('inbox.lvlMentions') : t('inbox.lvlProposals')
 const watchSub = l => l === 'all' ? t('inbox.lvlAllSub') : l === 'mentions' ? t('inbox.lvlMentionsSub') : t('inbox.lvlProposalsSub')
-async function pickWatch(p) {
-  const w = await api('GET', `/api/projects/${p.id}/watch`)
-  const levels = ['mentions', 'proposals', 'all']
-  const i = await askPick(t('inbox.watchHead', { project: p.title }), levels.map(l => [(w.level === l ? '✓ ' : '') + watchLabel(l), watchSub(l)]))
-  if (i == null || i < 0 || !levels[i] || levels[i] === w.level) return
-  await api('PUT', `/api/projects/${p.id}/watch`, { level: levels[i] })
-  toast(t('inbox.watchSaved', { level: watchLabel(levels[i]) }))
+async function renderWatchSettings() {
+  const p = $('inboxPop'); p.replaceChildren()
+  const top = el('div', 'sTop'), back = el('button', null, '‹ ' + t('inbox.title'))
+  back.onclick = e => { e.stopPropagation(); inboxView = 'list'; renderInbox() }
+  top.append(el('b', null, t('inbox.watchMenu')), back); p.appendChild(top)
+  p.appendChild(el('div', 'histEmpty', t('inbox.watchMenuSub')))
+  let list = []
+  try { list = (await api('GET', '/api/watch')).projects } catch (e) { p.appendChild(el('div', 'histEmpty', e.message)); return }
+  if (inboxView !== 'settings') return
+  list.forEach(w => {
+    const row = el('label', 'wRow'), sel = el('select')
+    ;['mentions', 'proposals', 'all'].forEach(l => { const o = el('option', null, watchLabel(l)); o.value = l; o.title = watchSub(l); sel.appendChild(o) })
+    sel.value = w.level
+    sel.setAttribute('aria-label', w.title)
+    sel.onchange = async () => {
+      try { await api('PUT', `/api/projects/${w.project_id}/watch`, { level: sel.value }); w.level = sel.value }
+      catch (e) { sel.value = w.level; toast(e.message) }
+    }
+    row.append(el('span', 'wn', w.title), sel); p.appendChild(row)
+  })
 }

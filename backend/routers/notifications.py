@@ -93,6 +93,20 @@ def _watch_state(con, project_id: str, user: str) -> dict:
     return {"level": row["level"] if row else notifications.DEFAULT_LEVEL, "seen_at": seen, "base": base["id"] if base else None}
 
 
+@router.get("/api/watch")
+def list_watch(req: Request, user: str = Depends(deps.me)) -> dict:
+    """Watch level for every project the user belongs to (inbox settings)."""
+    deps.limited(req, "files_list")
+    con = db.connect()
+    try:
+        rows = con.execute(
+            "SELECT p.id, p.title FROM projects p WHERE p.archived=0 AND (p.owner=? OR EXISTS("
+            "SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.username=?)) ORDER BY p.title COLLATE NOCASE", (user, user)).fetchall()
+        return {"projects": [{"project_id": r["id"], "title": r["title"], "level": notifications.watch_level(con, r["id"], user)} for r in rows]}
+    finally:
+        con.close()
+
+
 @router.get("/api/projects/{project_id}/watch")
 def get_watch(project_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "files_list")
