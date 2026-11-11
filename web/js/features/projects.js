@@ -360,8 +360,9 @@ async function uploadToProject(files) {
 }
 
 async function projectMenu(p, folder = '') {
-  const actions = ['doc', 'resource', 'folder', 'upload', 'personal']
-  const items = [[t('docs.newDocTitle'), t('docs.pickDocSub')], [t('projects.newResource'), t('projects.newResourceHint')], [t('projects.newFolder'), t('projects.newFolderHint')], [t('docs.pickUp'), t('docs.pickUpSub')], [t('projects.fromPersonal'), t('projects.fromPersonalHint')]]
+  const actions = ['doc', 'resource', 'folder', 'upload', 'personal', 'watch']
+  const items = [[t('docs.newDocTitle'), t('docs.pickDocSub')], [t('projects.newResource'), t('projects.newResourceHint')], [t('projects.newFolder'), t('projects.newFolderHint')], [t('docs.pickUp'), t('docs.pickUpSub')], [t('projects.fromPersonal'), t('projects.fromPersonalHint')], [t('inbox.watchMenu'), t('inbox.watchMenuSub')]]
+  if (folder) { actions.pop(); items.pop() } // notification level is per project, not per folder
   if ((folder ? folder.split('/').length : 0) >= FOLDER_LEVELS) { actions.splice(2, 1); items.splice(2, 1) } // no deeper level below this one
   const i = await askPick(folder || p.title, items)
   if (i == null || i < 0 || !actions[i]) return
@@ -369,6 +370,7 @@ async function projectMenu(p, folder = '') {
   if (action === 'doc') return newProjectDoc(p.id, folder)
   if (action === 'resource') return newProjectResource(p.id, folder)
   if (action === 'folder') return newProjectFolder(p, folder)
+  if (action === 'watch') return pickWatch(p).catch(e => toast(e.message))
   if (action === 'upload') {
     const picker = document.createElement('input'); picker.type = 'file'; picker.multiple = true
     picker.onchange = () => uploadProjectFiles(p, [...picker.files], folder).catch(e => toast(e.message))

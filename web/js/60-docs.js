@@ -45,9 +45,10 @@ function watchSidebar() { // live sidebar: external list changes (MCP, other tab
     clearTimeout(sideESTimer)
     sideESErr = 0
     const es = sideES = new EventSource('/api/events')
-    es.onopen = () => { sideESErr = 0; sideESRearms = 0 } // (re)connect resets counters
+    es.onopen = () => { sideESErr = 0; sideESRearms = 0; if (user) loadInbox().catch(() => {}) } // (re)connect resets counters
     es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } sideResourcesDirty = true; queueSidebar() })
     es.addEventListener('comment', e => { if (e.data === docId) loadComments().catch(() => {}) })
+    es.addEventListener('notification', () => { if (user) loadInbox().catch(() => {}) })
     es.addEventListener('member', e => { if (e.data === docId) { loadMembers(); sidebar() } })
     es.addEventListener('file', e => { if (e.data === docId) { filesDirty = true; queueRender(); queueSidebar() } })
     es.onerror = () => {

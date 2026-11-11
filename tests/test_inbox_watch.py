@@ -1,7 +1,6 @@
 """Inbox: mentions, watch levels, proposals, change notices and the baseline for the change screen."""
 from conftest import login, register_user
 
-from backend import db
 from backend.services import project_history
 
 

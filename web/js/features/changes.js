@@ -42,12 +42,12 @@ function foldOps(ops, ctx = CHG_CONTEXT) { // collapse long unchanged runs: {k:'
 }
 
 // url: ".../snapshots" ; sid: checkpoint shown as "before" ; against: 'current' or another checkpoint id
-async function openChanges({ url, sid, against = 'current', list = [], title = '' }) {
+async function openChanges({ url, sid, against = 'current', list = [], title = '', onClose = null }) {
   if (!await flushTab() || !await flushTpl()) return
   const prev = document.activeElement
   const ov = el('div', 'chgOverlay'), card = el('div', 'chgCard')
   ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', t('changes.title'))
-  const close = () => { document.removeEventListener('keydown', onKey, true); ov.remove(); prev?.focus?.() }
+  const close = () => { document.removeEventListener('keydown', onKey, true); ov.remove(); prev?.focus?.(); if (onClose) onClose() }
   const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close() } }
   document.addEventListener('keydown', onKey, true)
   ov.onmousedown = e => { if (e.target === ov) close() }

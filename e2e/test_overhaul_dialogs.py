@@ -91,4 +91,4 @@ def test_history_diff_compares_main_when_attachment_tab_is_open(page):
     expect(page.locator("#histBtn")).to_be_visible()
     page.click("#histBtn")
     page.locator("#histPop .srow button").filter(has_text="Compare").first.click()
-    expect(page.locator("#histPop pre.diff")).to_contain_text("Identical")
+    expect(page.locator(".chgCard")).to_contain_text("Identical")  # change screen: nothing differs from the checkpoint

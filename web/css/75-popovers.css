@@ -248,3 +248,16 @@ body.settings-open #modal { z-index: 302; }
 @media (max-width: 720px) { .chgBody { flex-direction: column; } .chgFiles { width: auto; max-height: 30%; border-right: 0; border-bottom: 1px solid var(--line-2); } }
 @media (prefers-reduced-transparency: reduce) { .chgOverlay { -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .chgHead button { border: 0; background: none; box-shadow: none; }
+
+/* Inbox: bell with count, list popover under it */
+#inboxPop { position: absolute; top: calc(100% + 6px); right: 8px; z-index: var(--z-pop); width: 360px; max-width: calc(100vw - 24px); max-height: 80vh; overflow: auto; padding: 8px; font-size: 12.5px; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); color: var(--text); }
+#inboxPop .sTop { padding: 2px 4px 6px; }
+#inboxPop .sTop button { min-height: 26px; padding: 2px 10px; font-size: 12px; }
+.inItem { height: auto; display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px; text-align: left; background: none; border: 0; border-radius: var(--r-sm); color: var(--text); }
+.inItem:hover { background: var(--hover); }
+.inItem .dot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: transparent; }
+.inItem.unread .dot { background: var(--danger); }
+.inItem .tx { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.inItem .ln { font-size: 13px; line-height: 1.35; }
+.inItem.unread .ln { font-weight: 600; }
+.inItem .sub { color: var(--sub); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
