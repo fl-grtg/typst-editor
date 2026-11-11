@@ -61,6 +61,7 @@ def test_10_hundred_page_doc_stays_usable(page):
     register(page, "e2e_judy")
     create_doc(page, "Big doc")
     big = "\n\n#pagebreak()\n\n".join(f"= Page {i}\n\nSome body text {i}." for i in range(1, 101))
+    page.click("#followBtn")  # follow off: a follow glide legitimately rasterizes every page it passes on its way down
     page.click("#cm .cm-content")  # paste (not key-by-key): same input pipeline, ~90s faster
     page.keyboard.press("ControlOrMeta+A")
     assert page.evaluate("(t) => document.execCommand('insertText', false, t)", big)
@@ -71,7 +72,6 @@ def test_10_hundred_page_doc_stays_usable(page):
     widths = page.locator("#preview .pvPage canvas").evaluate_all("els => els.map(e => e.width)")
     big_n = sum(1 for w in widths if w > 16)
     assert 1 <= big_n <= 12, f"virtualization off: {big_n} of {len(widths)} pages rasterized"
-    page.click("#followBtn")  # follow off: isolate scroll preservation from cursor-follow
     page.locator("#preview").evaluate("el => el.scrollTo(0, el.scrollHeight)")  # deep scroll, then re-render
     page.wait_for_timeout(500)
     before = page.locator("#preview").evaluate("el => el.scrollTop")
