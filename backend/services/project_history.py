@@ -136,7 +136,7 @@ def diff_text(state: dict) -> str:
     return '\n\n'.join(f'=== {name} ===\n{content}' for name, content in sorted(diff_files(state).items()))
 
 
-def auto(project_id: str) -> None:
+def auto(project_id: str, present: frozenset[str] = frozenset()) -> None:
     from datetime import UTC, datetime, timedelta
 
     from backend.constants import SNAP_EVERY
@@ -162,11 +162,13 @@ def auto(project_id: str) -> None:
             unchanged(con, project_id, expected)
             save(con, project_id, state, kind='auto')
         quota.invalidate_quota_cache(p['owner'])
+        from backend.services import notifications
+        notifications.notify_changes(project_id, present)
     except (HTTPException, sqlite3.Error, OSError) as e:
         log.warning('Project auto checkpoint skipped: %s', e)
 
 
-def auto_document(doc_id: str) -> None:
+def auto_document(doc_id: str, present: frozenset[str] = frozenset()) -> None:
     # Warn-only: callers (save_doc / op_edit / files routes) have already
     # committed their mutation and only catch HTTPException, so a busy DB
     # here must not turn into a post-commit 500.
@@ -180,4 +182,4 @@ def auto_document(doc_id: str) -> None:
         log.warning('auto_document %s lookup skipped: %s', doc_id, e)
         return
     if row and row[0]:
-        auto(row[0])
+        auto(row[0], present)

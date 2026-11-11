@@ -461,10 +461,25 @@ def _migrate_v28(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE project_snapshots ADD COLUMN author TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_v29(con: sqlite3.Connection) -> None:
+    # Watch level per project and user (what reaches the inbox) + inbox links.
+    con.execute("""CREATE TABLE IF NOT EXISTS project_watch (
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ username TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+ level TEXT NOT NULL CHECK(level IN ('mentions','proposals','all')),
+ seen_at TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(project_id, username)
+);""")
+    cols = _cols(con, "notifications")
+    for name in ("project_id", "ref", "actor"):
+        if name not in cols:
+            con.execute(f"ALTER TABLE notifications ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19, _migrate_v20, _migrate_v21, _migrate_v22, _migrate_v23, _migrate_v24, _migrate_v25, _migrate_v26, _migrate_v27, _migrate_v28,
+    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19, _migrate_v20, _migrate_v21, _migrate_v22, _migrate_v23, _migrate_v24, _migrate_v25, _migrate_v26, _migrate_v27, _migrate_v28, _migrate_v29,
 )
 
 

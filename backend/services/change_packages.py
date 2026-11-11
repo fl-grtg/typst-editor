@@ -236,6 +236,8 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
             result = get(con2, project, package)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
+    from backend.services import notifications
+    notifications.notify_proposal(project, user, result["id"], title)
     return result
 
 

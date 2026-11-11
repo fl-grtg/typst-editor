@@ -28,6 +28,9 @@ def require(con: sqlite3.Connection, project_id: str, user: str, edit: bool = Fa
         raise HTTPException(410, "Project is in trash; restore a document first")
     if (owner and r != "owner") or (edit and r not in ("owner", "editor")):
         raise HTTPException(403, "Insufficient project permissions")
+    if edit:
+        from backend.services.notifications import note_editor
+        note_editor(project_id, user)
     return r
 
 

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend import db, deps
 from backend.schemas import AnchorSet, CommentEdit, CommentNew, ResolveSet, SuggestionBatch, SuggestionNew
+from backend.services import notifications
 
 router = APIRouter()
 log = logging.getLogger("typst.main")
@@ -121,9 +122,10 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
                     "VALUES (?,?,?,?,?,?,?,?,?)",
                     (cid, doc_id, user, "", anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
         con.commit()
-        return {"id": cid}
     finally:
         con.close()
+    notifications.notify_mentions(doc_id, user, b.text, cid)
+    return {"id": cid}
 
 
 @router.delete("/api/docs/{doc_id}/comments/{cid}")
@@ -192,11 +194,13 @@ def edit_comment(doc_id: str, cid: str, b: CommentEdit, req: Request, user: str 
             raise HTTPException(404, "Comment gone")
         if r["username"] != user:
             raise HTTPException(403, "Only author")
+        before = con.execute("SELECT text FROM comments WHERE id=?", (cid,)).fetchone()["text"]
         con.execute("UPDATE comments SET text=? WHERE id=?", (b.text.strip(), cid))
         con.commit()
-        return {"ok": True}
     finally:
         con.close()
+    notifications.notify_mentions(doc_id, user, b.text, cid, before)
+    return {"ok": True}
 
 
 @router.post("/api/docs/{doc_id}/comments/{cid}/resolve")
