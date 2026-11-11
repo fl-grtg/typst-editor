@@ -63,17 +63,23 @@ def test_mention_and_change_notice_in_the_inbox(browser, base_url, tmp_path_fact
             c.close()
 
 
-def test_watch_level_in_the_bell_popover(page):
+def test_watch_level_from_the_bell_on_the_project_row(page):
     register(page, "watch_menu_user")
     page.request.post("/api/docs/create", data={"title": "Doc", "content": "x"})
     pid = page.request.get("/api/docs").json()["own"][0]["project_id"]
     page.reload()
     page.wait_for_function("window.__booted === true")
-    page.click("#inboxBtn")
-    page.get_by_role("button", name="Notification settings").click()
-    row = page.locator("#inboxPop .wRow", has_text="Doc")
-    expect(row.locator("select")).to_have_value("proposals")  # default
+    head = page.locator("aside .fhd.project", has_text="Doc")
+    head.hover()
+    head.get_by_role("button", name="Notifications: Mentions and suggestions").click()
+    box = page.locator("#watchBox")
+    expect(box.locator(".wItem[aria-checked=true]")).to_contain_text("Mentions and suggestions")
+    page.wait_for_timeout(800)
     page.screenshot(path="/tmp/claude-1000/watch-menu.png")
-    row.locator("select").select_option("all")
-    page.wait_for_timeout(400)
+    box.locator(".wItem", has_text="Everything").click()
+    expect(box).to_have_count(0)
+    expect(head.locator("button.mini.on")).to_have_count(1)  # stays visible: not the default anymore
     assert page.request.get(f"/api/projects/{pid}/watch").json()["level"] == "all"
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+    expect(page.locator("aside .fhd.project", has_text="Doc").locator("button.mini.on")).to_have_count(1)

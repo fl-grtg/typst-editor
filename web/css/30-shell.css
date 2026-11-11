@@ -159,3 +159,10 @@ aside .doc.sub { margin-left: calc(12px + var(--lv, 0) * 14px); }
 aside .fhd.folder { margin-left: calc(12px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
 aside .fhd.folder b { font-weight: 500; }
 aside .fhd.folder.drop-target { background: var(--acc-soft); outline: 1px solid var(--acc); }
+
+/* Watch: bell on the project row (visible when not default), small check-mark menu */
+aside .mini.on { visibility: visible; }
+#watchBox { position: fixed; z-index: var(--z-pop); min-width: 168px; padding: 4px; background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop); color: var(--text); font-size: 12.5px; }
+#watchBox .wItem { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 10px 0 6px; text-align: left; white-space: nowrap; background: none; border: 0; border-radius: var(--r-sm); color: var(--text); font-size: 12.5px; font-weight: 500; }
+#watchBox .wItem:hover, #watchBox .wItem:focus-visible { background: var(--hover); outline: none; }
+#watchBox .ck { flex: none; width: 12px; font-style: normal; font-weight: 700; font-size: 11px; }
