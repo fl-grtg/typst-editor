@@ -10,7 +10,10 @@ function paintMe() { // own blob in user box (image not color, missing = color)
   sub.textContent = t('login.settingsLink')
   who.appendChild(sub)
   const greeting = $('emptyCard')?.querySelector('h2')
-  if (greeting) greeting.textContent = t('docs.emptyTitle', { name: user || '?' })
+  if (greeting) {
+    greeting.textContent = t('docs.emptyTitle', { name: user || '?' })
+    fitEmptyCard()
+  }
 }
 let avatarV = 0
 const avUrl = n => `/api/avatar/${encodeURIComponent(n)}?v=${avatarV}`

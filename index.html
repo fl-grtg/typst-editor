@@ -5423,6 +5423,7 @@ function refreshLang() {
   try { paintThemeBtn() } catch (e) {}
   try { if (typeof paintSecs === 'function') paintSecs() } catch (e) {}
   try { if (typeof paintMe === 'function' && user) paintMe() } catch (e) {}
+  try { if ($('emptyCard') && typeof paintEmpty === 'function') paintEmpty() } catch (e) {}
   try { if (typeof updPos === 'function') updPos() } catch (e) {}
   try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
   try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
@@ -6397,7 +6398,10 @@ function paintMe() { // own blob in user box (image not color, missing = color)
   sub.textContent = t('login.settingsLink')
   who.appendChild(sub)
   const greeting = $('emptyCard')?.querySelector('h2')
-  if (greeting) greeting.textContent = t('docs.emptyTitle', { name: user || '?' })
+  if (greeting) {
+    greeting.textContent = t('docs.emptyTitle', { name: user || '?' })
+    fitEmptyCard()
+  }
 }
 let avatarV = 0
 const avUrl = n => `/api/avatar/${encodeURIComponent(n)}?v=${avatarV}`

@@ -62,6 +62,7 @@ function refreshLang() {
   try { paintThemeBtn() } catch (e) {}
   try { if (typeof paintSecs === 'function') paintSecs() } catch (e) {}
   try { if (typeof paintMe === 'function' && user) paintMe() } catch (e) {}
+  try { if ($('emptyCard') && typeof paintEmpty === 'function') paintEmpty() } catch (e) {}
   try { if (typeof updPos === 'function') updPos() } catch (e) {}
   try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
   try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
