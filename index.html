@@ -277,6 +277,7 @@ aside .doc.sub, #ol .doc { margin-left: 12px; }
 aside .fhd { margin-left: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); }
 aside .fhd b { flex: 1; min-width: 0; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 aside h3:hover, aside .fhd:hover, aside .doc:hover { background: var(--hover); }
+aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }
 aside .empty { min-height: 30px; padding: 6px 8px; font-size: 12.5px; color: var(--faint); }
 aside .empty button { margin-top: 6px; }
@@ -9701,10 +9702,10 @@ function sidebarDrag(row, data, effect = 'copy') {
   row.draggable = true
   row.ondragstart = e => {
     if (e.target.closest('button,input')) { e.preventDefault(); return }
-    e.stopPropagation(); sidebarDragData = data
+    e.stopPropagation(); sidebarDragData = data; row.classList.add('dragging')
     e.dataTransfer.setData(SIDEBAR_DRAG, JSON.stringify(data)); e.dataTransfer.effectAllowed = effect
   }
-  row.ondragend = () => { sidebarDragData = null; document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target')) }
+  row.ondragend = () => { sidebarDragData = null; row.classList.remove('dragging'); document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target')) }
 }
 function sidebarDropTarget(row, target) {
   row.ondragover = e => {

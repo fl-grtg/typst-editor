@@ -22,10 +22,10 @@ function sidebarDrag(row, data, effect = 'copy') {
   row.draggable = true
   row.ondragstart = e => {
     if (e.target.closest('button,input')) { e.preventDefault(); return }
-    e.stopPropagation(); sidebarDragData = data
+    e.stopPropagation(); sidebarDragData = data; row.classList.add('dragging')
     e.dataTransfer.setData(SIDEBAR_DRAG, JSON.stringify(data)); e.dataTransfer.effectAllowed = effect
   }
-  row.ondragend = () => { sidebarDragData = null; document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target')) }
+  row.ondragend = () => { sidebarDragData = null; row.classList.remove('dragging'); document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target')) }
 }
 function sidebarDropTarget(row, target) {
   row.ondragover = e => {
