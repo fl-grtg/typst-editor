@@ -346,9 +346,23 @@ function renderSettings() {
       sub.style.fontSize = '12px'; sub.style.minWidth = '0'; sub.style.overflowWrap = 'anywhere'; sub.style.textAlign = 'left'
       const pc = el('code', null, k.prefix || '')
       pc.style.fontSize = '11.5px'; pc.style.overflowWrap = 'anywhere'; pc.style.minWidth = '0'
+      const rsel = el('select', 'keyRoleSel') // role editable in place: PATCH keeps the secret alive
+      ;[['editor', t('common.roleEditor')], ['reviewer', t('settings.roleReviewer')]].forEach(([v, lab]) => {
+        const o = el('option', null, lab); o.value = v; if (v === k.role) o.selected = true; rsel.appendChild(o)
+      })
+      rsel.setAttribute('aria-label', t('settings.roleForKey', { name: k.name }))
+      rsel.onchange = () => {
+        const role = rsel.value
+        if (role === k.role) return
+        rsel.disabled = true
+        api('PATCH', '/api/keys/' + encodeURIComponent(k.id), { role })
+          .then(d => { k.role = d.role || role; toast(t('settings.roleChanged')) })
+          .catch(e => { rsel.value = k.role; settingsError(e.message) })
+          .finally(() => { rsel.disabled = false })
+      }
       const eS = el('span', 'val', t('settings.expires', { date: shortD(k.expires_at) })); eS.title = k.expires_at || t('settings.never')
       eS.style.fontSize = '12px'
-      sub.append(pc, el('span', null, t(k.role === 'editor' ? 'common.roleEditor' : 'settings.roleReviewer')), eS)
+      sub.append(pc, eS, rsel)
       left.append(nm, sub)
       r.append(left, rb)
       return r

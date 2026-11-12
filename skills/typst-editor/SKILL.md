@@ -11,7 +11,7 @@ Work on the user's self-hosted Typst docs through MCP (Streamable HTTP).
 
 1. Server URL: local `http://127.0.0.1:8978` or remote `https://host`. From this checkout: `docker compose -f compose.yml -f compose.prerelease.yml up -d --build` runs the current candidate (tag `0.2.0rc1`, built locally); plain `docker compose up -d` uses the published `main` image (MCP included; run `docker compose pull` to refresh). Compose publishes `8978` on loopback by default; local dev pins `8978` (LAN opt-in: change the mapping to `8978:8978`). The user needs an account on it — server default is `invite-only`, so an invite code (or the admin) may be required first; `closed` needs the admin (set `REGISTRATION`, no UI for it), no self-registration. Fresh Docker installs print the token once on first start (`docker compose logs app | grep "invite code"`; also stored `chmod 600` as `DATA_DIR/.invite_token`).
 2. In the web UI (login → Settings → API keys → Create), with a **name** (required):
-   - **Role: Reviewer** for read/comment jobs; **Editor** only if files must change. (Default: Editor.)
+   - **Role: Reviewer** for read/comment jobs; **Editor** only if files must change. (Default: Editor.) Change it later in Settings or via `PATCH /api/keys/{id}` without creating a new key.
    - **Expires:** 30–90 days recommended. (Default: never.)
    - The secret (`tpe_<prefix>_<secret>`) is shown **once** — copy it now. Only its hash is stored.
 3. Register the server (insert URL + key):

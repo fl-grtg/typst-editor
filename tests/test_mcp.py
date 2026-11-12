@@ -76,6 +76,35 @@ def test_keys_role_containment(c):
     assert r.status_code == 200
 
 
+def test_keys_role_update_keeps_secret(c):
+    register_user(c, "u1")
+    k = make_key(c, role="reviewer")
+    hdr = {"Authorization": f"Bearer {k['key']}"}
+    assert c.post("/api/keys", json={"name": "esc", "role": "editor"}, headers=hdr).status_code == 403
+    r = c.patch(f"/api/keys/{k['id']}", json={"role": "editor"})
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "editor"
+    # same secret, now editor: no new key, no new prefix
+    listed = c.get("/api/keys", headers=hdr).json()["keys"]
+    assert [(x["id"], x["prefix"], x["role"]) for x in listed] == [(k["id"], k["prefix"], "editor")]
+    assert c.post("/api/keys", json={"name": "now", "role": "editor"}, headers=hdr).status_code == 200
+    # and back down again: the token survives both directions
+    assert c.patch(f"/api/keys/{k['id']}", json={"role": "reviewer"}).status_code == 200
+    assert c.post("/api/keys", json={"name": "nope", "role": "editor"}, headers=hdr).status_code == 403
+
+
+def test_keys_role_update_guards(c):
+    register_user(c, "u1")
+    k = make_key(c, role="reviewer")
+    hdr = {"Authorization": f"Bearer {k['key']}"}
+    # a reviewer key cannot promote itself or others above its own cap
+    assert c.patch(f"/api/keys/{k['id']}", json={"role": "editor"}, headers=hdr).status_code == 403
+    assert c.patch(f"/api/keys/{k['id']}", json={"role": "owner"}).status_code == 400
+    assert c.patch("/api/keys/k_missing", json={"role": "editor"}).status_code == 404
+    assert c.delete(f"/api/keys/{k['id']}").status_code == 200
+    assert c.patch(f"/api/keys/{k['id']}", json={"role": "editor"}).status_code == 404
+
+
 def test_edit_reviewer_403_on_shared(c):
     register_user(c, "alice")
     did = make_doc(c, title="Plan", content="line1\nline2\n")

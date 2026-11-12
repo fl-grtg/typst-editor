@@ -14,7 +14,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from backend import auth, config, db, deps, sync
 from backend.constants import MAX_PW, MIN_PW, NAME_RE
-from backend.schemas import AvatarSet, KeyCreate, Login, NameChange, PwChange, PwOnly, Register, SpellPreference
+from backend.schemas import (
+    AvatarSet,
+    KeyCreate,
+    KeyUpdate,
+    Login,
+    NameChange,
+    PwChange,
+    PwOnly,
+    Register,
+    SpellPreference,
+)
 from backend.services import quota as quota_svc
 from backend.services.apikeys import _ROLE_RANK, KEY_ROLES, me_with_key, mint_api_key
 from backend.services.locks import _drop_user_locks, _named_lock
@@ -239,15 +249,21 @@ def save_preferences(b: SpellPreference, req: Request, user: str = Depends(deps.
     return {"spell_language": b.spell_language}
 
 
-@router.post("/api/keys")
-def create_key(b: KeyCreate, req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> dict:
-    user, cap = authn
-    deps.limited(req, "keys", user)
-    role = b.role.strip().lower()
+def _key_role(role: str, cap: str) -> str:
+    # Same containment for create + update: a key never grants above its own cap.
+    role = role.strip().lower()
     if role not in KEY_ROLES:
         raise HTTPException(400, "role must be editor or reviewer")
     if _ROLE_RANK[role] > _ROLE_RANK.get(cap, 0):
         raise HTTPException(403, "Cannot grant more than your own role")
+    return role
+
+
+@router.post("/api/keys")
+def create_key(b: KeyCreate, req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> dict:
+    user, cap = authn
+    deps.limited(req, "keys", user)
+    role = _key_role(b.role, cap)
     nm = b.name.strip()[:40]
     if not nm:
         raise HTTPException(400, "Enter a key name.")
@@ -287,6 +303,25 @@ def list_keys(req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> di
         rows = con.execute("SELECT id, name, prefix, role, expires_at, last_used, created_at FROM api_keys "
                            "WHERE username=? AND revoked=0 ORDER BY created_at", (user,)).fetchall()
         return {"keys": [dict(r) for r in rows]}
+    finally:
+        con.close()
+
+
+@router.patch("/api/keys/{kid}")
+def update_key(kid: str, b: KeyUpdate, req: Request,
+               authn: tuple[str, str] = Depends(me_with_key)) -> dict:
+    """Change a key's role in place: the secret stays valid, no reissue."""
+    user, cap = authn
+    deps.limited(req, "keys", user)
+    role = _key_role(b.role, cap)
+    con = db.connect()
+    try:
+        cur = con.execute("UPDATE api_keys SET role=? WHERE id=? AND username=? AND revoked=0",
+                          (role, kid, user))
+        con.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Key gone")
+        return {"ok": True, "id": kid, "role": role}
     finally:
         con.close()
 

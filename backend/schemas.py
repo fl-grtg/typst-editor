@@ -135,3 +135,7 @@ class KeyCreate(BaseModel):
     name: str = Field(default="", max_length=40, min_length=1)
     role: str = Field(default="editor", max_length=20)
     expires_in_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class KeyUpdate(BaseModel):
+    role: str = Field(max_length=20)
