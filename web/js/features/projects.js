@@ -563,7 +563,7 @@ function projectDrag(row, p, entry) {
 }
 function projectDropTarget(row, target, folder = '') {
   if (!projectEditable(target)) return
-  row.ondragover = e => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); row.classList.add('drop-target'); e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
+  row.ondragover = e => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); if (folder) row.closest('.project-group')?.classList.remove('drop-target'); row.classList.add('drop-target'); e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
   row.ondragleave = e => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop-target') }
   row.ondrop = async e => {
     if (!e.dataTransfer.files.length && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return

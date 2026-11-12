@@ -158,7 +158,8 @@ aside .doc.sub { margin-left: calc(12px + var(--lv, 0) * 14px); }
 .project-group.with-folders .doc.sub { margin-left: calc(26px + var(--lv, 0) * 14px); } /* entries line up with the folder names beside the chevron */
 aside .fhd.folder { margin-left: calc(12px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
 aside .fhd.folder b { font-weight: 500; }
-aside .fhd.folder.drop-target { background: var(--acc-soft); outline: 1px solid var(--acc); }
+aside .fhd.folder.drop-target { background: var(--acc-soft); box-shadow: inset 0 0 0 1px var(--acc); }
+aside .project-group.drop-target > .fhd.project { background: var(--acc-soft); border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px var(--acc); }
 
 /* Watch: bell on the project row (hover only), small check-mark menu */
 #watchBox { position: fixed; z-index: var(--z-pop); min-width: 168px; padding: 4px; background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop); color: var(--text); font-size: 12.5px; }
