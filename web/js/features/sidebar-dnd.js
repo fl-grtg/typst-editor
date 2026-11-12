@@ -1,13 +1,16 @@
 // Sidebar transfers reuse the same copy/restore actions as the menus.
 const SIDEBAR_DRAG = 'application/x-typst-project-entry'
 let sidebarDragData = null, sidebarDropWatch = null
+function sidebarDragEnd() { // one reset for internal drags and OS-file drops
+  sidebarDragData = null
+  document.body.classList.remove('dnd-active')
+  document.querySelectorAll('.dragging, .drop-target, .dndGhost').forEach(node => node.classList.remove('dragging', 'drop-target'))
+  document.querySelectorAll('.dndGhost').forEach(node => node.remove())
+  if (window.__sidebarDeferred) { window.__sidebarDeferred = false; setTimeout(() => sidebar().catch(() => {}), 0) } // catch up after the drag
+}
 function sidebarWatchDrop() { // OS-file drags: no dragend reaches our rows, drops can land outside every row
   if (sidebarDropWatch || typeof addEventListener !== 'function') return
-  const clear = () => {
-    sidebarDropWatch = null
-    removeEventListener('drop', clear, true); removeEventListener('dragend', clear, true)
-    document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target'))
-  }
+  const clear = () => { sidebarDropWatch = null; removeEventListener('drop', clear, true); removeEventListener('dragend', clear, true); sidebarDragEnd() }
   sidebarDropWatch = clear
   addEventListener('drop', clear, true); addEventListener('dragend', clear, true)
 }
@@ -18,24 +21,41 @@ function sidebarCanDrop(data, target) {
   if (data.trashed) return !!data.trashId && (data.entry.kind !== 'file' || TEXT_EXT.test(data.entry.name))
   return !data.trashed && !data.personal && (data.entry.kind === 'resource' || data.entry.kind === 'file' && TEXT_EXT.test(data.entry.name))
 }
+function markDropTarget(node) { // exactly one target at a time, no flicker between a row and its label
+  document.querySelectorAll('.drop-target').forEach(n => { if (n !== node) n.classList.remove('drop-target') })
+  node.classList.add('drop-target')
+}
+document.addEventListener('dragover', e => { // moving off every zone leaves no stale highlight
+  if (!e.target.closest?.('.drop-target')) document.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'))
+}, true)
 function sidebarDrag(row, data, effect = 'copy') {
   row.draggable = true
   row.ondragstart = e => {
     if (e.target.closest('button,input')) { e.preventDefault(); return }
-    e.stopPropagation(); sidebarDragData = data; row.classList.add('dragging')
+    e.stopPropagation(); sidebarDragData = data
+    row.classList.add('dragging'); document.body.classList.add('dnd-active')
+    const ghost = dragGhost(row)
+    if (ghost) e.dataTransfer.setDragImage(ghost, 12, 16)
     e.dataTransfer.setData(SIDEBAR_DRAG, JSON.stringify(data)); e.dataTransfer.effectAllowed = effect
   }
-  row.ondragend = () => { sidebarDragData = null; row.classList.remove('dragging'); document.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target')) }
+  row.ondragend = sidebarDragEnd
+}
+function dragGhost(row) { // small card under the cursor instead of the browser's faded row snapshot
+  const label = (row.querySelector('.t') || row.querySelector('b'))?.textContent?.trim()
+  if (!label) return null
+  const g = el('div', 'dndGhost', label)
+  document.body.appendChild(g)
+  return g
 }
 function sidebarDropTarget(row, target) {
   row.ondragover = e => {
     const types = e.dataTransfer.types
     if (sidebarDragData && !sidebarCanDrop(sidebarDragData, target)) return
     if (!(types.includes(SIDEBAR_DRAG) || target !== 'trash' && types.includes('Files'))) return
-    e.preventDefault(); e.stopPropagation(); row.classList.add('drop-target'); sidebarWatchDrop()
+    e.preventDefault(); e.stopPropagation(); markDropTarget(row); sidebarWatchDrop()
     e.dataTransfer.dropEffect = target === 'trash' || sidebarDragData?.trashed ? 'move' : 'copy'
   }
-  row.ondragleave = e => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop-target') }
+  row.ondragenter = row.ondragover // highlight on entry; a stationary cursor may not produce another dragover
   row.ondrop = async e => {
     if (!e.dataTransfer.types.includes(SIDEBAR_DRAG) && !e.dataTransfer.files.length) return
     e.preventDefault(); e.stopPropagation(); row.classList.remove('drop-target')

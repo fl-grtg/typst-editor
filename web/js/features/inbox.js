@@ -20,25 +20,33 @@ function inboxText(it) {
 }
 function renderInbox() {
   const p = $('inboxPop'); p.replaceChildren()
-  const top = el('div', 'sTop'), all = el('button', null, t('inbox.readAll'))
+  const top = el('div', 'sTop'), all = el('button', null, t('inbox.readAll')), clear = el('button', null, t('inbox.clearAll'))
   all.disabled = !inboxUnread
+  clear.disabled = !inboxItems.length
   all.onclick = async () => { try { await api('POST', '/api/notifications/read-all'); await loadInbox() } catch (e) { toast(e.message) } }
-  top.append(el('b', null, t('inbox.title')), all); p.appendChild(top)
+  clear.onclick = async () => { try { clear.disabled = true; await api('DELETE', '/api/notifications'); await loadInbox() } catch (e) { clear.disabled = false; toast(e.message) } }
+  top.append(el('b', null, t('inbox.title')), all, clear); p.appendChild(top)
   if (!inboxItems.length) { p.appendChild(el('div', 'histEmpty', t('inbox.empty'))); return }
   let lastDay = ''
   inboxItems.forEach(it => {
     const day = dayLabel(it.created_at)
     if (day !== lastDay) { p.appendChild(el('div', 'inDay', day)); lastDay = day }
-    const row = el('button', 'inItem' + (it.is_read ? '' : ' unread'))
-    row.type = 'button'
+    const row = el('div', 'inItem' + (it.is_read ? '' : ' unread'))
     const ty = el('span', 'ty')
     if (it.type === 'mention') ty.textContent = '@'
     else ty.innerHTML = it.type === 'proposal' ? ICO_EDIT : '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l1.8 1.2"/></svg>'
     const tx = el('span', 'tx'); tx.appendChild(el('span', 'ln', inboxText(it)))
     const sub = it.type === 'mention' ? it.text : it.type === 'changes' ? t('inbox.changesSub') : ''
     if (sub) tx.appendChild(el('span', 'sub', sub))
-    row.append(ty, tx, el('span', 'tm', ago(it.created_at)))
-    row.onclick = () => goInbox(it).catch(e => toast(e.message))
+    const dismiss = icoBtn('inDismiss', ICO_X); dismiss.type = 'button'
+    dismiss.title = t('inbox.dismiss'); dismiss.setAttribute('aria-label', dismiss.title)
+    dismiss.onclick = async e => {
+      e.stopPropagation(); dismiss.disabled = true
+      try { await api('DELETE', `/api/notifications/${it.id}`); await loadInbox() } catch (err) { dismiss.disabled = false; toast(err.message) }
+    }
+    row.append(ty, tx, el('span', 'tm', ago(it.created_at)), dismiss)
+    const open = () => goInbox(it).catch(e => toast(e.message))
+    row.onclick = open; kb(row, open)
     p.appendChild(row)
   })
 }

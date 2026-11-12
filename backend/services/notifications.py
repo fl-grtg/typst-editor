@@ -91,6 +91,27 @@ def mark_all_read(user: str) -> int:
         con.close()
 
 
+def delete_one(nid: str, user: str) -> bool:
+    """True when a row was deleted (only the recipient's own)."""
+    con = db.connect()
+    try:
+        cur = con.execute("DELETE FROM notifications WHERE id=? AND recipient=?", (nid, user))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def clear_all(user: str) -> int:
+    con = db.connect()
+    try:
+        cur = con.execute("DELETE FROM notifications WHERE recipient=?", (user,))
+        con.commit()
+        return cur.rowcount
+    finally:
+        con.close()
+
+
 def unread_count(user: str) -> int:
     con = db.connect()
     try:

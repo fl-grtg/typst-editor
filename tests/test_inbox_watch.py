@@ -52,6 +52,22 @@ def test_inbox_read_one_and_all(c):
     assert c.post(f"/api/notifications/{items[1]['id']}/read").json() == {'ok': False}  # not carol's
 
 
+def test_inbox_delete_one_and_clear_all(c):
+    did, _ = _project(c)
+    c.post(f'/api/docs/{did}/comments', json={'anchor': 1, 'text': '@bob one'})
+    c.post(f'/api/docs/{did}/comments', json={'anchor': 1, 'text': '@bob two'})
+    login(c, 'bob')
+    items = c.get('/api/notifications').json()['items']
+    assert len(items) == 2
+    assert c.delete(f"/api/notifications/{items[0]['id']}").json() == {'ok': True}
+    assert [i['id'] for i in c.get('/api/notifications').json()['items']] == [items[1]['id']]
+    login(c, 'carol')
+    assert c.delete(f"/api/notifications/{items[1]['id']}").json() == {'ok': False}  # not carol's
+    login(c, 'bob')
+    assert c.delete('/api/notifications').json() == {'deleted': 1}
+    assert c.get('/api/notifications').json() == {'unread': 0, 'items': []}
+
+
 def test_watch_level_default_set_and_validated(c):
     _, pid = _project(c)
     login(c, 'bob')

@@ -8,7 +8,7 @@ const tabsCode = files.slice(files.indexOf('const OPEN_TABS_KEY'), files.indexOf
 
 function projectCtx(extra = {}) {
   const c = vm.createContext({ docId: 'd', docProject: 'p', openN: 1, activeFile: '', t: (k, v) => k + (v ? JSON.stringify(v) : ''), toast: () => {}, flushTab: async () => true, flushTpl: async () => true,
-    sidebar: async () => {}, shut: new Set(), saveShut: () => {}, tabRemapEntry: () => {}, tabRemapPrefix: () => {}, TPLK: '@tpl/', isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.slice(5), lastOwn: [], lastShared: [], ...extra })
+    sidebar: async () => {}, sidebarFresh: async () => {}, shut: new Set(), saveShut: () => {}, tabRemapEntry: () => {}, tabRemapPrefix: () => {}, TPLK: '@tpl/', isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.slice(5), lastOwn: [], lastShared: [], ...extra })
   vm.runInContext(projects, c)
   return c
 }

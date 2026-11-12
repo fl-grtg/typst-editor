@@ -6,7 +6,7 @@ const source = readFileSync('web/js/features/projects.js', 'utf8')
 function setup(extra = {}) {
   const c = vm.createContext({ lastOwn: [], lastShared: [], docId: 'd', docProject: 'p', openN: 1, activeFile: '', docResReadonly: false,
     flushTab: async () => true, flushTpl: async () => true, loadTpl: async () => {},
-    loadDocResources: async () => true, sidebar: async () => {}, t: x => x, toast: () => {}, tabRemapEntry: () => {}, tabRemapPrefix: () => {}, ...extra })
+    loadDocResources: async () => true, sidebar: async () => {}, sidebarFresh: async () => {}, t: x => x, toast: () => {}, tabRemapEntry: () => {}, tabRemapPrefix: () => {}, ...extra })
   vm.runInContext(source, c)
   return c
 }
@@ -199,7 +199,7 @@ test('sidebar callers share one request and schedule one follow-up', async () =>
   const wrapper = docs.slice(docs.indexOf('let sidePending'), docs.indexOf('async function refreshSidebar'))
   let release, calls = 0, renameOpen = null
   const gate = new Promise(resolve => { release = resolve }), timers = []
-  const c = vm.createContext({ document: { querySelector: () => renameOpen }, window: {},
+  const c = vm.createContext({ document: { querySelector: () => renameOpen, body: { classList: { contains: () => false } } }, window: {},
     refreshSidebar: async () => { calls++; await gate },
     setTimeout: fn => { timers.push(fn); return timers.length }, clearTimeout: () => {} })
   vm.runInContext(wrapper, c)

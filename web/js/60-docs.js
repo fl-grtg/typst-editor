@@ -70,6 +70,7 @@ function queueSidebar() {
   sideEventTimer = setTimeout(() => sidebar().catch(() => {}), 1000)
 }
 function sidebar() {
+  if (document.body.classList.contains('dnd-active')) { window.__sidebarDeferred = true; return Promise.resolve() } // repaint would wipe drag state; refresh after the drag
   if (document.querySelector('aside input.renameInput')) { window.__sidebarDeferred = true; return Promise.resolve() } // keep inline rename alive; refresh after it closes
   if (sidePending) { sideAgain = true; return sidePending }
   sidePending = refreshSidebar().finally(() => {
@@ -77,6 +78,10 @@ function sidebar() {
     if (sideAgain) { sideAgain = false; clearTimeout(sideRetry); sideRetry = setTimeout(() => sidebar(), 1200) }
   })
   return sidePending
+}
+async function sidebarFresh() { // after a write: a refresh that was already running may predate it
+  if (sidePending) await sidePending
+  return sidebar()
 }
 async function refreshSidebar() {
   const id = ++sideN
@@ -98,6 +103,7 @@ async function refreshSidebar() {
     return // keep old list
   }
   if (sideResourcesDirty) { sideResourcesDirty = false; await resSync() }
+  if (document.body.classList.contains('dnd-active')) { window.__sidebarDeferred = true; return } // a refresh already in flight must not repaint mid-drag
   lastOwn = d.own; lastShared = d.shared
   if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
   refreshDocRole(d)

@@ -91,7 +91,12 @@ async function openProjectEntryOnce(p, document, name, resource) {
     if (activeFile === (resource ? TPLK + name : name)) return
     if (resource && !window.changeSession) {
       const epoch = openN
-      if (!await loadDocResources(true) || docId !== document || docProject !== p.id || openN !== epoch) return
+      let loaded = false
+      for (let attempt = 0; attempt < 3 && !loaded; attempt++) { // a poll may supersede the list load; retry while the doc is unchanged
+        loaded = await loadDocResources(true)
+        if (docId !== document || docProject !== p.id || openN !== epoch) return
+      }
+      if (!loaded) return
       tabPins.add(name)
     }
     await switchTab(resource ? TPLK + name : name)
@@ -136,7 +141,7 @@ function paintProjects(box, shared) {
   projects.filter(p => (p.role !== 'owner') === shared).forEach(p => {
     const entries = projectEntries(p), group = el('div', 'project-group')
     group.dataset.projectId = p.id // anchor for session draft placement (paintSessionSidebar)
-    projectDropTarget(group, p); box.appendChild(group)
+    box.appendChild(group)
     const h = el('div', 'fhd project'), key = 'project:' + p.id
     const title = el('b', null, p.title)
     title.title = p.title; title.setAttribute('role', 'button')
@@ -158,6 +163,7 @@ function paintProjects(box, shared) {
       projectAction(h, ICO_TRASH, t('common.delete'), () => deleteProject(p)).dataset.menuDanger = ''
     }
     compactSidebarActions(h, projectEditable(p) ? 2 : 1)
+    projectDropTarget(h, p) // header = project root; only this row lights up, not the whole group
     group.appendChild(h)
     if (shut.has(key)) return
     const tree = projectTree(p, entries)
@@ -209,7 +215,15 @@ function paintProjects(box, shared) {
       return !shut.has(fkey)
     }
     const paintDir = (dir, level) => {
-      for (const f of tree.folders(dir)) if (folderRow(f, level)) paintDir(f, level + 1)
+      for (const f of tree.folders(dir)) {
+        if (!folderRow(f, level)) continue
+        paintDir(f, level + 1)
+        if (!tree.folders(f).length && !tree.items(f).length) {
+          const empty = el('div', 'folderEmpty', t('docs.folderEmpty'))
+          empty.style.setProperty('--lv', level + 1)
+          group.appendChild(empty)
+        }
+      }
       for (const item of tree.items(dir)) item.kind === 'document' ? documentRow(item.d, level) : entryRow(item, level)
     }
     revealActiveFolder(p, tree)
@@ -232,7 +246,7 @@ async function newProjectResource(id, folder = '') {
   const typed = raw.trim().replace(/^\/+/, ''), file = typed.toLowerCase().endsWith(ext) ? typed : typed + ext
   const name = folder ? folder + '/' + file : file
   const result = await api('POST', `/api/projects/${id}/resources`, { name: name.trim(), content: fileStart(name.split('.').pop().toLowerCase()) })
-  await sidebar()
+  await sidebarFresh() // the pending refresh may have started before the module existed
   const project = projects.find(p => p.id === id) || await api('GET', `/api/projects/${id}`)
   const documents = projectEntries(project).documents
   const document = documents.find(d => d.id === docId)?.id || documents[0]?.id
@@ -475,7 +489,7 @@ async function applyEntryRename(p, name, document, resource, target, confirm = t
     filesDirty = true; await loadDocResources(true); tabSig = ''; queueRender()
   }
   await sidebar()
-  toast(t('files.renamed', { name: result.name }))
+  toast(confirm ? t('files.renamed', { name: result.name }) : t('files.moved', { name: result.name }))
 }
 async function moveEntryToFolder(p, entry, folder) { // drag onto a folder (or the project): same project only
   if (entry.kind === 'document') {
@@ -563,8 +577,8 @@ function projectDrag(row, p, entry) {
 }
 function projectDropTarget(row, target, folder = '') {
   if (!projectEditable(target)) return
-  row.ondragover = e => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); if (folder) row.closest('.project-group')?.classList.remove('drop-target'); row.classList.add('drop-target'); e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
-  row.ondragleave = e => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop-target') }
+  row.ondragover = e => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); markDropTarget(row); e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
+  row.ondragenter = row.ondragover // highlight on entry; a stationary cursor may not produce another dragover
   row.ondrop = async e => {
     if (!e.dataTransfer.files.length && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
     e.preventDefault(); e.stopPropagation(); row.classList.remove('drop-target')

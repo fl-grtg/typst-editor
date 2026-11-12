@@ -82,6 +82,18 @@ def read_one(nid: str, req: Request, user: str = Depends(deps.me)) -> dict:
     return {"ok": notifications.mark_read(nid, user)}
 
 
+@router.delete("/api/notifications")
+def clear_notifications(req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "files_list")
+    return {"deleted": notifications.clear_all(user)}
+
+
+@router.delete("/api/notifications/{nid}")
+def delete_notification(nid: str, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "files_list")
+    return {"ok": notifications.delete_one(nid, user)}
+
+
 class WatchSet(BaseModel):
     level: str
 
