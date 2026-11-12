@@ -451,14 +451,15 @@ async function renameProjectEntry(p, name, document, resource, host) {
   if (!next?.trim() || next.trim() === name) return
   await applyEntryRename(p, name, document, resource, next.trim())
 }
-async function applyEntryRename(p, name, document, resource, target) { // rename or move (a new path = a new folder): references are listed, never rewritten
+async function applyEntryRename(p, name, document, resource, target, confirm = true) { // rename or move (a new path = a new folder): references are listed, never rewritten
   if (!await flushTab() || !await flushTpl()) return
   const doc = docId, epoch = openN
   const body = { name, target, doc_id: resource ? '' : document }
   const preview = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, body)
   if (doc !== docId || epoch !== openN) return
   const details = [t('projects.renameReferences', { name: preview.name }), ...(preview.references.length ? preview.references : [t('projects.noReferences')]), t('projects.dynamicReferences')].join('\n')
-  if (!await ask(details, { noInput: true }) || doc !== docId || epoch !== openN) return
+  if (confirm && !await ask(details, { noInput: true })) return
+  if (doc !== docId || epoch !== openN) return
   const result = await api('POST', `/api/projects/${p.id}/rename-entry`, { ...body, target: preview.name, version: preview.version })
   tabRemapEntry(p.id, resource ? 'r:' + name : 'f:' + document + '/' + name, resource ? 'r:' + result.name : 'f:' + document + '/' + result.name)
   if (docId === doc && openN === epoch && docProject === p.id) {
@@ -485,7 +486,7 @@ async function moveEntryToFolder(p, entry, folder) { // drag onto a folder (or t
   }
   const base = entry.name.split('/').pop(), next = folder ? folder + '/' + base : base
   if (next === entry.name) return
-  await applyEntryRename(p, entry.name, entry.doc_id, entry.kind === 'resource', next)
+  await applyEntryRename(p, entry.name, entry.doc_id, entry.kind === 'resource', next, false) // drag = just move, no dialog
 }
 async function deleteProjectEntry(p, name, document, resource) {
   if (!p) { toast(t('projects.contextGone')); return }

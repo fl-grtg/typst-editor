@@ -11,8 +11,8 @@ def _skip_tour(page, name):
 
 def _new_from_gallery(page, card_text, title):
     page.click("#new")
-    page.locator("#modal button.pk").first.click()  # askPick: Document
-    expect(page.locator("#mHead")).to_have_text("New document")
+    page.locator("#modal button.pk").first.click()  # askPick: Project
+    expect(page.locator("#mHead")).to_have_text("New project")
     page.locator("#galGrid .pk", has_text=card_text).first.click()
     page.fill("#mInp", title)
     page.click("#mYes")
@@ -28,8 +28,8 @@ def test_gallery_paper_under_30s(page):
 def test_gallery_dialog_wide_and_scrollable(page):
     _skip_tour(page, "e2e_galwide")
     page.click("#new")
-    page.locator("#modal button.pk").first.click()  # askPick: Document
-    expect(page.locator("#mHead")).to_have_text("New document")
+    page.locator("#modal button.pk").first.click()  # askPick: Project
+    expect(page.locator("#mHead")).to_have_text("New project")
     grid = page.locator("#galGrid")
     expect(grid).to_be_visible()
     assert grid.locator(".pk").count() == 7, "gallery shows all 7 templates"

@@ -64,6 +64,19 @@ function markInline(ops) {
   return ops
 }
 function chgSizeText(n) { return n < 1024 ? t('changes.bytes', { n }) : t('history.sizeKb', { kb: Math.round(n / 1024) }).replace(/^ · /, '') }
+function flyToFile(view, box) { // quick eased swoosh instead of an instant jump
+  const top = box.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop - 2
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { view.scrollTop = top; return }
+  const from = view.scrollTop, dist = top - from, t0 = performance.now(), dur = 260
+  cancelAnimationFrame(view._fly) // a second click restarts the swoosh instead of fighting it
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur), e = 1 - (1 - p) ** 3
+    view.scrollTop = from + dist * e
+    if (p < 1) view._fly = requestAnimationFrame(step)
+  }
+  view._fly = requestAnimationFrame(step)
+  box.classList.remove('arrive'); void box.offsetWidth; box.classList.add('arrive')
+}
 
 // url: ".../snapshots" ; sid: the checkpoint the diff starts from (compared with the current project)
 async function openChanges({ url, sid, list = [], onClose = null }) {
@@ -118,7 +131,7 @@ async function openChanges({ url, sid, list = [], onClose = null }) {
       const item = el('button', 'chgItem'); item.type = 'button'; item.title = c.name
       item.append(el('i', 'st ' + c.status), el('span', 'nm', c.name.slice(cut + 1)), el('span', 'cnt'))
       item.lastChild.append(el('span', 'plus', '+' + st.add), document.createTextNode(' '), el('span', 'minus', '−' + st.del))
-      item.onclick = () => box.scrollIntoView({ block: 'start' })
+      item.onclick = () => flyToFile(view, box)
       files.appendChild(item)
       return box
     })

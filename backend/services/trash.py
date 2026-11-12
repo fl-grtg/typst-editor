@@ -48,8 +48,16 @@ def restore(user: str, entry_id: str) -> dict:
         # stays valid under the trash lock.
         if kind0 not in ("personal", "resource") and doc0:
             with _named_lock("upload:" + doc0):
-                return _restore_locked(user, entry_id)
-        return _restore_locked(user, entry_id)
+                result = _restore_locked(user, entry_id)
+        else:
+            result = _restore_locked(user, entry_id)
+    # notify() -> auto() -> prepared() takes the same upload lock again;
+    # call it after this function released the lock (not reentrant).
+    if result["project_id"]:
+        projects.notify(result["project_id"])
+    if result["doc_id"]:
+        emit_doc(result["doc_id"], "file")
+    return result
 
 
 def _restore_locked(user: str, entry_id: str) -> dict:
@@ -148,8 +156,4 @@ def _restore_locked(user: str, entry_id: str) -> dict:
     if charged != user:
         notify_sidebar(charged)
     assert row is not None
-    if row["project_id"]:
-        projects.notify(row["project_id"])
-    if row["doc_id"]:
-        emit_doc(row["doc_id"], "file")
     return {"kind": kind, "name": name, "project_id": row["project_id"], "doc_id": row["doc_id"]}

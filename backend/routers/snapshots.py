@@ -180,10 +180,12 @@ def rename_project_snap(project_id: str, sid: str, b: SnapRename, req: Request, 
     deps.limited(req, "snapshots")
     label = b.label.strip()
     with db.tx() as con:
-        projects.require(con, project_id, user, edit=True)
-        row = con.execute("SELECT kind FROM project_snapshots WHERE id=? AND project_id=?", (sid, project_id)).fetchone()
+        role = projects.require(con, project_id, user, edit=True)
+        row = con.execute("SELECT kind,author FROM project_snapshots WHERE id=? AND project_id=?", (sid, project_id)).fetchone()
         if not row:
             raise HTTPException(404, "Checkpoint not found")
+        if role != "owner" and user != row["author"]:
+            raise HTTPException(403, "Only the owner or the author can rename a checkpoint")
         kind = "manual" if label else row["kind"]
         con.execute("UPDATE project_snapshots SET label=?,kind=? WHERE id=?", (label, kind, sid))
     return {"label": label, "kind": kind}
@@ -261,14 +263,17 @@ def _restore_project_state(project_id: str, sid: str, b: SnapRestore, user: str)
                     saved = con.execute('SELECT content FROM docs WHERE id=?', (did,)).fetchone()[0]
                     if live is not None and live != saved and not b.force:
                         raise HTTPException(409, 'Project has unsaved live changes; retry with force')
-                project_history.save(con, project_id, before, 'Before restore', kind='auto', author=user)
+                # The safety net must survive auto-retention, and the final
+                # quota check below accounts for it; a plain cap check here
+                # would reject restores that free space.
+                project_history.save(con, project_id, before, 'Before restore', kind='manual', author=user, check=False)
                 extra = 0
                 for d in state['documents']:
                     old = con.execute('SELECT content,yjs FROM docs WHERE id=?', (d['id'],)).fetchone()
                     extra += len(d['content'].encode()) - (len(old[0].encode()) + len(old[1] or b'') if old else 0)
                     extra += sum(len(base64.b64decode(v)) for v in d['files'].values()) - sum(len(v) for v in file_backup[d['id']].values())
                 extra += sum(len(v.encode()) for v in state['resources'].values()) - sum(len(v.encode()) for v in before['resources'].values())
-                quota.check_quota(owner, max(0, extra), con)
+                quota.check_quota(owner, extra, con)
                 new_docs = sum(not con.execute('SELECT 1 FROM docs WHERE id=?', (d['id'],)).fetchone() for d in state['documents'])
                 if new_docs + con.execute('SELECT COUNT(*) FROM docs WHERE owner=?', (owner,)).fetchone()[0] > config.load().MAX_DOCS_PER_USER:
                     raise HTTPException(400, 'Too many docs')

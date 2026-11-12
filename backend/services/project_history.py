@@ -104,14 +104,15 @@ def _retain(con: sqlite3.Connection, project_id: str) -> None:
         f"({','.join('?' * len(keep))})", (project_id, *keep))
 
 
-def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual', author: str = '') -> str:
+def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual', author: str = '', check: bool = True) -> str:
     content = json.dumps(state, ensure_ascii=False, sort_keys=True)
     owner = con.execute('SELECT owner FROM projects WHERE id=?', (project_id,)).fetchone()[0]
     sid = db.new_id('ps_')
     con.execute('INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind,author) VALUES (?,?,?,?,?,?,?)',
                 (sid, project_id, content, label, db.now_iso(), kind, author))
     _retain(con, project_id)
-    quota.check_quota(owner, 0, con)
+    if check:  # a restore checks the final state itself (it may free space)
+        quota.check_quota(owner, 0, con)
     return sid
 
 
@@ -195,7 +196,9 @@ def auto(project_id: str, present: frozenset[str] = frozenset()) -> None:
         with prepared(project_id, p['owner']) as (state, expected), db.tx() as con:
             from backend.services import projects
 
-            projects.require(con, project_id, p['owner'], edit=True)
+            # The owner only authorises the capture; the actor is whoever
+            # last wrote through a route (note_editor), not the owner.
+            projects.require(con, project_id, p['owner'], edit=True, note=False)
             last = con.execute('SELECT created_at FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1', (project_id,)).fetchone()
             if last and last[0] >= (datetime.now(UTC) - timedelta(seconds=SNAP_EVERY)).isoformat():
                 return
@@ -208,7 +211,7 @@ def auto(project_id: str, present: frozenset[str] = frozenset()) -> None:
         log.warning('Project auto checkpoint skipped: %s', e)
 
 
-def auto_document(doc_id: str, present: frozenset[str] = frozenset()) -> None:
+def auto_document(doc_id: str, present: frozenset[str] = frozenset(), actor: str = "") -> None:
     # Warn-only: callers (save_doc / op_edit / files routes) have already
     # committed their mutation and only catch HTTPException, so a busy DB
     # here must not turn into a post-commit 500.
@@ -222,4 +225,8 @@ def auto_document(doc_id: str, present: frozenset[str] = frozenset()) -> None:
         log.warning('auto_document %s lookup skipped: %s', doc_id, e)
         return
     if row and row[0]:
+        if actor:
+            from backend.services import notifications
+
+            notifications.note_editor(row[0], actor)
         auto(row[0], present)

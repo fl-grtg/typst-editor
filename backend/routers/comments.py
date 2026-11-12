@@ -107,6 +107,7 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
     if b.anchor < 0:
         raise HTTPException(400, "Anchor < 0")
     cid = db.new_id("c_")
+    ref = cid
     con = db.connect()
     try:
         if b.parent_id:
@@ -116,6 +117,9 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
                 raise HTTPException(404, "Thread gone")
             if p["parent_id"]:
                 raise HTTPException(400, "Nested replies not allowed")
+            # The inbox renders whole threads: point a reply mention at the
+            # thread root, otherwise the reply id is not in `threads`.
+            ref = b.parent_id
         q = b.quote[:500]
         anchor = max(1, b.anchor)  # 1-based (UI); 0 = top alias -> line 1
         con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, created_at) "
@@ -124,7 +128,7 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
         con.commit()
     finally:
         con.close()
-    notifications.notify_mentions(doc_id, user, b.text, cid)
+    notifications.notify_mentions(doc_id, user, b.text, ref)
     return {"id": cid}
 
 

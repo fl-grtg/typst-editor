@@ -1,7 +1,9 @@
 """Inbox: mentions, watch levels, proposals, change notices and the baseline for the change screen."""
 from conftest import login, register_user
 
+from backend import db
 from backend.services import project_history
+from backend.services.notifications import create_notification
 
 
 def _project(c):
@@ -102,3 +104,46 @@ def test_watch_list_covers_every_member_project(c):
     assert [(w['project_id'], w['level']) for w in c.get('/api/watch').json()['projects'] if w['project_id'] == pid] == [(pid, 'proposals')]
     c.put(f'/api/projects/{pid}/watch', json={'level': 'mentions'})
     assert [w['level'] for w in c.get('/api/watch').json()['projects'] if w['project_id'] == pid] == ['mentions']
+
+
+def test_change_notice_goes_to_the_owner_with_the_editor_as_actor(c):
+    did, pid = _project(c)
+    login(c, 'alice')
+    assert c.put(f'/api/projects/{pid}/watch', json={'level': 'all'}).status_code == 200
+    login(c, 'bob')
+    assert c.put(f'/api/projects/{pid}/watch', json={'level': 'all'}).status_code == 200
+    con = db.connect()
+    try:
+        con.execute("UPDATE project_snapshots SET created_at='2020-01-01T00:00:00+00:00' WHERE project_id=?", (pid,))
+        con.commit()
+    finally:
+        con.close()
+    assert c.post(f'/api/projects/{pid}/resources', json={'name': 'bob.typ', 'content': 'x'}).status_code == 200
+    assert _inbox(c, 'bob')['items'] == []  # never notify the actor about their own change
+    changes = [n for n in _inbox(c, 'alice')['items'] if n['type'] == 'changes']
+    assert len(changes) == 1
+    assert changes[0]['actor'] == 'bob'
+
+
+def test_mention_in_a_reply_points_at_the_thread_root(c):
+    did, _ = _project(c)
+    login(c, 'alice')
+    root = c.post(f'/api/docs/{did}/comments', json={'anchor': 1, 'text': 'thread root'}).json()['id']
+    login(c, 'bob')
+    assert c.post(f'/api/docs/{did}/comments', json={'anchor': 1, 'text': '@alice please look', 'parent_id': root}).status_code == 200
+    mentions = [n for n in _inbox(c, 'alice')['items'] if n['type'] == 'mention']
+    assert len(mentions) == 1
+    assert mentions[0]['ref'] == root  # inbox opens the top-level thread, not the reply id
+
+
+def test_legacy_reply_mention_rows_are_listed_with_the_thread_root(c):
+    did, _ = _project(c)
+    login(c, 'alice')
+    root = c.post(f'/api/docs/{did}/comments', json={'anchor': 1, 'text': 'thread root'}).json()['id']
+    login(c, 'bob')
+    reply = c.post(f'/api/docs/{did}/comments', json={'anchor': 1, 'text': 'no mention yet', 'parent_id': root}).json()['id']
+    login(c, 'alice')
+    create_notification('alice', 'mention', did, '@alice old row', ref=reply, actor='bob')
+    mentions = [n for n in _inbox(c, 'alice')['items'] if n['type'] == 'mention']
+    assert len(mentions) == 1
+    assert mentions[0]['ref'] == root  # pre-fix rows stored the reply id

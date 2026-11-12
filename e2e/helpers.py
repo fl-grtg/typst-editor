@@ -32,8 +32,8 @@ def login(page: Page, name: str, pw: str = "pass1234pass") -> None:
 
 def create_doc(page: Page, title: str = "New document") -> None:
     page.click("#new")
-    page.locator("#modal button.pk").first.click()  # card 0 = "Document"
-    expect(page.locator("#mHead")).to_have_text("New document")
+    page.locator("#modal button.pk").first.click()  # card 0 = "Project"
+    expect(page.locator("#mHead")).to_have_text("New project")
     page.fill("#mInp", title)
     page.click("#mYes")
     expect(page.locator("#title")).to_have_text(title)

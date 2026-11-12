@@ -1049,6 +1049,8 @@ body.settings-open #modal { z-index: 302; }
 .chgView { flex: 1; min-width: 0; overflow: auto; padding: 14px 16px 24px; background: var(--bg); }
 .chgEmpty { padding: 24px; color: var(--sub); font-size: 13px; }
 .chgFile { margin-bottom: 14px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--card); overflow: hidden; }
+@keyframes chgArrive { from { box-shadow: 0 0 0 2px rgba(9, 105, 218, .55); } to { box-shadow: 0 0 0 0 rgba(9, 105, 218, 0); } }
+.chgFile.arrive { animation: chgArrive .55s ease-out; }
 .chgFileHead { display: flex; align-items: center; gap: 6px; width: 100%; height: auto; min-height: 36px; padding: 6px 12px; text-align: left; font-size: 13px; background: var(--hover); border: 0; border-radius: 0; color: var(--text); }
 .chgFileHead .chev { width: 12px; color: var(--sub); font-size: 11px; }
 .chgFileHead .dir { color: var(--sub); margin-right: -3px; }
@@ -1072,6 +1074,11 @@ body.settings-open #modal { z-index: 302; }
 .chgFold:hover { color: #0969da; background: color-mix(in srgb, #0969da 16%, transparent); }
 .chgFold .ic { width: 16px; text-align: center; }
 @media (prefers-reduced-transparency: reduce) { .chgOverlay { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@media (prefers-reduced-motion: reduce) { .chgFile.arrive { animation: none; } }
+@media (max-width: 640px) {
+  .chgBody { flex-direction: column; }
+  .chgFiles { width: auto; max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line-2); }
+}
 
 /* Inbox: bell with count, list popover under it */
 #inboxPop { position: absolute; top: calc(100% + 6px); right: 8px; z-index: var(--z-pop); width: 360px; max-width: calc(100vw - 24px); max-height: 80vh; overflow: auto; padding: 8px; font-size: 12.5px; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); color: var(--text); }
@@ -7889,6 +7896,19 @@ function markInline(ops) {
   return ops
 }
 function chgSizeText(n) { return n < 1024 ? t('changes.bytes', { n }) : t('history.sizeKb', { kb: Math.round(n / 1024) }).replace(/^ · /, '') }
+function flyToFile(view, box) { // quick eased swoosh instead of an instant jump
+  const top = box.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop - 2
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { view.scrollTop = top; return }
+  const from = view.scrollTop, dist = top - from, t0 = performance.now(), dur = 260
+  cancelAnimationFrame(view._fly) // a second click restarts the swoosh instead of fighting it
+  const step = now => {
+    const p = Math.min(1, (now - t0) / dur), e = 1 - (1 - p) ** 3
+    view.scrollTop = from + dist * e
+    if (p < 1) view._fly = requestAnimationFrame(step)
+  }
+  view._fly = requestAnimationFrame(step)
+  box.classList.remove('arrive'); void box.offsetWidth; box.classList.add('arrive')
+}
 
 // url: ".../snapshots" ; sid: the checkpoint the diff starts from (compared with the current project)
 async function openChanges({ url, sid, list = [], onClose = null }) {
@@ -7943,7 +7963,7 @@ async function openChanges({ url, sid, list = [], onClose = null }) {
       const item = el('button', 'chgItem'); item.type = 'button'; item.title = c.name
       item.append(el('i', 'st ' + c.status), el('span', 'nm', c.name.slice(cut + 1)), el('span', 'cnt'))
       item.lastChild.append(el('span', 'plus', '+' + st.add), document.createTextNode(' '), el('span', 'minus', '−' + st.del))
-      item.onclick = () => box.scrollIntoView({ block: 'start' })
+      item.onclick = () => flyToFile(view, box)
       files.appendChild(item)
       return box
     })
@@ -8729,7 +8749,9 @@ async function goInbox(it) {
     if (it.doc_id !== docId) { await openDoc(it.doc_id); if (docId !== it.doc_id) return }
     if (activeFile) await switchTab('')
     await loadComments(true)
-    const th = threads.find(x => x.id === it.ref)
+    // Older notifications stored the reply id; the inbox only lists thread
+    // roots, so resolve a reply ref to its thread instead of claiming it's gone.
+    const th = threads.find(x => x.id === it.ref) || threads.find(x => (x.replies || []).some(r => r.id === it.ref))
     if (!th) { toast(t('inbox.gone')); return }
     const line = Math.max(1, Math.min(cm.state.doc.lines, th.anchor || 1))
     cm.dispatch({ selection: { anchor: cm.state.doc.line(line).from }, effects: EditorView.scrollIntoView(cm.state.doc.line(line).from, { y: 'center' }) })
@@ -9426,14 +9448,15 @@ async function renameProjectEntry(p, name, document, resource, host) {
   if (!next?.trim() || next.trim() === name) return
   await applyEntryRename(p, name, document, resource, next.trim())
 }
-async function applyEntryRename(p, name, document, resource, target) { // rename or move (a new path = a new folder): references are listed, never rewritten
+async function applyEntryRename(p, name, document, resource, target, confirm = true) { // rename or move (a new path = a new folder): references are listed, never rewritten
   if (!await flushTab() || !await flushTpl()) return
   const doc = docId, epoch = openN
   const body = { name, target, doc_id: resource ? '' : document }
   const preview = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, body)
   if (doc !== docId || epoch !== openN) return
   const details = [t('projects.renameReferences', { name: preview.name }), ...(preview.references.length ? preview.references : [t('projects.noReferences')]), t('projects.dynamicReferences')].join('\n')
-  if (!await ask(details, { noInput: true }) || doc !== docId || epoch !== openN) return
+  if (confirm && !await ask(details, { noInput: true })) return
+  if (doc !== docId || epoch !== openN) return
   const result = await api('POST', `/api/projects/${p.id}/rename-entry`, { ...body, target: preview.name, version: preview.version })
   tabRemapEntry(p.id, resource ? 'r:' + name : 'f:' + document + '/' + name, resource ? 'r:' + result.name : 'f:' + document + '/' + result.name)
   if (docId === doc && openN === epoch && docProject === p.id) {
@@ -9460,7 +9483,7 @@ async function moveEntryToFolder(p, entry, folder) { // drag onto a folder (or t
   }
   const base = entry.name.split('/').pop(), next = folder ? folder + '/' + base : base
   if (next === entry.name) return
-  await applyEntryRename(p, entry.name, entry.doc_id, entry.kind === 'resource', next)
+  await applyEntryRename(p, entry.name, entry.doc_id, entry.kind === 'resource', next, false) // drag = just move, no dialog
 }
 async function deleteProjectEntry(p, name, document, resource) {
   if (!p) { toast(t('projects.contextGone')); return }

@@ -53,7 +53,9 @@ async function goInbox(it) {
     if (it.doc_id !== docId) { await openDoc(it.doc_id); if (docId !== it.doc_id) return }
     if (activeFile) await switchTab('')
     await loadComments(true)
-    const th = threads.find(x => x.id === it.ref)
+    // Older notifications stored the reply id; the inbox only lists thread
+    // roots, so resolve a reply ref to its thread instead of claiming it's gone.
+    const th = threads.find(x => x.id === it.ref) || threads.find(x => (x.replies || []).some(r => r.id === it.ref))
     if (!th) { toast(t('inbox.gone')); return }
     const line = Math.max(1, Math.min(cm.state.doc.lines, th.anchor || 1))
     cm.dispatch({ selection: { anchor: cm.state.doc.line(line).from }, effects: EditorView.scrollIntoView(cm.state.doc.line(line).from, { y: 'center' }) })

@@ -242,3 +242,31 @@ def test_empty_trash_removes_twelve_documents_and_mixed_entries_in_one_request(c
         assert con.execute("SELECT trashed FROM docs WHERE id=?", (foreign,)).fetchone()[0] == 1
         assert con.execute("SELECT id FROM trash_entries WHERE id=?", (foreign_entry,)).fetchone()
     assert c.delete("/api/trash").json() == {"documents": []}
+
+
+def test_file_restore_with_stale_checkpoint_does_not_deadlock(c):
+    import threading
+
+    register_user(c, "alice")
+    did = c.post("/api/docs/create", json={"title": "Restore deadlock", "content": "x"}).json()["id"]
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
+    assert c.post(f"/api/docs/{did}/files", files={"f": ("pic.png", b"png")}).status_code == 200
+    assert c.delete(f"/api/docs/{did}/files/pic.png").status_code == 200
+    entry = _trash_for(c, "pic.png")[0]
+    con = db.connect()
+    try:
+        con.execute("UPDATE project_snapshots SET created_at='2020-01-01T00:00:00+00:00' WHERE project_id=?", (pid,))
+        con.commit()
+    finally:
+        con.close()
+    out = {}
+
+    def worker():
+        out["r"] = c.post(f"/api/trash/{entry['id']}/restore")
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t.join(5)
+    assert not t.is_alive(), "trash restore deadlocked on its own upload lock"
+    assert out["r"].status_code == 200, out["r"].text
+    assert c.get(f"/api/docs/{did}/files/pic.png").content == b"png"

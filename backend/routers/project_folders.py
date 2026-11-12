@@ -37,6 +37,8 @@ class DocFolder(BaseModel):
 def folder_path(raw: str) -> str:
     """Clean folder path ("a/b"), at most MAX_FOLDER_DEPTH levels."""
     n = safe_name((raw or "").strip().strip("/") + "/x")[:-2]
+    if not n:
+        raise HTTPException(400, "Folder path is empty")
     if n.count("/") + 1 > MAX_FOLDER_DEPTH:
         raise HTTPException(400, f"Folders can be nested at most {MAX_FOLDER_DEPTH} levels deep")
     return n
@@ -81,7 +83,11 @@ def rename_folder(project_id: str, b: FolderRename, req: Request, user: str = De
     with ExitStack() as stack:
         for d in doc_ids:  # sorted: one fixed lock order
             stack.enter_context(_named_lock(f"upload:{d}"))
-        return _rename_locked(project_id, user, old, new, doc_ids)
+        res = _rename_locked(project_id, user, old, new, doc_ids)
+    # notify() -> auto() -> prepared() takes the same upload locks; call it
+    # only after the rename released them (threading.Lock is not reentrant).
+    projects.notify(project_id)
+    return res
 
 
 def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list[str]) -> dict:
@@ -101,19 +107,28 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
         for _, f in doc_moves:
             folder_path(f)
         # every name in a project is one namespace: no collisions with what stays behind
-        taken = {n.casefold() for n in res if not _within(n, old)}
+        occupied = {n.casefold() for n in res if not _within(n, old)}
         for d in doc_ids:
-            taken |= {e.path.casefold() for e in store.list(d) if (d, e.path) not in moved_src}
+            occupied |= {e.path.casefold() for e in store.list(d) if (d, e.path) not in moved_src}
         for target in [t for _, t in res_moves] + [t for _, _, t in moves]:
-            if target.casefold() in taken:
+            key = target.casefold()
+            if key in occupied:
                 raise HTTPException(409, "Name already exists in this project")
-            taken.add(target.casefold())
+            # A file/resource named like a parent directory would make the
+            # filesystem move fail (mkdir on a file, NotADirectoryError).
+            parts = key.split("/")
+            if any("/".join(parts[:i]) in occupied for i in range(1, len(parts))):
+                raise HTTPException(409, "Name already exists in this project")
+            occupied.add(key)
     done: list[tuple[str, str, str]] = []
     try:
         for d, o, n in moves:
             src, dst = store.doc_path(d, o), store.doc_path(d, n)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            os.rename(src, dst)
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.rename(src, dst)
+            except (FileExistsError, NotADirectoryError) as e:
+                raise HTTPException(409, "Name already exists in this project") from e
             done.append((d, o, n))
         with db.tx() as con:
             projects.require(con, project_id, user, edit=True)
@@ -141,7 +156,6 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
             except OSError:
                 pass
         raise
-    projects.notify(project_id)
     return {"path": new}
 
 

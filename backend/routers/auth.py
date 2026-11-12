@@ -416,6 +416,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
             # this move the final DELETE FROM users cascades away every
             # package the user authored.
             con.execute("UPDATE suggestion_packages SET author=? WHERE author=?", (new, user))
+            con.execute("UPDATE project_snapshots SET author=? WHERE author=?", (new, user))
             con.execute("UPDATE trash_entries SET owner=? WHERE owner=?", (new, user))
             con.execute("DELETE FROM users WHERE name=?", (user,))
     except sqlite3.OperationalError as e:

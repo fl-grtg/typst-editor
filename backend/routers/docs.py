@@ -98,7 +98,7 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(deps.me)) -> dict
     except sqlite3.OperationalError as e:
         raise deps.busy_503("create_doc", e) from e
     from backend.services.project_history import auto_document
-    auto_document(did)
+    auto_document(did, actor=user)
     quota_svc.invalidate_quota_cache(user)
     notify_sidebar(user)
     return {"id": did}

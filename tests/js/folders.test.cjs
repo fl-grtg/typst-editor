@@ -44,6 +44,7 @@ test('moving into a folder renames the path; documents use the folder endpoint',
   await c.moveEntryToFolder(p, { kind: 'document', doc_id: 'd' }, 'chapters')
   assert.deepEqual(calls[0].slice(0, 5), ['rename', p, 'x.typ', 'd', true])
   assert.equal(calls[0][5], 'lib/x.typ')
+  assert.equal(calls[0][6], false) // drag = move silently, no reference dialog
   assert.equal(calls[1][5], 'pic.png')
   assert.equal(JSON.stringify(calls[2]), JSON.stringify(['POST', '/api/projects/p/docs/d/folder', { folder: 'chapters' }]))
   assert.equal(calls.length, 3)

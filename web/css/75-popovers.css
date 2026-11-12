@@ -241,6 +241,8 @@ body.settings-open #modal { z-index: 302; }
 .chgView { flex: 1; min-width: 0; overflow: auto; padding: 14px 16px 24px; background: var(--bg); }
 .chgEmpty { padding: 24px; color: var(--sub); font-size: 13px; }
 .chgFile { margin-bottom: 14px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--card); overflow: hidden; }
+@keyframes chgArrive { from { box-shadow: 0 0 0 2px rgba(9, 105, 218, .55); } to { box-shadow: 0 0 0 0 rgba(9, 105, 218, 0); } }
+.chgFile.arrive { animation: chgArrive .55s ease-out; }
 .chgFileHead { display: flex; align-items: center; gap: 6px; width: 100%; height: auto; min-height: 36px; padding: 6px 12px; text-align: left; font-size: 13px; background: var(--hover); border: 0; border-radius: 0; color: var(--text); }
 .chgFileHead .chev { width: 12px; color: var(--sub); font-size: 11px; }
 .chgFileHead .dir { color: var(--sub); margin-right: -3px; }
@@ -264,6 +266,11 @@ body.settings-open #modal { z-index: 302; }
 .chgFold:hover { color: #0969da; background: color-mix(in srgb, #0969da 16%, transparent); }
 .chgFold .ic { width: 16px; text-align: center; }
 @media (prefers-reduced-transparency: reduce) { .chgOverlay { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@media (prefers-reduced-motion: reduce) { .chgFile.arrive { animation: none; } }
+@media (max-width: 640px) {
+  .chgBody { flex-direction: column; }
+  .chgFiles { width: auto; max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line-2); }
+}
 
 /* Inbox: bell with count, list popover under it */
 #inboxPop { position: absolute; top: calc(100% + 6px); right: 8px; z-index: var(--z-pop); width: 360px; max-width: calc(100vw - 24px); max-height: 80vh; overflow: auto; padding: 8px; font-size: 12.5px; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); color: var(--text); }

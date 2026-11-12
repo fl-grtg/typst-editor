@@ -108,11 +108,10 @@ def test_drag_entries_into_a_folder_and_back_to_the_project_root(page):
     row = page.locator("aside .doc.sub", has_text="other.typ")
     page.locator("aside .fhd.folder", has_text="lib").scroll_into_view_if_needed()
     row.drag_to(page.locator("aside .fhd.folder", has_text="lib"))
-    page.click("#mYes")  # references are listed, never rewritten: confirm
+    # drag & drop is a plain move: no reference dialog to confirm
     expect(page.locator("aside .doc.sub[title='lib/other.typ']")).to_have_count(1)
     assert names() == ["lib/other.typ", "lib/style.typ"]
     page.locator("aside .doc.sub[title='lib/other.typ']").drag_to(page.locator("aside .project-group").filter(has_text="Main").first.locator(".fhd.project"))
-    page.click("#mYes")
     expect(page.locator("aside .doc.sub[title='other.typ']")).to_have_count(1)
     assert names() == ["lib/style.typ", "other.typ"]
 

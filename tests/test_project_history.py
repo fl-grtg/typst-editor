@@ -30,7 +30,8 @@ def test_checkpoint_restores_documents_modules_and_binary_attachments(c):
     with db.tx() as con:
         assert con.execute('SELECT trashed FROM docs WHERE id=?', (added,)).fetchone()[0] == 1
     history = c.get(f'/api/projects/{pid}/snapshots').json()['snapshots']
-    assert any(s['label'] == 'Before restore' for s in history)
+    before = next(s for s in history if s['label'] == 'Before restore')
+    assert before['kind'] == 'manual'  # the safety net must survive auto-retention
 
 
 def test_project_rename_entries_and_editor_delete(c):
@@ -78,10 +79,11 @@ def test_checkpoint_rename_delete_rights_and_compare(c):
     login(c, 'bob')
     bobs = c.post(f'/api/projects/{pid}/snapshots', json={'label': 'Bob'}).json()['id']
     assert c.delete(f'/api/projects/{pid}/snapshots/{first}').status_code == 403  # alice's, bob is not owner
-    assert c.patch(f'/api/projects/{pid}/snapshots/{first}', json={'label': 'Renamed by editor'}).status_code == 200
+    assert c.patch(f'/api/projects/{pid}/snapshots/{first}', json={'label': 'Renamed by editor'}).status_code == 403
+    assert c.patch(f'/api/projects/{pid}/snapshots/{bobs}', json={'label': 'Bob 2'}).json()['label'] == 'Bob 2'  # own checkpoint
     # compare two stored checkpoints and a missing one
     cmp = c.get(f'/api/projects/{pid}/snapshots/{first}', params={'against': bobs}).json()
-    assert cmp['changes'] == [] and cmp['against']['id'] == bobs and cmp['against']['label'] == 'Bob'
+    assert cmp['changes'] == [] and cmp['against']['id'] == bobs and cmp['against']['label'] == 'Bob 2'
     assert c.get(f'/api/projects/{pid}/snapshots/{first}', params={'against': 'nope'}).status_code == 404
     assert c.delete(f'/api/projects/{pid}/snapshots/{bobs}').status_code == 200  # own checkpoint
     login(c, 'alice')
@@ -110,3 +112,19 @@ def test_changes_use_sidebar_paths_and_mark_binaries(c):
     assert [(r['name'], r['status'], r['binary']) for r in rows] == [
         ('lib/style.typ', 'added', False), ('logo.png', 'added', True)]  # no project name, no main.typ
     assert rows[1]['after_size'] == 6 and rows[1]['after'] == ''
+
+
+def test_editor_cannot_name_a_foreign_automatic_checkpoint(c):
+    register_user(c, 'alice')
+    register_user(c, 'bob')
+    login(c, 'alice')
+    did = c.post('/api/docs/create', json={'title': 'Doc'}).json()['id']
+    pid = c.get(f'/api/docs/{did}').json()['project_id']
+    assert c.post(f'/api/projects/{pid}/members', json={'username': 'bob', 'role': 'editor'}).status_code == 200
+    with db.tx() as con:
+        con.execute("INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind,author) "
+                    "VALUES ('ps_auto_editor',?,'{}','','2000-01-01T00:00:00+00:00','auto','')", (pid,))
+    login(c, 'bob')
+    assert c.patch(f'/api/projects/{pid}/snapshots/ps_auto_editor', json={'label': 'Pinned'}).status_code == 403
+    login(c, 'alice')
+    assert c.patch(f'/api/projects/{pid}/snapshots/ps_auto_editor', json={'label': 'Pinned'}).json()['kind'] == 'manual'
