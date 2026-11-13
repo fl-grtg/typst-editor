@@ -162,10 +162,10 @@ body.file-view #leftCol { display: flex !important; width: 100% !important; flex
 .sidebar-drop { min-width: 0; border-radius: var(--r-sm); }
 
 /* Project folders: indent follows --lv (0 = project root); a soft left bar marks the drop target */
-aside .fhd.project { margin-left: 0; padding-left: 10px; height: 34px; font-size: 14px; font-weight: 400; letter-spacing: -.01em; text-transform: none; color: var(--text); border-radius: var(--r-sm); transition: background .12s ease; }
-aside .fhd.project:hover, aside .fhd.project.active { background: var(--hover); } /* groups breathe through spacing; the active project gets a quiet chip */
-aside .project-group + .project-group { margin-top: 14px; padding-top: 2px; border-top: 0; }
-aside .fhd.project b { font-weight: 400; }
+aside .fhd.project { margin-left: 0; padding-left: 10px; height: 34px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); background: var(--hover); border-radius: var(--r-sm); transition: background .12s ease; }
+aside .fhd.project:hover { background: var(--press); }
+aside .project-group + .project-group { margin-top: 9px; padding-top: 0; border-top: 0; }
+aside .fhd.project b { font-weight: 600; }
 aside .doc.sub { margin-left: 30px; } /* shared/trash/module rows keep the folder-text line */
 aside .project-group .doc.sub { margin-left: calc(16px + var(--lv, 0) * 14px); } /* root entries sit on the folder chevron, nested ones on the folder text */
 aside .fhd.folder { margin-left: calc(16px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text); }

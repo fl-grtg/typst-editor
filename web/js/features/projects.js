@@ -148,7 +148,6 @@ function paintProjects(box, shared) {
     group.dataset.projectId = p.id // anchor for session draft placement (paintSessionSidebar)
     box.appendChild(group)
     const h = el('div', 'fhd project'), key = 'project:' + p.id
-    if (docProject === p.id) h.classList.add('active')
     const title = el('b', null, p.title)
     title.title = p.title; title.setAttribute('role', 'button')
     title.setAttribute('aria-expanded', String(!shut.has(key)))
