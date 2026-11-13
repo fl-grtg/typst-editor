@@ -271,7 +271,7 @@ function paintTabs() {
     w.classList.toggle('package-deleted', deleted)
     const b = el('button', 'tab')
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.dataset.k = k
-    const ic = el('span', 'ti'); ic.dataset.kind = tabKind(k); ic.setAttribute('aria-hidden', 'true')
+    const ic = el('span', 'ti'); ic.dataset.kind = tabKind(k); if (ic.dataset.kind === 'tpl') ic.dataset.ext = (k.match(/\.([a-z0-9]+)$/i)?.[1] || 'typ').toUpperCase(); ic.setAttribute('aria-hidden', 'true')
     b.title = '/' + nm + (tabCanEdit(k) ? '' : ' · ' + t('projects.readonly'))
     b.append(ic, el('span', 'tn', nm.split('/').pop()))
     const ec = tabErrs(k)

@@ -60,7 +60,7 @@ function renderTpl() {
 async function newResource(kind) {
   const ext = kind === 'resource' ? await chooseFileType() : RES_EXT[kind]
   if (!ext) return
-  const selected = await askNewTpl('file' + ext, true)
+  const selected = await askNewTpl('file' + ext, t('templates.newTitle'))
   const raw = selected?.name
   if (!raw?.trim()) return
   let name = raw.trim().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '')

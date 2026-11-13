@@ -8,9 +8,9 @@ def test_global_library_and_table_can_be_created_and_reused(page):
     register(page, "shelf_creator")
     for ext, name in [("bib", "sources.bib"), ("csv", "numbers.csv")]:
         page.locator("#tplH").hover()
-        page.locator("#tplH button[aria-label='New Modules']").click()
+        page.locator("#tplH button[aria-label='New module']").click()
         page.locator("#modal button.pk").filter(has_text="." + ext).first.click()
-        expect(page.locator("#mHead")).to_have_text("New file")
+        expect(page.locator("#mHead")).to_have_text("New module")
         page.fill("#mInp", name)
         page.click("#mYes")
         expect(page.locator("#title")).to_have_text(name)

@@ -41,7 +41,7 @@ async function loadDocResources(force) {
 }
 const projectResources = () => docId && (docProject || docRole !== 'owner') ? window.docTpl : myTpl
 const RES_EXT = { template: '.typ', library: '.bib', table: '.csv', resource: '.typ', data: '.json' }
-const resLabel = kind => ['resource', 'data'].includes(kind) ? t('docs.secFiles') : ({ template: t('templates.kindtemplate'), library: t('templates.kindlibrary'), table: t('templates.kindtable') })[kind]
+const resLabel = kind => kind === 'library' ? t('templates.kindlibrary') : kind === 'table' ? t('templates.kindtable') : t('templates.kindModule')
 const resKind = t => (t && t.kind) || (((t || {}).name || '').toLowerCase().endsWith('.bib') ? 'library' : ((t || {}).name || '').toLowerCase().endsWith('.csv') ? 'table' : 'template')
 const resOf = kind => (kind === 'resource' ? myTpl : myTpl.filter(t => resKind(t) === kind)).slice().sort((a, b) => a.name.localeCompare(b.name))
 const groupBy = list => { // top-level first + folder map (caller adds empty folders)

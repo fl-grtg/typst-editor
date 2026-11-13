@@ -64,7 +64,7 @@
 #tabs .ti[data-kind="bib"] { background: #c47a12; }
 #tabs .ti[data-kind="csv"] { background: #2f9e5b; }
 #tabs .ti[data-kind="tpl"] { background: #7b5cd6; }
-#tabs .ti[data-kind="tpl"]::before { content: 'tpl'; }
+#tabs .ti[data-kind="tpl"]::before { content: attr(data-ext); }
 #tabs .ti[data-kind="tpl"] { padding: 0 5px; letter-spacing: .03em; } /* 3-letter badge needs side air, not a squeezed box */
 #tabs .tn { max-width: 200px; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; padding: 1px 0; } /* descenders (main.typ, test.typ) must not clip */
 #tabs .te { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font: 700 10px/16px var(--ui); text-align: center; }

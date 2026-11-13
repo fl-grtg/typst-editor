@@ -121,12 +121,12 @@ function askNewDoc(uploadTitle, headTitle) { // one dialog: title + folder radio
     setTimeout(() => { if (ov.style.display !== 'none') { inp.focus(); inp.select() } }, 30)
   })
 }
-function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (like askNewDoc, not 3 cascades)
+function askNewTpl(uploadName, headTitle) { // one dialog: name + folder radio (like askNewDoc, not 3 cascades)
   return new Promise(res => {
     if (askRes) askRes(null)
     const prev = document.activeElement
     const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
-    $('mHead').textContent = creating ? t('files.newFileHead') : uploadName ? t('files.upload') : t('templates.newTitle')
+    $('mHead').textContent = headTitle || (uploadName ? t('files.upload') : t('templates.newTitle'))
     const inp = $('mInp'); inp.style.display = ''; inp.value = uploadName || ''; inp.placeholder = t('templates.namePh'); inp.setAttribute('aria-label', t('templates.nameAria'))
     const row = document.querySelector('#mCard .mRow'); row.style.display = ''
     const yes = $('mYes'); yes.disabled = false; yes.textContent = t('common.create'); yes.style.background = ''; yes.style.color = ''

@@ -64,7 +64,7 @@ def test_personal_resource_rename_after_sidebar_refresh(page):
     expect(page.locator("#own .doc .t", has_text="Refresh trigger")).to_be_visible()
     assert page.evaluate("node => !node.isConnected", old_row)
 
-    menu.locator("button").filter(has_text="Rename resource").click()
+    menu.locator("button").filter(has_text="Rename module").click()
     inp = page.locator("#tpls input.renameInput")
     expect(inp).to_be_visible()
     inp.fill("module-renamed.typ")

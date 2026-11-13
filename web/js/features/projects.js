@@ -44,6 +44,8 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
   input.value = value; input.maxLength = opts.maxLen || 240
   input.setAttribute('aria-label', opts.label || t('shell.rename'))
   input.spellcheck = false
+  const wasDraggable = host.draggable // dragging the row would swallow text selection
+  host.draggable = false
   label.replaceWith(input)
   host.classList.add('renaming')
   return new Promise(resolve => {
@@ -54,6 +56,7 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
       const next = input.value.trim()
       const deferred = window.__sidebarDeferred
       input.replaceWith(label)
+      host.draggable = wasDraggable
       host.classList.remove('renaming')
       resolve(save && next && next !== value ? next : null)
       if (deferred && !document.querySelector('aside input.renameInput')) {
@@ -63,6 +66,8 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
     }
     input.onclick = e => e.stopPropagation()
     input.ondblclick = e => e.stopPropagation()
+    input.ondragstart = e => e.preventDefault() // dragging the auto-selected text must extend the selection, not start a text drag
+    input.onmousedown = () => { if (input.selectionStart !== input.selectionEnd) input.setSelectionRange(input.selectionStart, input.selectionStart) } // drop the auto-selection before the browser starts a text drag
     input.onkeydown = e => {
       if (e.key === 'Enter') { e.preventDefault(); finish(true) }
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
@@ -143,6 +148,7 @@ function paintProjects(box, shared) {
     group.dataset.projectId = p.id // anchor for session draft placement (paintSessionSidebar)
     box.appendChild(group)
     const h = el('div', 'fhd project'), key = 'project:' + p.id
+    if (docProject === p.id) h.classList.add('active')
     const title = el('b', null, p.title)
     title.title = p.title; title.setAttribute('role', 'button')
     title.setAttribute('aria-expanded', String(!shut.has(key)))

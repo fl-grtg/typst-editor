@@ -420,7 +420,7 @@ async function openTpl(name) {
   $('title').textContent = name; $('title').classList.remove('is-empty')
   $('tools').style.display = ''; $('pvTools').style.display = 'none'
   const low = tpl.name.toLowerCase()
-  $('role').textContent = low.endsWith('.bib') ? t('templates.roleLibrary') : /\.(csv|tsv)$/.test(low) ? t('templates.roleTable') : low.endsWith('.typ') ? t('templates.roleLabel') : t('docs.secFiles')
+  $('role').textContent = low.endsWith('.bib') ? t('templates.roleLibrary') : /\.(csv|tsv)$/.test(low) ? t('templates.roleTable') : t('templates.roleLabel')
   $('role').onclick = null; $('role').style.cursor = ''; $('role').title = ''; $('roBanner').style.display = 'none'; $('renBtn').style.display = ''
   $('viewSeg').style.display = 'none'; $('cNew').style.display = 'none'
   $('shareBtn').style.display = 'none'; $('imgBtn').style.display = 'none'; $('mediaBtn').style.display = 'none'
