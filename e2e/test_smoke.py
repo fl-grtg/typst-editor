@@ -110,3 +110,18 @@ def test_8_wrong_password_shows_error(page):
     page.click("#go")
     expect(page.locator("#err")).to_contain_text("Invalid login")
     expect(page.locator("#app")).not_to_be_visible()
+
+
+def test_9_password_visibility_toggle(page):
+    page.goto("/")
+    page.wait_for_function("window.__booted === true")
+    page.fill("#p", "pass1234pass")
+    toggle = page.locator("#showPw")
+    expect(page.locator("#p")).to_have_attribute("type", "password")
+    expect(toggle).to_have_attribute("aria-pressed", "false")
+    toggle.click()
+    expect(page.locator("#p")).to_have_attribute("type", "text")
+    expect(toggle).to_have_attribute("aria-pressed", "true")
+    toggle.click()
+    expect(page.locator("#p")).to_have_attribute("type", "password")
+    expect(toggle).to_have_attribute("aria-pressed", "false")
