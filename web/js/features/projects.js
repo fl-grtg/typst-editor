@@ -173,7 +173,9 @@ function paintProjects(box, shared) {
     if (shut.has(key)) return
     const tree = projectTree(p, entries)
     group.classList.toggle('with-folders', tree.all.length > 0)
-    const entryRow = (item, level) => {
+    const folderRows = new Map() // a drop anywhere inside a folder lights up its header, not the whole group
+    const dropVisual = folder => (folder && folderRows.get(folder)) || h
+    const entryRow = (item, level, folder) => {
       const { name, document, resource } = item
       const row = el('div', 'doc sub' + ((resource ? docProject === p.id && activeFile === TPLK + name : docId === document && activeFile === name) ? ' cur' : '')); row.appendChild(el('span', 't', item.label)); row.title = name
       row.style.setProperty('--lv', level)
@@ -185,13 +187,14 @@ function paintProjects(box, shared) {
       if (projectEditable(p)) projectAction(row, ICO_EDIT, t('files.renameHead'), () => renameProjectEntry(p, name, document, resource, row))
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: resource ? 'resource' : 'file', doc_id: document, name }))
       projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name, folder: name.split('/').slice(0, -1).join('/') })
+      projectDropTarget(row, p, folder, dropVisual(folder)) // dropping on a file targets the folder it lives in
       if (projectEditable(p) || canStageProjectDelete(p.id)) {
         projectAction(row, ICO_TRASH, t('docs.moveTrash'), () => deleteProjectEntry(p, name, document, resource)).dataset.menuDanger = ''
       }
       compactSidebarActions(row)
       group.appendChild(row)
     }
-    const documentRow = (d, level) => {
+    const documentRow = (d, level, folder) => {
       const row = docRow({ ...d, project_id: p.id, role: d.role || p.role }, shared, true)
       row.dataset.packageKey = ['document', d.id, 'main.typ'].join(':')
       row.classList.add('sub'); row.classList.toggle('cur', d.id === docId && !activeFile); row.style.setProperty('--lv', level)
@@ -199,12 +202,14 @@ function paintProjects(box, shared) {
       if (projectEditable(p)) { const rename = projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row)); row.insertBefore(rename, first) }
       const move = projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title })); row.insertBefore(move, first)
       compactSidebarActions(row)
+      projectDropTarget(row, p, folder, dropVisual(folder)) // dropping on a document targets the folder it lives in
       projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }); group.appendChild(row)
     }
     const folderRow = (path, level) => {
       const fkey = 'folder:' + p.id + ':' + path, base = path.split('/').pop()
       const row = el('div', 'fhd folder'), label = el('b', null, base)
       row.style.setProperty('--lv', level); row.dataset.folderPath = path
+      folderRows.set(path, row)
       label.title = path; label.setAttribute('role', 'button'); label.setAttribute('aria-expanded', String(!shut.has(fkey)))
       const toggle = () => { shut.has(fkey) ? shut.delete(fkey) : shut.add(fkey); saveShut(); paintOwn(); paintShared(lastShared) }
       label.onclick = toggle; kb(label, toggle); row.appendChild(label)
@@ -225,10 +230,11 @@ function paintProjects(box, shared) {
         if (!tree.folders(f).length && !tree.items(f).length) {
           const empty = el('div', 'folderEmpty', t('docs.folderEmpty'))
           empty.style.setProperty('--lv', level + 1)
+          projectDropTarget(empty, p, f, dropVisual(f)) // the empty hint is a drop area for that folder
           group.appendChild(empty)
         }
       }
-      for (const item of tree.items(dir)) item.kind === 'document' ? documentRow(item.d, level) : entryRow(item, level)
+      for (const item of tree.items(dir)) item.kind === 'document' ? documentRow(item.d, level, dir) : entryRow(item, level, dir)
     }
     revealActiveFolder(p, tree)
     paintDir('', 0)
@@ -593,19 +599,19 @@ async function transferProjectEntry(p, entry, move, selectedTarget, direct = fal
 function projectDrag(row, p, entry) {
   sidebarDrag(row, { project: p.id, entry }, projectEditable(p) ? 'copyMove' : 'copy')
 }
-function projectDropTarget(row, target, folder = '') {
+function projectDropTarget(row, target, folder = '', visual = row) {
   if (!projectEditable(target)) return
   row.ondragover = e => {
     if (!e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
     const data = sidebarDragData
     if (data && !data.trashed && data.project === target.id && entryFolder(data.entry) === folder) { markDropTarget(null); return } // already here: no target, no drop
-    e.preventDefault(); e.stopPropagation(); markDropTarget(row)
+    e.preventDefault(); e.stopPropagation(); markDropTarget(visual)
     e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move'
   }
   row.ondragenter = row.ondragover // highlight on entry; a stationary cursor may not produce another dragover
   row.ondrop = async e => {
     if (!e.dataTransfer.files.length && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
-    e.preventDefault(); e.stopPropagation(); row.classList.remove('drop-target')
+    e.preventDefault(); e.stopPropagation(); visual.classList.remove('drop-target')
     try {
       if (e.dataTransfer.files.length) { await uploadProjectFiles(target, [...e.dataTransfer.files], folder); return }
       const data = JSON.parse(e.dataTransfer.getData('application/x-typst-project-entry'))

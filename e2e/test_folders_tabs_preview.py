@@ -116,6 +116,22 @@ def test_drag_entries_into_a_folder_and_back_to_the_project_root(page):
     assert names() == ["lib/style.typ", "other.typ"]
 
 
+def test_file_rows_and_empty_hints_are_drop_areas_for_their_folder(page):
+    did, pid = _setup(page, "folder_drop_areas")
+    for name in ("empty", "inner"):
+        label = page.locator("aside .fhd.folder", has_text=name).first.locator("b")
+        if label.get_attribute("aria-expanded") == "false":
+            label.click()
+    # the empty hint belongs to the innermost folder: dropping on it moves the file there
+    page.locator("aside .doc.sub", has_text="other.typ").drag_to(page.locator("aside .folderEmpty").first)
+    expect(page.locator("aside .doc.sub[title='empty/inner/other.typ']")).to_have_count(1)
+    assert [r["name"] for r in page.request.get(f"/api/projects/{pid}/resources").json()["resources"]] == ["empty/inner/other.typ", "lib/style.typ"]
+    # dropping on a file row targets the folder that file lives in, not the file
+    page.locator("aside .doc.sub[title='lib/style.typ']").drag_to(page.locator("aside .doc.sub[title='empty/inner/other.typ']"))
+    expect(page.locator("aside .doc.sub[title='empty/inner/style.typ']")).to_have_count(1)
+    assert [r["name"] for r in page.request.get(f"/api/projects/{pid}/resources").json()["resources"]] == ["empty/inner/other.typ", "empty/inner/style.typ"]
+
+
 def test_last_tab_closes_to_the_plain_welcome_screen(page):
     register(page, "welcome_close")
     page.request.post("/api/docs/create", data={"title": "Only", "content": "x"})
