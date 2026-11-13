@@ -195,15 +195,46 @@ async function closeAllTabs() {
   if (!await flushTab()) return
   openTabs = []; tabStoreSave(); tabSig = ''; closeView()
 }
-async function tabMenu(k, name) {
-  const items = tabItems(), choices = [[t('files.tabClose'), '']]
-  if (items.length > 1) choices.push([t('files.tabCloseOthers'), ''], [t('files.tabCloseAll'), ''])
-  const i = await askPick(name, choices)
-  if (i === 0) return closeTab(k)
-  if (i === 1) return closeOtherTabs(k)
-  if (i === 2) return closeAllTabs()
+function tabRun(fn) { return () => Promise.resolve().then(fn).catch(e => toast(e.message)) }
+function tabMenuItems(k, name) {
+  const p = typeof projects !== 'undefined' ? projects.find(x => x.id === docProject) : null
+  const entry = projectTabEntry(k)
+  const items = []
+  const proposal = k.startsWith('@proposal-doc/')
+  if (p && !proposal && !openedTrashed) {
+    const doc = !entry.name ? p.documents?.find(d => d.id === entry.document) : null
+    if (doc) { // document tab: title actions, exactly like the sidebar row
+      if (projectEditable(p)) items.push({ label: t('docs.renameDoc'), run: tabRun(() => renameProjectDocument(doc)) })
+      items.push({ label: t('projects.transfer'), run: tabRun(() => projectEntryMenu(p, { kind: 'document', doc_id: doc.id, name: doc.title })) })
+      if (projectEditable(p) || canStageProjectDelete(p.id)) items.push({ label: t('docs.moveTrash'), danger: true, run: tabRun(() => moveDocToTrash(doc)) })
+    } else if (entry.name) { // file or module tab
+      const target = { kind: entry.resource ? 'resource' : 'file', doc_id: entry.document, name: entry.name }
+      if (projectEditable(p)) items.push({ label: t('files.renameHead'), run: tabRun(() => renameProjectEntry(p, entry.name, entry.document, entry.resource)) })
+      items.push({ label: t('projects.transfer'), run: tabRun(() => projectEntryMenu(p, target)) })
+      if (projectEditable(p) || canStageProjectDelete(p.id)) items.push({ label: t('docs.moveTrash'), danger: true, run: tabRun(() => deleteProjectEntry(p, entry.name, entry.document, entry.resource)) })
+    }
+  }
+  if (items.length) items.push({ sep: true })
+  items.push({ label: t('files.tabClose'), run: tabRun(() => closeTab(k)) })
+  if (tabItems().length > 1) items.push(
+    { label: t('files.tabCloseOthers'), run: tabRun(() => closeOtherTabs(k)) },
+    { label: t('files.tabCloseAll'), run: tabRun(() => closeAllTabs()) }
+  )
+  return items
+}
+function tabMenu(k, name, anchor) {
+  const items = tabMenuItems(k, name)
+  if (window.showMenuAt) window.showMenuAt(anchor, items)
+  else askPick(name, items.map(x => x.label)).then(i => { if (i != null && items[i]) items[i].run() })
 }
 const tabErrs = k => cmpDiags.filter(d => d && d.path === tabPath(k)).length
+function scrollTabIntoView(button) { // keep the active tab fully visible without scrolling the page (review #1)
+  const bar = $('tabs')
+  if (!bar || !button) return
+  const pad = 14, r = button.getBoundingClientRect(), br = bar.getBoundingClientRect()
+  if (r.left < br.left + pad) bar.scrollLeft -= br.left + pad - r.left
+  else if (r.right > br.right - pad) bar.scrollLeft += r.right - br.right + pad
+}
 function queueTabs() { clearTimeout(tabT); tabT = setTimeout(paintTabs, 350) } // cheap: repaints only when the set or state changed
 function tabReq(key, text) { // save request for a tab's text (file of this doc, or global template)
   const version = tabVersions.get(key)
@@ -250,7 +281,7 @@ function paintTabs() {
     b.ondblclick = () => { if (canEdit) { const p = projects.find(p => p.id === docProject); if (main) renameProjectDocument({ id: entry.document, title }); else if (p) renameProjectEntry(p, entry.name, entry.document, entry.resource); else toast(t('projects.contextGone')) } }
     w.appendChild(b)
     b.onauxclick = e => { if (e.button === 1) { e.preventDefault(); closeTab(k) } }
-    b.oncontextmenu = e => { e.preventDefault(); tabMenu(k, nm).catch(err => toast(err.message)) }
+    b.oncontextmenu = e => { e.preventDefault(); tabMenu(k, nm, b) }
     const x = icoBtn('tx', deleted ? ICO_UNDO : ICO_X)
     x.title = deleted ? t('packages.discardFile') : t('files.tabCloseName', { name: nm }); x.setAttribute('aria-label', x.title); x.tabIndex = -1
     x.onclick = async e => { e.stopPropagation(); try { if (deleted) await discardSessionFile(staged); else await closeTab(k) } catch (error) { toast(error.message) } }
@@ -259,6 +290,7 @@ function paintTabs() {
   }
   bar.appendChild(el('span', 'tsp'))
   paintSuggestionControls()
+  scrollTabIntoView(bar.querySelector('button.tab[aria-selected="true"]'))
   if (fk !== null) for (const b of bar.querySelectorAll('button.tab')) if (b.dataset.k === fk) { b.focus(); break } // focus was inside: same tab keeps it
 }
 function focusTab(k) { // after keyboard/proxy switches: selection and focus move together

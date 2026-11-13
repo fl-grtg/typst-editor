@@ -30,11 +30,13 @@ def test_9_zoom_modes_and_error_click_jumps_to_line(page):
     create_doc(page, "Preview2A doc")
     type_source(page, "= Hello\n\nSome text here")
     expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
-    assert page.locator("#zoomV").inner_text() == "110%"
+    expect(page.locator("#fitPageBtn")).to_have_class(re.compile(r"\bon\b"))  # fresh browser: whole page, never clipped
+    start = int(page.locator("#zoomV").inner_text().rstrip("%"))
     page.click("#zPlus")
-    expect(page.locator("#zoomV")).to_have_text("120%")
+    expect(page.locator("#zoomV")).to_have_text(f"{start + 10}%")
+    expect(page.locator("#fitPageBtn")).not_to_have_class(re.compile(r"\bon\b"))
     page.click("#zMinus")
-    expect(page.locator("#zoomV")).to_have_text("110%")
+    expect(page.locator("#zoomV")).to_have_text(f"{start}%")
     page.click("#fitBtn")  # width mode
     expect(page.locator("#fitBtn")).to_have_class(re.compile(r"\bon\b"))
     expect(page.locator("#zoomV")).to_have_text(re.compile(r"^\d+%$"))

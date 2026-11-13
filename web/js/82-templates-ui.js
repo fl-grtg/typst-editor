@@ -21,7 +21,7 @@ function renderTpl() {
     const x = icoBtn('x', ICO_X); x.title = t('templates.delRes'); x.setAttribute('aria-label', x.title)
     x.onclick = async e => {
       e.stopPropagation()
-      if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return
+      if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
       const project = docProject, document = docId
       try {
         if (project) {

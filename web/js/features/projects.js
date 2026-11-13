@@ -160,7 +160,7 @@ function paintProjects(box, shared) {
     bell.setAttribute('aria-haspopup', 'menu'); bell.dataset.menuLabel = t('inbox.watchMenu')
     if (p.role === 'owner') {
       projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p, h))
-      projectAction(h, ICO_TRASH, t('common.delete'), () => deleteProject(p)).dataset.menuDanger = ''
+      projectAction(h, ICO_TRASH, t('projects.moveProjectTrash'), () => deleteProject(p)).dataset.menuDanger = ''
     }
     compactSidebarActions(h, projectEditable(p) ? 2 : 1)
     projectDropTarget(h, p) // header = project root; only this row lights up, not the whole group
@@ -177,13 +177,11 @@ function paintProjects(box, shared) {
         return openProjectEntry(p, document, name, resource)
       }
       row.onclick = open; kb(row, open)
+      if (projectEditable(p)) projectAction(row, ICO_EDIT, t('files.renameHead'), () => renameProjectEntry(p, name, document, resource, row))
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: resource ? 'resource' : 'file', doc_id: document, name }))
       projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name, folder: name.split('/').slice(0, -1).join('/') })
-      if (projectEditable(p)) {
-        projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource, row))
-      }
       if (projectEditable(p) || canStageProjectDelete(p.id)) {
-        projectAction(row, ICO_TRASH, t('common.delete'), () => deleteProjectEntry(p, name, document, resource)).dataset.menuDanger = ''
+        projectAction(row, ICO_TRASH, t('docs.moveTrash'), () => deleteProjectEntry(p, name, document, resource)).dataset.menuDanger = ''
       }
       compactSidebarActions(row)
       group.appendChild(row)
@@ -192,8 +190,9 @@ function paintProjects(box, shared) {
       const row = docRow({ ...d, project_id: p.id, role: d.role || p.role }, shared, true)
       row.dataset.packageKey = ['document', d.id, 'main.typ'].join(':')
       row.classList.add('sub'); row.classList.toggle('cur', d.id === docId && !activeFile); row.style.setProperty('--lv', level)
-      if (projectEditable(p)) projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row))
-      projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title }))
+      const first = row.querySelector('button.mini')
+      if (projectEditable(p)) { const rename = projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row)); row.insertBefore(rename, first) }
+      const move = projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title })); row.insertBefore(move, first)
       compactSidebarActions(row)
       projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }); group.appendChild(row)
     }
@@ -207,7 +206,7 @@ function paintProjects(box, shared) {
       if (projectEditable(p)) {
         projectAction(row, ICO_PLUS, t('docs.newPick'), () => projectMenu(p, path))
         projectAction(row, ICO_EDIT, t('projects.renameFolder'), () => renameFolder(p, path, row))
-        projectAction(row, ICO_TRASH, t('common.delete'), () => deleteFolder(p, path)).dataset.menuDanger = ''
+        projectAction(row, ICO_TRASH, t('projects.deleteFolder'), () => deleteFolder(p, path)).dataset.menuDanger = ''
       }
       compactSidebarActions(row, 1)
       projectDropTarget(row, p, path)
@@ -425,7 +424,9 @@ async function renameFolder(p, path, host) {
   const target = (next || '').trim().replace(/^\/+|\/+$/g, '')
   if (!target || target === path) return
   if (target.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
-  if (!await ask(t('projects.folderRenameWarning', { name: path, target }), { noInput: true })) return
+  const body = el('div', 'mBody')
+  body.append(el('div', 'mLabel', t('projects.newName')), el('div', 'mTarget', target), el('p', 'mNote', t('projects.folderRenameNote')))
+  if (!await ask(t('projects.renameFolder'), { noInput: true, body, ok: t('projects.renameAction') })) return
   const doc = docId, epoch = openN, was = activeFile
   const inside = key => { const n = isTplKey(key) ? tabName(key) : key; return n === path || n.startsWith(path + '/') }
   const mapped = was && inside(was) ? (isTplKey(was) ? TPLK : '') + target + (isTplKey(was) ? tabName(was) : was).slice(path.length) : ''
@@ -465,14 +466,26 @@ async function renameProjectEntry(p, name, document, resource, host) {
   if (!next?.trim() || next.trim() === name) return
   await applyEntryRename(p, name, document, resource, next.trim())
 }
+function renameBody(name, references) { // structured rename dialog: target first, then references, then the warning
+  const body = el('div', 'mBody')
+  body.append(el('div', 'mLabel', t('projects.newName')))
+  const target = el('div', 'mTarget', name); body.append(target)
+  body.append(el('div', 'mLabel', t('projects.referencesTitle')))
+  if (references.length) {
+    const list = el('div', 'mRefs')
+    references.forEach(ref => list.append(el('code', null, ref)))
+    body.append(list)
+  } else body.append(el('p', 'mText', t('projects.noReferences')))
+  body.append(el('p', 'mNote', t('projects.dynamicReferences')))
+  return body
+}
 async function applyEntryRename(p, name, document, resource, target, confirm = true) { // rename or move (a new path = a new folder): references are listed, never rewritten
   if (!await flushTab() || !await flushTpl()) return
   const doc = docId, epoch = openN
   const body = { name, target, doc_id: resource ? '' : document }
   const preview = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, body)
   if (doc !== docId || epoch !== openN) return
-  const details = [t('projects.renameReferences', { name: preview.name }), ...(preview.references.length ? preview.references : [t('projects.noReferences')]), t('projects.dynamicReferences')].join('\n')
-  if (confirm && !await ask(details, { noInput: true })) return
+  if (confirm && !await ask(t('files.renameHead'), { noInput: true, body: renameBody(preview.name, preview.references), ok: t('projects.renameAction') })) return
   if (doc !== docId || epoch !== openN) return
   const result = await api('POST', `/api/projects/${p.id}/rename-entry`, { ...body, target: preview.name, version: preview.version })
   tabRemapEntry(p.id, resource ? 'r:' + name : 'f:' + document + '/' + name, resource ? 'r:' + result.name : 'f:' + document + '/' + result.name)

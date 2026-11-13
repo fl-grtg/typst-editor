@@ -137,6 +137,13 @@ function updNavFade() { // bottom fade only while more content below
   const n = $('nav')
   n.classList.toggle('at-end', n.scrollHeight - n.scrollTop - n.clientHeight < 8)
 }
+async function moveDocToTrash(x) { // one path for sidebar rows and tab menus: stage in review, else trash
+  if (await stageDocumentDelete(x.id)) return
+  if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('docs.moveTrash') })) return
+  try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
+  if (x.id === docId) closeView()
+  sidebar()
+}
 function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
   const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
   div.dataset.docId = x.id // stable across sidebar repaints: an open row menu can refocus its new button
@@ -159,11 +166,7 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
     const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
     del.onclick = async e => {
       e.stopPropagation()
-      if (await stageDocumentDelete(x.id)) return
-      if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('common.ok') })) return
-      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
-      if (x.id === docId) closeView()
-      sidebar()
+      await moveDocToTrash(x)
     }
     div.appendChild(del)
   }
@@ -286,14 +289,14 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   div.onclick = () => openTpl(tpl.name)
   kb(div, () => openTpl(tpl.name))
   sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name } }, 'copyMove')
-  projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
   const ren = projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name, div))
   ren.dataset.menuLabel = t('templates.renameRes') // short menu item; the full title stays the tooltip
+  projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
   projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
   const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
   del.onclick = async e => {
     e.stopPropagation()
-    if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return
+    if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)) } catch (err) { toast(err.message); return }
     if (tpl.name === tplName) { clearTimeout(tplT); tplDirty = false; closeView(); $('viewSeg').style.display = '' } // open resource gone: no zombie save, back to empty
     await loadTpl(); sidebar()

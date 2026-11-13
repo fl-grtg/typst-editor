@@ -183,6 +183,10 @@
   function open(anchor, name) {
     show(anchor, DEF[name] ? DEF[name]() : [], name, name === 'export' ? 'right' : 'left')
   }
+  window.showMenuAt = function (anchor, list, align) { // anchored menu for tabs and other row-level actions
+    show(anchor, list, 'anchored', align || 'left')
+    focusItem(0)
+  }
 
   document.addEventListener('click', function (e) { // capture: row clicks (open document) must not run for the menu button
     var s = e.target.closest && e.target.closest('[data-side-menu]')

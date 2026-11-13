@@ -3,8 +3,12 @@ const { test } = require('node:test')
 const { readFileSync } = require('node:fs')
 const vm = require('node:vm')
 const source = readFileSync('web/js/features/projects.js', 'utf8')
+function node(tag, cls, text) { // just enough DOM for structured dialog bodies
+  return { tag, cls, text: text == null ? '' : String(text), children: [], append(...kids) { this.children.push(...kids) },
+    all: function () { return [this.text, ...this.children.map(k => k.all())].filter(Boolean).join(' ') } }
+}
 function setup(extra = {}) {
-  const c = vm.createContext({ lastOwn: [], lastShared: [], docId: 'd', docProject: 'p', openN: 1, activeFile: '', docResReadonly: false,
+  const c = vm.createContext({ el: node, lastOwn: [], lastShared: [], docId: 'd', docProject: 'p', openN: 1, activeFile: '', docResReadonly: false,
     flushTab: async () => true, flushTpl: async () => true, loadTpl: async () => {},
     loadDocResources: async () => true, sidebar: async () => {}, sidebarFresh: async () => {}, t: x => x, toast: () => {}, tabRemapEntry: () => {}, tabRemapPrefix: () => {}, ...extra })
   vm.runInContext(source, c)
@@ -34,7 +38,7 @@ test('delete missing module reports the race without issuing a write', async () 
 
 test('rename confirmation lists references and submits the preview version', async () => {
   const prompts = [], writes = []
-  const c = setup({ ask: async (label, opts) => { prompts.push(label); return opts?.noInput ? true : 'new.typ' },
+  const c = setup({ ask: async (label, opts) => { prompts.push(opts?.body ? opts.body.all() : label); return opts?.noInput ? true : 'new.typ' },
     api: async (_method, url, body) => {
       if (url.endsWith('-preview')) return { name: 'new.typ', version: 'v1', references: ['Doc/main.typ: old.typ'] }
       writes.push(body); return { name: 'new.typ' }

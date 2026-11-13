@@ -280,7 +280,7 @@ def test_project_deletions_stage_undo_and_accept_without_live_delete(page, kind)
     row = page.locator('#own .doc').filter(has=page.locator('.t', has_text=re.compile('^' + re.escape(name) + '$')))
     row.hover()
     row.locator('button[title="Menu"]').click()
-    page.locator('#menu button').filter(has_text='Move to Trash' if kind == 'document' else re.compile('^Delete$')).click()
+    page.locator('#menu button').filter(has_text='Move to trash').click()
     expect(row).to_have_class(re.compile('package-deleted'))
     assert '−' in row.locator('.t').evaluate('n => getComputedStyle(n, "::before").content')
     assert page.request.get(f'/api/docs/{target_doc}').ok
@@ -356,7 +356,7 @@ def test_reviewer_can_stage_project_document_and_module_deletions_immediately(pa
             row = peer.locator('#shared .doc').filter(has=peer.locator('.t', has_text=re.compile('^' + re.escape(name) + '$')))
             row.hover()
             row.locator('button[title="Menu"]').click()
-            peer.locator('#menu button').filter(has_text='Move to Trash' if name == 'Target' else re.compile('^Delete$')).click()
+            peer.locator('#menu button').filter(has_text='Move to trash').click()
             expect(row).to_have_class(re.compile('package-deleted'))
         assert page.request.get(f'/api/docs/{target}').ok
         assert any(r['name'] == 'layout.typ' for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'])
@@ -416,15 +416,15 @@ def test_staged_delete_and_rename_can_be_discarded_per_file(page):
     page.locator('#suggestionToggle').click()
     expect(page.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
     row = page.locator('#own .doc').filter(has_text='notes.typ')
-    for action in ('Rename', 'Delete'):
+    for label, action in (('Rename', 'rename'), ('Move to trash', 'delete')):
         row.locator('button[title="Menu"]').click()
-        page.locator('#menu button').filter(has_text=action).click()
-        if action == 'Rename':
+        page.locator('#menu button').filter(has_text=label).click()
+        if action == 'rename':
             inp = page.locator('#own input.renameInput')
             expect(inp).to_be_visible()
             inp.fill('renamed.typ')
             inp.press('Enter')
-        page.wait_for_function('action => [...window.changeSession.files.values()].some(f => f.action === action)', arg=action.lower())
+        page.wait_for_function('action => [...window.changeSession.files.values()].some(f => f.action === action)', arg=action)
         expect(page.locator('#cm .cm-content')).to_have_text(source)
         page.locator('.package-tools button[title="Proposal actions"]').click()
         page.locator('#modal button.pk').filter(has_text='Discard file changes').click()

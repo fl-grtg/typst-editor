@@ -141,7 +141,7 @@ function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (l
   })
 }
 $('new').onclick = async () => {
-  const k = await askPick(t('docs.newPick'), [[t('docs.newProject'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
+  const k = await askPick(t('docs.newProjectTitle'), [[t('docs.newProject'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
   if (k === 1) { $('docPick').click(); return }
   if (k !== 0) return
   const r = await askNewDoc(null, t('docs.newProjectTitle'))
@@ -204,7 +204,7 @@ $('del').onclick = async () => {
     return
   }
   if (tplName) { // delete open template
-    if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('common.delete'), danger: true })) return
+    if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
     if (resource !== tplName || epoch !== openN) return
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
     catch (e) { toast(e.message); return }

@@ -128,7 +128,7 @@ def test_sidebar_project_menu_opens_anchored(page):
     menu = page.locator("#menu")
     expect(menu).to_be_visible()
     expect(menu).to_contain_text("Rename project")
-    expect(menu.locator("button.danger")).to_contain_text("Delete")
+    expect(menu.locator("button.danger")).to_contain_text("Move project to trash")
     _assert_anchored(page, menu, more)
 
     menu.locator("button").filter(has_text="Rename project").click()

@@ -9,6 +9,14 @@
 #mCard { width: min(440px, 94vw); max-height: 90vh; overflow: auto; padding: 22px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
 #mCard b#mHead, .mTop b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
 #mInp { margin: 12px 0 4px; min-height: 38px; padding: 8px 12px; border-radius: var(--r-md); font-size: 14px; }
+.mBody { margin: 14px 0 4px; color: var(--sub); font-size: 13px; line-height: 1.45; }
+.mBody .mLabel { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.mBody .mLabel + .mTarget { margin-bottom: 16px; }
+.mBody .mTarget { padding: 7px 10px; border-radius: var(--r-sm); background: var(--hover); color: var(--text); font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; overflow-wrap: anywhere; }
+.mBody .mRefs { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+.mBody .mRefs code { padding: 5px 9px; border-radius: var(--r-sm); background: var(--hover); color: var(--text); font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; overflow-wrap: anywhere; }
+.mBody .mText { margin: 0 0 14px; }
+.mBody .mNote { margin: 12px 0 0; color: var(--faint); font-size: 12px; }
 .mRow { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .mRow button { padding: 7px 16px; min-height: 34px; font-size: 13px; border-radius: var(--r-sm); }
 .mTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }

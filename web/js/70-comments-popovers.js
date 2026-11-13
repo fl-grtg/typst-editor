@@ -160,22 +160,24 @@ function modalInert(on) { // background not focusable while dialog open (no iner
   else { a.removeAttribute('inert'); a.removeAttribute('aria-hidden') }
 }
 function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no input: true/false)
-  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false } = o
+  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false, body = null } = o
   return new Promise(res => {
     if (askRes) askRes(null)
     askRes = res
     const prev = document.activeElement
     const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
+    document.querySelectorAll('#mCard .mBody').forEach(n => n.remove()) // one structured body at a time
     document.querySelector('#mCard .mRow').style.display = '' // show again after askPick
     $('mYes').style.display = '' // show again after askPick (Cancel stays visible there)
     $('mHead').textContent = head
     const inp = $('mInp'); inp.style.display = noInput ? 'none' : ''
     inp.value = noInput ? '' : value; inp.placeholder = ph; inp.setAttribute('aria-label', ph || head)
+    if (body) $('mCard').insertBefore(body, inp)
     if (o.maxLen) inp.setAttribute('maxlength', o.maxLen); else inp.removeAttribute('maxlength')
     const yes = $('mYes'); yes.textContent = ok
     yes.disabled = false
     yes.style.background = danger ? 'var(--danger)' : ''; yes.style.color = danger ? '#fff' : ''
-    const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v) }
+    const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; body?.remove(); if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v) }
     $('mNo').onclick = () => done(noInput ? false : null)
     yes.onclick = () => done(noInput ? true : inp.value)
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }

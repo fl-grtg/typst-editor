@@ -99,7 +99,7 @@ function pvResTpl() { // resolved templates this doc reaches (see .update-review
 }
 const pvJobs = new Map() // worker round-trips by job id
 let pvScale = 2, pvPageSize = null, pvSlots = [], pvObs = null // virtual list: one slot per page, only visible ones rasterized
-let pvZoomMode = 'pct' // pct | width | page (persisted below)
+let pvZoomMode = 'page' // pct | width | page (persisted below; page is the calm default for a fresh browser)
 let typstPm = null // compiler loads async: UI stays clickable while WASM loads
 let typstWarned = false // max 1 warning: no endless retry on blocked CDN
 const typstFonts = [ // self-hosted default text set (see vendor/manifest.json): replaces the bundle's remote default
@@ -1020,7 +1020,11 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   box.style.display = 'block'; paintCardView()
 }
 document.addEventListener('pointerdown', e => { const p = $('pop'); if (p.classList.contains('errs') && p.style.display !== 'none' && !p.contains(e.target) && !e.target.closest('#eBadge')) closePop(true) }) // error list: x or outside click
-try { const m = localStorage.getItem('typst_pv_mode'); if (m === 'width' || m === 'page') pvZoomMode = m } catch (e) {} // persisted zoom mode (string compare like typst_sync)
+try {
+  const m = localStorage.getItem('typst_pv_mode')
+  if (m === 'width' || m === 'page') pvZoomMode = m
+  else if (m === 'pct' || localStorage.getItem('typst_pv') !== null) pvZoomMode = 'pct' // an explicit zoom wins over the page default
+} catch (e) {}
 function pvModeSet(m) { pvZoomMode = m; lsSet('typst_pv_mode', m); pvModePaint() } // explicit % (stepPv/Ctrl+0) always leaves fit modes
 function pvModePaint() {
   const w = $('fitBtn'), p = $('fitPageBtn')

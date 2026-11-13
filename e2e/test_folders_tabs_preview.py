@@ -125,7 +125,7 @@ def test_last_tab_closes_to_the_plain_welcome_screen(page):
         page.locator("aside .doc.sub", has_text="Only").first.click()
     expect(page.locator("#tabs button.tab")).to_have_count(1)
     page.locator("#tabs button.tab").last.click(button="right")
-    page.locator("#modal button.pk", has_text="Close tab").first.click()
+    page.locator("#menu button").filter(has_text="Close tab").click()
     expect(page.locator("#title")).to_have_text("Welcome")
     expect(page.locator("#emptyCard")).to_be_visible()
     expect(page.locator("#emptyCard .step")).to_have_count(3)
