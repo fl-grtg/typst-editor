@@ -363,8 +363,8 @@ body.file-view #leftCol { display: flex !important; width: 100% !important; flex
 .sidebar-drop { min-width: 0; border-radius: var(--r-sm); }
 
 /* Project folders: indent follows --lv (0 = project root); a soft left bar marks the drop target */
-aside .fhd.project { margin-left: 0; padding-left: 10px; font-size: 12.5px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--text); }
-aside .fhd.project b { font-weight: 650; }
+aside .fhd.project { margin-left: 0; padding-left: 10px; font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text); }
+aside .fhd.project b { font-weight: 400; }
 aside .doc.sub { margin-left: calc(30px + var(--lv, 0) * 14px); } /* root entries align with folder titles */
 aside .fhd.folder { margin-left: calc(16px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text); }
 aside .fhd.folder b { font-weight: 400; }
@@ -723,7 +723,7 @@ aside .doc .package-accept-action { visibility: visible; }
 /* ==========================================================================
    Preview
    ========================================================================== */
-#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 96px; background: var(--pv); position: relative; }
+#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 72px; background: var(--pv); position: relative; }
 #preview:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #preview canvas { display: block; width: 100%; height: auto; margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); }
 body.read #preview { padding-top: 24px; }
@@ -735,7 +735,7 @@ body.read #preview { padding-top: 24px; }
 
 /* Floating zoom pill */
 #pvTools {
-  position: absolute; left: 50%; bottom: calc(9px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 15;
+  position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 15;
   display: flex; align-items: center; gap: 2px; padding: 3px;
   background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--sh-pop);
   -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
@@ -3414,7 +3414,7 @@ function pvModeApply() { // width/page zoom follows layout (render + resize); % 
     const avail = pv.clientWidth - 32
     if (avail > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / pvPageSize.width * 100)))
   } else {
-    const avail = pv.clientHeight - 128, width = pv.clientWidth - 32
+    const avail = pv.clientHeight - 92, width = pv.clientWidth - 32 // page fills the space above the zoom pill
     if (avail > 0 && width > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.floor(Math.min(avail / pvPageSize.height, width / pvPageSize.width) * 100)))
   }
   applyPv(); saveSet(); pvModePaint()

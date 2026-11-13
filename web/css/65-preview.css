@@ -1,7 +1,7 @@
 /* ==========================================================================
    Preview
    ========================================================================== */
-#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 96px; background: var(--pv); position: relative; }
+#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 72px; background: var(--pv); position: relative; }
 #preview:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #preview canvas { display: block; width: 100%; height: auto; margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); }
 body.read #preview { padding-top: 24px; }
@@ -13,7 +13,7 @@ body.read #preview { padding-top: 24px; }
 
 /* Floating zoom pill */
 #pvTools {
-  position: absolute; left: 50%; bottom: calc(9px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 15;
+  position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 15;
   display: flex; align-items: center; gap: 2px; padding: 3px;
   background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--sh-pop);
   -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);

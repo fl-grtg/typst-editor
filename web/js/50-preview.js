@@ -1035,7 +1035,7 @@ function pvModeApply() { // width/page zoom follows layout (render + resize); % 
     const avail = pv.clientWidth - 32
     if (avail > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / pvPageSize.width * 100)))
   } else {
-    const avail = pv.clientHeight - 128, width = pv.clientWidth - 32
+    const avail = pv.clientHeight - 92, width = pv.clientWidth - 32 // page fills the space above the zoom pill
     if (avail > 0 && width > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.floor(Math.min(avail / pvPageSize.height, width / pvPageSize.width) * 100)))
   }
   applyPv(); saveSet(); pvModePaint()
