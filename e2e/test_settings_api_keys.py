@@ -25,6 +25,9 @@ def test_api_key_role_switch_in_place(page, base_url):
     secret = overlay.locator(".keySecretValue").input_value()
     overlay.locator(".keySecretClose").click()
     expect(overlay).to_have_count(0)
+    hint = pop.locator("code").last
+    expect(hint).to_have_text("tpe_" + secret[4:12] + "...")
+    expect(hint).to_have_attribute("title", "tpe_" + secret[4:12] + "…")
     role = pop.locator(".keyRoleSel")
     expect(role).to_have_value("reviewer")
     with page.expect_response(lambda r: r.request.method == "PATCH" and "/api/keys/" in r.url) as resp:

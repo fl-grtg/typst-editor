@@ -3,9 +3,15 @@ from helpers import create_doc, register
 from playwright.sync_api import expect
 
 
-def _assert_anchored(menu, button):
-    button_box = button.bounding_box()
-    menu_box = menu.bounding_box()
+def _assert_anchored(page, menu, button):
+    button_box = menu_box = None
+    for _ in range(50):  # a sidebar refresh can replace the anchor row between measurements
+        button_box = button.bounding_box()
+        menu_box = menu.bounding_box()
+        if button_box and menu_box:
+            break
+        page.wait_for_timeout(20)
+    assert button_box and menu_box
     assert menu_box["y"] >= button_box["y"] + button_box["height"] - 1
     # opens rightward from the three-dot instead of stretching to the sidebar's left edge
     assert menu_box["x"] >= button_box["x"] - 1
@@ -26,7 +32,7 @@ def test_sidebar_doc_menu_anchors_and_renames_inline(page):
     expect(page.locator("#modal")).to_be_hidden()
     expect(menu).to_contain_text("Rename document")
     expect(menu.locator("button.danger")).to_contain_text("Move to trash")
-    _assert_anchored(menu, more)
+    _assert_anchored(page, menu, more)
 
     menu.locator("button").filter(has_text="Rename document").click()
     inp = page.locator("#own input.renameInput")
@@ -123,7 +129,7 @@ def test_sidebar_project_menu_opens_anchored(page):
     expect(menu).to_be_visible()
     expect(menu).to_contain_text("Rename project")
     expect(menu.locator("button.danger")).to_contain_text("Delete")
-    _assert_anchored(menu, more)
+    _assert_anchored(page, menu, more)
 
     menu.locator("button").filter(has_text="Rename project").click()
     expect(page.locator(".fhd.project input.renameInput")).to_be_visible()
