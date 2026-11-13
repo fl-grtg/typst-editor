@@ -23,7 +23,11 @@ function sidebarCanDrop(data, target) {
 }
 function markDropTarget(node) { // exactly one target at a time, no flicker between a row and its label
   document.querySelectorAll('.drop-target').forEach(n => { if (n !== node) n.classList.remove('drop-target') })
-  node.classList.add('drop-target')
+  node?.classList.add('drop-target')
+}
+function entryFolder(entry) { // folder an entry already lives in: dropping there changes nothing
+  if (!entry) return ''
+  return entry.kind === 'document' ? entry.folder || '' : entry.name.split('/').slice(0, -1).join('/')
 }
 document.addEventListener('dragover', e => { // moving off every zone leaves no stale highlight
   if (!e.target.closest?.('.drop-target')) document.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'))

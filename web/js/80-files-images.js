@@ -587,7 +587,7 @@ function updateFileView() {
   $('viewSeg').style.display = file || !docId ? 'none' : ''
   $('pvTools').style.display = file || !docId ? 'none' : ''
   const pvFor = $('pvFor')
-  pvFor.hidden = !tab
+  pvFor.classList.toggle('on', tab); pvFor.setAttribute('aria-hidden', String(!tab))
   if (tab) pvFor.textContent = t('preview.forDoc', { title: (docTitle || $('title').textContent).replace(/\.typ$/i, '') + '.typ' })
   const filename = tplName || (activeFile ? tabName(activeFile) : 'main.typ')
   const extension = filename.split('.').pop().toLowerCase()

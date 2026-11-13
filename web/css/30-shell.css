@@ -163,11 +163,10 @@ body.file-view #leftCol { display: flex !important; width: 100% !important; flex
 /* Project folders: indent follows --lv (0 = project root); a soft left bar marks the drop target */
 aside .fhd.project { margin-left: 0; padding-left: 10px; font-size: 12.5px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--text); }
 aside .fhd.project b { font-weight: 650; }
-aside .doc.sub { margin-left: calc(12px + var(--lv, 0) * 14px); }
-.project-group.with-folders .doc.sub { margin-left: calc(34px + var(--lv, 0) * 14px); } /* entries line up with the folder names beside the chevron */
-aside .fhd.folder { margin-left: calc(16px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
-aside .fhd.folder b { font-weight: 500; }
-aside .folderEmpty { margin-left: calc(34px + var(--lv, 0) * 14px); padding: 3px 8px 5px; font-size: 11.5px; color: var(--faint); }
+aside .doc.sub { margin-left: calc(30px + var(--lv, 0) * 14px); } /* root entries align with folder titles */
+aside .fhd.folder { margin-left: calc(16px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text); }
+aside .fhd.folder b { font-weight: 400; }
+aside .folderEmpty { margin-left: calc(30px + var(--lv, 0) * 14px); padding: 3px 8px 5px; font-size: 11.5px; color: var(--faint); }
 aside .fhd.folder.drop-target, aside .fhd.project.drop-target { background: var(--press); border-radius: var(--r-sm); }
 aside .fhd.folder.drop-target b, aside .fhd.project.drop-target b { color: var(--acc); }
 

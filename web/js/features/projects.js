@@ -178,7 +178,7 @@ function paintProjects(box, shared) {
       }
       row.onclick = open; kb(row, open)
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: resource ? 'resource' : 'file', doc_id: document, name }))
-      projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name })
+      projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name, folder: name.split('/').slice(0, -1).join('/') })
       if (projectEditable(p)) {
         projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectEntry(p, name, document, resource, row))
       }
@@ -195,7 +195,7 @@ function paintProjects(box, shared) {
       if (projectEditable(p)) projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row))
       projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title }))
       compactSidebarActions(row)
-      projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title }); group.appendChild(row)
+      projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }); group.appendChild(row)
     }
     const folderRow = (path, level) => {
       const fkey = 'folder:' + p.id + ':' + path, base = path.split('/').pop()
@@ -577,7 +577,13 @@ function projectDrag(row, p, entry) {
 }
 function projectDropTarget(row, target, folder = '') {
   if (!projectEditable(target)) return
-  row.ondragover = e => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-typst-project-entry')) { e.preventDefault(); e.stopPropagation(); markDropTarget(row); e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move' } }
+  row.ondragover = e => {
+    if (!e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
+    const data = sidebarDragData
+    if (data && !data.trashed && data.project === target.id && entryFolder(data.entry) === folder) { markDropTarget(null); return } // already here: no target, no drop
+    e.preventDefault(); e.stopPropagation(); markDropTarget(row)
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move'
+  }
   row.ondragenter = row.ondragover // highlight on entry; a stationary cursor may not produce another dragover
   row.ondrop = async e => {
     if (!e.dataTransfer.files.length && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
