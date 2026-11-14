@@ -109,6 +109,10 @@ const shortD = s => {
   try { return new Intl.DateTimeFormat(langCur, { dateStyle: 'medium' }).format(new Date(s)) }
   catch (e) { return String(s).slice(0, 10) }
 }
+const keyHint = k => {
+  const pc = el('code', null, k.prefix ? `tpe_${k.prefix.slice(0, 8)}...` : 'tpe_...')
+  return pc
+}
 function copyTxt(txt, inp) {
   const fb = () => {
     const f = inp || document.createElement('textarea')
@@ -344,8 +348,9 @@ function renderSettings() {
       const sub = el('div', 'val')
       sub.style.display = 'flex'; sub.style.flexWrap = 'wrap'; sub.style.gap = '6px'; sub.style.alignItems = 'center'
       sub.style.fontSize = '12px'; sub.style.minWidth = '0'; sub.style.overflowWrap = 'anywhere'; sub.style.textAlign = 'left'
-      const pc = el('code', null, k.prefix || '')
+      const pc = keyHint(k)
       pc.style.fontSize = '11.5px'; pc.style.overflowWrap = 'anywhere'; pc.style.minWidth = '0'
+      pc.title = k.prefix ? `tpe_${k.prefix}…` : ''
       const rsel = el('select', 'keyRoleSel') // role editable in place: PATCH keeps the secret alive
       ;[['editor', t('common.roleEditor')], ['reviewer', t('settings.roleReviewer')]].forEach(([v, lab]) => {
         const o = el('option', null, lab); o.value = v; if (v === k.role) o.selected = true; rsel.appendChild(o)
