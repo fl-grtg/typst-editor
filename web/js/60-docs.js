@@ -45,9 +45,10 @@ function watchSidebar() { // live sidebar: external list changes (MCP, other tab
     clearTimeout(sideESTimer)
     sideESErr = 0
     const es = sideES = new EventSource('/api/events')
-    es.onopen = () => { sideESErr = 0; sideESRearms = 0 } // (re)connect resets counters
+    es.onopen = () => { sideESErr = 0; sideESRearms = 0; if (user) loadInbox().catch(() => {}) } // (re)connect resets counters
     es.addEventListener('sidebar', () => { if (!user) { if (sideES === es) sideES = null; return es.close() } sideResourcesDirty = true; queueSidebar() })
     es.addEventListener('comment', e => { if (e.data === docId) loadComments().catch(() => {}) })
+    es.addEventListener('notification', () => { if (user) loadInbox().catch(() => {}) })
     es.addEventListener('member', e => { if (e.data === docId) { loadMembers(); sidebar() } })
     es.addEventListener('file', e => { if (e.data === docId) { filesDirty = true; queueRender(); queueSidebar() } })
     es.onerror = () => {
@@ -69,6 +70,7 @@ function queueSidebar() {
   sideEventTimer = setTimeout(() => sidebar().catch(() => {}), 1000)
 }
 function sidebar() {
+  if (document.body.classList.contains('dnd-active')) { window.__sidebarDeferred = true; return Promise.resolve() } // repaint would wipe drag state; refresh after the drag
   if (document.querySelector('aside input.renameInput')) { window.__sidebarDeferred = true; return Promise.resolve() } // keep inline rename alive; refresh after it closes
   if (sidePending) { sideAgain = true; return sidePending }
   sidePending = refreshSidebar().finally(() => {
@@ -76,6 +78,10 @@ function sidebar() {
     if (sideAgain) { sideAgain = false; clearTimeout(sideRetry); sideRetry = setTimeout(() => sidebar(), 1200) }
   })
   return sidePending
+}
+async function sidebarFresh() { // after a write: a refresh that was already running may predate it
+  if (sidePending) await sidePending
+  return sidebar()
 }
 async function refreshSidebar() {
   const id = ++sideN
@@ -97,6 +103,7 @@ async function refreshSidebar() {
     return // keep old list
   }
   if (sideResourcesDirty) { sideResourcesDirty = false; await resSync() }
+  if (document.body.classList.contains('dnd-active')) { window.__sidebarDeferred = true; return } // a refresh already in flight must not repaint mid-drag
   lastOwn = d.own; lastShared = d.shared
   if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
   refreshDocRole(d)
@@ -130,6 +137,13 @@ function updNavFade() { // bottom fade only while more content below
   const n = $('nav')
   n.classList.toggle('at-end', n.scrollHeight - n.scrollTop - n.clientHeight < 8)
 }
+async function moveDocToTrash(x) { // one path for sidebar rows and tab menus: stage in review, else trash
+  if (await stageDocumentDelete(x.id)) return
+  if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('docs.moveTrash') })) return
+  try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
+  if (x.id === docId) closeView()
+  sidebar()
+}
 function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
   const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
   div.dataset.docId = x.id // stable across sidebar repaints: an open row menu can refocus its new button
@@ -152,17 +166,19 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
     const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('docs.moveTrash'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
     del.onclick = async e => {
       e.stopPropagation()
-      if (await stageDocumentDelete(x.id)) return
-      if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('common.ok') })) return
-      try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
-      if (x.id === docId) closeView()
-      sidebar()
+      await moveDocToTrash(x)
     }
     div.appendChild(del)
   }
   return div
 }
+function sidebarRenaming() { // an in-flight or direct repaint must not wipe the inline rename; finish() refreshes after it
+  if (!document.querySelector('aside input.renameInput')) return false
+  window.__sidebarDeferred = true
+  return true
+}
 function paintOwn() { // top-level first, then folders (A-Z); search replaces list
+  if (sidebarRenaming()) return
   const box = $('own'); box.replaceChildren()
   const qc = $('qCount')
   if (findQ.length >= 2) {
@@ -191,6 +207,7 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noDocs')))
 }
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
+  if (sidebarRenaming()) return
   const box = $('shared'); box.replaceChildren()
   const byO = new Map()
   ;[...list].filter(x => !x.project_id || !projects.some(p => p.id === x.project_id)).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
@@ -279,14 +296,14 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   div.onclick = () => openTpl(tpl.name)
   kb(div, () => openTpl(tpl.name))
   sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name } }, 'copyMove')
-  projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
   const ren = projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name, div))
   ren.dataset.menuLabel = t('templates.renameRes') // short menu item; the full title stays the tooltip
+  projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
   projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
   const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
   del.onclick = async e => {
     e.stopPropagation()
-    if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('common.delete'), danger: true })) return
+    if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)) } catch (err) { toast(err.message); return }
     if (tpl.name === tplName) { clearTimeout(tplT); tplDirty = false; closeView(); $('viewSeg').style.display = '' } // open resource gone: no zombie save, back to empty
     await loadTpl(); sidebar()
@@ -302,6 +319,7 @@ function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t(emptyKey))) // create via + New above (type + folder step)
 }
 function paintTpls() { // templates + libraries + tables sections: click opens in editor
+  if (sidebarRenaming()) return
   paintKind('tpls', 'resource', 'templates.noTpls', 'tpl:')
   paintKind('libs', 'library', 'templates.noLibs', 'lib:')
   paintKind('tbls', 'table', 'templates.noTbls', 'tbl:')
@@ -410,7 +428,7 @@ async function openTpl(name) {
   $('title').textContent = name; $('title').classList.remove('is-empty')
   $('tools').style.display = ''; $('pvTools').style.display = 'none'
   const low = tpl.name.toLowerCase()
-  $('role').textContent = low.endsWith('.bib') ? t('templates.roleLibrary') : /\.(csv|tsv)$/.test(low) ? t('templates.roleTable') : low.endsWith('.typ') ? t('templates.roleLabel') : t('docs.secFiles')
+  $('role').textContent = low.endsWith('.bib') ? t('templates.roleLibrary') : /\.(csv|tsv)$/.test(low) ? t('templates.roleTable') : t('templates.roleLabel')
   $('role').onclick = null; $('role').style.cursor = ''; $('role').title = ''; $('roBanner').style.display = 'none'; $('renBtn').style.display = ''
   $('viewSeg').style.display = 'none'; $('cNew').style.display = 'none'
   $('shareBtn').style.display = 'none'; $('imgBtn').style.display = 'none'; $('mediaBtn').style.display = 'none'
@@ -490,6 +508,8 @@ function closeView() { // no doc open: buttons off, empty view in
   $('roBanner').style.display = 'none'
   $('tools').style.display = 'none'; $('pvTools').style.display = 'none'
   paintEmpty()
+  paintTabs() // hides the tab bar: no doc open
+  paintOwn(); paintShared(lastShared) // clear the active row highlight
   setT(''); gutter(); paintOutline()
 }
 async function openDoc(id) {

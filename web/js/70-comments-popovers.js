@@ -160,22 +160,24 @@ function modalInert(on) { // background not focusable while dialog open (no iner
   else { a.removeAttribute('inert'); a.removeAttribute('aria-hidden') }
 }
 function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no input: true/false)
-  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false } = o
+  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false, body = null } = o
   return new Promise(res => {
     if (askRes) askRes(null)
     askRes = res
     const prev = document.activeElement
     const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
+    document.querySelectorAll('#mCard .mBody').forEach(n => n.remove()) // one structured body at a time
     document.querySelector('#mCard .mRow').style.display = '' // show again after askPick
     $('mYes').style.display = '' // show again after askPick (Cancel stays visible there)
     $('mHead').textContent = head
     const inp = $('mInp'); inp.style.display = noInput ? 'none' : ''
     inp.value = noInput ? '' : value; inp.placeholder = ph; inp.setAttribute('aria-label', ph || head)
+    if (body) $('mCard').insertBefore(body, inp)
     if (o.maxLen) inp.setAttribute('maxlength', o.maxLen); else inp.removeAttribute('maxlength')
     const yes = $('mYes'); yes.textContent = ok
     yes.disabled = false
     yes.style.background = danger ? 'var(--danger)' : ''; yes.style.color = danger ? '#fff' : ''
-    const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v) }
+    const done = v => { ov.style.display = 'none'; modalInert(false); askRes = null; body?.remove(); if (prev && document.contains(prev) && prev.classList && prev.classList.contains('mini')) prev.blur(); else if (prev && document.contains(prev)) prev?.focus?.(); res(v) }
     $('mNo').onclick = () => done(noInput ? false : null)
     yes.onclick = () => done(noInput ? true : inp.value)
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
@@ -350,9 +352,9 @@ function closePop(force) { if (!force && $('pop').classList.contains('errs') && 
 const popTriggers = id => document.querySelectorAll(`[aria-controls="${id}"]`)
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
-  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
+  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
 }
-const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain' }
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain', inboxPop: 'inboxBtn' }
 function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   const p = $(id), open = p.style.display === 'none'
   hidePops(); closePop(true) // only one popover at a time (header or comment card)
@@ -362,7 +364,7 @@ function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   popTriggers(id).forEach(t => t.setAttribute('aria-expanded', String(open)))
   if (open) {
     p.setAttribute('role', 'dialog')
-    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', { sharePop: t('share.title'), tplPop: t('templates.title'), histPop: t('history.title'), symPop: t('symbols.title'), setPop: t('settings.title') }[id] || id)
+    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', { sharePop: t('share.title'), tplPop: t('templates.title'), histPop: t('history.title'), symPop: t('symbols.title'), setPop: t('settings.title'), inboxPop: t('inbox.title') }[id] || id)
     anchorPop(p, id === 'setPop' ? $('who') : btn) // settings stays anchored to the name; userMain is the trigger
     const f = p.querySelector('input,select,textarea') || p.querySelector('button') // input first, never ✕
     if (f) setTimeout(() => { try { f.focus() } catch (e) {} }, 30)

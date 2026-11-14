@@ -88,7 +88,7 @@ addEventListener('keydown', e => { // Ctrl/Cmd+F = bar, Ctrl/Cmd+S = save now, ?
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow() }
   if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) { e.preventDefault(); stepPv(PV_STEP) }
   if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); stepPv(-PV_STEP) }
-  if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); pvZoom = 110; applyPv(); saveSet() }
+  if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); pvModeSet('pct'); pvZoom = 110; applyPv(); saveSet() }
   if (e.key === '?' && !e.ctrlKey && !e.metaKey && $('app').classList.contains('on')
     && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') && !cm.hasFocus) openTutorial()
 })

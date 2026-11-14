@@ -22,12 +22,15 @@ def role(con: sqlite3.Connection, project_id: str, user: str) -> str:
 
 
 def require(con: sqlite3.Connection, project_id: str, user: str, edit: bool = False,
-            owner: bool = False) -> str:
+            owner: bool = False, note: bool = True) -> str:
     r = role(con, project_id, user)
     if edit and con.execute("SELECT archived FROM projects WHERE id=?", (project_id,)).fetchone()[0]:
         raise HTTPException(410, "Project is in trash; restore a document first")
     if (owner and r != "owner") or (edit and r not in ("owner", "editor")):
         raise HTTPException(403, "Insufficient project permissions")
+    if edit and note:
+        from backend.services.notifications import note_editor
+        note_editor(project_id, user)
     return r
 
 
@@ -177,6 +180,7 @@ def payload(con, project_id: str, user: str) -> dict:
         files.extend(dict(x) for x in con.execute("SELECT doc_id,path AS name,size FROM files WHERE doc_id=? ORDER BY path", (d["id"],)))
         d.pop("content")
         d["role"] = db.role_on(con, user, d["id"])
+    folders = [x[0] for x in con.execute("SELECT path FROM project_folders WHERE project_id=? ORDER BY path", (project_id,))] if r != "guest" else []
     return {**dict(p), "role": r, "can_edit_library": r in ("owner", "editor"),
-            "documents": docs, "resources": [{"name": x["name"], "updated_at": x["updated_at"]} for x in library],
+            "folders": folders, "documents": docs, "resources": [{"name": x["name"], "updated_at": x["updated_at"]} for x in library],
             "files": files}

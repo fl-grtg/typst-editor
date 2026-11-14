@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend import db, deps
 from backend.schemas import AnchorSet, CommentEdit, CommentNew, ResolveSet, SuggestionBatch, SuggestionNew
+from backend.services import notifications
 
 router = APIRouter()
 log = logging.getLogger("typst.main")
@@ -106,6 +107,7 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
     if b.anchor < 0:
         raise HTTPException(400, "Anchor < 0")
     cid = db.new_id("c_")
+    ref = cid
     con = db.connect()
     try:
         if b.parent_id:
@@ -115,15 +117,19 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
                 raise HTTPException(404, "Thread gone")
             if p["parent_id"]:
                 raise HTTPException(400, "Nested replies not allowed")
+            # The inbox renders whole threads: point a reply mention at the
+            # thread root, otherwise the reply id is not in `threads`.
+            ref = b.parent_id
         q = b.quote[:500]
         anchor = max(1, b.anchor)  # 1-based (UI); 0 = top alias -> line 1
         con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, created_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?)",
                     (cid, doc_id, user, "", anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
         con.commit()
-        return {"id": cid}
     finally:
         con.close()
+    notifications.notify_mentions(doc_id, user, b.text, ref)
+    return {"id": cid}
 
 
 @router.delete("/api/docs/{doc_id}/comments/{cid}")
@@ -192,11 +198,13 @@ def edit_comment(doc_id: str, cid: str, b: CommentEdit, req: Request, user: str 
             raise HTTPException(404, "Comment gone")
         if r["username"] != user:
             raise HTTPException(403, "Only author")
+        before = con.execute("SELECT text FROM comments WHERE id=?", (cid,)).fetchone()["text"]
         con.execute("UPDATE comments SET text=? WHERE id=?", (b.text.strip(), cid))
         con.commit()
-        return {"ok": True}
     finally:
         con.close()
+    notifications.notify_mentions(doc_id, user, b.text, cid, before)
+    return {"ok": True}
 
 
 @router.post("/api/docs/{doc_id}/comments/{cid}/resolve")

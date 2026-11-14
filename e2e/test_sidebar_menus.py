@@ -64,7 +64,7 @@ def test_personal_resource_rename_after_sidebar_refresh(page):
     expect(page.locator("#own .doc .t", has_text="Refresh trigger")).to_be_visible()
     assert page.evaluate("node => !node.isConnected", old_row)
 
-    menu.locator("button").filter(has_text="Rename resource").click()
+    menu.locator("button").filter(has_text="Rename module").click()
     inp = page.locator("#tpls input.renameInput")
     expect(inp).to_be_visible()
     inp.fill("module-renamed.typ")
@@ -128,7 +128,7 @@ def test_sidebar_project_menu_opens_anchored(page):
     menu = page.locator("#menu")
     expect(menu).to_be_visible()
     expect(menu).to_contain_text("Rename project")
-    expect(menu.locator("button.danger")).to_contain_text("Delete")
+    expect(menu.locator("button.danger")).to_contain_text("Move project to trash")
     _assert_anchored(page, menu, more)
 
     menu.locator("button").filter(has_text="Rename project").click()

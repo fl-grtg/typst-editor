@@ -849,9 +849,9 @@ renameProjectEntry = async (project, name, document, resource, host) => {
 }
 const sessionOriginalNewResource = newProjectResource
 const sessionOriginalNewDocument = newProjectDoc, sessionOriginalRenameDocument = renameProjectDocument
-newProjectDoc = async project => {
+newProjectDoc = async (project, folder = '') => {
   const s = window.changeSession
-  if (!s || s.project !== project) return sessionOriginalNewDocument(project)
+  if (!s || s.project !== project) return sessionOriginalNewDocument(project, folder)
   if (s.original || s.busy) return
   const choice = await askNewDoc()
   if (!choice?.title?.trim() || window.changeSession !== s) return
@@ -878,11 +878,11 @@ tabName = name => {
   const file = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === name)
   return file ? file.target.replace(/\.typ$/i, '') + '.typ' : sessionOriginalTabName(name)
 }
-newProjectResource = async project => {
-  if (!window.changeSession || window.changeSession.project !== project) return sessionOriginalNewResource(project)
+newProjectResource = async (project, folder = '') => {
+  if (!window.changeSession || window.changeSession.project !== project) return sessionOriginalNewResource(project, folder)
   const ext = await chooseFileType(); if (!ext) return
   const name = await ask(t('files.newFileHead'), { value: 'file' + ext, maxLen: 240 }); if (!name?.trim()) return
-  const path = name.trim().endsWith(ext) ? name.trim() : name.trim() + ext
+  const typed = name.trim().endsWith(ext) ? name.trim() : name.trim() + ext, path = folder ? folder + '/' + typed : typed
   const file = new File([fileStart(ext.slice(1))], path, { type: 'text/plain' })
   const added = await sessionAddFile(file, true); if (added) await switchTab(TPLK + added)
 }

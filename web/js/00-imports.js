@@ -55,11 +55,11 @@ const SPLIT_MIN = 25, SPLIT_MAX = 85 // editor width in %
 const ED_MIN = 10, ED_MAX = 24, ED_STEP = 1 // editor font
 const PV_MIN = 30, PV_MAX = 400, PV_STEP = 10 // preview zoom (400: zoom may exceed container, preview scrolls)
 const SIDE_MIN = 200, SIDE_MAX = 420 // sidebar width in px
-let edSize = 14, pvZoom = 110 // editor font + preview zoom
+let edSize = 14, pvZoom = 100 // editor font + preview zoom (fit-page is the fresh-user default, see pvZoomMode)
 let tabW = 2 // F25: tab width (persisted below); no compile-delay option
 let wrapOn = true // F26: line wrapping; off: long lines scroll horizontally (persisted below)
 try { const e = +localStorage.getItem('typst_ed'); if (e >= ED_MIN && e <= ED_MAX) edSize = e } catch (err) {}
 try { const z = +localStorage.getItem('typst_pv'); if (z >= PV_MIN && z <= PV_MAX) pvZoom = z } catch (err) {}
 try { const t = +localStorage.getItem('typst_tab'); if ([2, 4, 8].includes(t)) tabW = t } catch (err) {}
 try { const w = localStorage.getItem('typst_wrap'); if (w === '0' || w === '1') wrapOn = w === '1' } catch (err) {}
-const saveSet = () => { lsSet('typst_ed', edSize); lsSet('typst_pv', pvZoom) }
+const saveSet = () => { lsSet('typst_ed', edSize); if (pvZoomMode === 'pct') lsSet('typst_pv', pvZoom) } // fit modes derive the zoom, they must not fake an explicit %

@@ -129,11 +129,11 @@ def validate_file(file: dict) -> None:
     if file["action"] != "delete" and file.get("content") is None:
         raise HTTPException(400, "Missing proposed content")
     if file["action"] == "rename" and file["kind"] != "document":
-        safe_name(file.get("target", ""))
+        safe_name(file.get("target", ""), new=True)
         if file["kind"] == "resource":
             from backend.routers.projects import resource_name
 
-            resource_name(file["target"])
+            resource_name(file["target"], new=True)
 
 
 def get(con, project: str, package: str) -> dict:
@@ -236,6 +236,8 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
             result = get(con2, project, package)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
+    from backend.services import notifications
+    notifications.notify_proposal(project, user, result["id"], title)
     return result
 
 

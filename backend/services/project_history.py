@@ -104,14 +104,15 @@ def _retain(con: sqlite3.Connection, project_id: str) -> None:
         f"({','.join('?' * len(keep))})", (project_id, *keep))
 
 
-def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual') -> str:
+def save(con: sqlite3.Connection, project_id: str, state: dict, label: str = '', kind: str = 'manual', author: str = '', check: bool = True) -> str:
     content = json.dumps(state, ensure_ascii=False, sort_keys=True)
     owner = con.execute('SELECT owner FROM projects WHERE id=?', (project_id,)).fetchone()[0]
     sid = db.new_id('ps_')
-    con.execute('INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind) VALUES (?,?,?,?,?,?)',
-                (sid, project_id, content, label, db.now_iso(), kind))
+    con.execute('INSERT INTO project_snapshots (id,project_id,content,label,created_at,kind,author) VALUES (?,?,?,?,?,?,?)',
+                (sid, project_id, content, label, db.now_iso(), kind, author))
     _retain(con, project_id)
-    quota.check_quota(owner, 0, con)
+    if check:  # a restore checks the final state itself (it may free space)
+        quota.check_quota(owner, 0, con)
     return sid
 
 
@@ -132,11 +133,51 @@ def diff_files(state: dict) -> dict[str, str]:
     return files
 
 
+def diff_entries(state: dict) -> dict[str, dict]:
+    """Per entry: display path as shown in the sidebar (no project name, no internal main.typ), text or binary marker."""
+    out: dict[str, dict] = {}
+
+    def put(key: str, name: str, data: bytes | str) -> None:
+        if isinstance(data, str):
+            out[key] = {"name": name, "text": data, "binary": False, "size": len(data.encode()), "sig": data}
+            return
+        try:
+            out[key] = {"name": name, "text": data.decode("utf-8"), "binary": False, "size": len(data), "sig": data.decode("utf-8")}
+        except UnicodeDecodeError:
+            out[key] = {"name": name, "text": "", "binary": True, "size": len(data), "sig": hashlib.sha256(data).hexdigest()}
+
+    for d in state["documents"]:
+        folder = (d.get("folder") or "").strip("/")
+        put(f"d:{d['id']}", (folder + "/" if folder else "") + d["title"] + ".typ", d["content"])
+        for name, encoded in d["files"].items():
+            put(f"f:{d['id']}/{name}", name, base64.b64decode(encoded))
+    for name, content in state["resources"].items():
+        put(f"r:{name}", name, content)
+    return out
+
+
+def changes(old: dict, new: dict) -> list[dict]:
+    """File-level changes between two captured states, sorted by display path."""
+    a, b = diff_entries(old), diff_entries(new)
+    rows = []
+    for key in a.keys() | b.keys():
+        x, y = a.get(key), b.get(key)
+        if x and y and x["sig"] == y["sig"] and x["name"] == y["name"]:
+            continue
+        entry = y or x
+        assert entry is not None
+        rows.append({"name": entry["name"], "status": "added" if not x else "deleted" if not y else "modified",
+                     "binary": bool((x and x["binary"]) or (y and y["binary"])),
+                     "before": x["text"] if x else "", "after": y["text"] if y else "",
+                     "before_size": x["size"] if x else 0, "after_size": y["size"] if y else 0})
+    return sorted(rows, key=lambda r: (r["name"].casefold(), r["name"]))
+
+
 def diff_text(state: dict) -> str:
     return '\n\n'.join(f'=== {name} ===\n{content}' for name, content in sorted(diff_files(state).items()))
 
 
-def auto(project_id: str) -> None:
+def auto(project_id: str, present: frozenset[str] = frozenset()) -> None:
     from datetime import UTC, datetime, timedelta
 
     from backend.constants import SNAP_EVERY
@@ -155,18 +196,22 @@ def auto(project_id: str) -> None:
         with prepared(project_id, p['owner']) as (state, expected), db.tx() as con:
             from backend.services import projects
 
-            projects.require(con, project_id, p['owner'], edit=True)
+            # The owner only authorises the capture; the actor is whoever
+            # last wrote through a route (note_editor), not the owner.
+            projects.require(con, project_id, p['owner'], edit=True, note=False)
             last = con.execute('SELECT created_at FROM project_snapshots WHERE project_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1', (project_id,)).fetchone()
             if last and last[0] >= (datetime.now(UTC) - timedelta(seconds=SNAP_EVERY)).isoformat():
                 return
             unchanged(con, project_id, expected)
             save(con, project_id, state, kind='auto')
         quota.invalidate_quota_cache(p['owner'])
+        from backend.services import notifications
+        notifications.notify_changes(project_id, present)
     except (HTTPException, sqlite3.Error, OSError) as e:
         log.warning('Project auto checkpoint skipped: %s', e)
 
 
-def auto_document(doc_id: str) -> None:
+def auto_document(doc_id: str, present: frozenset[str] = frozenset(), actor: str = "") -> None:
     # Warn-only: callers (save_doc / op_edit / files routes) have already
     # committed their mutation and only catch HTTPException, so a busy DB
     # here must not turn into a post-commit 500.
@@ -180,4 +225,8 @@ def auto_document(doc_id: str) -> None:
         log.warning('auto_document %s lookup skipped: %s', doc_id, e)
         return
     if row and row[0]:
-        auto(row[0])
+        if actor:
+            from backend.services import notifications
+
+            notifications.note_editor(row[0], actor)
+        auto(row[0], present)

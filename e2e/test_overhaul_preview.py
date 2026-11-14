@@ -37,7 +37,7 @@ def test_pv1_include_tab_same_length_edit_recompiles(page):
         timeout=PREVIEW_TIMEOUT
     )
     expect(page.locator("#eBadge")).to_be_hidden()
-    page.locator("#tabs button.tab", has_text="chapter.typ").click()
+    page.locator("aside .doc.sub .t", has_text="chapter.typ").click()
     expect(page.locator("#cm .cm-content")).to_contain_text("Body alpha")
     # same byte length, new content: '#' breaks the chapter, length is unchanged
     chap_v2 = "#ody alpha one\n"
@@ -45,9 +45,8 @@ def test_pv1_include_tab_same_length_edit_recompiles(page):
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+A")
     page.keyboard.type(chap_v2)
-    # File tabs intentionally pause the document preview; the next main-tab render must see the edit.
-    expect(page.locator('#preview')).not_to_be_visible()
-    page.locator('#tabs button.tab').first.click()
+    # The document preview stays live beside the module tab: the edit recompiles without switching back.
+    expect(page.locator('#preview')).to_be_visible()
     expect(page.locator("#eBadge")).to_be_visible(timeout=PREVIEW_TIMEOUT)
     expect(page.locator("#preview .pvPage[data-done]").first).to_be_visible()
 

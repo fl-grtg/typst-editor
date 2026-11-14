@@ -22,7 +22,7 @@ from typing import NamedTuple
 from fastapi import HTTPException, UploadFile
 
 from backend import config, db, deps
-from backend.constants import MAX_TXT, UPLOAD_MAX
+from backend.constants import MAX_FOLDER_DEPTH, MAX_TXT, UPLOAD_MAX
 from backend.services import quota as quota_svc
 
 log = logging.getLogger("typst.main")
@@ -165,7 +165,7 @@ def file_type(path: str) -> str:
     return Path(path).suffix.lower()
 
 
-def safe_name(name: str) -> str:
+def safe_name(name: str, *, new: bool = False) -> str:
     # Relative "a/b/c.png" paths (new) and flat names (old callers, MCP)
     # share this check: segments are sanitized like before, ".." and
     # absolute paths are rejected. Attachments may have any extension.
@@ -186,7 +186,17 @@ def safe_name(name: str) -> str:
     n = "/".join(parts)
     if ".tmp." in n:
         raise HTTPException(400, "Reserved name")
+    if new:
+        check_depth(n)
     return n
+
+
+def check_depth(path: str) -> str:
+    """New names may nest at most MAX_FOLDER_DEPTH folders ("a/b/file.typ").
+    Older deeper paths (ZIP imports) stay readable; only new writes are held to it."""
+    if path.strip("/").count("/") > MAX_FOLDER_DEPTH:
+        raise HTTPException(400, f"Folders can be nested at most {MAX_FOLDER_DEPTH} levels deep")
+    return path
 
 
 def record_file(doc_id: str, path: str, size: int, mtime: float) -> None:
@@ -392,8 +402,8 @@ def _upload_locked(doc_id: str, f: UploadFile, n: str, user: str) -> dict:
     return {"name": n, "size": size}
 
 
-def need_text(name: str) -> str:
-    n = safe_name(name)
+def need_text(name: str, *, new: bool = False) -> str:
+    n = safe_name(name, new=new)
     if Path(n).suffix.lower() not in deps.TEXT_SUFFIX:
         raise HTTPException(400, "Unsupported text file extension")
     return n

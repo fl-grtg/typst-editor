@@ -578,7 +578,7 @@ async def _flush_one(doc_id: str, r: dict) -> bool:
         log.warning("flush_one %s text_len update failed: %s", doc_id, e)
     try:
         from backend.services.project_history import auto_document
-        await asyncio.to_thread(auto_document, doc_id)
+        await asyncio.to_thread(auto_document, doc_id, frozenset(u for u in r.get("users", {}).values() if u))
     except Exception as e:
         log.warning("Project checkpoint %s failed: %s", doc_id, e)
     return True

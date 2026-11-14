@@ -6,16 +6,23 @@ const source = fs.readFileSync('web/js/features/sidebar-dnd.js', 'utf8')
 const projectCode = fs.readFileSync('web/js/features/projects.js', 'utf8')
 const plain = value => JSON.parse(JSON.stringify(value))
 function context(extra = {}) {
-  const c = vm.createContext({ TEXT_EXT: /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i, t: key => key, window: {}, toast: message => assert.fail(message), ...extra })
+  const { document: documentExtra, ...rest } = extra
+  const document = {
+    addEventListener() {}, querySelectorAll: () => [],
+    body: { classList: { add() {}, remove() {} }, appendChild() {} },
+    createElement: () => ({ style: {}, classList: { add() {}, remove() {} }, appendChild() {}, setAttribute() {} }),
+    ...documentExtra,
+  }
+  const c = vm.createContext({ TEXT_EXT: /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i, t: key => key, window: {}, toast: message => assert.fail(message), document, ...rest })
   vm.runInContext(source, c)
   return c
 }
 function row() { return { classList: { add() {}, remove() {} }, contains: () => false } }
 function drop(data, files = []) {
-  return { preventDefault() {}, stopPropagation() {}, dataTransfer: { files, types: files.length ? ['Files'] : ['application/x-typst-project-entry'], getData: () => JSON.stringify(data) } }
+  return { preventDefault() {}, stopPropagation() {}, dataTransfer: { files, types: files.length ? ['Files'] : ['application/x-typst-project-entry'], getData: () => JSON.stringify(data), setDragImage() {} } }
 }
 test('private module drag permits moving into trash and restoring to modules', () => {
-  const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {} })
+  const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {}, classList: { add() {}, remove() {} }, remove() {}, querySelector: () => null })
   const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
   const docs = fs.readFileSync('web/js/60-docs.js', 'utf8')
   vm.runInContext(docs.slice(docs.indexOf('function resRow'), docs.indexOf('function paintKind')), c)

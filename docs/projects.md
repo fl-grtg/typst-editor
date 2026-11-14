@@ -6,6 +6,14 @@ Ein Projekt kann mehrere unabhängig kompilierbare Typst-Dokumente enthalten. Al
 
 Der linke Projektbaum zeigt Dokumente, gemeinsame Ressourcen und lokale Dateien. Auch ein Projekt mit nur einem Dokument zeigt dieses als Untereintrag. Aktionen am Projekt sind Icons. Mitglieder werden ausschließlich über Teilen oben rechts verwaltet. Bei alten Einzelfreigaben bleibt der Zugriff auf das bisherige Dokument begrenzt; sie werden dort entsprechend gekennzeichnet.
 
+## Ordner, Tabs und Vorschau
+
+Innerhalb eines Projekts lassen sich Dokumente, Module und Dokumentdateien (Bilder, Daten) in Ordnern ablegen, höchstens zwei Ebenen tief (`kapitel/bilder/bild.png`). Das Projekt selbst zählt nicht mit. Ordner sind Pfadpräfixe: Module und Dateien tragen sie im Namen, Dokumente in `docs.folder`. Nur leere Ordner haben eine eigene Zeile (`project_folders`, Migration v27). Die Grenze gilt für neue und umbenannte Namen (REST, MCP, Änderungspakete); ältere tiefere Pfade, etwa aus ZIP-Importen, bleiben les- und kompilierbar, die Seitenleiste zeigt sie ab Ebene 2 gefaltet. Dokumente kompilieren unabhängig von ihrem Ordner immer als `/main.typ`; Typst-Pfade bleiben relativ zur importierenden Datei (oder absolut mit `/`).
+
+REST: `POST /api/projects/{id}/folders` (anlegen), `POST …/folders/rename` (verschiebt Module, Dateien, Dokumente und leere Unterordner; `409` bei Namenskollision, `400` wenn eine Ebene zu tief würde), `DELETE …/folders?path=` (nur leere Ordner, sonst `409`) und `POST …/docs/{doc}/folder`. Verweise in Typst-Quellen werden wie beim Datei-Rename nicht umgeschrieben.
+
+Die Tableiste zeigt nur geöffnete Dateien (pro Projekt im Browser gespeichert). Schließen löscht nichts; Anlegen und Löschen geschehen in der Seitenleiste. Ein Modul- oder Datei-Tab behält die Vorschau des zuletzt geöffneten Dokuments (Beschriftung „Vorschau: …“), Änderungen am Modul erscheinen live. Persönliche Module der privaten Sammlung haben keinen Dokumentkontext und damit keine Vorschau.
+
 ## Module übernehmen
 
 Mit mindestens Lesezugriff lassen sich Projektmodule in die eigene private Sammlung übernehmen. Private Module lassen sich in eigene oder gemeinsam bearbeitete Projekte übernehmen. Beim Einfügen eines privaten Moduls kopiert die Oberfläche zuerst das Modul ins Projekt und fügt anschließend den Verweis auf die Projektkopie ein.
@@ -28,7 +36,7 @@ Projektlöschung archiviert das Projekt und verschiebt Dokumente in den Papierko
 
 Kopieren und Verschieben erhalten vorhandene Unterordnerpfade. Verschieben zwischen verschiedenen Besitzern erfordert den Quellbesitzer; Editoren können stattdessen eine unabhängige Kopie anlegen. Dokument-ZIP (`main.typ` + Quellen an ihren ursprünglichen relativen Pfaden + ggf. `SKIPPED.txt`) und Projekt-ZIP (`project.json` + `modules/…` + `documents/<id>/main.typ` + ggf. `skipped.json`) sind verschiedene Layouts: Das Projekt-ZIP hat keinen passenden Vollimporter, daher wird kein vollständiger Projekt-Rundlauf versprochen. Projekt-ZIP steht auch für Leser bereit und enthält nur deren sichtbare Dokumente, Module und Dateien.
 
-Das Grundschema wird beim Start durch die versionierten Datenbankmigrationen ergänzt; auch frische Datenbanken durchlaufen diese Migrationen (Stand v21: Vorschlagsfelder (v20) und kontoweite Rechtschreibsprache (v21); seit v19 die `migration_bytes`-Spalte + einmalige Befüllung aus der Projektbibliothek, NOCASE-Eindeutigkeitsindex für Projekttitel plus einmalige Suffix-Bereinigung von Bestandskollisionen). Version `0.2.0rc1` (`pyproject.toml`) ist Prerelease-Kandidat, noch nicht veröffentlicht; siehe `RELEASE_NOTES.md`-Entwurf.
+Das Grundschema wird beim Start durch die versionierten Datenbankmigrationen ergänzt; auch frische Datenbanken durchlaufen diese Migrationen (Stand v29: v20 Vorschlagsfelder, v21 kontoweite Rechtschreibsprache, v22 Papierkorb, v23 Änderungspakete, v25/v28 Checkpoint-Art und -Autor, v27 Projektordner, v29 Watch-Stand/Posteingang; seit v19 die `migration_bytes`-Spalte + einmalige Befüllung aus der Projektbibliothek, NOCASE-Eindeutigkeitsindex für Projekttitel plus einmalige Suffix-Bereinigung von Bestandskollisionen). Version `0.2.0rc1` (`pyproject.toml`) ist Prerelease-Kandidat, noch nicht veröffentlicht; siehe `RELEASE_NOTES.md`-Entwurf.
 
 ## Betrieb: Single-Worker, Offline- und Persistenzgrenzen
 
@@ -43,3 +51,11 @@ acceptance rejects stale or ambiguous originals. The main upload and project
 file drops accept generic attachments as well as images, text resources and
 source ZIPs. Binary files retain the 10 MB attachment cap and download as
 attachments. Spelling language belongs to the user account, not the project.
+
+## Versionen, Änderungsübersicht und Posteingang
+
+- **Stände benennen:** Beim Speichern eines Projektstands wird nach einem Namen gefragt (optional); im Verlauf lässt er sich umbenennen (Stift). Ein benannter automatischer Stand wird zum dauerhaften (`kind='manual'`). Der Verlauf ist immer nach Zeit sortiert (neueste oben, nach Tag gruppiert); benannte Stände werden nie automatisch gelöscht. Löschen darf der Projekteigentümer oder wer den Stand angelegt hat (`project_snapshots.author`).
+- **Änderungsübersicht:** „Vergleichen“ im Verlauf öffnet einen Dialog mit unscharfem Hintergrund im Stil eines GitHub-Diffs: pro Datei eine einklappbare Karte (Pfad wie in der Seitenleiste, ohne Projektnamen und ohne internes `main.typ`; Dokumente erscheinen als `Titel.typ`), unified Diff mit zwei Zeilennummern, Wort-Hervorhebung in geänderten Zeilen, ausgeblendete Strecken per Klick aufklappbar, Binärdateien als Hinweis. Oben wählt man die Basis („Zuletzt gesehen“ oder ein Stand); verglichen wird immer mit dem aktuellen Projekt (`GET …/snapshots/{id}`, optional `?against=`).
+- **Beobachten (pro Projekt und Person):** Glocke in der Projektzeile der Seitenleiste (zwischen „+“ und „…“, für alle Mitglieder; kleines Häkchen-Menü, Erklärung als Tooltip; bei abweichender Stufe dauerhaft sichtbar) mit drei Stufen: *Nur Erwähnungen* · *Erwähnungen und Vorschläge* (Standard) · *Alles*. Tabelle `project_watch`.
+- **Posteingang (Glocke oben rechts):** Zähler der ungelesenen Einträge, live per SSE (`notification`). Einträge: `mention` (@name in einem Kommentar, immer, nur für Personen mit Zugriff; beim Bearbeiten nur neue Namen), `proposal` (neuer oder überarbeiteter Änderungsvorschlag, ab Stufe 2), `changes` (Stufe *Alles*: ein gesammelter Eintrag pro Projekt, entsteht mit jedem automatischen Stand, nie für die Person, die zuletzt geschrieben hat bzw. gerade im Dokument ist). Klick springt zum Kommentar, öffnet den Vorschlag bzw. (nachdem das Projekt im Hintergrund geöffnet wurde) die Änderungsübersicht seit dem letzten Ansehen (Basis = `project_watch.seen_at`); Schließen der so geöffneten Übersicht setzt den Stand auf „gesehen“.
+- Keine E-Mails und keine Browser-Push-Meldungen.

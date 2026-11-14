@@ -8,9 +8,9 @@ def test_global_library_and_table_can_be_created_and_reused(page):
     register(page, "shelf_creator")
     for ext, name in [("bib", "sources.bib"), ("csv", "numbers.csv")]:
         page.locator("#tplH").hover()
-        page.locator("#tplH button[aria-label='New Modules']").click()
+        page.locator("#tplH button[aria-label='New module']").click()
         page.locator("#modal button.pk").filter(has_text="." + ext).first.click()
-        expect(page.locator("#mHead")).to_have_text("New file")
+        expect(page.locator("#mHead")).to_have_text("New module")
         page.fill("#mInp", name)
         page.click("#mYes")
         expect(page.locator("#title")).to_have_text(name)
@@ -45,8 +45,8 @@ def test_global_library_and_table_can_be_created_and_reused(page):
         expect(page.locator("#title")).to_have_text(title)
         expect(page.locator("#preview .pvPage[data-done]").first).to_be_visible(timeout=60_000)
         expect(page.locator("#eBadge")).not_to_be_visible()
-        expect(page.locator("#tabs")).to_contain_text("numbers.csv")
-        expect(page.locator("#tabs")).to_contain_text("sources.bib")
+        expect(page.locator("aside")).to_contain_text("numbers.csv")
+        expect(page.locator("aside")).to_contain_text("sources.bib")
 
 
 def test_shared_same_name_uses_owner_copy_and_cannot_edit_it(page, browser, base_url):
@@ -65,7 +65,7 @@ def test_shared_same_name_uses_owner_copy_and_cannot_edit_it(page, browser, base
         peer.locator("#shared .doc .t").filter(has_text="Shared resource test").click()
         expect(peer.locator("#title")).to_have_text("Shared resource test")
         expect(peer.locator("#preview .pvPage[data-done]").first).to_be_visible(timeout=60_000)
-        peer.locator("#tabs button.tab").filter(has_text="shared.typ").click()
+        peer.locator("#shared .doc.sub .t").filter(has_text="shared.typ").click()
         expect(peer.locator("#cm .cm-content")).to_contain_text("Owner-only marker")
         expect(peer.locator("#cm .cm-content")).to_have_attribute("contenteditable", "false")
         peer.click("#cm .cm-content")

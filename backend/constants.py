@@ -1,5 +1,6 @@
 """Central limits: single source for main + sync (no import cycle)."""
 MAX_TXT = 200_000
+MAX_FOLDER_DEPTH = 2  # folder levels inside a project (a/b/file.typ); projects themselves do not count
 SNAP_MAX = 50
 SNAP_EVERY = 900
 # Project checkpoints re-embed every attachment (base64 inside the JSON

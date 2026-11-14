@@ -99,7 +99,7 @@ function pvResTpl() { // resolved templates this doc reaches (see .update-review
 }
 const pvJobs = new Map() // worker round-trips by job id
 let pvScale = 2, pvPageSize = null, pvSlots = [], pvObs = null // virtual list: one slot per page, only visible ones rasterized
-let pvZoomMode = 'pct' // pct | width | page (persisted below)
+let pvZoomMode = 'page' // pct | width | page (persisted below; page is the calm default for a fresh browser)
 let typstPm = null // compiler loads async: UI stays clickable while WASM loads
 let typstWarned = false // max 1 warning: no endless retry on blocked CDN
 const typstFonts = [ // self-hosted default text set (see vendor/manifest.json): replaces the bundle's remote default
@@ -286,7 +286,7 @@ async function shadowAll(main) { // files + templates as shadow: main-thread fal
   await $typst.addSource('/main.typ', main)
   return current()
 }
-const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName || (!!activeFile && !window.changeSession) // render epoch/doc/file guard
+const pvStale = (id, myDoc, myTplName) => id !== renderN || myDoc !== docId || myTplName !== tplName // render epoch/doc guard: file tabs keep the document preview alive
 function pvSrcList() { // live source texts for honest cross-file anchors: [{key, text}]
   const out = []
   try {
@@ -308,7 +308,7 @@ function pvSrcList() { // live source texts for honest cross-file anchors: [{key
 }
 async function render() {
   const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName || (activeFile && !window.changeSession)) return
+  if (!myDoc || myTplName) return
   pvBar() // zoom pill extras once (needs consts from later files)
   if (pvWorkerFail || !pvEnsureWorker()) { await renderDirect(id, preview); return } // no worker: main-thread compile
   if (!window.pdfjsLib) { $('cdnLine').style.display = 'block'; lastInfra = true; setTimeout(() => { if (docId) render() }, 3000); return } // lib blocked: retry later
@@ -815,7 +815,7 @@ function scrollApplyPreview() { // page + offset survive new page sizes and zoom
 async function renderDirect(id, preview) { // fallback: no worker (exotic browser, blocked bundle) â€” same output, main thread
   let cmp = null // single compile: error path reuses its diagnostics (no second compile)
   const myDoc = docId, myTplName = tplName
-  if (!myDoc || myTplName || (activeFile && !window.changeSession)) return
+  if (!myDoc || myTplName) return
   if (pvObs) pvObs.disconnect()
   pvSlots = []; pvPageSize = null // bare canvases below: drop slot state (zoom clicks size them directly)
   if (!typstReady()) { noteCompiler(preview); lastInfra = true; ensureTypst().then(() => { if (docId) render() }).catch(() => {}); return } // loads in background, renders after
@@ -1020,7 +1020,11 @@ function showErrList() { // click badge: list errors, click row jumps to the exa
   box.style.display = 'block'; paintCardView()
 }
 document.addEventListener('pointerdown', e => { const p = $('pop'); if (p.classList.contains('errs') && p.style.display !== 'none' && !p.contains(e.target) && !e.target.closest('#eBadge')) closePop(true) }) // error list: x or outside click
-try { const m = localStorage.getItem('typst_pv_mode'); if (m === 'width' || m === 'page') pvZoomMode = m } catch (e) {} // persisted zoom mode (string compare like typst_sync)
+try {
+  const m = localStorage.getItem('typst_pv_mode')
+  if (m === 'width' || m === 'page') pvZoomMode = m
+  else if (m === 'pct' || localStorage.getItem('typst_pv') !== null) pvZoomMode = 'pct' // an explicit zoom wins over the page default
+} catch (e) {}
 function pvModeSet(m) { pvZoomMode = m; lsSet('typst_pv_mode', m); pvModePaint() } // explicit % (stepPv/Ctrl+0) always leaves fit modes
 function pvModePaint() {
   const w = $('fitBtn'), p = $('fitPageBtn')
@@ -1035,7 +1039,7 @@ function pvModeApply() { // width/page zoom follows layout (render + resize); % 
     const avail = pv.clientWidth - 32
     if (avail > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(avail / pvPageSize.width * 100)))
   } else {
-    const avail = pv.clientHeight - 128, width = pv.clientWidth - 32
+    const avail = pv.clientHeight - 92, width = pv.clientWidth - 32 // page fills the space above the zoom pill
     if (avail > 0 && width > 0) pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.floor(Math.min(avail / pvPageSize.height, width / pvPageSize.width) * 100)))
   }
   applyPv(); saveSet(); pvModePaint()

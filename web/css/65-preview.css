@@ -1,7 +1,7 @@
 /* ==========================================================================
    Preview
    ========================================================================== */
-#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 96px; background: var(--pv); position: relative; }
+#preview { flex: 1; min-width: 0; overflow: auto; padding: 16px 16px 72px; background: var(--pv); position: relative; }
 #preview:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #preview canvas { display: block; width: 100%; height: auto; margin: 0 auto 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(15, 17, 22, .07), 0 1px 3px rgba(15, 17, 22, .10), 0 12px 32px rgba(15, 17, 22, .10); }
 body.read #preview { padding-top: 24px; }
@@ -74,3 +74,5 @@ body.present #preview:focus-visible { outline: none; }
 body.present-switch aside, body.present-switch .sbPanel, body.present-switch .sbRail,
 body.present-switch #leftCol, body.present-switch #rightCol, body.present-switch #preview,
 body.present-switch .pvPage { transition: none !important; }
+#pvFor { flex: none; height: 0; padding: 0 14px; font-size: 12px; line-height: 17px; color: var(--sub); background: var(--card); border-bottom: 1px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: height .16s ease, padding .16s ease, opacity .12s ease, border-color .16s ease; }
+#pvFor.on { height: 28px; padding: 5px 14px; border-bottom-color: var(--line); opacity: 1; }

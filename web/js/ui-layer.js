@@ -144,7 +144,10 @@
   }
   function show(anchor, list, name, align) {
     close(false)
-    document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop').forEach(function (p) { p.style.display = 'none' }) // one popover at a time
+    var r = anchor.getBoundingClientRect() // before hiding a parent popover: its child would otherwise measure 0x0
+    document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop').forEach(function (p) { // one popover at a time, except the one owning the anchor
+      if (!p.contains(anchor)) p.style.display = 'none'
+    })
     menu.replaceChildren()
     list.forEach(function (d) {
       if (d.sep) { menu.appendChild(document.createElement('hr')); return }
@@ -164,7 +167,7 @@
       menu.appendChild(b)
     })
     menu.hidden = false
-    var r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h2 = menu.offsetHeight
+    var w = menu.offsetWidth, h2 = menu.offsetHeight
     var left = align === 'right' ? r.right - w : r.left
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
     var top = r.bottom + 6
@@ -179,6 +182,10 @@
   }
   function open(anchor, name) {
     show(anchor, DEF[name] ? DEF[name]() : [], name, name === 'export' ? 'right' : 'left')
+  }
+  window.showMenuAt = function (anchor, list, align) { // anchored menu for tabs and other row-level actions
+    show(anchor, list, 'anchored', align || 'left')
+    focusItem(0)
   }
 
   document.addEventListener('click', function (e) { // capture: row clicks (open document) must not run for the menu button

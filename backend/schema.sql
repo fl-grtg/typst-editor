@@ -149,7 +149,10 @@ CREATE TABLE IF NOT EXISTS notifications (
     doc_id TEXT NOT NULL DEFAULT '',
     text TEXT NOT NULL DEFAULT '',
     is_read INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    project_id TEXT NOT NULL DEFAULT '',  -- inbox: where the item belongs
+    ref TEXT NOT NULL DEFAULT '',         -- comment id / proposal id to jump to
+    actor TEXT NOT NULL DEFAULT ''        -- who caused it
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient, created_at);
 
@@ -181,10 +184,17 @@ CREATE TABLE IF NOT EXISTS project_resources (
  PRIMARY KEY(project_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS project_folders (
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ path TEXT NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(project_id, path)
+);
+
 CREATE TABLE IF NOT EXISTS project_snapshots (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
  content TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
- kind TEXT NOT NULL DEFAULT 'manual' -- 'auto' (system, pruned by retention) vs 'manual' (never auto-pruned)
+ kind TEXT NOT NULL DEFAULT 'manual', -- 'auto' (system, pruned by retention) vs 'manual' (never auto-pruned)
+ author TEXT NOT NULL DEFAULT '' -- who saved it ('' = system/older)
 );
 
 CREATE TABLE IF NOT EXISTS trash_entries (
@@ -200,4 +210,14 @@ CREATE TABLE IF NOT EXISTS suggestion_packages (
  author TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE, author_name TEXT NOT NULL DEFAULT '', title TEXT NOT NULL,
  files TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, accepted INTEGER NOT NULL DEFAULT 0,
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
+-- project_watch: per user and project, how much reaches the inbox
+-- (mentions < proposals (default) < all). seen_at = when the user last looked at the changes.
+CREATE TABLE IF NOT EXISTS project_watch (
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ username TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+ level TEXT NOT NULL CHECK(level IN ('mentions','proposals','all')),
+ seen_at TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(project_id, username)
 );

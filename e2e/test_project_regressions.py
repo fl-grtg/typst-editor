@@ -6,7 +6,9 @@ from playwright.sync_api import expect
 def test_module_server_name_and_rename_preview(page):
     register(page, 'project_module_ui')
     create_doc(page, 'Workspace')
-    page.click('#tabs button.tadd')
+    head = page.locator('aside .project-group').filter(has_text='Workspace').locator('.fhd.project')
+    head.hover()
+    head.locator('button.mini').first.click()
     page.locator('#modal button.pk').nth(1).click()
     page.locator('#modal button.pk').filter(has_text='.typ').first.click()
     page.fill('#mInp', 'Änderungen')

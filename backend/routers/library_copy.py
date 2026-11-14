@@ -71,7 +71,7 @@ def inspect_pull(con, user: str, b: Pull) -> dict:
         existing = {r["name"]: r["updated_at"] for r in con.execute("SELECT name,updated_at FROM project_resources WHERE project_id=?", (b.project_id,))}
     else:
         raise HTTPException(400, "Choose a personal or project target")
-    root = resource_name(b.name)
+    root = resource_name(b.name, new=True)
     if PurePosixPath(root).suffix.lower() != PurePosixPath(source).suffix.lower():
         raise HTTPException(400, "Keep the source file extension")
     queue = [source]
@@ -96,7 +96,7 @@ def inspect_pull(con, user: str, b: Pull) -> dict:
         mapped = posixpath.normpath(posixpath.join(posixpath.dirname(root), relative))
         if mapped.startswith("../") or mapped == "..":
             mapped = n
-        names[n] = resource_name(b.renames.get(n, posixpath.basename(n) if b.scope == "personal" else mapped))
+        names[n] = resource_name(b.renames.get(n, posixpath.basename(n) if b.scope == "personal" else mapped), new=True)
     if any(PurePosixPath(names[n]).suffix.lower() != PurePosixPath(n).suffix.lower() for n in names):
         raise HTTPException(400, "Keep dependency file extensions")
     if b.scope == "personal" and any("/" in n or len(n) > 100 or resources.res_name(n) != n for n in names.values()):
@@ -189,7 +189,7 @@ def inspect_copy(con, user: str, doc_id: str, b: Copy) -> dict:
         raise HTTPException(400, "Source must be UTF-8 text") from None
     if len(content.encode("utf-8")) > MAX_TXT:
         raise HTTPException(413, "Text resource exceeds 200 KB")
-    name = resource_name(b.name)
+    name = resource_name(b.name, new=True)
     if PurePosixPath(name).suffix.lower() != PurePosixPath(source).suffix.lower():
         raise HTTPException(400, "Keep the source file extension")
     resource_clash = False  # case-variant module names would render as two rows (#7)

@@ -33,3 +33,19 @@ def test_owner_rename_and_account_deletion_preserve_project_integrity(c):
         assert con.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         con.close()
+
+
+def test_renamed_author_keeps_checkpoint_rights(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = c.post("/api/docs/create", json={"title": "Doc"}).json()["id"]
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
+    assert c.post(f"/api/projects/{pid}/members", json={"username": "bob", "role": "editor"}).status_code == 200
+    login(c, "bob")
+    sid = c.post(f"/api/projects/{pid}/snapshots", json={"label": "Bob base"}).json()["id"]
+    assert c.post("/api/me/name", json={"name": "bobby", "password": "pass1234"}).status_code == 200
+    login(c, "bobby")
+    listed = c.get(f"/api/projects/{pid}/snapshots").json()["snapshots"]
+    assert next(s["author"] for s in listed if s["id"] == sid) == "bobby"
+    assert c.delete(f"/api/projects/{pid}/snapshots/{sid}").status_code == 200

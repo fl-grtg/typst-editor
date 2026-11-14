@@ -67,6 +67,7 @@ async function login(u, p) {
     paintMe()
     const hadJoin = !!new URLSearchParams(location.search).get('join')
     try { await sidebar(); } catch (e) {}
+    loadInbox().catch(() => {}) // bell + unread count do not wait for the SSE stream
     watchSidebar()
     await loadTpl(); const joined = await checkJoin()
     if (openN === 0 && !docId && !tplName && !hadJoin && !joined) {
@@ -95,13 +96,14 @@ $('renBtn').onclick = async () => { // pencil behind title (owner only, template
     .catch(e => toast(e.message))
   } finally { renBusy = false }
 }
-function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
+function askNewDoc(uploadTitle, headTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
   return new Promise(res => {
     if (askRes) askRes(null)
     const prev = document.activeElement
     const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
-    $('mHead').textContent = t('docs.newDocTitle')
-    const inp = $('mInp'); inp.style.display = ''; inp.value = uploadTitle || t('docs.newDocTitle'); inp.placeholder = t('docs.titlePh'); inp.setAttribute('aria-label', t('docs.titlePh'))
+    const head = headTitle || t('docs.newDocTitle')
+    $('mHead').textContent = head
+    const inp = $('mInp'); inp.style.display = ''; inp.value = uploadTitle || head; inp.placeholder = t('docs.titlePh'); inp.setAttribute('aria-label', t('docs.titlePh'))
     const row = document.querySelector('#mCard .mRow'); row.style.display = ''
     const yes = $('mYes'); yes.disabled = false; yes.textContent = t('common.create'); yes.style.background = ''; yes.style.color = ''
     const box = document.createElement('div'); box.id = 'mExtra'
@@ -119,12 +121,12 @@ function askNewDoc(uploadTitle) { // one dialog: title + folder radio + gallery 
     setTimeout(() => { if (ov.style.display !== 'none') { inp.focus(); inp.select() } }, 30)
   })
 }
-function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (like askNewDoc, not 3 cascades)
+function askNewTpl(uploadName, headTitle) { // one dialog: name + folder radio (like askNewDoc, not 3 cascades)
   return new Promise(res => {
     if (askRes) askRes(null)
     const prev = document.activeElement
     const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
-    $('mHead').textContent = creating ? t('files.newFileHead') : uploadName ? t('files.upload') : t('templates.newTitle')
+    $('mHead').textContent = headTitle || (uploadName ? t('files.upload') : t('templates.newTitle'))
     const inp = $('mInp'); inp.style.display = ''; inp.value = uploadName || ''; inp.placeholder = t('templates.namePh'); inp.setAttribute('aria-label', t('templates.nameAria'))
     const row = document.querySelector('#mCard .mRow'); row.style.display = ''
     const yes = $('mYes'); yes.disabled = false; yes.textContent = t('common.create'); yes.style.background = ''; yes.style.color = ''
@@ -139,10 +141,10 @@ function askNewTpl(uploadName, creating) { // one dialog: name + folder radio (l
   })
 }
 $('new').onclick = async () => {
-  const k = await askPick(t('docs.newPick'), [[t('docs.pickDoc'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
+  const k = await askPick(t('docs.newProjectTitle'), [[t('docs.newProject'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
   if (k === 1) { $('docPick').click(); return }
   if (k !== 0) return
-  const r = await askNewDoc()
+  const r = await askNewDoc(null, t('docs.newProjectTitle'))
   if (!r) return
   const b = $('new'); b.disabled = true
   try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('projects.new'), content: galleryContent(r.tpl), folder: '' })).id) }
@@ -202,7 +204,7 @@ $('del').onclick = async () => {
     return
   }
   if (tplName) { // delete open template
-    if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('common.delete'), danger: true })) return
+    if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
     if (resource !== tplName || epoch !== openN) return
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
     catch (e) { toast(e.message); return }
@@ -265,6 +267,7 @@ api('GET', '/api/me').then(async d => { // session via cookie only (HttpOnly)
   paintMe()
   const hadJoin = !!new URLSearchParams(location.search).get('join')
   try { await sidebar(); } catch (e) {}
+  loadInbox().catch(() => {}) // bell + unread count do not wait for the SSE stream
   watchSidebar()
   await loadTpl(); const joined = await checkJoin()
   if (openN === 0 && !docId && !tplName && !hadJoin && !joined) {

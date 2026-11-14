@@ -60,11 +60,11 @@ def upload_file(doc_id: str, f: UploadFile, req: Request, user: str = Depends(de
     deps.limited(req, "files")
     deps.check_doc_id(doc_id)
     deps.need_edit(user, doc_id)
-    n = safe_name(f.filename or "")
+    n = safe_name(f.filename or "", new=True)
     with _named_lock(f"upload:{doc_id}"):
         out = _upload_locked(doc_id, f, n, user)
     quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
-    auto_document(doc_id)
+    auto_document(doc_id, actor=user)
     emit_doc(doc_id, "file")
     return out
 
@@ -90,7 +90,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
     deps.check_doc_id(doc_id)
     deps.limited(req, "save") # autosave every SAVE_MS, like doc save (files bucket is for up/download)
     deps.need_edit(user, doc_id)
-    n = need_text(name)
+    n = need_text(name, new=b.version is None)
     with _named_lock(f"upload:{doc_id}"):
         try:
             if b.version is not None:
@@ -104,7 +104,7 @@ def save_file_text(doc_id: str, name: str, b: FileText, req: Request, user: str 
         except sqlite3.OperationalError as e:
             raise deps.busy_503("save_file_text", e) from e
     quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
-    auto_document(doc_id)
+    auto_document(doc_id, actor=user)
     emit_doc(doc_id, "file")
     return {"ok": True, "version": sha256(b.content.encode("utf-8")).hexdigest()}
 
@@ -195,7 +195,7 @@ def delete_file(doc_id: str, name: str, req: Request, user: str = Depends(deps.m
             raise HTTPException(500, "Delete failed")
         touch_doc(doc_id)
         quota_svc.invalidate_quota_cache(deps._owner(doc_id, user))
-        auto_document(doc_id)
+        auto_document(doc_id, actor=user)
         emit_doc(doc_id, "file")
         notify_sidebar(user)
         if owner_row["owner"] != user:
