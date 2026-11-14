@@ -164,7 +164,7 @@ body.file-view #leftCol { display: flex !important; width: 100% !important; flex
 /* Project folders: indent follows --lv (0 = project root); the folder header carries the quiet drop fill */
 aside .fhd.project { margin-left: 0; padding-left: 10px; height: 34px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); background: transparent; border-radius: var(--r-sm); transition: background .12s ease; }
 aside .fhd.project:hover { background: var(--hover); }
-aside .project-group + .project-group { margin-top: 6px; padding-top: 0; border-top: 0; }
+aside .project-group + .project-group { margin-top: 2px; padding-top: 0; border-top: 0; }
 aside .fhd.project b { font-weight: 600; }
 aside .doc.sub { margin-left: 30px; } /* shared/trash/module rows keep the folder-text line */
 aside .project-group .doc.sub { margin-left: calc(16px + var(--lv, 0) * 14px); } /* root entries sit on the folder chevron, nested ones on the folder text */

@@ -172,7 +172,13 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
   }
   return div
 }
+function sidebarRenaming() { // an in-flight or direct repaint must not wipe the inline rename; finish() refreshes after it
+  if (!document.querySelector('aside input.renameInput')) return false
+  window.__sidebarDeferred = true
+  return true
+}
 function paintOwn() { // top-level first, then folders (A-Z); search replaces list
+  if (sidebarRenaming()) return
   const box = $('own'); box.replaceChildren()
   const qc = $('qCount')
   if (findQ.length >= 2) {
@@ -201,6 +207,7 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noDocs')))
 }
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
+  if (sidebarRenaming()) return
   const box = $('shared'); box.replaceChildren()
   const byO = new Map()
   ;[...list].filter(x => !x.project_id || !projects.some(p => p.id === x.project_id)).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
@@ -312,6 +319,7 @@ function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t(emptyKey))) // create via + New above (type + folder step)
 }
 function paintTpls() { // templates + libraries + tables sections: click opens in editor
+  if (sidebarRenaming()) return
   paintKind('tpls', 'resource', 'templates.noTpls', 'tpl:')
   paintKind('libs', 'library', 'templates.noLibs', 'lib:')
   paintKind('tbls', 'table', 'templates.noTbls', 'tbl:')
