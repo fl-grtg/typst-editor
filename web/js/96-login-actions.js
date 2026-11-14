@@ -36,7 +36,15 @@ function paintAvatar(node, n, c) { // initials on the color blob; once the image
   })
 }
 let regMode = false
-$('showPw').onchange = () => { $('p').type = $('showPw').checked ? 'text' : 'password' }
+$('showPw').onclick = () => {
+  const on = $('p').type === 'password'
+  $('p').type = on ? 'text' : 'password'
+  $('showPw').classList.toggle('on', on)
+  $('showPw').setAttribute('aria-pressed', String(on))
+  const label = t(on ? 'shell.hidePw' : 'shell.showPw')
+  $('showPw').setAttribute('aria-label', label)
+  $('showPw').title = label
+}
 $('mode').onclick = e => {
   e.preventDefault(); regMode = !regMode
   $('go').textContent = regMode ? t('login.signUp') : t('login.signIn')
