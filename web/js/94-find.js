@@ -78,18 +78,4 @@ $('fNext').onclick = () => stepFind(1)
 $('fRep').onclick = () => doRep(false)
 $('fAll').onclick = () => doRep(true)
 $('fX').onclick = closeFind
-const findKeys = e => {
-  if (e.key === 'Enter') stepFind(e.shiftKey ? -1 : 1)
-  if (e.key === 'Escape') closeFind()
-}
-$('fQ').onkeydown = $('fR').onkeydown = findKeys
-addEventListener('keydown', e => { // Ctrl/Cmd+F = bar, Ctrl/Cmd+S = save now, ? = help
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind() }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow() }
-  if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) { e.preventDefault(); stepPv(PV_STEP) }
-  if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); stepPv(-PV_STEP) }
-  if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); pvModeSet('pct'); pvZoom = 110; applyPv(); saveSet() }
-  if (e.key === '?' && !e.ctrlKey && !e.metaKey && $('app').classList.contains('on')
-    && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') && !cm.hasFocus) openTutorial()
-})
 document.querySelector('a[href="#cm"]')?.addEventListener('click', () => setTimeout(() => { try { cm.focus() } catch (e) {} }, 60)) // skip link: keyboard focus into editor, not just scroll

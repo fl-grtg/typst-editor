@@ -11,12 +11,12 @@
   function click(id) { var b = $(id); if (b) b.click() }
   function shown(id) { var b = $(id); return !!b && b.style.display !== 'none' && !b.disabled && !b.hidden && !b.classList.contains('type-hidden') }
   function pressed(id) { var b = $(id); return !!b && (b.getAttribute('aria-pressed') === 'true' || b.classList.contains('on')) }
-  function key(k, extra) {
-    window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: k, ctrlKey: !mac, metaKey: mac, bubbles: true, cancelable: true }, extra || {})))
-  }
+  function scKey(id, fallback) { try { if (window.scKeyUnbound && window.scKeyUnbound(id)) return ''; return (window.scKeyLabel && window.scKeyLabel(id)) || fallback } catch (e) { return fallback } } // live binding: settings may have changed it
+  function scRun(id) { try { return !!(window.scRunShortcut && window.scRunShortcut(id)) } catch (e) { return false } } // same handler as the key itself
   function fmt(kind) { var b = document.querySelector('[data-fmt="' + kind + '"]'); if (b && !b.disabled) b.click() }
   function fmtOn(kind) { var b = document.querySelector('[data-fmt="' + kind + '"]'); return !!b && !b.disabled }
-  function it(label, run, o) { o = o || {}; return { label: label, run: run, kbd: o.kbd, on: o.on !== false, checked: o.checked } }
+  function it(label, run, o) { o = o || {}; return { label: label, run: run, kbd: o.kbd, on: o.on !== false, checked: o.checked, ext: o.ext } }
+  var EXT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>'
   var SEP = { sep: true }
   function head(t) { return { head: t } }
 
@@ -49,7 +49,7 @@
         it(t('menu.rename'), function () { click('renBtn') }, { on: shown('renBtn') }),
         it(t('menu.share'), function () { click('shareBtn') }, { on: shown('shareBtn') }),
         it(t('menu.history'), function () { click('histBtn') }, { on: shown('histBtn') }),
-        it(t('menu.saveNow'), function () { key('s') }, { kbd: M + 'S' }),
+        it(t('menu.saveNow'), function () { scRun('save') }, { kbd: scKey('save', M + 'S') }),
         SEP
       ].concat(exportItems(), [
         SEP,
@@ -59,12 +59,12 @@
     },
     edit: function () {
       return [
-        it(t('menu.find'), function () { key('f') }, { kbd: M + 'F' }),
+        it(t('menu.find'), function () { scRun('find') }, { kbd: scKey('find', M + 'F') }),
         SEP,
-        it(t('menu.bold'), function () { fmt('bold') }, { kbd: M + 'B', on: fmtOn('bold') }),
-        it(t('menu.italic'), function () { fmt('italic') }, { kbd: M + 'I', on: fmtOn('italic') }),
-        it(t('menu.underline'), function () { fmt('underline') }, { kbd: M + 'U', on: fmtOn('underline') }),
-        it(t('editor.formatDoc'), function () { click('fmtDoc') }, { on: shown('fmtDoc') }),
+        it(t('menu.bold'), function () { fmt('bold') }, { kbd: scKey('bold', M + 'B'), on: fmtOn('bold') }),
+        it(t('menu.italic'), function () { fmt('italic') }, { kbd: scKey('italic', M + 'I'), on: fmtOn('italic') }),
+        it(t('menu.underline'), function () { fmt('underline') }, { kbd: scKey('underline', M + 'U'), on: fmtOn('underline') }),
+        it(t('editor.formatDoc'), function () { click('fmtDoc') }, { kbd: scKey('format', 'Alt+Shift+F'), on: shown('fmtDoc') }),
         it(t('shell.fmtHead'), function () { fmt('heading') }, { on: fmtOn('heading') }),
         it(t('shell.fmtBul'), function () { fmt('bullets') }, { on: fmtOn('bullets') }),
         it(t('shell.fmtNum'), function () { fmt('numbers') }, { on: fmtOn('numbers') }),
@@ -91,10 +91,10 @@
         it(t('menu.follow'), function () { click('followBtn') }, { checked: pressed('followBtn'), on: !edit && !read }),
         it(t('menu.clickSync'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
         SEP,
-        it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: M + '+', on: !edit }),
-        it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: M + '\u2212', on: !edit }),
+        it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: scKey('zoomIn', M + '+'), on: !edit }),
+        it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: scKey('zoomOut', M + '\u2212'), on: !edit }),
         it(t('menu.fitPage'), function () { click('fitPageBtn') }, { on: !edit }),
-        it(t('menu.resetZoom'), function () { key('0') }, { kbd: M + '0', on: !edit }),
+        it(t('menu.resetZoom'), function () { scRun('zoomReset') }, { kbd: scKey('zoomReset', M + '0'), on: !edit }),
         SEP,
         it(t('menu.fontUp'), function () { click('fPlus') }, { on: !read }),
         it(t('menu.fontDown'), function () { click('fMinus') }, { on: !read }),
@@ -106,9 +106,10 @@
     },
     help: function () {
       return [
-        it(t('editor.scTitle'), function () { click('helpBtn') }),
-        it(t('menu.agent'), function () { if ($('setPop').style.display === 'none') click('userMain') }),
-        it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') })
+        it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') }, { ext: true }),
+        it(t('menu.issues'), function () { window.open('https://github.com/fl-grtg/typst-editor/issues', '_blank', 'noopener') }, { ext: true }),
+        it(t('menu.shortcuts'), function () { if (window.openShortcutSettings) window.openShortcutSettings(); else click('helpBtn') }),
+        it(t('menu.agent'), function () { if (window.openSettingsCategory) window.openSettingsCategory('api'); else click('userMain') })
       ]
     },
     export: function () { return [head(t($('dlTyp').dataset.kind === 'file' ? 'menu.dlFileHead' : 'menu.dlHead'))].concat(exportItems()) },
@@ -163,6 +164,7 @@
       if (d.checked !== undefined) b.appendChild(c)
       b.appendChild(l)
       if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
+      if (d.ext) { var x = document.createElement('span'); x.className = 'ext'; x.innerHTML = EXT_ICON; b.appendChild(x) } // link leaves Typst
       b.onclick = function () { close(false); setTimeout(d.run, 0) }
       menu.appendChild(b)
     })

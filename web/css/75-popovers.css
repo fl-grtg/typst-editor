@@ -129,6 +129,68 @@ body.settings-open #modal { z-index: 302; }
 #setPop .setView .grp { margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 #setPop .setView .grp:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 #setPop .setView .sec { margin: 0; padding: 4px 0 8px; background: transparent; border-radius: 0; }
+#setPop .shortcutSettings .sec { padding: 0; }
+#setPop .shortcutSettings .grp { margin: 0; padding: 0; border: 0; }
+#setPop .shortcutSettings .grp + .grp { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+#setPop .shortcutSettings .grp.grpFirst { margin-top: 0; padding-top: 0; border-top: 0; }
+#setPop .shortcutSettings .grp h4 { padding: 0 0 4px; }
+#setPop .shortcutRow { padding: 3px 2px; }
+#setPop .shortcutRow + .shortcutRow { border-top: 0; } /* only categories get a divider */
+#setPop .shortcutMain { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+#setPop .shortcutLabel { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; }
+#setPop .shortcutKeys { flex: none; display: flex; align-items: center; gap: 2px; }
+#setPop .shortcutKbd {
+  display: inline-flex; align-items: center; min-height: 28px; padding: 3px 8px;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; box-shadow: none;
+  color: var(--text); font: 12px/1.3 var(--mono); white-space: nowrap; cursor: pointer;
+}
+#setPop .shortcutKbd:not(.recording):hover { background: var(--hover); border-color: var(--line); }
+#setPop .shortcutKbd.recording { background: var(--sel); border-color: var(--line-2); color: var(--sub); font-family: var(--ui); }
+#setPop .shortcutKbd.pending { color: var(--danger); }
+#setPop .shortcutKbd.unset { font-family: var(--ui); }
+#setPop .shortcutHint { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin: 5px -2px 1px; padding: 6px 8px 6px 10px; border-radius: 6px; background: var(--hover); color: var(--text); font-size: 12px; line-height: 1.35; }
+#setPop .shortcutHintText { display: flex; flex: 1 1 190px; min-width: 0; }
+#setPop .shortcutHintText b { font-weight: 600; }
+#setPop .shortcutHint .btnSecondary { flex: none; min-height: 26px; padding: 2px 9px; font-size: 11.5px; }
+#setPop .shortcutKbd .shortcutSep {
+  position: relative; display: inline-flex; width: 8px; height: 12px; margin: 0 1px;
+  font-size: 0; line-height: 0; /* a dot separates keys; the hidden + keeps copied/AT text canonical */
+}
+#setPop .shortcutKbd .shortcutSep::before {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 2.5px; height: 2.5px;
+  transform: translate(-50%, -50%); border-radius: 50%; background: var(--faint);
+}
+#setPop .shortcutKbd .shortcutKeyWithArrow, #setPop .shortcutKbd .shortcutKeyWithIcon { display: inline-flex; align-items: center; justify-content: center; gap: 3px; }
+#setPop .shortcutKbd .shortcutIcon { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; }
+#setPop .shortcutKbd .shortcutIcon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+#setPop .shortcutKbd .shortcutDelete svg { transform: scaleX(-1); }
+#setPop .shortcutSearch { position: sticky; top: -16px; z-index: 3; display: flex; align-items: center; gap: 6px; margin: -16px 0 6px; padding: 16px 0 10px; background: var(--card); }
+#setPop .shortcutSearchField { position: relative; display: flex; flex: 1; min-width: 0; }
+#setPop .shortcutSearchIco { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; z-index: 1; }
+#setPop .shortcutSearchField input { box-sizing: border-box; width: 100%; min-width: 0; padding-left: 30px; padding-right: 32px; background: var(--hover); border-color: transparent; }
+#setPop .shortcutSearchField input:focus { background: var(--field); border-color: var(--acc); }
+#setPop .shortcutSearchClear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 26px; min-width: 26px; min-height: 26px; padding: 0; border: 0; border-radius: 5px; background: transparent; box-shadow: none; color: var(--faint); }
+#setPop .shortcutSearchClear:not(:disabled):hover { background: var(--hover); color: var(--text); }
+#setPop .shortcutSearchClear svg { width: 13px; height: 13px; }
+#setPop .shortcutResetAll { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--hover); box-shadow: none; color: var(--sub); }
+#setPop .shortcutResetAll:not(:disabled):hover { background: var(--sel); border-color: var(--line-2); color: var(--text); }
+#setPop .shortcutResetAll:disabled { opacity: .35; cursor: default; }
+#setPop .shortcutResetAll svg { width: 14px; height: 14px; pointer-events: none; }
+#setPop .shortcutEmpty { padding: 10px 2px 22px; color: var(--faint); font-size: 13px; text-align: center; }
+#setPop .shortcutUnset { color: var(--faint); font-size: 12px; }
+#setPop .shortcutResetBtn,
+#setPop .shortcutClearBtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; box-shadow: none; color: var(--faint); }
+#setPop .shortcutResetBtn:not(:disabled):hover,
+#setPop .shortcutClearBtn:not(:disabled):hover { background: var(--hover); border-color: var(--line); color: var(--text); }
+#setPop .shortcutClearBtn:not(:disabled):hover { color: var(--danger); }
+#setPop .shortcutClearBtn:disabled { opacity: .35; cursor: default; }
+#setPop .shortcutResetBtn svg { width: 14px; height: 14px; pointer-events: none; }
+#setPop .shortcutClearBtn svg { width: 13px; height: 13px; pointer-events: none; }
+#setPop .shortcutNotice { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin: 5px -2px 1px; padding: 6px 8px 6px 10px; border-radius: 6px; background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.35; }
+#setPop .shortcutNoticeText { display: flex; flex: 1 1 190px; min-width: 0; flex-direction: column; gap: 1px; }
+#setPop .shortcutNoticeText b { font-weight: 600; }
+#setPop .shortcutNoticeText span { color: var(--danger); font-size: 11.5px; opacity: .72; }
+#setPop .shortcutNotice .btnSecondary { flex: none; min-height: 26px; padding: 2px 9px; font-size: 11.5px; }
 #setPop .storageUsage { display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; }
 #setPop .storageSummary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 #setPop .storageLabel { min-width: 0; font-size: 13px; font-weight: 550; }
@@ -180,6 +242,9 @@ body.settings-open #modal { z-index: 302; }
   #setPop .setLayout .setRail { padding: 12px 8px; }
   #setPop .setNavItem { padding: 8px; font-size: 12px; }
   #setPop .setContent { padding: 16px 12px 22px; }
+  #setPop .shortcutMain { flex-wrap: wrap; gap: 6px 10px; }
+  #setPop .shortcutLabel { flex: 1 1 100%; }
+  #setPop .shortcutKeys { margin-right: auto; }
   #setPop .keyCreateRow { grid-template-columns: minmax(95px, 1.1fr) minmax(85px, .9fr) minmax(75px, .8fr) auto; gap: 4px; }
   #setPop .keyCreateRow > button { padding-right: 8px; padding-left: 8px; }
   #setPop .accountForm { grid-template-columns: minmax(0, 1fr); }

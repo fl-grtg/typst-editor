@@ -63,14 +63,6 @@ function formatSettingsSec() { // settings group section: format on save (toolba
   new MutationObserver(sync).observe($('tabs'), { childList: true })
   sync()
 }
-addEventListener('keydown', e => { // Alt+Shift+F like VS Code: format once (save toggle above covers every save)
-  if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return
-  if (e.code !== 'KeyF' && (e.key || '').toLowerCase() !== 'f') return
-  if (/INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) return
-  if (!$('app').classList.contains('on')) return
-  e.preventDefault()
-  formatDoc(false)
-})
 {
   const inner = saveNow // format on save: format first, then the regular save (failure still saves unformatted)
   saveNow = async (force, auto) => {
