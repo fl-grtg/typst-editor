@@ -95,7 +95,7 @@ def test_click_preview_lands_in_the_clicked_section(page):
     page.wait_for_function("() => /^Ln [789]:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
     assert 7 <= _line(page) <= 9
 
-    body.click(position={"x": 400, "y": 500})  # blank second page: nearest readable text stays in the section
+    body.click(position={"x": 300, "y": 250})  # blank second page: nearest readable text stays in the section
     page.wait_for_function("() => /^Ln [789]:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
     assert 7 <= _line(page) <= 9
 
@@ -165,10 +165,13 @@ def test_follow_toggle_keeps_the_preview_still_but_clicks_still_jump(page):
 
     page.click("#followBtn")  # follow everything -> clicks only
     expect(page.locator("#followBtn")).to_have_attribute("aria-pressed", "false")
+    page.wait_for_timeout(500)  # let the home jump settle before sampling the view
+    before = page.evaluate("() => document.getElementById('preview').scrollTop")
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+End")
     page.wait_for_timeout(700)  # longer than the 40 ms sync throttle
-    assert not page.evaluate(PAGE_IN_VIEW, 2)  # cursor moved, preview stayed
+    after = page.evaluate("() => document.getElementById('preview').scrollTop")
+    assert abs(after - before) < 2, f"cursor moved, preview followed: {before} -> {after}"
 
     body = page.locator('.pvPage[data-page="2"] canvas')
     body.click(position={"x": 300, "y": 110})  # an explicit click still finds its line
@@ -349,7 +352,11 @@ def test_scrolling_up_after_a_page_bottom_click_keeps_the_editor_view(page):
     page.keyboard.press("ControlOrMeta+A")
     assert page.evaluate("(t) => document.execCommand('insertText', false, t)", CHART_SOURCE)
     expect(page.locator('#preview .pvPage[data-page="2"][data-done] canvas')).to_be_visible(timeout=PREVIEW_TIMEOUT)
-    page.evaluate("() => { document.getElementById('preview').scrollTop = 600 }")  # page 2 owns the viewport center
+    page.evaluate("""() => {  // page 2 owns the viewport center, page 1 bottom stays clickable
+      const pv = document.getElementById('preview'), p2 = pv.querySelector('.pvPage[data-page="2"]')
+      const pr = pv.getBoundingClientRect(), r = p2.getBoundingClientRect()
+      pv.scrollTop += r.top - pr.top - (pr.height - r.height) / 2
+    }""")
     page.wait_for_timeout(900)
     box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
     assert box
