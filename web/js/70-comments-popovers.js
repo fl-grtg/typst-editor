@@ -284,9 +284,6 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   p.textContent = t('docs.posCompact', { ln, col }) + (words ? (wc() || '') : '')
   p.title = t('docs.posLine', { ln, col }) + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
-function openTutorial() {
-  window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener')
-}
 function paintEmpty() { // onboarding card instead of pick-left note
   const card = el('div'); card.id = 'emptyCard'
   card.appendChild(el('h2', null, t('docs.emptyTitle')))
@@ -298,13 +295,15 @@ function paintEmpty() { // onboarding card instead of pick-left note
     card.appendChild(st)
   })
   const hint = el('p', 'hint')
-  hint.appendChild(el('kbd', null, '?'))
-  hint.append(document.createTextNode(' ' + t('docs.emptyHintHelp') + ' · '))
-  hint.appendChild(el('kbd', null, t('docs.emptyKbdFind')))
-  hint.append(document.createTextNode(' ' + t('docs.emptyHintFind') + ' · '))
-  hint.appendChild(el('kbd', null, t('docs.emptyKbdSave')))
-  hint.append(document.createTextNode(' ' + t('docs.emptyHintSave')))
-  card.appendChild(hint)
+  const wants = [['openHelp', 'docs.emptyHintHelp'], ['find', 'docs.emptyHintFind'], ['save', 'docs.emptyHintSave']]
+  wants.forEach(([id, label], i) => {
+    const k = window.scKeyLabel ? window.scKeyLabel(id) : ''
+    if (!k) return
+    if (hint.childNodes.length) hint.append(document.createTextNode(' · '))
+    hint.appendChild(el('kbd', null, k))
+    hint.append(document.createTextNode(' ' + t(label)))
+  })
+  if (hint.childNodes.length) card.appendChild(hint) // no empty hint line before shortcuts are registered
   $('preview').replaceChildren(card)
 
 }

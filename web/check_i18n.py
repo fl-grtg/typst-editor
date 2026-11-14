@@ -77,6 +77,8 @@ ALLOW_EXACT = {
     "App still loading – check network/adblock, then ",
     # template content / Typst code (locale-independent document defaults)
     "Text", "link", "Tutorial", "DELETE",
+    # shortcut search aliases: matched against the query, never rendered
+    "ctrl control cmd meta mod", "ctrl control", "alt option", "shift",
     # brand
     "Typst Editor",
 }

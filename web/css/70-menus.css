@@ -14,5 +14,8 @@
 #menu .chk { width: 14px; flex: none; font-size: 12px; text-align: center; }
 #menu .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #menu .kbd { flex: none; font: 11.5px var(--ui); opacity: .55; letter-spacing: .02em; }
+#menu .ext { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--faint); }
+#menu .ext svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#menu button:hover:not(:disabled) .ext, #menu button:focus-visible .ext { color: var(--sub); }
 #menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
 #menu .mh { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }

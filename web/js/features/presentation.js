@@ -123,7 +123,9 @@
   }
   document.addEventListener('keydown', e => { // capture: runs before the editor Esc chain (modal still wins)
     if (!on) return
-    if ($('modal') && $('modal').style.display !== 'none') return
+    // Any open dialog owns Escape and the arrow/space keys; otherwise Esc would exit the
+    // presentation while leaving the dialog open and Space would page behind the backdrop.
+    if (['modal', 'helpOverlay', 'setPop'].some(id => { const n = $(id); return n && n.style.display !== 'none' }) || $('keySecret')) return
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); exit(); return }
     const tag = (e.target && e.target.tagName) || ''
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) return

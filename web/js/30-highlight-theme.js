@@ -55,22 +55,11 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
       { key: 'ArrowRight', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
       { key: 'Home', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
       { key: 'End', run: v => { if (currentCompletions(v.state).length) closeCompletion(v); return false } },
-      { // Tab like IDE: snippet fields first, selection/line-start indents, open box accepts, else autocomplete
-      key: 'Tab',
-      run: v => {
-        if (v.state.readOnly) return false // reviewer/comment mode: no accept, no indent, no completion
-        if (nextSnippetField(v)) return true // F10: Tab walks snippet tabstops before anything else
-        const m = v.state.selection.main
-        if (!m.empty) return indentMore(v)
-        if (currentCompletions(v.state).length) { acceptCompletion(v); return true }
-        const line = v.state.doc.lineAt(m.head)
-        if (/^\s*$/.test(line.text.slice(0, m.head - line.from))) return indentMore(v)
-        return startCompletion(v)
-      },
-      shift: v => prevSnippetField(v) || indentLess(v), // F10: Shift-Tab walks snippet fields back, else dedent
-    }, { key: 'Ctrl-Space', run: startCompletion }, ...foldKeymap]), // F10: fold shortcuts alongside completion keys
+      { key: 'Tab', run: () => !scBinding('accept') && scEditorTab('tab') }, // a cleared registry binding still keeps the editor's Tab fallback
+      { key: 'Shift-Tab', run: () => !scBinding('dedent') && scEditorTab('shift+tab') },
+      ...foldKeymap]), // F10: fold shortcuts alongside completion keys
     minimalSetup, languageComp.of(typstSupport), Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), wrapComp.of(wrapOn ? EditorView.lineWrapping : []), tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
-    autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, only Tab accepts; arrows navigate
+    autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, Tab/Shift-Tab and Ctrl-Space come from the shortcut registry; arrows navigate
     editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findField, errLineField, syncLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
     spellCode, markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible

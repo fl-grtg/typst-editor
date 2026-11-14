@@ -315,9 +315,6 @@ async function cycleTab(d) {
   const nk = items[(i + d + items.length) % items.length]
   if (await switchTab(nk)) focusTab(activeFile)
 }
-addEventListener('keydown', e => { // Ctrl/Cmd+Alt+PageDown/PageUp: next/previous tab (browser tabs keep plain Ctrl+PageDown)
-  if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'PageDown' || e.key === 'PageUp') && $('app').classList.contains('on')) { e.preventDefault(); cycleTab(e.key === 'PageDown' ? 1 : -1) }
-})
 function tabSaveState(k) { try { const s = cm.state.selection.main; tabState.set(k, { a: s.anchor, h: s.head, top: cm.scrollDOM.scrollTop }) } catch (e) {} }
 function tabRestoreState(k) {
   const s = tabState.get(k), n = cm.state.doc.length
@@ -593,14 +590,6 @@ cm.contentDOM.addEventListener('paste', async e => { // paste screenshot/image: 
     try { const name = await upFile(named); if (name) insImage(name) } catch (err) { toast(err.message) }
   }
   queueRender()
-})
-addEventListener('keydown', e => { // Esc: modal (ask + askPick via mNo) > pop > find > drawer
-  if (e.key !== 'Escape') return
-  if ($('modal').style.display !== 'none') { $('mNo').click(); return }
-  closePop(); hidePops()
-  if (findOpen) closeFind()
-  if ($('q').value && document.activeElement === $('q')) { $('q').value = ''; findQ = ''; hits = []; paintOwn(); return }
-  if (matchMedia('(max-width:720px)').matches && !document.body.classList.contains('noside')) { document.body.classList.add('noside'); updScrim(); $('navToggle').setAttribute('aria-pressed', 'false'); if ($('side').contains(document.activeElement)) $('navToggle').focus() }
 })
 
 $('tabs').addEventListener('wheel', e => {

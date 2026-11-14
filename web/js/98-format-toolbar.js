@@ -56,11 +56,6 @@ document.querySelectorAll('[data-fmt]').forEach(b => {
   b.addEventListener('mousedown', e => e.preventDefault()) // keep the editor selection while clicking
   b.onclick = () => fmtApply(b.dataset.fmt)
 })
-cm.contentDOM.addEventListener('keydown', e => {
-  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
-  const k = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()]
-  if (k) { e.preventDefault(); fmtApply(k) }
-})
 const fmtSync = () => { const on = cm.contentDOM.getAttribute('contenteditable') === 'true'; document.querySelectorAll('[data-fmt]').forEach(b => { b.disabled = !on }) }
 new MutationObserver(fmtSync).observe(cm.contentDOM, { attributes: true, attributeFilter: ['contenteditable'] })
 fmtSync()

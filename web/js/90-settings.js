@@ -7,6 +7,10 @@ $('userMain').onclick = e => {
 kb($('userMain'), () => $('userMain').click())
 let apiKeys = null, apiKeysLoading = false, lastKeySecret = ''
 let settingsCategory = 'account'
+const SETTINGS_CATS = [
+  ['account', 'settings.navAccount'], ['editor', 'settings.navEditor'], ['shortcuts', 'settings.navShortcuts'],
+  ['sessions', 'settings.navSessions'], ['api', 'settings.navApi'], ['storage', 'settings.navStorage']
+]
 const settingsError = message => toast(message || t('common.requestFailed'), null, null, 5000, 'error')
 const AGENT_PROMPT = 'Install the Typst Editor skill from https://raw.githubusercontent.com/fl-grtg/typst-editor/main/skills/typst-editor/SKILL.md and follow its section 0 to connect to my Typst server. Ask me for server URL and API key if missing.'
 // 2D: language without reload (same module as 05-i18n: shadow t, keep ?lang helper)
@@ -65,6 +69,7 @@ function refreshLang() {
   try { if (typeof updPos === 'function') updPos() } catch (e) {}
   try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
   try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
+  try { if (typeof paintEmpty === 'function' && $('emptyCard')) paintEmpty() } catch (e) {} // shortcut hints are localized too
   window.Present?.relabel()
   try { if (user && typeof sidebar === 'function') sidebar().catch(() => {}) } catch (e) {}
 }
@@ -74,6 +79,7 @@ function setLang(lang) {
   try { window.I18N_LANG = langCur } catch (e) {}
   lsSet(LANG_KEY, langCur)
   refreshLang()
+  try { scQuery = ''; scQueryIsCombo = false } catch (e) {} // localized labels change: a stale filter would match nothing
   try { renderSettings() } catch (e) {}
   try { const s = $('langSel'); if (s) s.focus() } catch (e) {}
 }
@@ -151,6 +157,9 @@ function showKeySecret() {
 function renderSettings() {
   const p = $('setPop')
   const fieldValues = new Map([...p.querySelectorAll('[data-setting-field]')].map(input => [input.dataset.settingField, input.value]))
+  const prevContent = p.querySelector('.setContent')
+  const prevCat = p.querySelector('.setView.active')?.dataset.category
+  const keepScroll = prevContent && prevCat === settingsCategory ? prevContent.scrollTop : 0 // changes re-render: stay at the same spot
   p.replaceChildren()
   const sec = (...kids) => { const d = el('div', 'sec'); kids.forEach(k => d.appendChild(k)); return d }
   const grp = (title, ...secs) => { const w = el('div', 'grp'); w.appendChild(el('h4', null, title)); secs.forEach(s => w.appendChild(s)); return w }
@@ -159,10 +168,7 @@ function renderSettings() {
     if (fieldValues.has(key)) input.value = fieldValues.get(key)
     return input
   }
-  const categories = [
-    ['account', 'settings.navAccount'], ['editor', 'settings.navEditor'], ['sessions', 'settings.navSessions'],
-    ['api', 'settings.navApi'], ['storage', 'settings.navStorage']
-  ]
+  const categories = SETTINGS_CATS
   const views = Object.fromEntries(categories.map(([id]) => {
     const view = el('section', 'setView'); view.dataset.category = id
     return [id, view]
@@ -178,15 +184,28 @@ function renderSettings() {
   const buttons = {}
   categories.forEach(([id, key]) => {
     const b = el('button', 'setNavItem', t(key)); b.type = 'button'; b.dataset.category = id
-    b.onclick = () => activateSettingsCategory(id)
+    b.onclick = e => { e.stopPropagation(); activateSettingsCategory(id) } // re-render may detach this button: outside-click must not hide the panel
     buttons[id] = b; nav.appendChild(b); content.appendChild(views[id])
   })
   rail.appendChild(nav); layout.append(rail, content); p.appendChild(layout)
+  put('shortcuts', typeof shortcutSettingsView === 'function' ? shortcutSettingsView() : el('div')) // feature file: never break settings if it is not loaded
   const activateSettingsCategory = id => {
+    if (settingsCategory !== id) {
+      content.scrollTop = 0 // a new category starts at its own top, not the previous scroll position
+      const hadShortcutState = typeof window.scHasPendingState === 'function' && window.scHasPendingState() // feature file: a recording/conflict belongs to the shortcuts view
+      try { scResetRecordingState() } catch (e) {} // feature file: never break the category switch
+      settingsCategory = id
+      if (hadShortcutState) {
+        renderSettings()
+        $('setPop').querySelector('.setNavItem[data-category="' + id + '"]')?.focus() // re-render replaced every nav button
+        return
+      }
+    }
     settingsCategory = id
     categories.forEach(([key]) => {
       buttons[key].classList.toggle('active', key === id)
-      buttons[key].setAttribute('aria-current', key === id ? 'page' : 'false')
+      if (key === id) buttons[key].setAttribute('aria-current', 'page')
+      else buttons[key].removeAttribute('aria-current')
       views[key].classList.toggle('active', key === id)
     })
   }
@@ -418,11 +437,26 @@ function renderSettings() {
       .catch(e => settingsError(e.message)).finally(() => db.disabled = false)
   }
   dr.append(deletePasswordField, db); put('account', grp(t('settings.deleteAccount'), sec(dr)))
+  content.scrollTop = keepScroll
+}
+window.openSettingsCategory = id => {
+  if (!SETTINGS_CATS.some(([cat]) => cat === id)) return
+  settingsCategory = id
+  // Deferred: the opening click may still bubble to the outside-click closer, which would hide the fresh popover.
+  setTimeout(() => {
+    if ($('setPop').style.display === 'none') showPop('setPop')
+    renderSettings()
+    try { $('setPop').querySelector('.setNavItem.active')?.focus() } catch (e) {}
+  }, 0)
 }
 new MutationObserver(() => {
   const open = $('setPop').style.display !== 'none'
   document.body.classList.toggle('settings-open', open)
-  if (!open) $('setPop').querySelectorAll('input[type="password"]').forEach(input => { input.value = '' })
+  if (!open) {
+    try { scResetRecordingState() } catch (e) {}
+    try { scQuery = ''; scQueryIsCombo = false } catch (e) {} // next open starts with the full shortcut list
+    $('setPop').querySelectorAll('input[type="password"]').forEach(input => { input.value = '' })
+  }
 }).observe($('setPop'), { attributes: true, attributeFilter: ['style'] })
 $('avPick').onclick = e => e.stopPropagation()
 $('avPick').onchange = () => { // square, AV_SIZE, center

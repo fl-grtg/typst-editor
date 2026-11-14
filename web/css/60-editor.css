@@ -79,19 +79,24 @@
 #cmWrap .peerEdge button:active { background: var(--press); }
 #cmWrap .peerEdge button:focus-visible { outline: 2px solid var(--acc); outline-offset: -4px; }
 #cmWrap .peerEdge .av { width: 18px; height: 18px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font: 700 7.5px/1 var(--ui); letter-spacing: -.02em; box-shadow: 0 0 0 2px var(--card); }
-/* Wave 2B: keyboard shortcut overview (small window over Help) */
-#scOverlay { position: fixed; inset: 0; z-index: var(--z-modal); display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 12, 16, .32); }
-#scCard { width: min(430px, 94vw); max-height: 86vh; overflow: auto; padding: 18px 20px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
-#scCard .scHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-#scCard .scHead b { font-size: 16px; font-weight: 650; }
-#scCard .scHead button { min-width: 30px; min-height: 30px; border: 0; background: none; box-shadow: none; color: var(--sub); }
-#scCard .scHead button:not(:disabled):hover { background: var(--hover); color: var(--text); }
-#scCard .scHead button:not(:disabled):active { background: var(--press); color: var(--text); }
-#scCard .scTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-#scCard .scTable td { padding: 4px 6px; vertical-align: top; }
-#scCard .scTable td:first-child { width: 42%; }
-.scKbd { display: inline-block; padding: 1px 7px; margin: 1px 0; font: 12px var(--mono); background: var(--hover); border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 5px; white-space: nowrap; }
-#scCard .scTut { margin-top: 12px; width: 100%; min-height: 34px; }
+/* Help: rounded menu card with GitHub, issues and the shortcut settings link */
+#helpOverlay { position: fixed; inset: 0; z-index: var(--z-modal); display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 12, 16, .32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#helpCard { width: min(360px, 94vw); padding: 12px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
+#helpCard .helpHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 10px 10px; }
+#helpCard .helpHead b { font-size: 16px; font-weight: 650; }
+#helpCard .helpHead button { min-width: 30px; min-height: 30px; border: 0; border-radius: var(--r-sm); background: none; box-shadow: none; color: var(--sub); }
+#helpCard .helpHead button:not(:disabled):hover { background: var(--hover); color: var(--text); }
+#helpCard .helpHead button:not(:disabled):active { background: var(--press); color: var(--text); }
+#helpCard .helpMenu { display: flex; flex-direction: column; gap: 2px; }
+#helpCard .helpItem { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; margin: 0; padding: 8px 10px; border: 0; border-radius: var(--r-md); background: transparent; box-shadow: none; color: var(--text); font: 500 13px/1.4 var(--ui); text-align: left; text-decoration: none; cursor: pointer; }
+#helpCard .helpItem:hover { background: var(--hover); }
+#helpCard .helpItem:active { background: var(--press); }
+#helpCard .helpItem:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+#helpCard .helpIco { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--sub); }
+#helpCard .helpItem:hover .helpIco { color: var(--text); }
+#helpCard .helpExt { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 14px; height: 14px; margin-left: auto; color: var(--faint); }
+#helpCard .helpItem:hover .helpExt { color: var(--sub); }
+#helpCard .helpLb { min-width: 0; flex: 1; }
 
 
 .csvEditor { flex: 1; min-width: 0; overflow: auto; background: var(--editor); }
