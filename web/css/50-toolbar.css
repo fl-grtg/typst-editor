@@ -68,7 +68,7 @@
 #tabs .ti[data-kind="tpl"] { padding: 0 5px; letter-spacing: .03em; } /* 3-letter badge needs side air, not a squeezed box */
 #tabs .tn { max-width: 200px; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; padding: 1px 0; } /* descenders (main.typ, test.typ) must not clip */
 #tabs .te { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font: 700 10px/16px var(--ui); text-align: center; }
-#tabs button.tx { display: none; align-self: center; margin-left: -8px; margin-right: 4px; min-width: 20px; min-height: 20px; padding: 0 3px; border-radius: 10px; color: var(--faint); background: none; border: 0; box-shadow: none; }
+#tabs button.tx { display: none; align-self: center; margin-left: -8px; margin-right: 4px; min-width: 20px; min-height: 20px; padding: 0 3px; border-radius: var(--r-sm); color: var(--faint); background: none; border: 0; box-shadow: none; }
 #tabs .tabw:hover button.tx, #tabs .tabw:focus-within button.tx { display: inline-flex; align-items: center; }
 #tabs button.tx:hover { background: var(--press); color: var(--text); }
 #tabs .tsp { flex: 1; }
