@@ -1,5 +1,9 @@
 name: ci
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -117,7 +121,9 @@ jobs:
           curl -fsSL --retry 3 -o /tmp/typst.tar.xz https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-unknown-linux-musl.tar.xz
           tar -xJf /tmp/typst.tar.xz -C /tmp
           sudo install /tmp/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst
-      - run: pytest e2e -q
+      # All tests still run (125); four workers cut wall-clock time on the
+      # 4-vCPU runner. Each worker gets its own server, temp DB and browser.
+      - run: pytest e2e -q -n 4
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

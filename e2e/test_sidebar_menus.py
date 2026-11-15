@@ -51,8 +51,12 @@ def test_personal_resource_rename_after_sidebar_refresh(page):
     page.wait_for_function("window.__booted === true")
 
     row = page.locator("#tpls .doc").filter(has=page.locator(".t", has_text="module.typ")).first
-    if not row.is_visible():
+    # The template list arrives after boot; checking visibility too early used to
+    # toggle the section closed instead of opening it, so wait for the row first.
+    expect(row).to_have_count(1)
+    if page.locator("#tplH").get_attribute("aria-expanded") == "false":
         page.locator("#tplH").press("Enter")
+    expect(row).to_be_visible()
     old_row = row.element_handle()
     row.hover()
     row.locator("button[data-side-menu]").click()

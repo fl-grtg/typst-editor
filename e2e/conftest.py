@@ -126,7 +126,10 @@ def browser():
 def ctx(browser, base_url, request):
     c = browser.new_context(base_url=base_url, accept_downloads=True, locale="en-US")
     c.set_default_timeout(15_000)
-    c.tracing.start(screenshots=True, snapshots=True, sources=True)
+    # DOM snapshots are enough to debug a failure; per-action screenshots and
+    # JS source maps nearly double trace overhead. Failure screenshots are
+    # captured separately below, so keep the trace itself lean.
+    c.tracing.start(screenshots=False, snapshots=True, sources=False)
     yield c
     if getattr(request.node, 'rep_call', None) and request.node.rep_call.failed:
         dest = ROOT / 'test-results' / re.sub(r'[^A-Za-z0-9_-]', '_', request.node.nodeid)

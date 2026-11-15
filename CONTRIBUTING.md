@@ -43,7 +43,7 @@ Commit the regenerated `index.html` together with your source change.
 ```bash
 pytest -q                    # backend tests, no browser needed
 pip install -r requirements-e2e.txt && playwright install chromium
-pytest e2e -q          # browser smoke tests (need outbound internet for the Typst compiler CDN)
+pytest e2e -q -n 4     # browser smoke tests (own server per worker; needs outbound internet for the Typst compiler CDN)
 ```
 
 Every behaviour change needs a test. Bug fixes should come with a regression test.
