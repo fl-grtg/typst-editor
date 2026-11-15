@@ -75,7 +75,14 @@ def test_watch_level_from_the_bell_on_the_project_row(page):
     page.wait_for_timeout(800)
     box.locator(".wItem", has_text="Everything").click()
     expect(box).to_have_count(0)
-    assert page.request.get(f"/api/projects/{pid}/watch").json()["level"] == "all"
+    # The menu closes before its PUT lands; poll instead of racing the request.
+    level = None
+    for _ in range(100):
+        level = page.request.get(f"/api/projects/{pid}/watch").json()["level"]
+        if level == "all":
+            break
+        page.wait_for_timeout(100)
+    assert level == "all"
     page.reload()
     page.wait_for_function("window.__booted === true")
     head = page.locator("aside .fhd.project", has_text="Doc")

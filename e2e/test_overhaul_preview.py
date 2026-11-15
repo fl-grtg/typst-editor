@@ -89,10 +89,17 @@ def test_pv3_long_doc_virtualized_anchor_and_follow(page):
     expect(page.locator("#cm .cm-content")).to_contain_text("MarkerPage30zz")
     slots = page.locator("#preview .pvPage")
     expect(slots).to_have_count(30, timeout=BIG_TIMEOUT)
-    widths = page.locator("#preview .pvPage canvas").evaluate_all(
-        "els => els.map(e => e.width)"
-    )
-    big_n = sum(1 for w in widths if w > 16)
+    widths = []
+    big_n = 0
+    # Draw/evict runs lazily; wait for the bounded window to settle under load.
+    for _ in range(300):
+        widths = page.locator("#preview .pvPage canvas").evaluate_all(
+            "els => els.map(e => e.width)"
+        )
+        big_n = sum(1 for w in widths if w > 16)
+        if 1 <= big_n <= 12:
+            break
+        page.wait_for_timeout(100)
     assert 1 <= big_n <= 12, f"virtualization off: {big_n} of {len(widths)} rasterized"
     old = slots.first.element_handle()
     page.click("#followBtn")  # follow off: isolate scroll preservation
