@@ -136,11 +136,14 @@ def test_click_columns_survive_wrapped_single_letter_words(page):
     para = " ".join(list("abcdefghij" * 24))  # 240 one-letter words on one source line
     type_source(page, "#set par(justify: true)\n\n= Alpha\n\n" + para + "\n")
     _ready(page, 1)
-    box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
-    assert box
+    # Follow would scroll the preview after a click and invalidate the box.
+    page.click("#followBtn")
+    expect(page.locator("#followBtn")).to_have_attribute("aria-pressed", "false")
     fx = 0.15  # just inside the left edge of every rendered line
     cols = []
     for fy in (0.108, 0.125, 0.142, 0.159):  # the four PDF lines of the wrapped paragraph
+        box = page.locator('#preview .pvPage[data-page="1"] canvas').bounding_box()
+        assert box
         page.mouse.click(box["x"] + box["width"] * fx, box["y"] + box["height"] * fy)
         page.wait_for_timeout(600)
         assert _line(page) == 5, f"click on line {fy} left the paragraph"
