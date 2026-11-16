@@ -234,7 +234,7 @@ test('project completions requery every prefiltered context', () => {
     state: { doc: { length: text.length, sliceString: () => text } },
     matchBefore: () => ({ from: 0, text }),
   })
-  for (const text of ['#include "', '#ref(<', '#cite("', '#set page(', '#set page(paper: "', '#', '#alp', 'module']) {
+  for (const text of ['#include "', '#ref(<', '#cite(<', '#set page(', '#set page(paper: "', '#', '#alp', 'module']) {
     const result = complete(text)
     assert.ok(result?.options.length, text)
     assert.equal(result.filter, false, text)
@@ -243,7 +243,8 @@ test('project completions requery every prefiltered context', () => {
   assert.equal(complete('#include "').options.length, 50)
   assert.deepEqual(Array.from(complete('#include "module-59').options, o => o.label), ['module-59.typ'])
   assert.deepEqual(Array.from(complete('#ref(<alp').options, o => o.label), ['<alpha>'])
-  assert.deepEqual(Array.from(complete('#cite("bet').options, o => o.label), ['beta'])
+  assert.deepEqual(Array.from(complete('#cite(<bet').options, o => o.label), ['beta'])
+  assert.equal(complete('#cite("bet'), null)
 })
 
 test('image view renders a typed blob, ignores stale loads and releases its URL', async () => {
