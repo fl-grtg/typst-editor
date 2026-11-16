@@ -484,7 +484,8 @@ function scCloseLayer() {
   if (!$('menu').hidden && window.closeMenu) { window.closeMenu(true); return true } // open menu: close and focus its trigger
   if (document.getElementById('watchBox')) { closeWatchBox(true); return true } // watch menu: same, focus the bell
   closePop(); hidePops()
-  if ($('q').value && document.activeElement === $('q')) { $('q').value = ''; findQ = ''; hits = []; paintOwn(); return true }
+  if (document.getElementById('searchFilters')) { closeSearchFilters(); $('qFilter').focus(); return true }
+  if (findQ) { clearSearch(document.activeElement === $('q')); return true }
   if (matchMedia('(max-width:720px)').matches && !document.body.classList.contains('noside')) {
     document.body.classList.add('noside'); updScrim(); $('navToggle').setAttribute('aria-pressed', 'false')
     if ($('side').contains(document.activeElement)) $('navToggle').focus()

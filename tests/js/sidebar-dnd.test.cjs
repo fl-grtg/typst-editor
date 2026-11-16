@@ -23,7 +23,8 @@ function drop(data, files = []) {
 }
 test('private module drag permits moving into trash and restoring to modules', () => {
   const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {}, classList: { add() {}, remove() {} }, remove() {}, querySelector: () => null })
-  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, personalModuleMenu() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
+  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, personalModuleMenu() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '',
+    searchTextEl: (cls, text) => node(), searchHitBadge: () => {}, searchFindQ: () => '', findWith: () => {} })
   const docs = fs.readFileSync('web/js/60-docs.js', 'utf8')
   vm.runInContext(docs.slice(docs.indexOf('function resRow'), docs.indexOf('function paintKind')), c)
   const module = c.resRow({ name: 'module.typ' }), event = drop(null)
@@ -72,7 +73,8 @@ test('project folders accept private modules and restored documents', async () =
 test('private module rows carry their collection folder into drag data', () => {
   const made = []
   const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {}, classList: { add() {}, remove() {} }, remove() {}, querySelector: () => null })
-  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, personalModuleMenu() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
+  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, personalModuleMenu() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '',
+    searchTextEl: (cls, text) => node(), searchHitBadge: () => {}, searchFindQ: () => '', findWith: () => {} })
   c.sidebarDrag = (row, data) => made.push(data)
   const docs = fs.readFileSync('web/js/60-docs.js', 'utf8')
   vm.runInContext(docs.slice(docs.indexOf('function resRow'), docs.indexOf('function paintKind')), c)

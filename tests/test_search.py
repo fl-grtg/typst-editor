@@ -122,3 +122,101 @@ def test_search_live_room_preferred(c):
     hits = c.get("/api/search", params={"q": "liveeinmalwort"}).json()["hits"]
     assert [h["id"] for h in hits] == [did]
     assert "liveeinmalwort" in hits[0]["snippet"].lower()
+
+
+def _content(c, q):
+    r = c.get("/api/search/content", params={"q": q})
+    assert r.status_code == 200, r.text
+    return r.json()["entries"]
+
+
+def _one(entries, kind, **fields):
+    rows = [e for e in entries if e["kind"] == kind
+            and all(e.get(k) == v for k, v in fields.items())]
+    assert len(rows) == 1, entries
+    return rows[0]
+
+
+def test_content_one_char_query(c):
+    register_user(c, "alice")
+    did = make_doc(c, "Kurz", content="Zebra")
+    rows = _content(c, "z")
+    assert _one(rows, "doc", doc_id=did)["count"] == 1
+    assert _content(c, "☃") == []
+
+
+def test_content_doc_counts_occurrences(c):
+    register_user(c, "alice")
+    did = make_doc(c, "Suche", content="Zebra zebra ZEBRA und mehr")
+    rows = _content(c, "zebra")
+    assert _one(rows, "doc", doc_id=did)["count"] == 3
+    assert _content(c, "nichtvorhanden") == []
+
+
+def test_content_file_counts_text_only(c):
+    register_user(c, "alice")
+    did = make_doc(c, "Datei", content="ohne Treffer")
+    assert c.post(f"/api/docs/{did}/files",
+                  files={"f": ("assets/notizen.typ", b"alpha Alpha ALPHA")}).status_code == 200
+    assert c.post(f"/api/docs/{did}/files",
+                  files={"f": ("assets/bild.png", b"alpha alpha")}).status_code == 200
+    rows = _content(c, "alpha")
+    assert _one(rows, "file", doc_id=did, name="assets/notizen.typ")["count"] == 3
+    assert [e for e in rows if e["kind"] == "file" and e["name"].endswith(".png")] == []
+
+
+def test_content_project_resource(c):
+    register_user(c, "alice")
+    pid = c.post("/api/projects", json={"title": "Projekt"}).json()["id"]
+    assert c.post(f"/api/projects/{pid}/resources",
+                  json={"name": "lib/data.csv", "content": "eins,zwei\neins,drei"}).status_code == 200
+    rows = _content(c, "eins")
+    assert _one(rows, "resource", project_id=pid, name="lib/data.csv")["count"] == 2
+
+
+def test_content_template_and_trash(c):
+    register_user(c, "alice")
+    assert c.post("/api/templates", json={"name": "layout.typ", "content": "Modul Modul"}).status_code == 200
+    assert c.delete("/api/templates/layout.typ").status_code == 200
+    did = make_doc(c, "Weg", content="Trashwort")
+    c.delete(f"/api/docs/{did}")
+    rows = _content(c, "modul")
+    assert _one(rows, "trash", name="layout.typ")["count"] == 2
+    assert [e for e in rows if e["kind"] == "template"] == []
+    rows = _content(c, "trashwort")
+    assert _one(rows, "trash_doc", doc_id=did)["count"] == 1
+    assert [e for e in rows if e["kind"] == "doc"] == []
+
+
+def test_content_visibility_shared_and_project(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    own = make_doc(c, "Eigen", content="Geheimwort")
+    direct = make_doc(c, "Direkt", content="Direktwort")
+    c.post(f"/api/docs/{direct}/share", json={"username": "bob", "role": "reviewer"})
+    pid = c.post("/api/projects", json={"title": "Team"}).json()["id"]
+    project_doc = c.post(f"/api/projects/{pid}/docs",
+                         json={"title": "Teamdokument", "content": "Projektwort"}).json()["id"]
+    c.post(f"/api/projects/{pid}/members", json={"username": "bob", "role": "reviewer"})
+    login(c, "bob")
+    assert [e for e in _content(c, "geheimwort")] == []
+    rows = _content(c, "direktwort")
+    assert _one(rows, "doc", doc_id=direct)["count"] == 1
+    rows = _content(c, "projektwort")
+    assert _one(rows, "doc", doc_id=project_doc, project_id=pid)["count"] == 1
+    assert [e for e in rows if e["doc_id"] == own] == []
+
+
+def test_content_after_edit_uses_live_text(c):
+    from pycrdt import Text
+
+    from backend import sync as _sync
+
+    register_user(c, "alice")
+    did = make_doc(c, "Live", content="alterstand")
+    room = _sync.room(did)
+    with room["doc"].transaction():
+        room["doc"].get("typst", type=Text).__iadd__(" neuerstand")
+    room["dirty"] = True
+    assert _one(_content(c, "neuerstand"), "doc", doc_id=did)["count"] == 1

@@ -47,10 +47,41 @@ body.noside aside { border-right-color: var(--line); }
 #nav { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; margin: 0 -4px; padding: 0 4px; }
 #nav::-webkit-scrollbar { width: 6px; }
 #nav::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
-aside .sideSearch { position: relative; display: flex; align-items: center; }
-aside .sideSearch svg { position: absolute; left: 10px; color: var(--faint); pointer-events: none; }
-aside .sideSearch input { padding-left: 30px; min-height: 32px; background: var(--hover); border-color: transparent; }
+aside .sideSearch { display: flex; align-items: center; gap: 6px; }
+aside .qBox { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+aside .qBox .qIco { position: absolute; left: 10px; color: var(--faint); pointer-events: none; }
+aside .sideSearch input { padding: 0 30px; min-height: 32px; background: var(--hover); border-color: transparent; }
 aside .sideSearch input:focus { background: var(--field); border-color: var(--acc); }
+aside .qClear { position: absolute; right: 4px; width: 24px; height: 24px; min-width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--faint); border-radius: 6px; cursor: pointer; }
+aside .qClear:hover { background: var(--press); color: var(--text); }
+aside .qClear[hidden] { display: none; }
+aside .qFilter { flex: none; width: 32px; height: 32px; min-width: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-sm); border: 1px solid transparent; background: var(--hover); color: var(--sub); }
+aside .qFilter:hover { background: var(--press); color: var(--text); }
+aside .qFilter[aria-expanded="true"] { background: var(--press); color: var(--text); }
+aside .qFilter.has-filters { background: var(--press); color: var(--sub); }
+aside .qFilter.has-filters:hover,
+aside .qFilter.has-filters[aria-expanded="true"] { color: var(--text); }
+aside .qFilter.has-filters .funnel { fill: currentColor; }
+/* Content hits: a small tab fused to the sidebar edge. Same surface as the sidebar,
+   open on the left so it reads as one piece; only the count carries color. The thin
+   outline on the free sides makes the tab read against the editor background. */
+aside .hitN {
+  position: fixed; left: 0; top: 0; z-index: 6; visibility: hidden; pointer-events: auto; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px 0 5px;
+  border: 1px solid var(--line-2); border-left: 0;
+  border-radius: 0 999px 999px 0; background: var(--panel); color: var(--text);
+  font-size: 10.5px; font-weight: 600; line-height: 1; letter-spacing: .01em;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 6px rgba(15, 17, 22, .10);
+  transform: translateY(-50%);
+  transition: border-color .12s ease;
+}
+aside .hitN:hover { border-color: var(--faint); }
+:root[data-theme="dark"] aside .hitN { box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) aside .hitN { box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+}
 aside .sideActions { display: flex; gap: 6px; margin: 8px 0 10px; }
 aside #new, aside #upDoc { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; }
 aside #new { flex: 1; }
@@ -82,6 +113,11 @@ aside .doc.cur { background: var(--sel); font-weight: 600; }
 aside .doc.cur.menu-open { background: var(--hover); }
 aside .doc.dragging.cur { background: transparent; } /* the card under the cursor is the only lifted thing */
 aside .empty { min-height: 30px; padding: 6px 8px; font-size: 12.5px; color: var(--faint); }
+#searchEmpty { padding: 18px 8px; text-align: center; }
+#nav.search-empty > h3,
+#nav.search-empty > .sidebar-drop,
+#nav.search-empty > div:not(#searchEmpty):not(#searchNone) { display: none !important; } /* one global empty state, no per-area noise */
+aside mark.qhit { background: var(--acc-soft); color: inherit; border-radius: 3px; padding: 0 1px; font-weight: inherit; }
 aside .empty button { margin-top: 6px; }
 aside .mini { visibility: hidden; width: 24px; height: 24px; min-width: 24px; padding: 0; flex: none; }
 aside .mini svg { width: 14px; height: 14px; }
@@ -118,7 +154,7 @@ aside .menu-open .mini { visibility: visible; } /* keep every row action visible
 #sideSplit::after { display: none; }
 #split::after, #vsplit::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: var(--line); transition: background-color .12s ease, width .12s ease, left .12s ease; }
 #split:hover::after, #split.drag::after, #split:focus-visible::after { background: var(--acc); left: 3px; width: 3px; border-radius: 2px; }
-#sideSplit:hover, #sideSplit.drag, #sideSplit:focus-visible { background: linear-gradient(to right, transparent 3px, var(--acc) 3px, var(--acc) 6px, transparent 6px); }
+#sideSplit:hover, #sideSplit.drag, #sideSplit:focus-visible { z-index: 7; background: linear-gradient(to right, transparent 3px, var(--acc) 3px, var(--acc) 6px, transparent 6px); }
 #split:focus-visible, #sideSplit:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 #vsplit { display: none; }
 #scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: var(--z-scrim); }
@@ -181,3 +217,17 @@ aside .fhd.folder.drop-target b, aside .fhd.project.drop-target b { color: var(-
 #watchBox .wItem { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 10px 0 6px; text-align: left; white-space: nowrap; background: none; border: 0; border-radius: var(--r-sm); color: var(--text); font-size: 12.5px; font-weight: 500; }
 #watchBox .wItem:hover, #watchBox .wItem:focus-visible { background: var(--hover); outline: none; }
 #watchBox .ck { flex: none; width: 12px; font-style: normal; font-weight: 700; font-size: 11px; }
+
+/* Search filters: anchored like the watch bell, several toggles stay open */
+#searchFilters { position: fixed; z-index: var(--z-pop); min-width: 196px; padding: 4px; background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop); color: var(--text); font-size: 12.5px; }
+#searchFilters .mhRow { display: flex; align-items: flex-start; gap: 8px; padding-right: 4px; }
+#searchFilters .mh { flex: 1; min-width: 0; padding: 8px 0 3px 10px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+#searchFilters .mhTools { display: flex; flex: none; gap: 1px; padding-top: 5px; }
+#searchFilters .mhBtn { width: 22px; height: 22px; min-width: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: none; color: var(--faint); }
+#searchFilters .mhBtn:hover { background: var(--hover); color: var(--text); }
+#searchFilters .mhBtn svg { width: 14px; height: 14px; }
+#searchFilters .sfItem { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 10px 0 6px; text-align: left; white-space: nowrap; background: none; border: 0; border-radius: var(--r-sm); color: var(--text); font-size: 12.5px; font-weight: 500; }
+#searchFilters .sfItem:hover, #searchFilters .sfItem:focus-visible { background: var(--hover); outline: none; }
+#searchFilters .ck { flex: none; width: 12px; font-style: normal; font-weight: 700; font-size: 11px; }
+#searchFilters .ln { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#searchFilters hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }

@@ -27,8 +27,24 @@ log = logging.getLogger(__name__)
 MAX_HITS = 20
 MAX_Q = 50
 MIN_Q = 2
+CONTENT_MIN_Q = 1
 SNIPPET_TOKENS = 15
 BIB_MAX_BYTES = 1_000_000
+CONTENT_MAX_BYTES = 1_000_000
+CONTENT_MAX_ENTRIES = 500
+CONTENT_EXTENSIONS = {".typ", ".bib", ".csv", ".tsv", ".json", ".yaml", ".yml",
+                      ".toml", ".xml", ".txt", ".csl"}
+
+# Shared visibility predicate: owner, direct share, or (non-archived) project
+# owner/member.  Five user parameters, matching the _fts_hits/_like_rows SQL.
+_VISIBLE_DOCS = (
+    "SELECT d.id, d.title, d.content, d.project_id, d.updated_at FROM docs d "
+    "LEFT JOIN shares s ON s.doc_id=d.id AND s.username=? "
+    "WHERE d.trashed=0 AND (d.owner=? OR s.username=? OR EXISTS ("
+    "SELECT 1 FROM projects p LEFT JOIN project_members m "
+    "ON m.project_id=p.id AND m.username=? "
+    "WHERE p.id=d.project_id AND p.archived=0 AND (p.owner=? OR m.username IS NOT NULL)))"
+)
 
 _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _BIB_KEY_RE = re.compile(r"@\w+\s*\{\s*([^,\s\}]+)")
@@ -238,3 +254,124 @@ def search_visible(user: str, raw_q: str, con: sqlite3.Connection,
                              "updated_at": r["updated_at"]})
                 seen.add(r["id"])
     return hits[:MAX_HITS]
+
+
+def count_hits(text: str, q_lower: str) -> int:
+    """Non-overlapping case-insensitive occurrences (same count as find)."""
+    if not text or not q_lower:
+        return 0
+    hay = text.lower()
+    n, pos = 0, 0
+    while True:
+        i = hay.find(q_lower, pos)
+        if i < 0:
+            return n
+        n += 1
+        pos = i + len(q_lower)
+
+
+def _file_text(files_dir: Path, doc_id: str, rel: str) -> str | None:
+    """Read a text attachment for content search; never trust table paths."""
+    if rel.startswith("/") or ".." in rel.split("/"):
+        return None
+    if Path(rel).suffix.lower() not in CONTENT_EXTENSIONS:
+        return None
+    p = files_dir / doc_id / rel
+    try:
+        if not p.is_file() or p.stat().st_size > CONTENT_MAX_BYTES:
+            return None
+        return p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def content_visible(user: str, raw_q: str, con: sqlite3.Connection,
+                    files_dir: Path, room_text: Callable[[str], str | None]) -> list[dict]:
+    """Hit counts per sidebar entry for the optional in-file content search.
+
+    Entries are keyed for the sidebar:
+      doc          d:<doc_id>            (own/shared/project document)
+      trash_doc    td:<doc_id>           (document in the owner's trash)
+      file         f:<doc_id>/<path>     (project/document attachment)
+      resource     r:<project_id>/<name> (project module)
+      template     t:<name>              (personal module)
+      trash        tr:<entry_id>         (resource/file in the trash)
+    """
+    q = normalize_query(raw_q)
+    if len(q) < CONTENT_MIN_Q:
+        return []
+    q_lower = q.lower()
+    out: list[dict] = []
+
+    def add(kind: str, count: int, **fields) -> None:
+        if count > 0 and len(out) < CONTENT_MAX_ENTRIES:
+            out.append({"kind": kind, "count": count, **fields})
+
+    try:
+        docs = con.execute(_VISIBLE_DOCS + " ORDER BY d.updated_at DESC",
+                           (user, user, user, user, user)).fetchall()
+    except sqlite3.OperationalError:
+        docs = []
+    doc_project = {r["id"]: r["project_id"] or "" for r in docs}
+    for r in docs:
+        live = room_text(r["id"])
+        text = live if live is not None else (r["content"] or "")
+        add("doc", count_hits(text, q_lower), doc_id=r["id"],
+            project_id=r["project_id"] or "")
+    # Attachments belong to visible documents; count text files only.
+    for r in docs:
+        try:
+            files = con.execute("SELECT path FROM files WHERE doc_id=?",
+                                (r["id"],)).fetchall()
+        except sqlite3.OperationalError:
+            files = []
+        for f in files:
+            text = _file_text(files_dir, r["id"], f["path"])
+            if text is None:
+                continue
+            add("file", count_hits(text, q_lower), doc_id=r["id"],
+                project_id=doc_project.get(r["id"], ""), name=f["path"])
+        if len(out) >= CONTENT_MAX_ENTRIES:
+            break
+    # Project modules: owners and members only (guests see just reachable
+    # resources in the sidebar, so a missing count there is harmless).
+    try:
+        rows = con.execute(
+            "SELECT p.id AS project_id, r.name, r.content FROM projects p "
+            "LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? "
+            "JOIN project_resources r ON r.project_id=p.id "
+            "WHERE p.archived=0 AND (p.owner=? OR m.username IS NOT NULL)",
+            (user, user)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    for r in rows:
+        add("resource", count_hits(r["content"] or "", q_lower),
+            project_id=r["project_id"], name=r["name"])
+    try:
+        rows = con.execute("SELECT name, content FROM templates WHERE owner=?",
+                           (user,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    for r in rows:
+        add("template", count_hits(r["content"] or "", q_lower), name=r["name"])
+    try:
+        rows = con.execute("SELECT id, content FROM docs WHERE owner=? AND trashed=1",
+                           (user,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    for r in rows:
+        add("trash_doc", count_hits(r["content"] or "", q_lower), doc_id=r["id"])
+    try:
+        rows = con.execute(
+            "SELECT id, kind, name, content FROM trash_entries WHERE owner=?",
+            (user,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    for r in rows:
+        kind, content = r["kind"], r["content"]
+        if isinstance(content, bytes):
+            if kind == "file" and Path(r["name"]).suffix.lower() not in CONTENT_EXTENSIONS:
+                continue
+            content = content.decode("utf-8", errors="replace")
+        add("trash", count_hits(content or "", q_lower), id=r["id"], name=r["name"])
+    return out

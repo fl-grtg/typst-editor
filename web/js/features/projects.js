@@ -172,6 +172,7 @@ function projectTree(p, entries) { // folders (explicit + implied by paths) and 
   return {
     folders: dir => sorted.filter(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) === dir : dir === ''),
     items: dir => items.filter(i => i.dir === dir),
+    allItems: items, // flat list for search filtering
     all: sorted,
     dirOf(entry) { // folder an entry sits in (for reveal / drop)
       return items.find(i => i.kind === entry.kind && (entry.kind === 'document' ? i.d.id === entry.doc_id : i.name === entry.name && (i.kind === 'resource' || i.document === entry.doc_id)))?.dir || ''
@@ -189,15 +190,39 @@ function revealActiveFolder(p, tree) { // opening a file shows its folder: unfol
   if (dir) { for (const f of folderParents(dir)) shut.delete('folder:' + p.id + ':' + f); saveShut() }
 }
 function paintProjects(box, shared) {
+  const searching = searchOn()
+  if (searching && !searchFilters[shared ? 'shared' : 'projects']) return
   projects.filter(p => (p.role !== 'owner') === shared).forEach(p => {
-    const entries = projectEntries(p), group = el('div', 'project-group')
+    const entries = projectEntries(p), tree = projectTree(p, entries)
+    const titleHit = searching && searchMatch(p.title)
+    const entryKey = item => item.kind === 'document' ? 'd:' + item.d.id
+      : item.kind === 'resource' ? 'r:' + p.id + '/' + item.name : 'f:' + item.document + '/' + item.name
+    const folderHit = path => searchMatch(path)
+    const inFolderHit = dir => !!dir && folderParents(dir).some(folderHit)
+    const itemHit = item => titleHit || inFolderHit(item.dir) ||
+      searchMatch(item.kind === 'document' ? item.d.title : item.name) || searchContent(entryKey(item)) > 0
+    const items = searching && !titleHit ? new Set(tree.allItems.filter(itemHit)) : null
+    const folders = new Set()
+    if (searching && !titleHit) {
+      for (const item of items) folderParents(item.dir).filter(Boolean).forEach(f => folders.add(f))
+      for (const f of tree.all) if (folderHit(f)) folderParents(f).filter(Boolean).forEach(x => folders.add(x))
+      if (!items.size && !folders.size) return // this project has no matching entry or folder
+    }
+    const group = el('div', 'project-group')
     group.dataset.projectId = p.id // anchor for session draft placement (paintSessionSidebar)
     box.appendChild(group)
     const h = el('div', 'fhd project'), key = 'project:' + p.id
-    const title = el('b', null, p.title)
+    const title = document.createElement('b')
+    title.appendChild(searchFrag(p.title))
     title.title = p.title; title.setAttribute('role', 'button')
-    title.setAttribute('aria-expanded', String(!shut.has(key)))
+    const expanded = searching ? !searchFold.has(key) : !shut.has(key) // search folds per query without touching the saved state
+    title.setAttribute('aria-expanded', String(expanded))
     const toggle = async () => {
+      if (searching) {
+        searchFold.has(key) ? searchFold.delete(key) : searchFold.add(key)
+        paintOwn(); paintShared(lastShared)
+        return
+      }
       const opening = shut.has(key)
       opening ? shut.delete(key) : shut.add(key); saveShut(); paintOwn(); paintShared(lastShared)
       if (opening && !docId && !tplName && entries.documents[0]) await openDoc(entries.documents[0].id)
@@ -219,18 +244,21 @@ function paintProjects(box, shared) {
     compactSidebarActions(h, projectEditable(p) ? 2 : 1, actions => actions.map(button => menuButtonItem(button, 'project')))
     projectDropTarget(h, p) // header = project root; only this row lights up, not the whole group
     group.appendChild(h)
-    if (shut.has(key)) return
-    const tree = projectTree(p, entries)
+    if (!expanded) return // collapsed: the header alone, folders stay folded
     group.classList.toggle('with-folders', tree.all.length > 0)
     const folderRows = new Map() // a drop anywhere inside a folder lights up its header, not the whole group
     const dropVisual = folder => (folder && folderRows.get(folder)) || h
     const entryRow = (item, level, folder) => {
       const { name, document, resource } = item
-      const row = el('div', 'doc sub' + ((resource ? docProject === p.id && activeFile === TPLK + name : docId === document && activeFile === name) ? ' cur' : '')); row.appendChild(el('span', 't', item.label)); row.title = name
+      const hitKey = resource ? 'r:' + p.id + '/' + name : 'f:' + document + '/' + name
+      const row = el('div', 'doc sub' + ((resource ? docProject === p.id && activeFile === TPLK + name : docId === document && activeFile === name) ? ' cur' : '')); row.appendChild(searchTextEl('t', searching ? name : item.label)); row.title = name
       row.style.setProperty('--lv', level)
       row.dataset.packageKey = [resource ? 'resource' : 'file', resource ? '' : document, name].join(':')
       const open = () => {
-        return openProjectEntry(p, document, name, resource)
+        const q = searchFindQ(hitKey)
+        return openProjectEntry(p, document, name, resource).then(() => {
+          if (q && (resource ? activeFile === TPLK + name : docId === document && activeFile === name)) findWith(q)
+        })
       }
       row.onclick = open; kb(row, open)
       const entry = { kind: resource ? 'resource' : 'file', doc_id: document, name }
@@ -245,6 +273,7 @@ function paintProjects(box, shared) {
         trash.dataset.menuDanger = ''; trash.dataset.menuKey = 'trash'; trash.dataset.menuLabel = t('menu.actionTrash'); trash.dataset.menuHint = 'menu.trashHint'
       }
       compactSidebarActions(row, 0, actions => entryMenuItems(p, entry, actions))
+      searchHitBadge(row, hitKey)
       group.appendChild(row)
     }
     const documentRow = (d, level, folder) => {
@@ -265,11 +294,18 @@ function paintProjects(box, shared) {
     }
     const folderRow = (path, level) => {
       const fkey = 'folder:' + p.id + ':' + path, base = path.split('/').pop()
-      const row = el('div', 'fhd folder'), label = el('b', null, base)
+      const row = el('div', 'fhd folder'), label = document.createElement('b')
+      label.appendChild(searchFrag(searching ? path : base))
       row.style.setProperty('--lv', level); row.dataset.folderPath = path
       folderRows.set(path, row)
-      label.title = path; label.setAttribute('role', 'button'); label.setAttribute('aria-expanded', String(!shut.has(fkey)))
-      const toggle = () => { shut.has(fkey) ? shut.delete(fkey) : shut.add(fkey); saveShut(); paintOwn(); paintShared(lastShared) }
+      label.title = path; label.setAttribute('role', 'button')
+      const open = searching ? !searchFold.has(fkey) : !shut.has(fkey) // search: fold per query, saved state untouched
+      label.setAttribute('aria-expanded', String(open))
+      const toggle = () => {
+        if (searching) searchFold.has(fkey) ? searchFold.delete(fkey) : searchFold.add(fkey)
+        else { shut.has(fkey) ? shut.delete(fkey) : shut.add(fkey); saveShut() }
+        paintOwn(); paintShared(lastShared)
+      }
       label.onclick = toggle; kb(label, toggle); row.appendChild(label)
       if (projectEditable(p)) {
         const add = projectAction(row, ICO_PLUS, t('docs.newPick'), () => projectMenu(p, path, add))
@@ -283,22 +319,26 @@ function paintProjects(box, shared) {
       projectDrag(row, p, { kind: 'folder', name: path }) // folders move/copy like entries; the drop target rejects descendants
       projectDropTarget(row, p, path)
       group.appendChild(row)
-      return !shut.has(fkey)
+      return open
     }
     const paintDir = (dir, level) => {
       for (const f of tree.folders(dir)) {
+        if (searching && !titleHit && !folders.has(f)) continue
         if (!folderRow(f, level)) continue
         paintDir(f, level + 1)
-        if (!tree.folders(f).length && !tree.items(f).length) {
+        if (!searching && !tree.folders(f).length && !tree.items(f).length) {
           const empty = el('div', 'folderEmpty', t('docs.folderEmpty'))
           empty.style.setProperty('--lv', level + 1)
           projectDropTarget(empty, p, f, dropVisual(f)) // the empty hint is a drop area for that folder
           group.appendChild(empty)
         }
       }
-      for (const item of tree.items(dir)) item.kind === 'document' ? documentRow(item.d, level, dir) : entryRow(item, level, dir)
+      for (const item of tree.items(dir)) {
+        if (searching && !titleHit && !items.has(item)) continue
+        item.kind === 'document' ? documentRow(item.d, level, dir) : entryRow(item, level, dir)
+      }
     }
-    revealActiveFolder(p, tree)
+    if (!searching) revealActiveFolder(p, tree)
     paintDir('', 0)
   })
 }

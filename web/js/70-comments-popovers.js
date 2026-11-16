@@ -241,6 +241,7 @@ const ICO_DUP = svgI('<rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path
 const ICO_EDIT = svgI('<path d="M11.5 2.5l2 2L5 13l-2.5.5L3 11z"/>')
 const ICO_X = svgI('<path d="M4 4l8 8M12 4l-8 8"/>')
 const ICO_UNDO = svgI('<path d="M6 3.5L3 6.5l3 3"/><path d="M3.5 6.5h5.8a3.2 3.2 0 0 1 0 6.4H7"/>')
+const ICO_RESET = svgI('<path d="M2.8 6.2a5.4 5.4 0 1 1 .3 4.1"/><path d="M2.8 2.8v3.5h3.5"/>')
 const ICO_PLUS = svgI('<path d="M8 3v10M3 8h10"/>')
 const ICO_CHECK = svgI('<path d="M3.5 8.5l3 3 6-7"/>')
 const ICO_SEND = svgI('<path d="M8 13V3"/><path d="M4 7l4-4 4 4"/>')
@@ -250,14 +251,20 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
   const box = $('ol')
   if (!box) return
   box.replaceChildren()
-  if (!docId || tplName) return
+  const searching = searchOn()
+  if (searching && !searchFilters.outline) return // area filtered out
+  if (!docId || tplName) { // modules have no source outline: still explain an empty search result
+    if (searching) box.appendChild(el('div', 'empty', t('docs.noHits')))
+    return
+  }
   let olAt = 0
   for (const h of srcHeadings(getT())) { // raw blocks/comments never contribute headings
     const line = h.line, d = document.createElement('div')
     const text = syncShow(h.title) || h.title.trim() // labels stay in the source, never in the sidebar
+    if (searching && !searchMatch(text)) continue
     d.className = 'doc ol-l' + Math.min(h.level, 3)
     d.setAttribute('role', 'button')
-    d.appendChild(el('span', 't', text.slice(0, 60)))
+    d.appendChild(searchTextEl('t', text.slice(0, 60)))
     d.title = t('docs.olLineTitle', { n: line })
     const hit = pvOlMatch(h.title, olAt, true) // badges keep the last outline during a re-render (no flicker)
     if (hit >= 0) { // real page from the last render: proves the heading made it onto paper
@@ -272,7 +279,7 @@ function paintOutline() { // collect = lines, click jumps to line; page badge fr
     kb(d, goL)
     box.appendChild(d)
   }
-  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.olEmpty')))
+  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', searching ? t('docs.noHits') : t('docs.olEmpty')))
 }
 function wc() { // word count for #pos display
   const txt = getT().trim()

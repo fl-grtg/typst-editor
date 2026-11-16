@@ -58,8 +58,8 @@
 #cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
 #cmWrap .cm-syncLine { animation: syncFlash .8s ease-out; } /* preview -> editor: the target line lights up (dark mode) or darkens (light mode) */
 @keyframes syncFlash { 0%, 55% { background-color: var(--sync-flash); } 100% { background-color: transparent; } }
-#cmWrap .cm-find { background: var(--acc-soft); border-radius: 3px; }
-#cmWrap .cm-find-cur { background: rgba(255, 159, 10, .40); outline: 1px solid #ff9f0a; border-radius: 3px; }
+#cmWrap .cm-find { background: color-mix(in srgb, var(--editor) 82%, #ffc400); border-radius: 3px; }
+#cmWrap .cm-find-cur { background: color-mix(in srgb, var(--editor) 56%, #ffc400); border-radius: 3px; }
 /* Lint (F1): compiler errors via @codemirror/lint. Var-driven so light/dark follow the theme (typstTheme untouched). */
 #cmWrap .cm-lintRange-error { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5Q1.5 0 3 2.5T6 2.5' fill='none' stroke='%23d92d20' stroke-width='1.2'/%3E%3C/svg%3E"); }
 #cmWrap .cm-lintPoint-error::after { border-bottom-color: var(--danger); }

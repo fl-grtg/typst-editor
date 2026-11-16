@@ -526,6 +526,18 @@ def search_docs(req: Request, q: str = "", user: str = Depends(deps.me)) -> dict
     return {"hits": [{k: h[k] for k in ("id", "title", "owner", "snippet", "pos")} for h in rows]}
 
 
+@router.get("/api/search/content")
+def search_content(req: Request, q: str = "", user: str = Depends(deps.me)) -> dict:
+    """Hit counts per entry for the sidebar's optional content search."""
+    deps.limited(req, "search")
+    con = db.connect()
+    try:
+        entries = search.content_visible(user, q, con, deps.get_files_dir(), sync.room_text)
+    finally:
+        con.close()
+    return {"entries": entries}
+
+
 @router.post("/api/trash/{entry_id}/restore")
 def restore_trash_entry(entry_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     from backend.services import trash

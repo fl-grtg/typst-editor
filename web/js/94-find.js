@@ -1,11 +1,29 @@
 // --- Find + replace: bottom bar (Ctrl+F), hits as marks, Enter = next ---
 let findOpen = false, findHits = [], findI = 0, findCase = false, findRe = false // F10: regex toggle; hits are {a,b} (literal: b = a + q.length)
+let findWithTimer = 0, findWithN = 0
 function openFind() {
   if (!$('app').classList.contains('on')) return
   findOpen = true; $('find').style.display = ''
   const m = cm.state.selection.main
   if (!m.empty) $('fQ').value = getT().slice(m.from, m.to).split('\n')[0].slice(0, 80) // selection becomes search
   markFind(); $('fQ').focus(); $('fQ').select()
+}
+function findWith(q) { // sidebar content hit: wait for the freshly opened text, then find the term in it
+  const n = ++findWithN
+  clearTimeout(findWithTimer)
+  if (!q) return
+  let left = 60 // up to ~6s: the Yjs sync can trail the open by a few frames
+  const run = () => {
+    if (n !== findWithN) return
+    if (!getT() && left-- > 0) { findWithTimer = setTimeout(run, 100); return }
+    if (!$('app').classList.contains('on')) return
+    scrollRestore = null // a content hit wins over the saved reading spot
+    openFind()
+    $('fQ').value = q
+    markFind(true)
+    $('fQ').focus(); $('fQ').select()
+  }
+  run()
 }
 function closeFind() {
   findOpen = false; $('find').style.display = 'none'

@@ -171,6 +171,8 @@ test('docRow duplicate button gating covers shared editors without a project', (
   const c = context({
     el: (tag, cls, text) => node(cls, text), icoBtn: (cls, icon) => node(cls, icon),
     kb() {}, sidebarDrag() {}, ICO_DUP: 'dup', ICO_TRASH: 'trash', t: key => key,
+    searchOn: () => false, searchMatch: () => false, searchContent: () => 0,
+    searchTextEl: (cls, text) => node(cls, text), searchHitBadge: () => {}, searchFindQ: () => '', findWith: () => {},
     docId: '', activeFile: '', api: () => { throw Error('no network in test') }, openDoc() {}, toast() {}, ask: async () => null, sidebar() {},
   })
   vm.runInContext(docs.slice(docs.indexOf('function docRow(x, shared, bare)'), docs.indexOf('\nfunction ', docs.indexOf('function docRow(x, shared, bare)'))), c)

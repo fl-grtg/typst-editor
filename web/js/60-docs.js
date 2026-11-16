@@ -1,5 +1,121 @@
 // --- Docs ---
-let folders = [], lastOwn = [], lastShared = [], hits = [], findQ = '', findT = 0, wantPos = -1
+let folders = [], lastOwn = [], lastShared = [], lastTrash = [], findQ = '', findT = 0
+let contentHits = new Map(), contentHitQ = '', searchN = 0
+let searchFold = new Set() // folders collapsed during this search; the saved state stays untouched
+const SEARCH_DEFAULTS = Object.freeze({ projects: true, modules: true, shared: true, trash: true, outline: false, content: false })
+const SEARCH_FILTER_KEY = 'typst_search_filters'
+let searchFilters = (() => {
+  let saved = {}
+  try { saved = JSON.parse(sessionStorage.getItem(SEARCH_FILTER_KEY) || '{}') || {} } catch (e) {}
+  const next = { ...SEARCH_DEFAULTS }
+  for (const k of Object.keys(SEARCH_DEFAULTS)) if (typeof saved[k] === 'boolean') next[k] = saved[k]
+  return next
+})()
+const saveSearchFilters = () => { try { sessionStorage.setItem(SEARCH_FILTER_KEY, JSON.stringify(searchFilters)) } catch (e) {} }
+const searchOn = () => findQ.length > 0
+const searchText = v => String(v || '').toLowerCase()
+const searchMatch = (...vals) => { const q = searchText(findQ); return vals.some(v => searchText(v).includes(q)) }
+const searchContent = key => searchFilters.content && contentHitQ === findQ ? (contentHits.get(key) || 0) : 0
+const searchFindQ = key => searchOn() && searchContent(key) > 0 ? findQ : ''
+const searchPending = () => searchOn() && searchFilters.content && contentHitQ !== findQ
+function searchFrag(text) { // labels with a <mark> around the query; DOM-built, never innerHTML
+  const s = String(text ?? '')
+  if (!searchOn() || !findQ) return document.createTextNode(s)
+  const hay = s.toLowerCase(), needle = findQ.toLowerCase()
+  if (hay.length !== s.length) return document.createTextNode(s) // locale lowercasing changed offsets: keep it plain
+  const frag = document.createDocumentFragment()
+  let at = 0, hit
+  while ((hit = hay.indexOf(needle, at)) >= 0) {
+    if (hit > at) frag.appendChild(document.createTextNode(s.slice(at, hit)))
+    frag.appendChild(el('mark', 'qhit', s.slice(hit, hit + needle.length)))
+    at = hit + needle.length
+  }
+  if (at < s.length) frag.appendChild(document.createTextNode(s.slice(at)))
+  return frag
+}
+function searchTextEl(cls, text) {
+  const span = el('span', cls)
+  span.appendChild(searchFrag(text))
+  return span
+}
+function searchHitBadge(row, key) { // content hits are an optional extra: hidden while the toggle is off
+  const n = searchContent(key)
+  if (!n) return
+  const b = el('span', 'hitN', String(n))
+  b.title = t('docs.hitCount', { n })
+  b.setAttribute('aria-label', b.title)
+  const first = row.querySelector('button.mini')
+  if (first) row.insertBefore(b, first); else row.appendChild(b)
+}
+let hitBadgeRaf = 0
+function positionHitBadges() { // black hit tabs: fixed to the sidebar edge, centered on their row
+  const side = $('side'), nav = $('nav')
+  if (!side || !nav) return
+  const sr = side.getBoundingClientRect(), nr = nav.getBoundingClientRect()
+  const live = $('app').classList.contains('on') && !document.body.classList.contains('noside') &&
+    sr.width > 40 && nr.height > 0 && nr.right > 0
+  for (const b of document.querySelectorAll('#nav .doc > .hitN')) {
+    if (!live || b.getClientRects().length === 0) { b.style.visibility = 'hidden'; continue }
+    const rr = b.parentElement.getBoundingClientRect()
+    const mid = rr.top + rr.height / 2
+    if (!rr.height || mid - 10 < nr.top || mid + 10 > nr.bottom) { b.style.visibility = 'hidden'; continue }
+    b.style.left = (sr.right - 1) + 'px'
+    b.style.top = mid + 'px'
+    b.style.visibility = 'visible'
+  }
+}
+function queueHitBadges() {
+  if (hitBadgeRaf) return
+  hitBadgeRaf = requestAnimationFrame(() => { hitBadgeRaf = 0; positionHitBadges() })
+}
+function watchHitBadges() { // repaints, scrolling, resizing and the sidebar drag all move the rows under the tabs
+  if (window.__hitBadgesArmed) { queueHitBadges(); return }
+  window.__hitBadgesArmed = true
+  const nav = $('nav'), side = $('side')
+  nav.addEventListener('scroll', queueHitBadges, { passive: true })
+  addEventListener('resize', queueHitBadges)
+  addEventListener('scroll', queueHitBadges, true)
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(queueHitBadges)
+    ro.observe(nav); ro.observe(side)
+    window.__hitBadgeRO = ro
+  }
+  if (window.MutationObserver) {
+    new MutationObserver(queueHitBadges).observe(nav, { childList: true, subtree: true, characterData: true })
+  }
+  queueHitBadges()
+}
+function searchEmpty() { return el('div', 'empty', t('docs.noHits')) }
+function announceSearch() {
+  const qc = $('qCount')
+  if (!qc) return
+  const searching = searchOn()
+  const rows = document.querySelectorAll('#nav .doc').length
+  const hits = document.querySelectorAll('#nav .doc, #nav .fhd').length // folder/project hits count too
+  const areas = Object.keys(SEARCH_DEFAULTS).some(k => searchFilters[k])
+  const empty = searching && areas && !hits && !searchPending()
+  const se = $('searchEmpty')
+  if (se) se.hidden = !empty
+  const nav = $('nav')
+  if (nav) nav.classList.toggle('search-empty', empty)
+  if (!searching) { qc.textContent = ''; return }
+  qc.textContent = t('docs.results', { n: rows })
+}
+function paintSidebarSearch() {
+  paintOwn(); paintShared(lastShared); paintTrash(lastTrash); paintTpls(); paintSecs(); paintOutline()
+}
+function clearSearch(focus = false) {
+  const q = $('q')
+  q.value = ''
+  findQ = ''
+  searchFold.clear()
+  ++searchN
+  contentHits = new Map(); contentHitQ = ''
+  $('qClear').hidden = true
+  paintSidebarSearch()
+  announceSearch()
+  if (focus) q.focus()
+}
 let shut = new Set() // collapsed folders (doc: name, tpl: "tpl:..", shared: "share:..")
 try { shut = new Set(JSON.parse(localStorage.getItem('typst_shut') || '[]')) } catch (e) {}
 const saveShut = () => lsSet('typst_shut', JSON.stringify([...shut]))
@@ -7,13 +123,27 @@ let secShut = new Set() // collapsed sidebar sections (header IDs)
 try { secShut = new Set(JSON.parse(localStorage.getItem('typst_sec') || '[]')) } catch (e) {}
 const saveSec = () => lsSet('typst_sec', JSON.stringify([...secShut]))
 const SECS = [['ownH', 'own', 'docs.secDocs', 'doc'], ['tplH', 'tpls', 'docs.secFiles', 'resource'], ['libH', 'libs', 'docs.secLibraries', 'library'], ['tblH', 'tbls', 'docs.secTables', 'table'], ['sharedH', 'shared', 'docs.secShared'], ['olH', 'ol', 'docs.secOutline']]
+const SEARCH_SECS = { ownH: 'projects', tplH: 'modules', sharedH: 'shared', trashH: 'trash', olH: 'outline' }
 function paintSecs() { // all sections collapsible, + creates folder directly
+  const searching = searchOn()
+  const none = searching && !Object.keys(SEARCH_DEFAULTS).some(k => searchFilters[k])
+  const noneEl = $('searchNone')
+  if (noneEl) noneEl.hidden = !none
   for (const [h, box, labelKey, plus] of SECS) {
     const H = $(h), B = $(box)
     if (!H || !B) continue
     if (['libH', 'tblH'].includes(h)) { H.hidden = true; B.hidden = true; continue }
+    const area = SEARCH_SECS[h]
+    const visible = !searching || !area || searchFilters[area]
+    H.hidden = !visible
+    B.hidden = !visible
+    if (!visible) continue // filtered-out area: header and rows disappear
     H.replaceChildren()
-    const togSec = () => { secShut.has(h) ? secShut.delete(h) : secShut.add(h); saveSec(); paintSecs() }
+    const togSec = () => {
+      if (searchOn()) searchFold.has(h) ? searchFold.delete(h) : searchFold.add(h)
+      else { secShut.has(h) ? secShut.delete(h) : secShut.add(h); saveSec() }
+      paintSecs()
+    }
     const l = el('span', 'lbl', t(labelKey))
     l.title = t('docs.expandCollapse')
     l.onclick = togSec
@@ -26,18 +156,17 @@ function paintSecs() { // all sections collapsible, + creates folder directly
       H.appendChild(p)
 
     }
-    B.style.display = secShut.has(h) ? 'none' : ''
-    H.setAttribute('aria-expanded', String(!secShut.has(h)))
+    const expanded = searching ? !searchFold.has(h) : !secShut.has(h) // search folds per query without touching saved state
+    B.style.display = expanded ? '' : 'none'
+    H.setAttribute('aria-expanded', String(expanded))
     if (h === 'tplH') sidebarDropTarget($('moduleDrop'), 'modules')
     if (h === 'ownH') { sidebarDropTarget(H, 'documents'); sidebarDropTarget(B, 'documents') }
   }
+  for (const [id, area] of [['moduleDrop', 'modules'], ['trashDrop', 'trash']]) {
+    const w = $(id)
+    if (w) w.hidden = searching && !searchFilters[area]
+  }
   updNavFade() // content height changed
-}
-function jumpWant() { // jump to search hit (once after open)
-  if (wantPos < 0) return
-  const p = Math.max(0, Math.min(cm.state.doc.length, wantPos))
-  wantPos = -1
-  cm.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) })
 }
 let sideES = null, sideESErr = 0, sideESRearms = 0, sideESTimer = 0
 function watchSidebar() { // live sidebar: external list changes (MCP, other tab) repaint without reload
@@ -105,12 +234,14 @@ async function refreshSidebar() {
   }
   if (sideResourcesDirty) { sideResourcesDirty = false; await resSync() }
   if (document.body.classList.contains('dnd-active')) { window.__sidebarDeferred = true; return } // a refresh already in flight must not repaint mid-drag
-  lastOwn = d.own; lastShared = d.shared
+  lastOwn = d.own; lastShared = d.shared; lastTrash = d.trash
   if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
   refreshDocRole(d)
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
   paintTpls()
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
+  watchHitBadges()
+  queueContentRefresh() // list changes (new/moved/trashed entries) change the hit set too
   if (!window.__navFadeArmed) { window.__navFadeArmed = true; addEventListener('resize', updNavFade) } // once: sidebar() runs per SSE push
 }
 function refreshDocRole(d) {
@@ -149,11 +280,15 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
   const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
   div.dataset.docId = x.id // stable across sidebar repaints: an open row menu can refocus its new button
   div.setAttribute('role', 'button')
-  div.appendChild(el('span', 't', shared && !bare ? t('docs.sharedRow', { owner: x.owner, title: x.title }) : x.title))
+  div.appendChild(searchTextEl('t', shared && !bare ? t('docs.sharedRow', { owner: x.owner, title: x.title }) : x.title))
   const roleName = ({ owner: t('common.roleOwner'), editor: t('common.roleEditor'), reviewer: t('common.roleReader') })[x.role] || x.role
   div.title = shared ? t('docs.sharedTitle', { owner: x.owner, title: x.title, role: roleName }) : x.title
-  div.onclick = () => openDoc(x.id)
-  kb(div, () => openDoc(x.id)) // keyboard: Enter/Space opens
+  const open = () => {
+    const q = searchFindQ('d:' + x.id)
+    return openDoc(x.id).then(() => { if (q && docId === x.id) findWith(q) })
+  }
+  div.onclick = open
+  kb(div, open) // keyboard: Enter/Space opens
   if (!shared) {
     sidebarDrag(div, { project: x.project_id || '', entry: { kind: 'document', doc_id: x.id, name: x.title } }, 'move')
   }
@@ -171,6 +306,7 @@ function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), 
     }
     div.appendChild(del)
   }
+  searchHitBadge(div, 'd:' + x.id)
   return div
 }
 function sidebarRenaming() { // an in-flight or direct repaint must not wipe the inline rename; finish() refreshes after it
@@ -184,29 +320,14 @@ function reanchorSideMenu() { // an open row menu moves to the new row instead o
 function paintOwn() { // top-level first, then folders (A-Z); search replaces list
   if (sidebarRenaming()) return
   const box = $('own'); box.replaceChildren()
-  const qc = $('qCount')
-  if (findQ.length >= 2) {
-    if (qc) qc.textContent = t('docs.results', { n: hits.length })
-    if (!hits.length) {
-      const e = el('div', 'empty', t('docs.noHits'))
-      const b = el('button', null, t('docs.clearSearch'))
-      b.onclick = () => { $('q').value = ''; findQ = ''; hits = []; if (qc) qc.textContent = ''; paintOwn() }
-      e.appendChild(b); box.appendChild(e)
-    }
-    hits.forEach(h => {
-      const div = el('div', 'doc')
-      div.setAttribute('role', 'button')
-      div.appendChild(el('span', 't', h.title))
-      div.title = (h.folder ? h.folder + '/' : '') + (h.snippet || t('docs.titleHit'))
-      const openH = () => { wantPos = h.pos; $('q').value = ''; findQ = ''; if (qc) qc.textContent = ''; openDoc(h.id) }
-      div.onclick = openH
-      kb(div, openH)
-      box.appendChild(div)
-    })
+  if (searchOn()) {
+    if (!searchFilters.projects) return
+    lastOwn.filter(x => !x.project_id && (searchMatch(x.title) || searchContent('d:' + x.id) > 0)).forEach(x => box.appendChild(docRow(x)))
+    paintProjects(box, false)
+    if (!box.hasChildNodes() && !searchPending()) box.appendChild(searchEmpty())
     reanchorSideMenu()
     return
   }
-  if (qc) qc.textContent = ''
   lastOwn.filter(x => !x.project_id).forEach(x => box.appendChild(docRow(x)))
   paintProjects(box, false)
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noDocs')))
@@ -215,38 +336,62 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
   if (sidebarRenaming()) return
   const box = $('shared'); box.replaceChildren()
+  if (searchOn() && !searchFilters.shared) return
+  const searching = searchOn()
   const byO = new Map()
-  ;[...list].filter(x => !x.project_id || !projects.some(p => p.id === x.project_id)).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
+  ;[...list].filter(x => !x.project_id || !projects.some(p => p.id === x.project_id)).forEach(x => { if (!byO.has(x.owner)) byO.set(x.owner, []); byO.get(x.owner).push(x) })
   ;[...byO.keys()].sort((a, b) => a.localeCompare(b)).forEach(o => {
-    const docs = byO.get(o)
+    const all = byO.get(o)
+    const ownerHit = searching && searchMatch(o)
+    const docs = (searching && !ownerHit ? all.filter(x => searchMatch(x.title) || searchContent('d:' + x.id) > 0) : all)
+      .slice().sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }))
+    if (!docs.length) return
     if (docs.length === 1) { box.appendChild(docRow(docs[0], true)); return }
     const h = el('div', 'fhd'), k = 'share:' + o
-    const hd = el('b', null, o)
+    const hd = document.createElement('b')
+    hd.appendChild(searchFrag(o))
     hd.title = t('docs.expandCollapse')
-    hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', String(!shut.has(k))); hd.setAttribute('aria-label', o + (shut.has(k) ? t('docs.isCollapsed') : t('docs.isExpanded')))
-    const togS = () => { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut(); paintShared(lastShared) }
+    const open = searching ? !searchFold.has(k) : !shut.has(k)
+    hd.setAttribute('role', 'button'); hd.setAttribute('aria-expanded', String(open)); hd.setAttribute('aria-label', o + (open ? t('docs.isExpanded') : t('docs.isCollapsed')))
+    const togS = () => {
+      if (searchOn()) searchFold.has(k) ? searchFold.delete(k) : searchFold.add(k)
+      else { shut.has(k) ? shut.delete(k) : shut.add(k); saveShut() }
+      paintShared(lastShared)
+    }
     hd.onclick = togS
     kb(hd, togS)
     h.appendChild(hd); box.appendChild(h)
-    if (!shut.has(k)) docs.forEach(x => { const r = docRow(x, true, true); r.classList.add('sub'); box.appendChild(r) })
+    if (open) docs.forEach(x => { const r = docRow(x, true, true); r.classList.add('sub'); box.appendChild(r) })
   })
-  paintProjects(box, true)
-  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noShared')))
+  if (!searching || searchFilters.shared) paintProjects(box, true)
+  if (!box.hasChildNodes() && !searchPending()) box.appendChild(searching ? searchEmpty() : el('div', 'empty', t('docs.noShared')))
   reanchorSideMenu()
 }
 function paintTrash(trash) { // click peeks in (trash view), restore, delete permanently
   const h = $('trashH')
+  const searching = searchOn()
+  if (searching && !searchFilters.trash) { $('trash').replaceChildren(); return }
   h.replaceChildren()
-  const togTrash = () => { secShut.has('trashH') ? secShut.delete('trashH') : secShut.add('trashH'); saveSec(); paintTrash(trash) }
+  const open = searching ? !searchFold.has('trashH') : !secShut.has('trashH')
+  const togTrash = () => {
+    if (searchOn()) searchFold.has('trashH') ? searchFold.delete('trashH') : searchFold.add('trashH')
+    else { secShut.has('trashH') ? secShut.delete('trashH') : secShut.add('trashH'); saveSec() }
+    paintTrash(trash)
+  }
   const l = el('span', 'lbl', t('docs.trashSec'))
   l.title = t('docs.expandCollapse')
   l.onclick = togTrash
   kb(h, togTrash)
-  h.setAttribute('aria-expanded', String(!secShut.has('trashH')))
+  h.setAttribute('aria-expanded', String(open))
   h.appendChild(l)
   sidebarDropTarget($('trashDrop'), 'trash')
-  $('trash').style.display = secShut.has('trashH') ? 'none' : ''
-  if (!trash.length) { $('trash').replaceChildren(); $('trash').appendChild(el('div', 'empty', t('docs.trashEmpty'))); return }
+  $('trash').style.display = open ? '' : 'none'
+  const rows = searching ? trash.filter(x => searchMatch(x.title) || searchContent((x.kind ? 'tr:' : 'td:') + x.id) > 0) : trash
+  if (!rows.length) {
+    $('trash').replaceChildren()
+    if (!searchPending()) $('trash').appendChild(searching ? searchEmpty() : el('div', 'empty', t('docs.trashEmpty')))
+    return
+  }
   const emptyItem = async () => {
     if (!await ask(trash.length === 1 ? t('docs.emptyTrashConfirmOne') : t('docs.emptyTrashConfirmMany', { n: trash.length }), { noInput: true, ok: t('common.delete'), danger: true })) return
     const result = await api('DELETE', '/api/trash')
@@ -263,15 +408,22 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   h.appendChild(empty)
   reanchorSideMenu()
   const box = $('trash'); box.replaceChildren()
-  box.style.display = secShut.has('trashH') ? 'none' : ''
-  trash.forEach(x => {
+  box.style.display = open ? '' : 'none'
+  rows.forEach(x => {
     const div = el('div', 'doc sub' + (x.id === docId && !activeFile ? ' cur' : ''))
     div.setAttribute('role', 'button')
-    div.appendChild(el('span', 't', x.title))
+    div.appendChild(searchTextEl('t', x.title))
     div.title = x.title + t('docs.trashViewSuffix')
     const isEntry = x.kind === 'personal' || x.kind === 'resource' || x.kind === 'file'
+    const hitKey = (isEntry ? 'tr:' : 'td:') + x.id
     sidebarDrag(div, { trashed: true, trashId: isEntry ? x.id : '', project: x.project_id || '', entry: { kind: x.kind || 'document', doc_id: x.doc_id || x.id, name: x.title } }, 'move')
-    if (!isEntry) { div.onclick = () => openDoc(x.id); kb(div, () => openDoc(x.id)) }
+    if (!isEntry) {
+      const openTrash = () => {
+        const q = searchFindQ(hitKey)
+        return openDoc(x.id).then(() => { if (q && docId === x.id) findWith(q) })
+      }
+      div.onclick = openTrash; kb(div, openTrash)
+    }
     const back = icoBtn('mini', ICO_UNDO); back.title = t('docs.restore'); back.setAttribute('aria-label', back.title)
     back.onclick = e => { e.stopPropagation(); api('POST', trashEntryUrl(x) + '/restore').then(() => { sidebar(); if (!isEntry && x.id === docId) openDoc(x.id) }).catch(e => toast(e.message)) }
     const kill = icoBtn('mini', ICO_X); kill.title = t('docs.delPermBtn'); kill.setAttribute('aria-label', kill.title)
@@ -282,28 +434,191 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
       if (x.id === docId) closeView()
       sidebar()
     }
-    div.append(back, kill); box.appendChild(div)
+    div.append(back, kill)
+    searchHitBadge(div, hitKey)
+    box.appendChild(div)
   })
 }
-$('q').oninput = () => { clearTimeout(findT); findT = setTimeout(runSearch, SEARCH_MS) }
-let searchN = 0
-async function runSearch() {
-  findQ = $('q').value.trim()
-  if (findQ.length < 2) { hits = []; paintOwn(); return }
-  const n = ++searchN
-  try { hits = (await api('GET', '/api/search?q=' + encodeURIComponent(findQ))).hits }
-  catch (e) { hits = [] }
-  if (n !== searchN) return // stale: newer search already running
-  paintOwn()
+$('q').oninput = () => {
+  $('qClear').hidden = !$('q').value
+  clearTimeout(findT); findT = setTimeout(runSearch, SEARCH_MS)
 }
+$('q').onkeydown = e => {
+  if (e.key !== 'Enter') return
+  e.preventDefault(); clearTimeout(findT); runSearch()
+}
+$('qClear').onclick = () => clearSearch(true)
+$('qFilter').onclick = e => {
+  e.stopPropagation()
+  document.getElementById('searchFilters') ? closeSearchFilters() : openSearchFilters()
+}
+function searchEntryKey(e) {
+  const doc = e.doc_id || ''
+  if (e.kind === 'doc') return 'd:' + doc
+  if (e.kind === 'trash_doc') return 'td:' + doc
+  if (e.kind === 'file') return 'f:' + doc + '/' + e.name
+  if (e.kind === 'resource') return 'r:' + (e.project_id || '') + '/' + e.name
+  if (e.kind === 'template') return 't:' + e.name
+  if (e.kind === 'trash') return 'tr:' + e.id
+  return ''
+}
+async function runSearch() {
+  const prevQ = findQ
+  findQ = $('q').value.trim()
+  if (findQ !== prevQ) searchFold.clear() // a new query starts with every folder open
+  $('qClear').hidden = !$('q').value
+  const n = ++searchN
+  if (!findQ) { contentHits = new Map(); contentHitQ = ''; paintSidebarSearch(); announceSearch(); return }
+  paintSidebarSearch(); announceSearch()
+  if (!searchFilters.content) {
+    if (contentHits.size || contentHitQ) { contentHits = new Map(); contentHitQ = ''; paintSidebarSearch(); announceSearch() }
+    return
+  }
+  try {
+    const r = await api('GET', '/api/search/content?q=' + encodeURIComponent(findQ))
+    if (n !== searchN) return // stale: newer query or filter already running
+    const next = new Map()
+    for (const e of r.entries || []) {
+      const k = searchEntryKey(e)
+      if (k) next.set(k, e.count)
+    }
+    contentHits = next; contentHitQ = findQ
+  } catch (e) {
+    if (n !== searchN) return
+    contentHits = new Map(); contentHitQ = findQ // a failed lookup is settled: do not stay "pending"
+  }
+  paintSidebarSearch(); announceSearch()
+}
+let contentRefreshT = 0
+function queueContentRefresh() { // counts follow edits: re-ask once typing and the save debounce have settled
+  if (!searchOn() || !searchFilters.content) return
+  clearTimeout(contentRefreshT)
+  contentRefreshT = setTimeout(() => { if (searchOn() && searchFilters.content && contentHitQ === findQ) runSearch() }, 3000)
+}
+function searchFiltersDirty() {
+  return Object.keys(SEARCH_DEFAULTS).some(k => searchFilters[k] !== SEARCH_DEFAULTS[k])
+}
+function updateSearchFilterButton() {
+  const b = $('qFilter')
+  if (!b) return
+  b.classList.toggle('has-filters', searchFiltersDirty())
+  b.title = t('docs.sfTitle') // keep the tooltip stable; the filled funnel shows non-default settings
+}
+function closeSearchFilters() {
+  const box = document.getElementById('searchFilters')
+  if (!box) return
+  box.remove()
+  $('qFilter').setAttribute('aria-expanded', 'false')
+  document.removeEventListener('pointerdown', searchFiltersOutside, true)
+  document.removeEventListener('keydown', searchFiltersEsc, true)
+}
+function searchFiltersOutside(e) {
+  if ($('qFilter').contains(e.target)) return
+  const box = document.getElementById('searchFilters')
+  if (box && !box.contains(e.target)) closeSearchFilters()
+}
+function searchFiltersEsc(e) {
+  if (e.key !== 'Escape') return
+  e.preventDefault(); e.stopPropagation()
+  closeSearchFilters(); $('qFilter').focus()
+}
+function toggleSearchFilter(key) {
+  searchFilters[key] = !searchFilters[key]
+  saveSearchFilters()
+  updateSearchFilterButton()
+  const b = document.querySelector(`#searchFilters [data-sf="${key}"]`)
+  if (b) {
+    b.setAttribute('aria-checked', String(searchFilters[key]))
+    const ck = b.querySelector('.ck')
+    if (ck) ck.textContent = searchFilters[key] ? '✓' : ''
+  }
+  if (key === 'content' && !searchFilters.content) { contentHits = new Map(); contentHitQ = '' }
+  if (!searchOn()) return
+  searchFold.clear() // changed filter set: show all remaining folders open
+  if (key === 'content' && searchFilters.content) runSearch()
+  else { paintSidebarSearch(); announceSearch() }
+}
+function applySearchFilters(next) {
+  Object.assign(searchFilters, next)
+  saveSearchFilters()
+  updateSearchFilterButton()
+  ++searchN // drop any content lookup that is still in flight
+  contentHits = new Map(); contentHitQ = ''
+  searchFold.clear()
+  document.querySelectorAll('#searchFilters [data-sf]').forEach(b => {
+    const on = searchFilters[b.dataset.sf]
+    b.setAttribute('aria-checked', String(on))
+    const ck = b.querySelector('.ck')
+    if (ck) ck.textContent = on ? '✓' : ''
+  })
+  if (searchOn()) { paintSidebarSearch(); announceSearch() }
+}
+function resetSearchFilters() { applySearchFilters(SEARCH_DEFAULTS) }
+function clearSearchSelection() { // uncheck every area; the query stays
+  const none = {}
+  for (const k of Object.keys(SEARCH_DEFAULTS)) none[k] = false
+  applySearchFilters(none)
+}
+function openSearchFilters() {
+  closeSearchFilters()
+  const box = el('div'); box.id = 'searchFilters'; box.setAttribute('role', 'menu')
+  box.setAttribute('aria-label', t('docs.sfTitle'))
+  const head = el('div', 'mhRow')
+  head.appendChild(el('div', 'mh', t('docs.sfAreas')))
+  const tools = el('div', 'mhTools')
+  const tool = (act, icon, label) => {
+    const b = icoBtn('mhBtn', icon); b.type = 'button'; b.dataset.act = act
+    b.title = label; b.setAttribute('aria-label', label)
+    tools.appendChild(b)
+    return b
+  }
+  tool('clear', ICO_X, t('docs.sfClear')).onclick = e => {
+    e.stopPropagation(); clearSearchSelection()
+  }
+  tool('reset', ICO_RESET, t('docs.sfReset')).onclick = e => {
+    e.stopPropagation(); resetSearchFilters()
+  }
+  head.appendChild(tools)
+  box.appendChild(head)
+  const addItem = (key, labelKey) => {
+    const b = el('button', 'sfItem'); b.type = 'button'; b.dataset.sf = key
+    b.setAttribute('role', 'menuitemcheckbox'); b.setAttribute('aria-checked', String(searchFilters[key]))
+    const ck = el('i', 'ck', searchFilters[key] ? '✓' : ''); ck.setAttribute('aria-hidden', 'true')
+    b.append(ck, el('span', 'ln', t(labelKey)))
+    if (key === 'content') b.title = t('docs.sfContentHint')
+    b.onclick = e => { e.stopPropagation(); toggleSearchFilter(key) }
+    box.appendChild(b)
+  }
+  ;[['projects', 'docs.secDocs'], ['modules', 'docs.secFiles'], ['shared', 'docs.secShared'],
+    ['trash', 'docs.trashSec'], ['outline', 'docs.secOutline']].forEach(([k, label]) => addItem(k, label))
+  box.appendChild(el('hr'))
+  addItem('content', 'docs.sfContent')
+  document.body.appendChild(box)
+  const r = $('qFilter').getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight, gap = 6
+  let left = r.right + gap // open to the right of the button, over the editor
+  if (left + w > innerWidth - 8) left = Math.max(8, r.left - w - gap) // narrow viewport: flip back into the sidebar
+  box.style.top = Math.max(8, Math.min(r.top, innerHeight - h - 8)) + 'px'
+  box.style.left = left + 'px'
+  $('qFilter').setAttribute('aria-expanded', 'true')
+  setTimeout(() => {
+    document.addEventListener('pointerdown', searchFiltersOutside, true)
+    document.addEventListener('keydown', searchFiltersEsc, true)
+  })
+  box.querySelector('.sfItem')?.focus()
+}
+updateSearchFilterButton()
 function resRow(tpl) { // click opens in editor, drag sorts into folder (all three resource kinds share this row)
   const div = document.createElement('div')
   div.className = 'doc private-module sub' + (tpl.name === tplName ? ' cur' : '')
   div.dataset.resourceName = tpl.name // stable across sidebar repaints: an open row menu can refocus its new button
   div.setAttribute('role', 'button')
-  div.appendChild(el('span', 't', tpl.name)); div.title = tpl.name
-  div.onclick = () => openTpl(tpl.name)
-  kb(div, () => openTpl(tpl.name))
+  div.appendChild(searchTextEl('t', tpl.name)); div.title = tpl.name
+  const open = () => {
+    const q = searchFindQ('t:' + tpl.name)
+    return openTpl(tpl.name).then(() => { if (q && tplName === tpl.name) findWith(q) })
+  }
+  div.onclick = open
+  kb(div, open)
   sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name, folder: tpl.folder || '' } }, 'copyMove')
   const ren = projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name, div))
   ren.dataset.menuKey = 'rename'; ren.dataset.menuLabel = t('menu.renameShort'); ren.dataset.menuHint = 'menu.renameHint' // key: the menu formats it with the entry type
@@ -322,13 +637,17 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   }
   div.appendChild(del)
   compactSidebarActions(div, 0, personalModuleMenu)
+  searchHitBadge(div, 't:' + tpl.name)
   return div
 }
 function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.bib/.csv) from the shared myTpl shelf
   const box = $(boxId); if (!box) return
   box.replaceChildren()
-  resOf(kind).forEach(t => box.appendChild(resRow(t)))
-  if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t(emptyKey))) // create via + New above (type + folder step)
+  if (searchOn() && (kind !== 'resource' || !searchFilters.modules)) return
+  let rows = resOf(kind)
+  if (searchOn()) rows = rows.filter(t => searchMatch(t.name) || searchContent('t:' + t.name) > 0)
+  rows.forEach(t => box.appendChild(resRow(t)))
+  if (!box.hasChildNodes() && !searchPending()) box.appendChild(el('div', 'empty', searchOn() ? t('docs.noHits') : t(emptyKey))) // create via + New above (type + folder step)
 }
 function paintTpls() { // templates + libraries + tables sections: click opens in editor
   if (sidebarRenaming()) return
@@ -399,7 +718,6 @@ function leaveDoc() { // reset sync/peers/threads/media (openTpl/openDoc/del)
   pvObs?.disconnect(); pvObs = null; pvSlots = []; pvTexts = []; pvTextDone = []; pvPageSize = null; pvLinks = []; pvOutline = []; pvOutlineGen = -1 // old PDF layer must never badge/link the next doc
   if (window.Present?.isOn()) window.Present.exit()
   window.docTpl = []; docResAt = 0
-  wantPos = -1 // old search jump must not fire in next doc
   openedTrashed = false
   clearTimeout(saveT); clearTimeout(tplT); clearTimeout(anchorT); anchorDirty.clear() // no zombie save into next doc
   clearTimeout(connT); connT = 0 // stale disconnect paint must not fire in the next doc
@@ -536,7 +854,7 @@ function closeView() { // no doc open: buttons off, empty view in
 }
 async function openDoc(id) {
   if (window.suggestionDraft && !await leaveSuggestionDraft()) return
-  const n = ++openN, wp = wantPos // keep search jump across leaveDoc (see docRow search)
+  const n = ++openN
   if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
   if (n !== openN || !await flushTab(true) || n !== openN) return
   let d
@@ -546,11 +864,10 @@ async function openDoc(id) {
   if (tplDirty || tabDirty) return // input while loading: keep the unsaved buffer
   autoCloseDrawer()
   leaveDoc()
-  wantPos = wp
   if (tplName) setView('split')
   hidePops()
   docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
-  scrollRestore = wp >= 0 ? null : scrollRead(id) // a search hit wins: no saved spot may pull the view back
+  scrollRestore = scrollRead(id)
   if (scrollRestore) scrollRestore.epoch = n
   openedTrashed = !!d.trashed
   if (docProject && !openedTrashed) shut.delete('project:' + docProject)

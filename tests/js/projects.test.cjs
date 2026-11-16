@@ -333,6 +333,9 @@ test('empty trash sends one bulk request for twelve entries and never opens a do
   const c = vm.createContext({ $: id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id) },
     el: node, icoBtn: node, t: key => key, kb: () => {}, sidebarDropTarget: () => {}, sidebarDrag: () => {},
     secShut: new Set(), docId: 'active', activeFile: '', ICO_UNDO: '', ICO_X: '', ICO_MORE: '',
+    searchOn: () => false, searchFilters: {}, searchFold: new Set(), searchEmpty: node,
+    searchMatch: () => false, searchContent: () => 0, searchTextEl: (cls, text) => node(cls, text),
+    searchHitBadge: () => {}, searchFindQ: () => '', findWith: () => {},
     ask: async () => true, sidebar: async () => {}, reanchorSideMenu: () => {}, closeView: () => assert.fail('active document must stay open'),
     openDoc: () => assert.fail('deletion must not open a document'), toast: message => assert.fail(message),
     api: async (method, url) => { writes.push([method, url]); return { documents: [] } } })
@@ -348,7 +351,8 @@ test('expanding a project from welcome opens its first document without replacin
   const fn = source.slice(source.indexOf('    const toggle = async () =>'), source.indexOf('    title.onclick = toggle'))
   const opened = []
   const c = vm.createContext({ key: 'project:p', shut: new Set(['project:p']), entries: { documents: [{ id: 'first' }, { id: 'second' }] },
-    docId: '', tplName: '', saveShut: () => {}, paintOwn: () => {}, paintShared: () => {}, lastShared: [], openDoc: async id => opened.push(id) })
+    searching: false, searchFold: new Set(), docId: '', tplName: '', saveShut: () => {}, paintOwn: () => {}, paintShared: () => {},
+    lastShared: [], openDoc: async id => opened.push(id) })
   vm.runInContext(fn + '; globalThis.toggleProject = toggle', c)
   await c.toggleProject()
   assert.deepEqual(opened, ['first'])

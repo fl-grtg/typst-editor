@@ -138,6 +138,9 @@ def test_search_hit_wins_over_scroll_restore(page):
     restored = page.locator('#cm .cm-scroller').evaluate('el => el.scrollTop')
     assert abs(restored - saved) < 80, f'saved spot not restored: {saved} -> {restored}'
 
+    page.click('#qFilter')  # content search is opt-in: without it only titles/files match
+    page.locator('#searchFilters [data-sf="content"]').click()
+    page.keyboard.press('Escape')
     page.fill('#q', 'Section 30')
     expect(page.locator('#qCount')).not_to_have_text('', timeout=15_000)  # results painted
     hit = page.locator('#own .doc').filter(has_text='Search vs scroll').first
