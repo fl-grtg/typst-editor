@@ -67,7 +67,7 @@ def test_keyboard_on_nested_document_action_runs_that_action(page):
     row.get_by_role("button", name="Menu", exact=True).press("Enter")
     assert page.request.post(f'/api/docs/{other}/rename', data={'title': 'Sidebar refreshed'}).ok
     expect(page.locator('#own .doc .t').filter(has_text='Sidebar refreshed')).to_be_visible()
-    page.locator('#menu button').filter(has_text='Rename document').press('Enter')
+    page.locator('#menu button').filter(has_text='Rename').press('Enter')
     inp = page.locator('#own input.renameInput')
     expect(inp).to_be_visible()
     inp.fill('Audit renamed')

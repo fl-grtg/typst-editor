@@ -481,6 +481,8 @@ function scCloseLayer() {
   if ($('modal').style.display !== 'none') { $('mNo').click(); return true }
   if ($('setPop').style.display !== 'none') { hidePops(); return true }
   if (findOpen) { closeFind(); return true }
+  if (!$('menu').hidden && window.closeMenu) { window.closeMenu(true); return true } // open menu: close and focus its trigger
+  if (document.getElementById('watchBox')) { closeWatchBox(true); return true } // watch menu: same, focus the bell
   closePop(); hidePops()
   if ($('q').value && document.activeElement === $('q')) { $('q').value = ''; findQ = ''; hits = []; paintOwn(); return true }
   if (matchMedia('(max-width:720px)').matches && !document.body.classList.contains('noside')) {

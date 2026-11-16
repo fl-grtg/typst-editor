@@ -13,13 +13,14 @@ let toastT = 0
 let lastToastM = '', lastToastT = 0
 const TOAST_DUP_MS = 2000 // same text within this window: show once (F24)
 function toast(m, retry, label, ms, kind) { if (!retry && m === lastToastM && Date.now() - lastToastT < TOAST_DUP_MS) return; lastToastM = m; lastToastT = Date.now(); let box = $('toast'); if (!box) { box = document.createElement('div'); box.id = 'toast'; document.body.appendChild(box) } const alert = !!retry || kind === 'error'; box.classList.toggle('error', kind === 'error'); box.setAttribute('role', alert ? 'alert' : 'status'); box.setAttribute('aria-live', alert ? 'assertive' : 'polite'); box.replaceChildren(); const tm = document.createElement('span'); tm.textContent = m; box.appendChild(tm); if (retry) { const b = document.createElement('button'); b.textContent = label || t('common.retry'); b.onclick = () => { box.style.display = 'none'; retry() }; box.appendChild(b) } box.style.opacity = '1'; box.style.display = retry ? 'flex' : 'block'; clearTimeout(toastT); toastT = setTimeout(() => { box.style.opacity = '0'; setTimeout(() => box.style.display = 'none', 400) }, ms || (retry ? 5000 : 3500)) }
+window.toast = toast // classic scripts (ui-layer) surface rejected menu actions through the same row
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function api(m, url, body, tries = 3) { // Error carries .status/.detail; GET auto-retries 503 with backoff (idempotent only, never 429: a limit hit must surface, not re-hit the bucket)
   let lastErr = null
   const n = m === 'GET' ? tries : 1
   if (m !== 'GET' && /\/files(\/|$)/.test(url)) filesDirty = true // any file write: next render refetches the list
   for (let a = 0; a < n; a++) {
-    const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) })
+    const r = await fetch(url, { method: m, headers: { 'Content-Type': 'application/json', 'Accept-Language': window.I18N_LANG || 'en' }, body: body && JSON.stringify(body) })
     if (r.status === 204) return null
     if (r.status === 503 && a < n - 1) { lastErr = new Error(t('common.busyRetry')); lastErr.status = r.status; await sleep(500 * (a + 1)); continue }
     const txt = await r.text()

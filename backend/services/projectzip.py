@@ -69,10 +69,12 @@ def read_project_zip(data: bytes) -> tuple[str, list[tuple[str, bytes]]]:
 
 
 def import_project_zip(user: str, title: str, folder: str, data: bytes, project_id: str | None = None) -> dict:
+    from backend.routers.project_folders import folder_path
+
     title = title.strip()
     if not title or len(title) > TITLE_MAX:
         raise HTTPException(400, f"Title: 1-{TITLE_MAX} chars")
-    folder = deps.check_folder_name(folder) if folder.strip() else ""
+    folder = folder_path(folder) if folder.strip() else ""
     main, files = read_project_zip(data)
     did, now = db.new_id("d_"), db.now_iso()
     root = deps.get_files_dir().resolve()

@@ -113,7 +113,7 @@ Claude Code: `claude mcp add --transport http typst-editor http://127.0.0.1:8978
 
 OpenCode (`opencode.json`): server `"typst-editor"` with `"type": "remote"`, `"url": "http://127.0.0.1:8978/mcp"`, `"headers": {"Authorization": "Bearer tpe_..."}`.
 
-Agent loop `ls -> read -> edit -> view -> fix`; see `skills/typst-editor/SKILL.md` for the path model and edit rules. Project paths are `/projects/{id}/docs/{Title}/...` and `/projects/{id}/resources/...`; legacy `/docs` and `/shared` paths stay as compatible aliases. Ambiguous legacy titles fail with `409` (use the project path); trashed docs and retired folder routes fail with `410`. Note: `view` returns native image blocks (longest side ≤1280px) + `count`/`cache_hit`/`last_seen` — update server and skill together, the old base64 `pages[]` field is gone.
+Agent loop `ls -> read -> edit -> view -> fix`; see `skills/typst-editor/SKILL.md` for the path model and edit rules. Project paths are `/projects/{id}/docs/{Title}/...` (or `/projects/{id}/docs/{Folder}/{Title}/...` when a title exists in several folders) and `/projects/{id}/resources/...`; legacy `/docs` and `/shared` paths stay as compatible aliases. Ambiguous legacy titles fail with `409` (use the project path); trashed docs and retired folder routes fail with `410`. Note: `view` returns native image blocks (longest side ≤1280px) + `count`/`cache_hit`/`last_seen` — update server and skill together, the old base64 `pages[]` field is gone.
 
 ## 💾 Backup
 
@@ -195,7 +195,7 @@ No CDN for code delivery (local `vendor/` bundle; no service worker since 2026-1
 - Compose uses a 15 s stop grace period so `sync.flush_all()` can finish; do not shorten it for large rooms.
 - Host path perms only: `chown -R 999:999` on it.
 - `429` on reads: shared `files_list` bucket (120/min), slow down. `429 Export already running`: per-user export lock, wait and retry once.
-- `410`: trashed doc (restore first) or retired folder route (use projects). `409`: name/version conflict — re-read, rename, or use the project path for ambiguous MCP titles.
+- `410`: trashed doc (restore first) or retired folder route (use projects). `409`: name/version conflict — re-read, rename, or use the project or folder-qualified path for ambiguous MCP titles.
 
 ### 🧪 Develop
 

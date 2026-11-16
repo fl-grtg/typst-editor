@@ -16,7 +16,7 @@ def setup_projects(c):
     return ids, pids
 
 
-def test_document_names_are_project_local_and_restore_never_overwrites(c):
+def test_document_names_are_folder_local_and_restore_never_overwrites(c):
     ids, pids = setup_projects(c)
     docs = []
     for pid in pids:
@@ -24,12 +24,51 @@ def test_document_names_are_project_local_and_restore_never_overwrites(c):
         assert r.status_code == 200, r.text
         docs.append(r.json()['id'])
     assert c.post(f'/api/projects/{pids[0]}/docs', json={'title': 'MAIN.typ'}).status_code == 409
+    sibling = c.post(f'/api/projects/{pids[0]}/docs', json={'title': 'main.typ', 'folder': 'chapters'})
+    assert sibling.status_code == 200, sibling.text  # same title, different folder
+    assert c.post(f'/api/projects/{pids[0]}/docs', json={'title': 'MAIN.typ', 'folder': 'chapters'}).status_code == 409
+    assert c.post(f'/api/docs/{sibling.json()["id"]}/rename', json={'title': 'A'}).status_code == 200  # rename within a folder
     assert c.delete(f'/api/docs/{docs[0]}').status_code == 200
     replacement = c.post(f'/api/projects/{pids[0]}/docs', json={'title': 'main.typ', 'content': 'keep'})
     assert replacement.status_code == 200, replacement.text
     assert c.post(f'/api/docs/{docs[0]}/restore').status_code == 409
     assert c.get(f'/api/docs/{replacement.json()["id"]}').json()['content'] == 'keep'
     assert c.post(f'/api/docs/{docs[1]}/rename', json={'title': 'A'}).status_code == 200
+
+
+def test_same_project_document_copy_keeps_its_title_in_another_folder(c):
+    ids, (pid, _target) = setup_projects(c)
+    did = c.post(f'/api/projects/{pid}/docs', json={'title': 'Chapter', 'folder': 'old', 'content': 'x'}).json()['id']
+    assert c.post(f'/api/docs/{did}/files', files={'f': ('bilder/pfeil.svg', b'<svg/>', 'image/svg+xml')}).status_code == 200
+    url = f'/api/projects/{pid}/transfer'
+    body = {'kind': 'document', 'doc_id': did, 'target_project_id': pid, 'target_name': 'Chapter', 'target_folder': 'new'}
+    copied = c.post(url, json=body)
+    assert copied.status_code == 200, copied.text
+    doc = c.get(f'/api/docs/{copied.json()["doc_id"]}').json()
+    assert (doc['title'], doc['folder']) == ('Chapter', 'new')
+    assert c.get(f'/api/docs/{copied.json()["doc_id"]}/files').json()['files'] == []  # the project file stays shared
+    assert [f['name'] for f in c.get(f'/api/projects/{pid}').json()['files']] == ['bilder/pfeil.svg']
+    assert c.post(url, json={**body, 'target_folder': 'old'}).status_code == 409  # same folder needs a new title
+    duplicate = c.post(url, json={**body, 'target_folder': 'old', 'duplicate': True})
+    assert duplicate.status_code == 200, duplicate.text
+    assert c.get(f'/api/docs/{duplicate.json()["doc_id"]}').json()['title'] == 'Chapter (copy)'
+    assert [f['name'] for f in c.get(f'/api/projects/{pid}').json()['files']] == ['bilder/pfeil.svg']  # no file copies
+
+
+def test_document_copy_rejects_a_case_only_attachment_conflict(c):
+    ids, (source, target) = setup_projects(c)
+    did = c.post(f'/api/projects/{source}/docs', json={'title': 'Doc', 'content': '#image("img.png")'}).json()['id']
+    c.post(f'/api/docs/{did}/files', files={'f': ('img.png', b'\x89PNG', 'image/png')})
+    # The target project already shows a differently-cased attachment. On a
+    # case-sensitive disk the copied reference would point at no file, so the
+    # copy must fail up front instead of silently dropping the attachment.
+    c.post(f'/api/docs/{ids[1]}/files', files={'f': ('Img.PNG', b'other', 'image/png')})
+    result = c.post(f'/api/projects/{source}/transfer', json={
+        'kind': 'document', 'doc_id': did, 'target_project_id': target, 'target_name': 'Doc'})
+    assert result.status_code == 409
+    assert 'case' in result.text.lower()
+    assert did in [d['id'] for d in c.get(f'/api/projects/{source}').json()['documents']]
+    assert 'Doc' not in [d['title'] for d in c.get(f'/api/projects/{target}').json()['documents']]
 
 
 def test_document_transfer_preserves_resources_files_and_detects_conflicts(c):
@@ -52,6 +91,23 @@ def test_document_transfer_preserves_resources_files_and_detects_conflicts(c):
     assert c.get(f'/api/docs/{did}').json()['project_id'] == target
     assert c.get(f'/api/docs/{did}').json()['folder'] == 'chapters/sub'
     assert did not in [d['id'] for d in c.get(f'/api/projects/{source}').json()['documents']]
+
+
+def test_document_transfer_can_choose_a_target_folder(c):
+    ids, (source, target) = setup_projects(c)
+    did = c.post(f'/api/projects/{source}/docs', json={'title': 'Chapter', 'folder': 'old', 'content': 'x'}).json()['id']
+    url = f'/api/projects/{source}/transfer'
+    body = {'kind': 'document', 'doc_id': did, 'target_project_id': target, 'target_name': 'Chapter', 'target_folder': 'inbox'}
+    copied = c.post(url, json=body)
+    assert copied.status_code == 200, copied.text
+    assert c.get(f'/api/docs/{copied.json()["doc_id"]}').json()['folder'] == 'inbox'
+    duplicate = c.post(url, json={'kind': 'document', 'doc_id': did, 'target_project_id': source, 'duplicate': True, 'target_folder': 'copies'})
+    assert duplicate.status_code == 200, duplicate.text
+    assert c.get(f'/api/docs/{duplicate.json()["doc_id"]}').json()['folder'] == 'copies'
+    assert c.post(url, json={**body, 'target_name': 'Deep', 'target_folder': '/'.join('abcdefghijk')}).status_code == 400
+    moved = c.post(url, json={**body, 'target_name': 'Moved chapter', 'move': True, 'target_folder': 'archive'})
+    assert moved.status_code == 200, moved.text
+    assert c.get(f'/api/docs/{did}').json()['folder'] == 'archive'
 
 
 def test_resource_and_binary_transfer_acl_and_snapshot_independence(c):

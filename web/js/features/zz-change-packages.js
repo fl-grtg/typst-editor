@@ -620,11 +620,26 @@ async function sessionOpenFile(file) {
   if (file.doc_id && file.doc_id !== docId) { await openDoc(file.doc_id); if (docId !== file.doc_id) return }
   await switchTab(file.kind === 'document' ? '' : file.kind === 'resource' ? TPLK + file.path : file.path)
 }
+function sessionFileName(raw) { // backend-safe path: sanitize each segment, keep folders and the extension
+  const parts = String(raw || '').replace(/\\/g, '/').split('/').filter(seg => seg && seg !== '.')
+  if (!parts.length || parts.some(seg => seg === '..')) throw Error(t('files.nameBad'))
+  const clean = parts.map((seg, i) => {
+    let s = seg.replace(/[^A-Za-z0-9._ ()-]/g, '_').replace(/^[.]+/, '')
+    if (!s) throw Error(t('files.nameBad'))
+    if (s.length <= 100) return s
+    const dot = i === parts.length - 1 ? s.lastIndexOf('.') : -1
+    const ext = dot > 0 ? s.slice(dot) : ''
+    return ext && ext.length < 100 ? s.slice(0, 100 - ext.length) + ext : s.slice(0, 100)
+  }).join('/')
+  if (clean.length <= 240) return clean
+  const dot = clean.lastIndexOf('.'), ext = dot > clean.lastIndexOf('/') ? clean.slice(dot) : ''
+  return ext && ext.length < 240 ? clean.slice(0, 240 - ext.length) + ext : clean.slice(0, 240)
+}
 async function sessionAddFile(file, resource = false) {
   const s = window.changeSession
   if (!s || s.original || s.busy) return ''
   if (file.size > (TEXT_EXT.test(file.name) ? 200 * 1024 : 10 * 1024 * 1024)) throw Error(t('docs.maxKb'))
-  const name = file.name.replace(/^[.]+/, '').replace(/[^A-Za-z0-9._ ()-]/g, '_').slice(0, resource ? 100 : 240)
+  const name = sessionFileName(file.name)
   const identity = { kind: resource ? 'resource' : 'file', doc_id: resource ? '' : docId, path: name }
   if (s.files.has(sessionKey(identity)) || (resource ? effTpl().some(f => f.name === name) : lastFiles.some(f => f.name === name))) throw Error(t('common.nameExists'))
   const binary = !TEXT_EXT.test(name), content = binary ? bytesToBase64(new Uint8Array(await file.arrayBuffer())) : await file.text()
@@ -841,7 +856,7 @@ renameProjectEntry = async (project, name, document, resource, host) => {
   if (s.original || s.busy) return
   host = sidebarLiveHost(host, [resource ? 'resource' : 'file', resource ? '' : document, name].join(':'))
   const label = host?.querySelector('.t')
-  const target = label ? await sidebarInlineRename(host, label, name, { label: t('docs.renameDoc'), maxLen: 240 }) : await ask(t('projects.copyName'), { value: name, maxLen: 240 })
+  const target = label ? await sidebarInlineRename(host, label, name, { label: t('docs.renameDoc'), maxLen: 240, stem: true }) : await ask(t('projects.copyName'), { value: name, maxLen: 240, stem: true })
   if (!target?.trim() || target.trim() === name) return
   const f = await sessionEnsure({ kind: resource ? 'resource' : 'file', doc_id: resource ? '' : document, path: name })
   if (!f || window.changeSession !== s) return
@@ -865,7 +880,7 @@ renameProjectDocument = async (document, host) => {
   if (s.original || s.busy) return
   host = sidebarLiveHost(host, ['document', document.id, 'main.typ'].join(':'))
   const label = host?.querySelector('.t')
-  const title = label ? await sidebarInlineRename(host, label, document.title, { label: t('docs.renameDoc'), maxLen: 100 }) : await ask(t('docs.renameDoc'), { value: document.title, maxLen: 100 })
+  const title = label ? await sidebarInlineRename(host, label, document.title, { label: t('docs.renameDoc'), maxLen: 100, stem: true }) : await ask(t('docs.renameDoc'), { value: document.title, maxLen: 100, stem: true })
   if (!title?.trim() || title.trim() === document.title || window.changeSession !== s) return
   const file = await sessionEnsure({ kind: 'document', doc_id: document.id, path: 'main.typ' })
   if (window.changeSession !== s) return
@@ -878,9 +893,9 @@ tabName = name => {
   const file = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === name)
   return file ? file.target.replace(/\.typ$/i, '') + '.typ' : sessionOriginalTabName(name)
 }
-newProjectResource = async (project, folder = '') => {
-  if (!window.changeSession || window.changeSession.project !== project) return sessionOriginalNewResource(project, folder)
-  const ext = await chooseFileType(); if (!ext) return
+newProjectResource = async (project, folder = '', chosenExt = '') => {
+  if (!window.changeSession || window.changeSession.project !== project) return sessionOriginalNewResource(project, folder, chosenExt)
+  const ext = chosenExt || await chooseFileType(); if (!ext) return
   const name = await ask(t('files.newFileHead'), { value: 'file' + ext, maxLen: 240 }); if (!name?.trim()) return
   const typed = name.trim().endsWith(ext) ? name.trim() : name.trim() + ext, path = folder ? folder + '/' + typed : typed
   const file = new File([fileStart(ext.slice(1))], path, { type: 'text/plain' })
@@ -917,10 +932,13 @@ api = async (method, url, body, tries) => {
   return sessionSourceApi(method, url, body, tries)
 }
 const sessionUploadProject = uploadProjectFiles
-uploadProjectFiles = async (project, files) => {
-  if (!window.changeSession) return sessionUploadProject(project, files)
+uploadProjectFiles = async (project, files, folder = '') => {
+  if (!window.changeSession) return sessionUploadProject(project, files, folder)
   if (window.changeSession.project !== project.id) throw Error(t('packages.sourceBlocked'))
-  for (const file of files) await sessionAddFile(file, TEXT_EXT.test(file.name))
+  for (const file of files) {
+    const at = folder ? new File([file], folder + '/' + file.name, { type: file.type }) : file
+    await sessionAddFile(at, TEXT_EXT.test(file.name))
+  }
 }
 const sessionImportUpload = importUpload
 importUpload = async file => {
@@ -928,23 +946,29 @@ importUpload = async file => {
   try { await sessionAddFile(file, TEXT_EXT.test(file.name)) } catch (e) { toast(e.message) }
 }
 const sessionPullLibrary = pullLibrary
-pullLibrary = async (source, target) => {
+pullLibrary = async (source, target, targetFolder = '') => {
   const s = window.changeSession
-  if (!s) return sessionPullLibrary(source, target)
+  if (!s) return sessionPullLibrary(source, target, targetFolder)
   if (target.scope !== 'project' || target.project_id !== s.project) throw Error(t('packages.sourceBlocked'))
   const available = source.source_scope === 'personal' ? (await api('GET', '/api/templates')).templates
     : (await api('GET', '/api/projects/' + source.source_project_id + '/resources')).resources
   const root = available.find(f => f.name === source.source)
   if (!root) throw Error(t('files.tplGone'))
+  // Personal modules keep their collection folder; a drop or the folder's +
+  // menu wins over it. Project resources keep their path unless a target
+  // folder asks for the whole tree below it.
+  const folder = targetFolder || (source.source_scope === 'personal' ? root.folder || '' : '')
+  const dest = item => folder ? folder + '/' + (source.source_scope === 'personal' ? item.name.split('/').pop() : item.name) : item.name
   const pending = [root], seen = new Set()
   let added = ''
   while (pending.length && window.changeSession === s) {
     const item = pending.shift()
-    if (seen.has(item.name)) continue
-    seen.add(item.name)
-    if (!s.files.has(sessionKey({ kind: 'resource', path: item.name })) && !effTpl().some(f => f.name === item.name)) {
-      const name = await sessionAddFile(new File([item.content], item.name), true)
-      if (item === root) added = name
+    const name = dest(item)
+    if (seen.has(name)) continue
+    seen.add(name)
+    if (!s.files.has(sessionKey({ kind: 'resource', path: name })) && !effTpl().some(f => f.name === name)) {
+      const stored = await sessionAddFile(new File([item.content], name), true)
+      if (item === root) added = stored
     }
     for (const match of item.content.matchAll(/"([^"\n]+)"/g)) {
       const dependency = available.find(f => f.name === match[1])

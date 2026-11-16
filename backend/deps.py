@@ -123,6 +123,12 @@ def limited(req: Request, scope: str, key: str = "") -> None:
         raise HTTPException(429, "Too many requests - try again shortly")
 
 
+def req_lang(req: Request) -> str:
+    """UI language for generated copy names (the API stays English by default)."""
+    raw = (req.headers.get("accept-language") or "").strip().lower()
+    return "de" if raw.startswith("de") else "en"
+
+
 def busy_503(what: str, e: Exception) -> HTTPException:
     log.warning("%s busy: %s", what, e)
     return HTTPException(503, "Database busy, try again")

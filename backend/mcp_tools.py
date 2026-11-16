@@ -243,6 +243,76 @@ def _doc_by_title(owner: str, title: str) -> sqlite3.Row | None:
         con.close()
 
 
+def _project_doc(project_id: str, tail: list[str]) -> tuple[sqlite3.Row, list[str]]:
+    """Resolve one project document path.
+
+    Legacy paths name the document first (``docs/<title>[/<file>]``). Since
+    folders may hold equal titles, a folder-qualified path
+    (``docs/<folder>/<title>[/<file>]``) resolves the ambiguous cases.
+    """
+    con = db.connect()
+    try:
+        def rows(title: str, folder: str | None = None) -> list[sqlite3.Row]:
+            if folder is None:
+                return con.execute("SELECT id,owner,title,folder,trashed FROM docs WHERE project_id=? AND title=? COLLATE NOCASE ORDER BY trashed",
+                                   (project_id, title)).fetchall()
+            return con.execute("SELECT id,owner,title,folder,trashed FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE ORDER BY trashed",
+                               (project_id, folder, title)).fetchall()
+
+        def has_file(doc_id: str, rest: list[str]) -> bool:
+            path = "/".join(rest).strip("/")
+            return bool(path) and con.execute("SELECT 1 FROM files WHERE doc_id=? AND path=? COLLATE NOCASE",
+                                               (doc_id, path)).fetchone() is not None
+
+        candidates: dict[tuple[str, tuple[str, ...]], tuple[sqlite3.Row, list[str]]] = {}
+        for i in range(1, len(tail)):
+            try:
+                title = _title(tail[i])
+            except HTTPException:
+                continue
+            found = rows(title, "/".join(tail[:i]))
+            active = [r for r in found if not r["trashed"]]
+            pick = active or found
+            if len(pick) == 1:
+                candidates[(pick[0]["id"], tuple(tail[i + 1:]))] = (pick[0], tail[i + 1:])
+
+        try:
+            legacy = rows(_title(tail[0]))
+        except HTTPException:
+            # A folder-qualified path may start with a segment that is not a
+            # valid document title (long or unusual folder name). Only a
+            # bare document path should surface that validation error.
+            if len(tail) == 1:
+                raise
+            legacy = []
+        live = [r for r in legacy if not r["trashed"]]
+        if len(live) == 1:
+            rest = tail[1:]
+            # A doc-first legacy path wins only while the file it names really
+            # exists; otherwise the folder-qualified document is the intended
+            # target (e.g. doc "A" in folder "A").
+            if not rest or has_file(live[0]["id"], rest):
+                return live[0], rest
+            if len(candidates) == 1:
+                return next(iter(candidates.values()))
+            if len(candidates) > 1:
+                raise _bad("Ambiguous document path; add the folder path", 409)
+            return live[0], rest
+        if len(candidates) == 1:
+            return next(iter(candidates.values()))
+        if len(candidates) > 1:
+            raise _bad("Ambiguous document path; add the folder path", 409)
+        if len(legacy) == 1 and len(tail) == 1:  # trashed namesake: caller answers 410
+            return legacy[0], []
+        if not legacy or len(tail) > 1:
+            # A folder-qualified path with no matching document is missing;
+            # a trashed namesake at the first segment must not answer 410.
+            raise _bad("Document not found", 404)
+        raise _bad("Ambiguous document name in this project; use /projects/<project-id>/docs/<folder>/<title>", 409)
+    finally:
+        con.close()
+
+
 def resolve_path(user: str, cap: str, path: str) -> dict:
     """Map an MCP path to a doc/file/template + effective role."""
     from backend.services import apikeys
@@ -277,18 +347,12 @@ def resolve_path(user: str, cap: str, path: str) -> dict:
             if segs[2] == "docs":
                 if len(segs) == 3:
                     return {**res, "kind": "project_docs"}
-                # ORDER BY trashed picks the active doc over trashed namesakes
-                # (the partial unique index only covers trashed=0); a
-                # trashed-only match answers 410 like the legacy paths.
-                row = con.execute("SELECT id,owner,title,trashed FROM docs WHERE project_id=? AND title=? COLLATE NOCASE ORDER BY trashed LIMIT 1",
-                                  (segs[1], _title(segs[3]))).fetchone()
-                if not row:
-                    raise _bad("Document not found", 404)
-                if row["trashed"]:
+                project_row, rest = _project_doc(segs[1], segs[3:])
+                if project_row["trashed"]:
                     raise _bad("In trash - restore first", 410)
-                res.update(kind="doc", doc_id=row["id"], title=row["title"], owner=row["owner"])
-                if len(segs) > 4:
-                    res.update(kind="file", filename=safe_name("/".join(segs[4:])))
+                res.update(kind="doc", doc_id=project_row["id"], title=project_row["title"], owner=project_row["owner"], folder=project_row["folder"] or "")
+                if rest:
+                    res.update(kind="file", filename=safe_name("/".join(rest)))
                 return res
         finally:
             con.close()
@@ -371,7 +435,7 @@ def op_ls(user: str, cap: str, path: str = "/") -> dict:
             rows = con.execute("SELECT p.* FROM projects p LEFT JOIN project_members m ON m.project_id=p.id AND m.username=? WHERE p.archived=0 AND (p.owner=? OR m.username IS NOT NULL) ORDER BY p.title", (user, user)).fetchall()
             return {"projects": [dict(r) for r in rows]}
         if kind in ("project", "project_docs"):
-            docs = con.execute("SELECT id,title,updated_at FROM docs WHERE project_id=? AND trashed=0 ORDER BY title", (res["project_id"],)).fetchall()
+            docs = con.execute("SELECT id,title,folder,updated_at FROM docs WHERE project_id=? AND trashed=0 ORDER BY folder,title", (res["project_id"],)).fetchall()
             return {"docs": [dict(r) for r in docs], "resources": "/projects/" + res["project_id"] + "/resources"}
         if kind == "project_resources":
             rows = con.execute("SELECT name,updated_at FROM project_resources WHERE project_id=? ORDER BY name", (res["project_id"],)).fetchall()

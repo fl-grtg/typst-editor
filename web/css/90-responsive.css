@@ -41,7 +41,7 @@
   #find button { min-height: 40px; }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
   #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
-  #menu button { min-height: 40px; }
+  #menu button, #submenu button { min-height: 40px; }
   #exportBtn span, #shareBtn span, #histBtn span { display: none; }
   #exportBtn, #shareBtn, #histBtn { padding: 0; }
   #tabs .tn { max-width: 118px; } /* small screens: labels ellipsize instead of pushing tabs off */

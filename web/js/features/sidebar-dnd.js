@@ -27,6 +27,7 @@ function markDropTarget(node) { // exactly one target at a time, no flicker betw
 }
 function entryFolder(entry) { // folder an entry already lives in: dropping there changes nothing
   if (!entry) return ''
+  if (entry.kind === 'folder') return entry.name.split('/').slice(0, -1).join('/')
   return entry.kind === 'document' ? entry.folder || '' : entry.name.split('/').slice(0, -1).join('/')
 }
 document.addEventListener('dragover', e => { // moving off every zone leaves no stale highlight
@@ -124,7 +125,7 @@ async function restoreSidebarDocument(data, target = null, modules = false) {
     if (restored && restored.project_id !== target.id) {
       const source = projects.find(p => p.id === restored.project_id)
       if (!source) return
-      await transferProjectEntry(source, { kind: 'document', doc_id: document, name: restored.title }, true, target, true)
+      await transferProjectEntry(source, { kind: 'document', doc_id: document, name: restored.title, folder: restored.folder || '' }, true, target, true)
     }
   }
   if (docId === document && openedTrashed) await openDoc(document)

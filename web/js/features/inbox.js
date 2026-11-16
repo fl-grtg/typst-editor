@@ -100,22 +100,44 @@ async function loadWatch() {
   watchLevels = next
   if (!document.querySelector('aside input.renameInput')) { paintOwn(); paintShared(lastShared) }
 }
-function closeWatchBox() { document.getElementById('watchBox')?.remove() }
+function closeWatchBox(restoreFocus = false) {
+  const box = document.getElementById('watchBox')
+  if (!box) return
+  box._watchCleanup?.() // document listeners must not outlive the menu
+  box.remove()
+  const btn = box._watchBtn
+  if (btn && btn.isConnected) {
+    // Focus first: row actions are visibility:hidden unless hovered or focused,
+    // so after clearing menu-open only the new focus keeps the button visible.
+    if (restoreFocus) { try { btn.focus({ preventScroll: true }) } catch (e) {} }
+    btn.setAttribute('aria-expanded', 'false')
+    if (!restoreFocus) btn.blur()
+    btn.closest('aside .doc, aside .fhd, aside h3')?.classList.remove('menu-open')
+  }
+}
 function openWatchBox(p, btn) {
-  const was = document.getElementById('watchBox'); closeWatchBox()
-  if (was && was.dataset.project === p.id) return // second click closes
+  const was = document.getElementById('watchBox'); const same = was && was.dataset.project === p.id
+  if (same) { closeWatchBox(true); return } // second click closes, keyboard focus stays on the bell
+  closeWatchBox()
+  if (window.closeFloatPanels) window.closeFloatPanels('watch')
   const box = el('div'); box.id = 'watchBox'; box.dataset.project = p.id; box.setAttribute('role', 'menu')
+  box._watchBtn = btn
   box.setAttribute('aria-label', t('inbox.watchMenu'))
-  const cur = watchLevels[p.id] || WATCH_DEFAULT
+  const curLevel = () => watchLevels[p.id] || WATCH_DEFAULT // live: the box stays open across changes
   ;['mentions', 'proposals', 'all'].forEach(l => {
-    const row = el('button', 'wItem'); row.type = 'button'; row.setAttribute('role', 'menuitemradio'); row.setAttribute('aria-checked', String(l === cur))
+    const row = el('button', 'wItem'); row.type = 'button'; row.setAttribute('role', 'menuitemradio'); row.dataset.level = l; row.setAttribute('aria-checked', String(l === curLevel()))
     row.title = watchSub(l) // explanation on hover only
-    row.append(el('i', 'ck', l === cur ? '✓' : ''), el('span', 'ln', watchLabel(l)))
+    row.append(el('i', 'ck', l === curLevel() ? '✓' : ''), el('span', 'ln', watchLabel(l)))
     row.onclick = async e => {
-      e.stopPropagation(); closeWatchBox()
-      if (l === cur) return
-      try { await api('PUT', `/api/projects/${p.id}/watch`, { level: l }); if (l === WATCH_DEFAULT) delete watchLevels[p.id]; else watchLevels[p.id] = l; paintOwn(); paintShared(lastShared) }
-      catch (err) { toast(err.message) }
+      e.stopPropagation()
+      if (l === curLevel()) return
+      try {
+        await api('PUT', `/api/projects/${p.id}/watch`, { level: l })
+        if (l === WATCH_DEFAULT) delete watchLevels[p.id]; else watchLevels[p.id] = l
+        box.querySelectorAll('.wItem').forEach(item => { const on = item.dataset.level === l; item.setAttribute('aria-checked', String(on)); item.querySelector('.ck').textContent = on ? '✓' : '' })
+        const live = btn && btn.isConnected ? btn : [...document.querySelectorAll('[data-project-id]')].find(g => g.dataset.projectId === p.id)?.querySelector('button[data-watch-btn]')
+        if (live) { live.innerHTML = watchIcon(l); live.title = t('inbox.watchBtn', { level: watchLabel(l) }); live.setAttribute('aria-label', live.title); live.setAttribute('aria-expanded', 'true') }
+      } catch (err) { toast(err.message) }
     }
     box.appendChild(row)
   })
@@ -123,8 +145,20 @@ function openWatchBox(p, btn) {
   const r = btn.getBoundingClientRect(), w = box.offsetWidth
   box.style.top = Math.min(r.bottom + 4, innerHeight - box.offsetHeight - 8) + 'px'
   box.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px'
-  const off = e => { if (!box.contains(e.target)) { closeWatchBox(); document.removeEventListener('pointerdown', off, true); document.removeEventListener('keydown', esc, true) } }
-  const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); closeWatchBox(); document.removeEventListener('pointerdown', off, true); document.removeEventListener('keydown', esc, true); btn.focus() } }
-  setTimeout(() => { document.addEventListener('pointerdown', off, true); document.addEventListener('keydown', esc, true) })
+  btn.setAttribute('aria-expanded', 'true')
+  btn.closest('aside .doc, aside .fhd, aside h3')?.classList.add('menu-open')
+  const off = e => {
+    const bell = e.target.closest && e.target.closest('[data-watch-btn]')
+    if (bell && bell.dataset && 'watchBtn' in bell.dataset) return // the bell's click toggles; pointerdown must not pre-close
+    if (!box.contains(e.target)) closeWatchBox()
+  }
+  const esc = e => { if (e.key === 'Escape') { e.stopPropagation(); closeWatchBox(true) } }
+  box._watchCleanup = () => {
+    document.removeEventListener('pointerdown', off, true)
+    document.removeEventListener('keydown', esc, true)
+    box._watchCleanup = null
+  }
+  document.addEventListener('pointerdown', off, true)
+  document.addEventListener('keydown', esc, true)
   box.querySelector('.wItem').focus()
 }

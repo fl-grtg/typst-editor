@@ -552,9 +552,14 @@ def accept(
                         raise HTTPException(409, "Rename target exists")
                     if file["kind"] == "document":
                         if file["action"] in ("add", "rename"):
-                            if con.execute("SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?",
-                                           (project, name, file["doc_id"])).fetchone():
-                                raise HTTPException(409, "Document title already exists")
+                            current = None if file["action"] == "add" else con.execute(
+                                "SELECT folder, title FROM docs WHERE id=?", (file["doc_id"],)).fetchone()
+                            if file["action"] == "rename" and not current:
+                                raise HTTPException(409, "Document gone; refresh the package")
+                            folder = (current["folder"] or "") if current else ""
+                            if con.execute("SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?",
+                                           (project, folder, name, file["doc_id"])).fetchone():
+                                raise HTTPException(409, "Document title already exists in this folder")
                             if file["action"] == "add":
                                 if con.execute("SELECT COUNT(*) FROM docs WHERE owner=?", (owner,)).fetchone()[0] >= config.load().MAX_DOCS_PER_USER:
                                     raise HTTPException(400, "Too many docs")
@@ -562,7 +567,7 @@ def accept(
                                 con.execute("INSERT INTO docs(id,owner,title,content,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
                                             (file["doc_id"], owner, file["target"], content, project, now, now))
                                 continue
-                            if con.execute("SELECT title FROM docs WHERE id=?", (file["doc_id"],)).fetchone()[0] != file["original_title"]:
+                            if not current or current["title"] != file["original_title"]:
                                 raise HTTPException(409, "Original document title changed")
                             con.execute("UPDATE docs SET title=? WHERE id=?", (name, file["doc_id"]))
                         if file["action"] == "delete":

@@ -1,21 +1,24 @@
 /* ==========================================================================
-   Menus (dropdowns)
+   Menus (dropdowns + submenus)
    ========================================================================== */
-#menu {
-  position: fixed; z-index: var(--z-menu); min-width: 232px; max-width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 24px); overflow: auto; padding: 5px;
+#menu, #submenu {
+  position: fixed; z-index: var(--z-menu); width: max-content; max-width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 24px); overflow: auto; padding: 4px;
   background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop);
 }
-#menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 30px; padding: 4px 10px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); }
-#menu button:hover:not(:disabled), #menu button:focus-visible { background: var(--hover); color: var(--text); outline: none; }
-#menu button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
-#menu button:disabled { opacity: .4; }
-#menu button.danger { color: var(--danger); }
-#menu button.danger:hover:not(:disabled), #menu button.danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
-#menu .chk { width: 14px; flex: none; font-size: 12px; text-align: center; }
-#menu .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#menu .kbd { flex: none; font: 11.5px var(--ui); opacity: .55; letter-spacing: .02em; }
-#menu .ext { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--faint); }
-#menu .ext svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-#menu button:hover:not(:disabled) .ext, #menu button:focus-visible .ext { color: var(--sub); }
-#menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
-#menu .mh { padding: 8px 10px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+#menu button, #submenu button { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 27px; padding: 3px 6px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); }
+#menu button:hover:not(:disabled), #menu button:focus-visible, #menu button.sub-open, #submenu button:hover:not(:disabled), #submenu button:focus-visible, #submenu button.sub-open { background: var(--hover); color: var(--text); outline: none; }
+#menu button:focus-visible, #submenu button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+#menu button:disabled, #submenu button:disabled { opacity: .4; }
+#menu button.danger, #submenu button.danger { color: var(--danger); }
+#menu button.danger:hover:not(:disabled), #menu button.danger:focus-visible, #submenu button.danger:hover:not(:disabled), #submenu button.danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
+#menu .chk, #submenu .chk { width: 14px; flex: none; font-size: 12px; text-align: center; }
+#menu .lb, #submenu .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .kbd, #submenu .kbd { flex: none; font: 11.5px var(--ui); opacity: .55; letter-spacing: .02em; }
+#menu .ext, #submenu .ext { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--faint); }
+#menu .ext svg, #submenu .ext svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#menu .arrow, #submenu .arrow { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 12px; height: 12px; margin-left: 2px; color: var(--faint); }
+#menu .arrow svg, #submenu .arrow svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#menu button:hover:not(:disabled) .ext, #menu button:focus-visible .ext, #menu button.sub-open .ext, #submenu button:hover:not(:disabled) .ext, #submenu button:focus-visible .ext, #submenu button.sub-open .ext,
+#menu button:hover:not(:disabled) .arrow, #menu button:focus-visible .arrow, #menu button.sub-open .arrow, #submenu button:hover:not(:disabled) .arrow, #submenu button:focus-visible .arrow, #submenu button.sub-open .arrow { color: var(--sub); }
+#menu hr, #submenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 3px; }
+#menu .mh, #submenu .mh { padding: 6px 8px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }

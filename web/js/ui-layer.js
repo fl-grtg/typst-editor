@@ -3,10 +3,11 @@
   'use strict'
   function t(k, p) { return window.t ? window.t(k, p) : String(k).split('.').pop() } // module (05-i18n.js) owns t(); this classic script only delegates (labels render on click, after the module ran)
   var $ = function (id) { return document.getElementById(id) }
-  var menu = $('menu'), body = document.body
+  var menu = $('menu'), submenu = $('submenu'), body = document.body
   var mac = /Mac|iPhone|iPad/.test(navigator.platform || '')
   var M = mac ? '\u2318' : 'Ctrl+'
   var openFor = null, items = [], idx = -1
+  var subFor = null, subItems = [], subIdx = -1, subTimer = null
 
   function click(id) { var b = $(id); if (b) b.click() }
   function shown(id) { var b = $(id); return !!b && b.style.display !== 'none' && !b.disabled && !b.hidden && !b.classList.contains('type-hidden') }
@@ -17,6 +18,7 @@
   function fmtOn(kind) { var b = document.querySelector('[data-fmt="' + kind + '"]'); return !!b && !b.disabled }
   function it(label, run, o) { o = o || {}; return { label: label, run: run, kbd: o.kbd, on: o.on !== false, checked: o.checked, ext: o.ext } }
   var EXT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>'
+  var ARROW_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>'
   var SEP = { sep: true }
   function head(t) { return { head: t } }
 
@@ -124,50 +126,158 @@
     var now = doc ? Array.prototype.slice.call(document.querySelectorAll('[data-doc-id]')).filter(function (r) { return r.dataset.docId === doc })[0]
       : key ? Array.prototype.slice.call(document.querySelectorAll('[data-package-key]')).filter(function (r) { return r.dataset.packageKey === key })[0] : null
     if (now) return now.querySelector('[data-side-menu]') || f
+    var resRow = f.closest && f.closest('[data-resource-name]'), res = resRow && resRow.dataset.resourceName
+    var nowRes = res && Array.prototype.slice.call(document.querySelectorAll('[data-resource-name]')).filter(function (r) { return r.dataset.resourceName === res })[0]
+    if (nowRes) return nowRes.querySelector('[data-side-menu]') || f
+    var folderRow = f.closest && f.closest('[data-folder-path]'), folder = folderRow && folderRow.dataset.folderPath
+    var nowFolder = folder && Array.prototype.slice.call(document.querySelectorAll('[data-folder-path]')).filter(function (r) { return r.dataset.folderPath === folder })[0]
+    if (nowFolder) return nowFolder.querySelector('[data-side-menu]') || f
     var group = f.closest && f.closest('[data-project-id]'), id = group && group.dataset.projectId
     var again = id && Array.prototype.slice.call(document.querySelectorAll('[data-project-id]')).filter(function (g) { return g.dataset.projectId === id })[0]
-    return again ? again.querySelector('.fhd.project [data-side-menu]') || f : f
+    if (again) return again.querySelector('.fhd.project [data-side-menu]') || f
+    var head = f.closest && f.closest('aside h3'), hid = head && head.id
+    var nowHead = hid && document.getElementById(hid)
+    return nowHead ? nowHead.querySelector('[data-side-menu]') || f : f
+  }
+  window.reanchorSidebarMenu = function () { // a repaint replaces the row under an open menu: move the state to the new button
+    if (!openFor || openFor.isConnected) return
+    var next = liveAnchor(openFor)
+    if (!next || !next.isConnected) return // no stable row to move to: leave the open menu alone
+    next.setAttribute('aria-expanded', 'true')
+    var row = next.closest && next.closest('aside .doc, aside .fhd, aside h3')
+    if (row) row.classList.add('menu-open')
+    openFor = next
+  }
+  function cancelSubClose() {
+    if (subTimer) { clearTimeout(subTimer); subTimer = null }
+  }
+  function scheduleSubClose() { // forgiving hover: crossing the gap to the submenu must not close it
+    cancelSubClose()
+    subTimer = setTimeout(function () { subTimer = null; closeSub(false) }, 400)
+  }
+  function closeSub(refocus) {
+    cancelSubClose()
+    if (!subFor) return
+    var b = subFor
+    subFor = null; subItems = []; subIdx = -1
+    b.classList.remove('sub-open')
+    b.setAttribute('aria-expanded', 'false')
+    submenu.hidden = true; submenu.replaceChildren()
+    if (refocus && b && b.isConnected) b.focus()
   }
   function close(refocus) {
     if (!openFor) return
+    closeSub(false)
     openFor.setAttribute('aria-expanded', 'false')
     var f = openFor
+    // Focus first: the row actions become visibility:hidden once menu-open is
+    // gone, and a hidden button cannot take focus.
+    if (refocus && f) liveAnchor(f).focus()
+    document.querySelectorAll('aside .menu-open').forEach(function (row) { row.classList.remove('menu-open') })
     openFor = null; items = []; idx = -1
     menu.hidden = true; menu.replaceChildren()
-    if (refocus && f) liveAnchor(f).focus()
   }
   window.closeMenu = close // header pops live in module scope, close the menu through this
-  function focusItem(i) {
-    var btns = menu.querySelectorAll('button:not(:disabled)')
+  function focusPanel(panel, i) {
+    var btns = panel.querySelectorAll('button:not(:disabled)')
     if (!btns.length) return
-    idx = (i + btns.length) % btns.length
-    btns[idx].focus()
+    if (panel === submenu) {
+      subIdx = (i + btns.length) % btns.length
+      btns[subIdx].focus()
+    } else {
+      idx = (i + btns.length) % btns.length
+      btns[idx].focus()
+    }
   }
+  function focusItem(i) { focusPanel(menu, i) }
+  function submenuList(d) {
+    if (!d.submenu) return []
+    try { return typeof d.submenu === 'function' ? d.submenu() : d.submenu } catch (e) { return [] }
+  }
+  function openSub(parent, button, d, focus) {
+    var list = submenuList(d)
+    if (!list || !list.length) { closeSub(false); return }
+    closeSub(false)
+    submenu.replaceChildren()
+    list.forEach(function (item) { paintMenuItem(submenu, item) })
+    subItems = list
+    submenu.hidden = false
+    var r = button.getBoundingClientRect()
+    var w = submenu.offsetWidth, h2 = submenu.offsetHeight
+    var left = r.right + 3
+    if (left + w > window.innerWidth - 8) left = r.left - w - 3
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
+    var top = r.top - 4
+    if (top + h2 > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h2 - 8)
+    submenu.style.left = left + 'px'; submenu.style.top = top + 'px'
+    button.setAttribute('aria-expanded', 'true')
+    button.classList.add('sub-open')
+    subFor = button
+    if (focus) focusPanel(submenu, 0)
+  }
+  function runMenuItem(d) { // async actions used to reject silently: surface the same toast row actions show
+    setTimeout(function () {
+      if (typeof d.run !== 'function') return
+      try {
+        var out = d.run()
+        if (out && typeof out.catch === 'function') out.catch(function (e) {
+          if (window.toast) window.toast((e && e.message) || String(e))
+        })
+      } catch (e) {
+        if (window.toast) window.toast((e && e.message) || String(e))
+      }
+    }, 0)
+  }
+  function paintMenuItem(panel, d) {
+    if (d.sep) { panel.appendChild(document.createElement('hr')); return }
+    if (d.head) { var h = document.createElement('div'); h.className = 'mh'; h.textContent = d.head; panel.appendChild(h); return }
+    var b = document.createElement('button')
+    b.type = 'button'
+    b.setAttribute('role', d.checked === undefined ? 'menuitem' : 'menuitemcheckbox')
+    if (d.checked !== undefined) b.setAttribute('aria-checked', String(!!d.checked))
+    b.disabled = d.on === false || !!d.disabled
+    if (d.danger) b.className = 'danger'
+    if (d.title) b.title = d.title
+    if (d.label) b.setAttribute('aria-label', d.label)
+    var c = document.createElement('span'); c.className = 'chk'; c.textContent = d.checked ? '\u2713' : ''; c.setAttribute('aria-hidden', 'true')
+    var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
+    if (d.checked !== undefined) b.appendChild(c)
+    b.appendChild(l)
+    if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
+    if (d.ext) { var x = document.createElement('span'); x.className = 'ext'; x.innerHTML = EXT_ICON; b.appendChild(x) } // link leaves Typst
+    var hasSub = !!(d.submenu && (typeof d.submenu === 'function' || d.submenu.length))
+    if (hasSub) {
+      b.setAttribute('aria-haspopup', 'menu')
+      b.setAttribute('aria-expanded', 'false')
+      var a = document.createElement('span'); a.className = 'arrow'; a.innerHTML = ARROW_ICON; a.setAttribute('aria-hidden', 'true'); b.appendChild(a)
+      b.onclick = function (e) { e.preventDefault(); e.stopPropagation(); openSub(panel, b, d, true) }
+      b.addEventListener('pointerenter', function (e) {
+        if (e.pointerType !== 'mouse') return
+        if (subFor !== b) openSub(panel, b, d, false)
+      })
+    } else {
+      b.onclick = function () { close(false); runMenuItem(d) }
+      b.addEventListener('pointerenter', function (e) { // hover another row: collapse the old submenu right away instead of leaving it over the list for 400 ms
+        if (panel === menu && e.pointerType === 'mouse' && subFor) closeSub(false)
+      })
+    }
+    b._menuItem = d
+    panel.appendChild(b)
+  }
+  ;[menu, submenu].forEach(function (panel) { // grace period when the pointer crosses the gap between the panels
+    panel.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') cancelSubClose() })
+    panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor) scheduleSubClose() })
+  })
   function show(anchor, list, name, align) {
+    var r = anchor.getBoundingClientRect() // before closing a parent popover: its child would otherwise measure 0x0
     close(false)
-    var r = anchor.getBoundingClientRect() // before hiding a parent popover: its child would otherwise measure 0x0
-    document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop').forEach(function (p) { // one popover at a time, except the one owning the anchor
-      if (!p.contains(anchor)) p.style.display = 'none'
+    if (window.closeFloatPanels) window.closeFloatPanels() // one floating panel at a time (popovers, watch menu, comment card)
+    document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop,#inboxPop,#watchBox').forEach(function (p) { // fallback when the module hook is not ready
+      if (p.contains(anchor)) return
+      if (p.id === 'watchBox') { if (typeof closeWatchBox === 'function') closeWatchBox(); else p.remove() } else p.style.display = 'none'
     })
     menu.replaceChildren()
-    list.forEach(function (d) {
-      if (d.sep) { menu.appendChild(document.createElement('hr')); return }
-      if (d.head) { var h = document.createElement('div'); h.className = 'mh'; h.textContent = d.head; menu.appendChild(h); return }
-      var b = document.createElement('button')
-      b.type = 'button'
-      b.setAttribute('role', d.checked === undefined ? 'menuitem' : 'menuitemcheckbox')
-      if (d.checked !== undefined) b.setAttribute('aria-checked', String(!!d.checked))
-      b.disabled = d.on === false || !!d.disabled
-      if (d.danger) b.className = 'danger'
-      var c = document.createElement('span'); c.className = 'chk'; c.textContent = d.checked ? '\u2713' : ''; c.setAttribute('aria-hidden', 'true')
-      var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
-      if (d.checked !== undefined) b.appendChild(c)
-      b.appendChild(l)
-      if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
-      if (d.ext) { var x = document.createElement('span'); x.className = 'ext'; x.innerHTML = EXT_ICON; b.appendChild(x) } // link leaves Typst
-      b.onclick = function () { close(false); setTimeout(d.run, 0) }
-      menu.appendChild(b)
-    })
+    list.forEach(function (d) { paintMenuItem(menu, d) })
     menu.hidden = false
     var w = menu.offsetWidth, h2 = menu.offsetHeight
     var left = align === 'right' ? r.right - w : r.left
@@ -179,6 +289,8 @@
     }
     menu.style.left = left + 'px'; menu.style.top = top + 'px'
     anchor.setAttribute('aria-expanded', 'true')
+    var row = anchor.closest && anchor.closest('aside .doc, aside .fhd, aside h3')
+    if (row) row.classList.add('menu-open') // the whole row keeps the hover while its menu is open
     openFor = anchor; items = list
     menu.dataset.name = name
   }
@@ -207,7 +319,7 @@
       if (openFor === a) close(false); else open(a, a.dataset.menu)
       return
     }
-    if (openFor && !menu.contains(e.target)) close(false)
+    if (openFor && !menu.contains(e.target) && !submenu.contains(e.target)) close(false)
   })
   // hover-switch between top-level menus while one is open (desktop menubar behaviour)
   document.querySelectorAll('#menubar [data-menu]').forEach(function (b) {
@@ -224,15 +336,37 @@
       }
       return
     }
+    var inSub = subFor && document.activeElement && submenu.contains(document.activeElement)
+    if (inSub) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSub(true); return }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); closeSub(true); return }
+      if (e.key === 'ArrowRight') { e.preventDefault(); return }
+      if (e.key === 'ArrowDown') { e.preventDefault(); focusPanel(submenu, subIdx + 1); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); focusPanel(submenu, subIdx < 0 ? -1 : subIdx - 1); return }
+      if (e.key === 'Home') { e.preventDefault(); focusPanel(submenu, 0); return }
+      if (e.key === 'End') { e.preventDefault(); focusPanel(submenu, -1); return }
+      return
+    }
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true) }
     else if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(idx + 1) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(idx < 0 ? -1 : idx - 1) }
     else if (e.key === 'Home') { e.preventDefault(); focusItem(0) }
     else if (e.key === 'End') { e.preventDefault(); focusItem(-1) }
-    else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && openFor.closest('#menubar')) {
-      var bs = Array.prototype.slice.call(document.querySelectorAll('#menubar [data-menu]'))
-      var i = bs.indexOf(openFor), n = bs[(i + (e.key === 'ArrowRight' ? 1 : -1) + bs.length) % bs.length]
-      e.preventDefault(); open(n, n.dataset.menu); n.focus(); focusItem(0)
+    else if (e.key === 'ArrowRight') {
+      var cur = document.activeElement
+      if (cur && menu.contains(cur) && cur._menuItem && cur._menuItem.submenu) { e.preventDefault(); openSub(menu, cur, cur._menuItem, true); return }
+      if (openFor.closest('#menubar')) {
+        var bs = Array.prototype.slice.call(document.querySelectorAll('#menubar [data-menu]'))
+        var i = bs.indexOf(openFor), n = bs[(i + 1) % bs.length]
+        e.preventDefault(); open(n, n.dataset.menu); n.focus(); focusItem(0)
+      }
+    } else if (e.key === 'ArrowLeft') {
+      if (subFor) { e.preventDefault(); closeSub(true); return }
+      if (openFor.closest('#menubar')) {
+        var bs2 = Array.prototype.slice.call(document.querySelectorAll('#menubar [data-menu]'))
+        var i2 = bs2.indexOf(openFor), n2 = bs2[(i2 - 1 + bs2.length) % bs2.length]
+        e.preventDefault(); open(n2, n2.dataset.menu); n2.focus(); focusItem(0)
+      }
     }
   }, true)
   addEventListener('resize', function () { close(false) })

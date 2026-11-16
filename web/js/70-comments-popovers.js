@@ -160,7 +160,7 @@ function modalInert(on) { // background not focusable while dialog open (no iner
   else { a.removeAttribute('inert'); a.removeAttribute('aria-hidden') }
 }
 function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no input: true/false)
-  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false, body = null } = o
+  const { value = '', ph = '', ok = t('common.ok'), danger = false, noInput = false, body = null, stem = false, selectAll = false } = o
   return new Promise(res => {
     if (askRes) askRes(null)
     askRes = res
@@ -181,7 +181,12 @@ function ask(head, o = {}) { // custom modal not prompt/confirm (string|null, no
     $('mNo').onclick = () => done(noInput ? false : null)
     yes.onclick = () => done(noInput ? true : inp.value)
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
-    setTimeout(() => (noInput ? yes : inp).focus(), 30)
+    if (noInput) yes.focus()
+    else {
+      inp.focus()
+      if (selectAll) inp.select()
+      else if (stem && value) inp.setSelectionRange(nameStemStart(value), nameStemEnd(value))
+    }
   })
 }
 function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title, desc]
@@ -349,9 +354,19 @@ function openPop(anchor, fresh, quote = '', suggestion = null) {
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
   if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
 const popTriggers = id => document.querySelectorAll(`[aria-controls="${id}"]`)
+function closeHeaderPops() {
+  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
+}
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
-  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop']) { const b = $(p); if (b && b.style.display !== 'none') { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
+  closeHeaderPops()
+  if (typeof closeWatchBox === 'function') closeWatchBox()
+}
+window.closeFloatPanels = function (keep) { // one floating panel at a time: menu, popover, comment card, watch menu
+  if (keep !== 'watch' && typeof closeWatchBox === 'function') closeWatchBox()
+  if (keep !== 'pop') closePop(true)
+  if (keep !== 'menu' && window.closeMenu) window.closeMenu(false)
+  closeHeaderPops()
 }
 const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain', inboxPop: 'inboxBtn' }
 function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)

@@ -23,7 +23,7 @@ function drop(data, files = []) {
 }
 test('private module drag permits moving into trash and restoring to modules', () => {
   const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {}, classList: { add() {}, remove() {} }, remove() {}, querySelector: () => null })
-  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
+  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, personalModuleMenu() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
   const docs = fs.readFileSync('web/js/60-docs.js', 'utf8')
   vm.runInContext(docs.slice(docs.indexOf('function resRow'), docs.indexOf('function paintKind')), c)
   const module = c.resRow({ name: 'module.typ' }), event = drop(null)
@@ -58,10 +58,46 @@ test('project folders accept private modules and restored documents', async () =
   c.restoreSidebarDocument = (...args) => restored = args
   vm.runInContext(projectCode.slice(projectCode.indexOf('function projectDropTarget'), projectCode.indexOf('async function renamePersonalResource')), c)
   const target = { id: 'target' }, host = row(); c.projectDropTarget(host, target)
-  await host.ondrop(drop({ personal: true, entry: { kind: 'resource', name: 'module.typ' } }))
-  assert.deepEqual(plain(copied), [{ source_scope: 'personal', source: 'module.typ' }, { scope: 'project', project_id: 'target' }])
+  await host.ondrop(drop({ personal: true, entry: { kind: 'resource', name: 'module.typ', folder: '' } }))
+  assert.deepEqual(plain(copied), [{ source_scope: 'personal', source: 'module.typ', folder: '' }, { scope: 'project', project_id: 'target' }, ''])
+  await host.ondrop(drop({ personal: true, entry: { kind: 'resource', name: 'module.typ', folder: 'nested' } }))
+  assert.equal(copied[2], '') // project root keeps the private collection folder in the source payload
+  assert.equal(copied[0].folder, 'nested')
+  const folderHost = row(); c.projectDropTarget(folderHost, target, 'a/b')
+  await folderHost.ondrop(drop({ personal: true, entry: { kind: 'resource', name: 'module.typ', folder: 'nested' } }))
+  assert.equal(copied[2], 'a/b') // an explicit folder target wins
   await host.ondrop(drop({ trashed: true, entry: { kind: 'document', doc_id: 'd' } }))
   assert.equal(restored[1], target)
+})
+test('private module rows carry their collection folder into drag data', () => {
+  const made = []
+  const node = () => ({ appendChild() {}, setAttribute() {}, closest: () => null, dataset: {}, classList: { add() {}, remove() {} }, remove() {}, querySelector: () => null })
+  const c = context({ document: { createElement: node }, el: node, tplName: '', kb() {}, projectAction: () => node(), compactSidebarActions() {}, personalModuleMenu() {}, ICO_SEND: '', ICO_EDIT: '', ICO_DUP: '', ICO_TRASH: '' })
+  c.sidebarDrag = (row, data) => made.push(data)
+  const docs = fs.readFileSync('web/js/60-docs.js', 'utf8')
+  vm.runInContext(docs.slice(docs.indexOf('function resRow'), docs.indexOf('function paintKind')), c)
+  c.resRow({ name: 'module.typ', folder: 'nested' })
+  assert.deepEqual(plain(made[0]), { personal: true, entry: { kind: 'resource', name: 'module.typ', folder: 'nested' } })
+})
+test('drops onto a second-level folder keep the destination for copy and move', async () => {
+  const calls = []
+  const c = context({ projectEditable: () => true, projects: [{ id: 'source' }], transferProjectEntry: async (...args) => calls.push(args) })
+  vm.runInContext(projectCode.slice(projectCode.indexOf('function projectDropTarget'), projectCode.indexOf('async function renamePersonalResource')), c)
+  const target = { id: 'target' }, host = row()
+  c.projectDropTarget(host, target, 'a/b')
+  await host.ondrop(drop({ project: 'source', entry: { kind: 'resource', name: 'src/mod.typ' } }))
+  assert.equal(calls[0][3], target)
+  assert.equal(calls[0][4], true)
+  assert.equal(calls[0][5], 'a/b')  // cross-project move keeps the folder row as target
+
+  const copyCalls = []
+  c.transferProjectEntry = async (...args) => copyCalls.push(args)
+  const sameHost = row(); c.projectDropTarget(sameHost, { id: 'source' }, 'a/b')
+  const copyEvent = drop({ project: 'source', entry: { kind: 'resource', name: 'src/mod.typ' } })
+  copyEvent.ctrlKey = true
+  await sameHost.ondrop(copyEvent)
+  assert.equal(copyCalls[0][2], false)  // Ctrl keeps the source
+  assert.equal(copyCalls[0][5], 'a/b')  // the copy still lands in the drop folder
 })
 test('external files reach the module uploader', async () => {
   let files
@@ -89,10 +125,11 @@ test('failed draft flush blocks dragging an open document into trash', async () 
 test('restoration refreshes the source project before moving to the target folder', async () => {
   const calls = [], target = { id: 'target' }, original = { id: 'original' }
   const c = context({ docId: '', openedTrashed: false, lastOwn: [], projects: [], api: async (...args) => calls.push(args),
-    sidebar: async () => { c.lastOwn = [{ id: 'd', title: 'Restored', project_id: 'original' }]; c.projects = [original] },
+    sidebar: async () => { c.lastOwn = [{ id: 'd', title: 'Restored', folder: 'a/b', project_id: 'original' }]; c.projects = [original] },
     transferProjectEntry: async (...args) => calls.push(args) })
   await c.restoreSidebarDocument({ entry: { doc_id: 'd' } }, target)
   assert.equal(calls[0][1], '/api/docs/d/restore')
   assert.equal(calls[1][0], original)
+  assert.equal(calls[1][1].folder, 'a/b')  // cross-project restore keeps the folder path
   assert.equal(calls[1][3], target)
 })

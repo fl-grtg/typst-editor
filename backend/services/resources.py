@@ -231,8 +231,8 @@ def doc_effective(owner: str, main_text: str, local_files: dict[str, str], doc_i
             "versions": {n: versions.get(n, "") for n in resources}}
 
 
-def copy_name(name: str, number: int = 1) -> str:
+def copy_name(name: str, number: int = 1, lang: str = "en") -> str:
     suffix = Path(name).suffix
     stem = name[:-len(suffix)] if suffix else name
-    tag = ' (copy)' if number == 1 else f' (copy {number})'
+    tag = (' (Kopie)' if lang == 'de' else ' (copy)') if number == 1 else (f' (Kopie {number})' if lang == 'de' else f' (copy {number})')
     return stem[:100 - len(tag) - len(suffix)] + tag + suffix

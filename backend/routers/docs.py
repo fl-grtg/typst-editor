@@ -302,7 +302,7 @@ def restore_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict
                 con.execute("UPDATE projects SET archived=0 WHERE id=?", (cur["project_id"],))
             con.execute("UPDATE docs SET trashed=0,folder=?,updated_at=? WHERE id=?", (fld, db.now_iso(), doc_id))
     except sqlite3.IntegrityError as e:
-        raise HTTPException(409, "Name already exists in this project; rename the existing document before restoring") from e
+        raise HTTPException(409, "Name already exists in this folder; rename the existing document before restoring") from e
     for recipient in doc_users(doc_id):
         notify_sidebar(recipient)
     return {"ok": True}
@@ -327,6 +327,7 @@ def rename_folder(b: FolderRename, req: Request, user: str = Depends(deps.me)) -
 def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.check_doc_id(doc_id)
     deps.limited(req, "duplicate")
+    lang = deps.req_lang(req)
     deps.need_edit(user, doc_id)
     try:
         max_docs = config.load().MAX_DOCS_PER_USER
@@ -359,7 +360,7 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                         guest_copy = True
                 if con.execute("SELECT COUNT(*) FROM docs WHERE owner=?", (target_owner,)).fetchone()[0] >= max_docs:
                     raise HTTPException(400, "Too many docs")
-                base = d["title"] + " (copy)"
+                base = d["title"] + (" (Kopie)" if lang == "de" else " (copy)")
                 title, i = base, 2
                 pid = d["project_id"]
                 while True:
@@ -367,8 +368,8 @@ def duplicate_doc(doc_id: str, req: Request, user: str = Depends(deps.me)) -> di
                         dup = con.execute("SELECT 1 FROM docs WHERE owner=? AND project_id IS NULL AND title=? COLLATE NOCASE AND trashed=0",
                                           (target_owner, title)).fetchone()
                     else:
-                        dup = con.execute("SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0",
-                                          (pid, title)).fetchone()
+                        dup = con.execute("SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0",
+                                          (pid, d["folder"] or "", title)).fetchone()
                     if not dup:
                         break
                     title, i = f"{base} {i}", i + 1

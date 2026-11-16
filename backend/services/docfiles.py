@@ -199,6 +199,20 @@ def check_depth(path: str) -> str:
     return path
 
 
+def safe_rename_target(raw: str, old: str) -> str:
+    """Validate a rename target without trapping legacy-deep entries.
+
+    A rename may keep an existing legacy depth, but never add a level beyond
+    MAX_FOLDER_DEPTH relative to the source path. New paths still pass the
+    normal sanitizer; only the depth check is relaxed for legacy sources.
+    """
+    target = safe_name(raw)
+    depth = target.strip("/").count("/")
+    if depth > max(MAX_FOLDER_DEPTH, old.strip("/").count("/")):
+        raise HTTPException(400, f"Folders can be nested at most {MAX_FOLDER_DEPTH} levels deep")
+    return target
+
+
 def record_file(doc_id: str, path: str, size: int, mtime: float) -> None:
     con = db.connect()
     try:

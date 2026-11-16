@@ -76,15 +76,19 @@ aside .doc.sub, #ol .doc { margin-left: 12px; }
 aside .fhd { margin-left: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); }
 aside .fhd b { flex: 1; min-width: 0; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 aside h3:hover, aside .fhd:hover, aside .doc:hover { background: var(--hover); }
+aside .doc.menu-open, aside .fhd.menu-open, aside h3.menu-open { background: var(--hover); } /* open menu keeps the row hover */
 aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }
+aside .doc.cur.menu-open { background: var(--hover); }
 aside .doc.dragging.cur { background: transparent; } /* the card under the cursor is the only lifted thing */
 aside .empty { min-height: 30px; padding: 6px 8px; font-size: 12.5px; color: var(--faint); }
 aside .empty button { margin-top: 6px; }
 aside .mini { visibility: hidden; width: 24px; height: 24px; min-width: 24px; padding: 0; flex: none; }
 aside .mini svg { width: 14px; height: 14px; }
 aside h3:hover .mini, aside .doc:hover .mini, aside .fhd:hover .mini,
-aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-visible, aside .doc.cur .mini { visibility: visible; }
+aside .doc:focus-within .mini, aside .fhd:focus-within .mini, aside .mini:focus-visible, aside .mini[aria-expanded="true"], aside .doc.cur .mini { visibility: visible; }
+aside .mini[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+aside .menu-open .mini { visibility: visible; } /* keep every row action visible while one of them owns the open menu; hover stays on the active one */
 @media (hover: none) { aside .mini { visibility: visible; } }
 #ol .ol-l1 { font-weight: 600; }
 #ol .ol-l2 { padding-left: 20px; font-size: 12.5px; }
@@ -131,15 +135,11 @@ body.editonly #pvTools { display: none; }
 #userBox #who small { line-height: 1.5; }
 #userMain { min-height: 52px; height: auto; }
 
-aside .mini.trashClear { width: auto; min-width: 54px; padding: 0 7px; visibility: hidden; font-size: 11px; letter-spacing: 0; text-transform: none; }
 #userBox { padding-top: 8px; margin-top: 8px; }
 #userMain { min-height: 42px; height: 42px; padding: 0 10px; gap: 10px; border-radius: 10px; }
 #userBox #who { line-height: 1.2; padding: 0; }
 #userBox #who small { line-height: 1.3; }
 #userBox #out { width: 40px; height: 40px; border-radius: 10px; }
-
-aside h3:hover .trashClear, aside #trashH:focus-within .trashClear, aside .trashClear:focus-visible { visibility: visible; }
-@media (hover: none) { aside .mini.trashClear { visibility: visible; } }
 
 aside .project-single b::before { display: none; }
 aside .project .mini { flex: 0 0 22px; width: 22px; padding: 2px; white-space: nowrap; }
@@ -164,9 +164,11 @@ body.file-view #leftCol { display: flex !important; width: 100% !important; flex
 /* Project folders: indent follows --lv (0 = project root); the folder header carries the quiet drop fill */
 aside .fhd.project { margin-left: 0; padding-left: 10px; height: 34px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); background: transparent; border-radius: var(--r-sm); transition: background .12s ease; }
 aside .fhd.project:hover { background: var(--hover); }
+aside .fhd.project.menu-open { background: var(--hover); }
 aside .project-group + .project-group { margin-top: 2px; padding-top: 0; border-top: 0; }
 aside .fhd.project b { font-weight: 600; }
-aside .doc.sub { margin-left: 30px; } /* shared/trash/module rows keep the folder-text line */
+aside .doc.sub { margin-left: 30px; } /* shared rows keep the folder-text line */
+aside #tpls .doc.sub, aside #libs .doc.sub, aside #tbls .doc.sub, aside #trash .doc.sub { margin-left: 20px; } /* modules and trash sit closer to their section */
 aside .project-group .doc.sub { margin-left: calc(16px + var(--lv, 0) * 14px); } /* root entries sit on the folder chevron, nested ones on the folder text */
 aside .fhd.folder { margin-left: calc(16px + var(--lv, 0) * 14px); font-size: 12.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text); }
 aside .fhd.folder b { font-weight: 400; }

@@ -10,7 +10,7 @@ function projectEntries(p) {
 }
 function projectAction(host, icon, label, run) {
   const b = icoBtn('mini', icon); b.title = label; b.setAttribute('aria-label', label)
-  b.onclick = e => { e.stopPropagation(); Promise.resolve().then(run).catch(e => toast(e.message)) }
+  b.onclick = e => { e.stopPropagation(); Promise.resolve().then(() => run(e)).catch(e => toast(e.message)) }
   host.appendChild(b); return b
 }
 function sidebarLiveHost(host, key) { // row actions can outlive a sidebar repaint (open menu, then a remote change)
@@ -23,10 +23,44 @@ function sidebarLiveHost(host, key) { // row actions can outlive a sidebar repai
   }
   return key ? [...document.querySelectorAll('[data-package-key]')].find(row => row.dataset.packageKey === key) || host : host
 }
-function compactSidebarActions(host, keep = 0) {
-  const actions = [...host.children].filter(node => node.matches('button.mini')).slice(keep)
-  if (actions.length < 2) return
-  actions.forEach(button => button.remove())
+const SIDEBAR_MENU = {
+  rename: ['menu.renameShort', 'menu.renameHint'],
+  duplicate: ['menu.duplicateShort', 'menu.duplicateHint'],
+  copy: ['menu.copyTo', 'menu.copyToHint'],
+  move: ['menu.moveTo', 'menu.moveToHint'],
+  useInProject: ['menu.useInProject', 'menu.useInProjectHint'],
+  trash: ['menu.actionTrash', 'menu.trashHint'],
+}
+const MENU_WHAT = { file: 'menu.whatFile', folder: 'menu.whatFolder', document: 'menu.whatDocument', module: 'menu.whatModule', project: 'menu.whatProject' }
+function menuWhat(what) { return what && MENU_WHAT[what] ? t(MENU_WHAT[what]) : '' }
+function sidebarMenuItem(key, run, extra = {}) {
+  const { what, ...rest } = extra
+  const [label, title] = SIDEBAR_MENU[key]
+  return { label: t(label), title: t(title, { what: menuWhat(what) }), danger: key === 'trash', run, ...rest }
+}
+function menuButtonItem(button, what) {
+  const hint = button.dataset.menuHint
+  return {
+    label: button.dataset.menuLabel || button.title,
+    title: hint ? t(hint, { what: menuWhat(what) }) : button.title,
+    danger: button.dataset.menuDanger !== undefined,
+    disabled: button.disabled,
+    run: () => button.click(),
+  }
+}
+function personalModuleMenu(actions) {
+  const by = key => actions.find(button => button.dataset.menuKey === key)
+  return [
+    by('rename') && menuButtonItem(by('rename'), 'module'),
+    by('duplicate') && menuButtonItem(by('duplicate'), 'module'),
+    by('use') && menuButtonItem(by('use'), 'module'),
+    by('trash') && menuButtonItem(by('trash'), 'module'),
+  ].filter(Boolean)
+}
+function compactSidebarActions(host, keep = 0, decorate = null) {
+  const actions = [...host.children].filter(node => node.matches('button.mini') && node.dataset.menuSkip === undefined).slice(keep)
+  if (!actions.length) return
+  actions.forEach(button => button.remove()) // only the three-dot stays: no hidden icons stealing clicks
   const more = icoBtn('mini', ICO_MORE)
   more.title = t('shell.menuMore'); more.setAttribute('aria-label', more.title)
   more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-expanded', 'false')
@@ -35,9 +69,17 @@ function compactSidebarActions(host, keep = 0) {
     const s = window.changeSession
     const staged = s && host.closest('.project-group')?.dataset.projectId === s.project ? s.files.get(host.dataset.packageKey) : null
     if (staged?.action === 'delete') return [{ label: t('packages.discardFile'), danger: true, run: () => discardSessionFile(staged).catch(e => toast(e.message)) }]
-    return actions.map(button => ({ label: button.dataset.menuLabel || button.title, danger: button.dataset.menuDanger !== undefined, disabled: button.disabled, run: () => button.click() }))
+    return decorate ? decorate(actions) : actions.map(menuButtonItem)
   }
+  if (!more.sideMenuItems().length) return // e.g. folder row in a change/suggestion session: no dead three-dot
   host.appendChild(more)
+}
+function nameStemStart(name) { // path inputs select only the name, never the folder part
+  return String(name).lastIndexOf('/') + 1
+}
+function nameStemEnd(name) { // file name without extension: selection ends before the last dot
+  const dot = String(name).lastIndexOf('.')
+  return dot > String(name).lastIndexOf('/') + 1 ? dot : String(name).length
 }
 function sidebarInlineRename(host, label, value, opts = {}) { // rename in place: Enter/blur saves, Esc cancels
   const input = el('input', 'renameInput')
@@ -50,7 +92,7 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
   host.classList.add('renaming')
   return new Promise(resolve => {
     let done = false
-    const finish = save => {
+    const finish = (save, refocus = false) => {
       if (done) return
       done = true
       const next = input.value.trim()
@@ -58,6 +100,10 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
       input.replaceWith(label)
       host.draggable = wasDraggable
       host.classList.remove('renaming')
+      if (refocus) { // Esc/Enter keep keyboard context: label or row, whichever is focusable
+        const target = label.hasAttribute('tabindex') ? label : host
+        try { target.focus({ preventScroll: true }) } catch (e) {}
+      }
       resolve(save && next && next !== value ? next : null)
       if (deferred && !document.querySelector('aside input.renameInput')) {
         window.__sidebarDeferred = false
@@ -69,11 +115,11 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
     input.ondragstart = e => e.preventDefault() // dragging the auto-selected text must extend the selection, not start a text drag
     input.onmousedown = () => { if (input.selectionStart !== input.selectionEnd) input.setSelectionRange(input.selectionStart, input.selectionStart) } // drop the auto-selection before the browser starts a text drag
     input.onkeydown = e => {
-      if (e.key === 'Enter') { e.preventDefault(); finish(true) }
-      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
+      if (e.key === 'Enter') { e.preventDefault(); finish(true, true) }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false, true) }
     }
     input.onblur = () => finish(true)
-    setTimeout(() => { input.focus(); input.select() }, 0)
+    setTimeout(() => { input.focus(); input.setSelectionRange(opts.stem ? nameStemStart(value) : 0, opts.stem ? nameStemEnd(value) : value.length) }, 0)
   })
 }
 const projectEntryFlights = new Map()
@@ -158,16 +204,19 @@ function paintProjects(box, shared) {
     }
     title.onclick = toggle; kb(title, toggle); h.appendChild(title)
     if (projectEditable(p)) {
-      projectAction(h, ICO_PLUS, t('docs.newPick'), () => projectMenu(p))
+      const add = projectAction(h, ICO_PLUS, t('docs.newPick'), () => projectMenu(p, '', add))
+      add.setAttribute('aria-haspopup', 'menu'); add.setAttribute('aria-expanded', 'false')
     }
     const wl = watchLevels[p.id] || WATCH_DEFAULT
     const bell = projectAction(h, watchIcon(wl), t('inbox.watchBtn', { level: watchLabel(wl) }), () => openWatchBox(p, bell))
-    bell.setAttribute('aria-haspopup', 'menu'); bell.dataset.menuLabel = t('inbox.watchMenu')
+    bell.setAttribute('aria-haspopup', 'menu'); bell.setAttribute('aria-expanded', 'false'); bell.dataset.watchBtn = ''; bell.dataset.menuLabel = t('inbox.watchMenu')
     if (p.role === 'owner') {
-      projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p, h))
-      projectAction(h, ICO_TRASH, t('projects.moveProjectTrash'), () => deleteProject(p)).dataset.menuDanger = ''
+      const rename = projectAction(h, ICO_EDIT, t('projects.rename'), () => renameProject(p, h))
+      rename.dataset.menuLabel = t('menu.renameShort'); rename.dataset.menuHint = 'menu.renameHint'
+      const trash = projectAction(h, ICO_TRASH, t('projects.moveProjectTrash'), () => deleteProject(p))
+      trash.dataset.menuDanger = ''; trash.dataset.menuLabel = t('menu.actionTrash'); trash.dataset.menuHint = 'menu.trashHint'
     }
-    compactSidebarActions(h, projectEditable(p) ? 2 : 1)
+    compactSidebarActions(h, projectEditable(p) ? 2 : 1, actions => actions.map(button => menuButtonItem(button, 'project')))
     projectDropTarget(h, p) // header = project root; only this row lights up, not the whole group
     group.appendChild(h)
     if (shut.has(key)) return
@@ -184,14 +233,18 @@ function paintProjects(box, shared) {
         return openProjectEntry(p, document, name, resource)
       }
       row.onclick = open; kb(row, open)
-      if (projectEditable(p)) projectAction(row, ICO_EDIT, t('files.renameHead'), () => renameProjectEntry(p, name, document, resource, row))
-      projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: resource ? 'resource' : 'file', doc_id: document, name }))
-      projectDrag(row, p, { kind: resource ? 'resource' : 'file', doc_id: document, name, folder: name.split('/').slice(0, -1).join('/') })
+      const entry = { kind: resource ? 'resource' : 'file', doc_id: document, name }
+      if (projectEditable(p)) {
+        const rename = projectAction(row, ICO_EDIT, t('files.renameHead'), () => renameProjectEntry(p, name, document, resource, row))
+        rename.dataset.menuKey = 'rename'; rename.dataset.menuLabel = t('menu.renameShort'); rename.dataset.menuHint = 'menu.renameHint'
+      }
+      projectDrag(row, p, { ...entry, folder: name.split('/').slice(0, -1).join('/') })
       projectDropTarget(row, p, folder, dropVisual(folder)) // dropping on a file targets the folder it lives in
       if (projectEditable(p) || canStageProjectDelete(p.id)) {
-        projectAction(row, ICO_TRASH, t('docs.moveTrash'), () => deleteProjectEntry(p, name, document, resource)).dataset.menuDanger = ''
+        const trash = projectAction(row, ICO_TRASH, t('docs.moveTrash'), () => deleteProjectEntry(p, name, document, resource))
+        trash.dataset.menuDanger = ''; trash.dataset.menuKey = 'trash'; trash.dataset.menuLabel = t('menu.actionTrash'); trash.dataset.menuHint = 'menu.trashHint'
       }
-      compactSidebarActions(row)
+      compactSidebarActions(row, 0, actions => entryMenuItems(p, entry, actions))
       group.appendChild(row)
     }
     const documentRow = (d, level, folder) => {
@@ -199,9 +252,14 @@ function paintProjects(box, shared) {
       row.dataset.packageKey = ['document', d.id, 'main.typ'].join(':')
       row.classList.add('sub'); row.classList.toggle('cur', d.id === docId && !activeFile); row.style.setProperty('--lv', level)
       const first = row.querySelector('button.mini')
-      if (projectEditable(p)) { const rename = projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row)); row.insertBefore(rename, first) }
-      const move = projectAction(row, ICO_MOVE, t('projects.transfer'), () => projectEntryMenu(p, { kind: 'document', doc_id: d.id, name: d.title })); row.insertBefore(move, first)
-      compactSidebarActions(row)
+      if (projectEditable(p)) {
+        const rename = projectAction(row, ICO_EDIT, t('docs.renameDoc'), () => renameProjectDocument(d, row))
+        rename.dataset.menuKey = 'rename'; rename.dataset.menuLabel = t('menu.renameShort'); rename.dataset.menuHint = 'menu.renameHint'
+        row.insertBefore(rename, first)
+      }
+      const trash = row.querySelector('button[data-menu-danger]')
+      if (trash) { trash.dataset.menuKey = 'trash'; trash.dataset.menuLabel = t('menu.actionTrash'); trash.dataset.menuHint = 'menu.trashHint' }
+      compactSidebarActions(row, 0, actions => entryMenuItems(p, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }, actions))
       projectDropTarget(row, p, folder, dropVisual(folder)) // dropping on a document targets the folder it lives in
       projectDrag(row, p, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }); group.appendChild(row)
     }
@@ -214,11 +272,15 @@ function paintProjects(box, shared) {
       const toggle = () => { shut.has(fkey) ? shut.delete(fkey) : shut.add(fkey); saveShut(); paintOwn(); paintShared(lastShared) }
       label.onclick = toggle; kb(label, toggle); row.appendChild(label)
       if (projectEditable(p)) {
-        projectAction(row, ICO_PLUS, t('docs.newPick'), () => projectMenu(p, path))
-        projectAction(row, ICO_EDIT, t('projects.renameFolder'), () => renameFolder(p, path, row))
-        projectAction(row, ICO_TRASH, t('projects.deleteFolder'), () => deleteFolder(p, path)).dataset.menuDanger = ''
+        const add = projectAction(row, ICO_PLUS, t('docs.newPick'), () => projectMenu(p, path, add))
+        add.setAttribute('aria-haspopup', 'menu'); add.setAttribute('aria-expanded', 'false')
+        const rename = projectAction(row, ICO_EDIT, t('projects.renameFolder'), () => renameFolder(p, path, row))
+        rename.dataset.menuKey = 'rename'; rename.dataset.menuLabel = t('menu.renameShort'); rename.dataset.menuHint = 'menu.renameHint'
+        const trash = projectAction(row, ICO_TRASH, t('projects.deleteFolder'), () => deleteFolder(p, path))
+        trash.dataset.menuDanger = ''; trash.dataset.menuKey = 'trash'; trash.dataset.menuLabel = t('menu.actionTrash'); trash.dataset.menuHint = 'menu.trashHint'
       }
-      compactSidebarActions(row, 1)
+      compactSidebarActions(row, 1, actions => folderMenuItems(p, path, actions))
+      projectDrag(row, p, { kind: 'folder', name: path }) // folders move/copy like entries; the drop target rejects descendants
       projectDropTarget(row, p, path)
       group.appendChild(row)
       return !shut.has(fkey)
@@ -248,10 +310,12 @@ async function newProjectDoc(id, folder = '') {
   await openDoc(r.id)
   return r.id
 }
-async function newProjectResource(id, folder = '') {
-  const ext = await chooseFileType()
+async function newProjectResource(id, folder = '', chosenExt = '') {
+  const ext = chosenExt || await chooseFileType()
   if (!ext) return
-  const raw = await ask(t('files.newFileHead'), { ph: t('files.newFilePh', { ext: ext.slice(1) }), maxLen: 240 })
+  // Start with "file.<ext>" and keep only the stem selected: typing replaces
+  // the suggested name and the extension stays in place.
+  const raw = await ask(t('files.newFileHead'), { value: 'file' + ext, ph: t('files.newFilePh', { ext: ext.slice(1) }), maxLen: 240, stem: true })
   if (!raw?.trim()) return
   const typed = raw.trim().replace(/^\/+/, ''), file = typed.toLowerCase().endsWith(ext) ? typed : typed + ext
   const name = folder ? folder + '/' + file : file
@@ -262,12 +326,17 @@ async function newProjectResource(id, folder = '') {
   const document = documents.find(d => d.id === docId)?.id || documents[0]?.id
   await openProjectEntry(project, document, result.name, true)
 }
-async function pullLibrary(source, target) {
+async function pullLibrary(source, target, targetFolder = '') {
   const document = docId, project = docProject, epoch = openN
   const current = () => docId === document && docProject === project && openN === epoch
   if (!await flushTab() || !await flushTpl() || !current()) return null
-  const initial = target.scope === 'personal' ? source.source.split('/').pop() : source.source
-  const name = await ask(t('projects.copyName'), { value: initial, maxLen: 240 })
+  const base = source.source.split('/').pop()
+  // Personal modules keep their collection folder, and a drop on a project
+  // folder (or the folder's + menu) wins over it. Project targets otherwise
+  // keep the source path so dependencies stay in the same relative place.
+  const folder = target.scope === 'project' ? (targetFolder || source.folder || '') : ''
+  const initial = target.scope === 'personal' ? base : (folder ? folder + '/' + base : source.source)
+  const name = await ask(t('projects.copyName'), { value: initial, maxLen: 240, stem: true })
   if (!name?.trim() || !current()) return null
   const body = { ...source, ...target, name: name.trim(), renames: {} }
   while (current()) {
@@ -277,7 +346,7 @@ async function pullLibrary(source, target) {
       toast(t('common.nameExists'))
       const files = preview.files || [{ source: source.source, name: body.name }]
       for (const file of files.filter(f => preview.collisions.includes(f.name))) {
-        const replacement = await ask(t('projects.copyConflict') + '\n' + file.source, { value: file.name, maxLen: 240 })
+        const replacement = await ask(t('projects.copyConflict') + '\n' + file.source, { value: file.name, maxLen: 240, stem: true })
         if (!replacement?.trim() || !current()) return null
         if (file.source === source.source) body.name = replacement.trim()
         else body.renames[file.source] = replacement.trim()
@@ -298,12 +367,13 @@ async function pullPersonalResource(name) {
   const targets = projects.filter(projectEditable)
   const i = await askPick(t('projects.pullProject'), targets.map(p => [p.title, '']))
   if (i == null || i < 0 || !targets[i]) return
-  return pullLibrary({ source_scope: 'personal', source: name }, { scope: 'project', project_id: targets[i].id })
+  const folder = myTpl.find(r => r.name === name)?.folder || ''
+  return pullLibrary({ source_scope: 'personal', source: name }, { scope: 'project', project_id: targets[i].id }, folder)
 }
 async function insertPersonalResource(tpl) {
   const document = docId, project = docProject, epoch = openN, file = activeFile
   if (!project || docResReadonly) return
-  const name = await pullLibrary({ source_scope: 'personal', source: tpl.name }, { scope: 'project', project_id: project })
+  const name = await pullLibrary({ source_scope: 'personal', source: tpl.name }, { scope: 'project', project_id: project }, tpl.folder || '')
   if (!name || docId !== document || docProject !== project || openN !== epoch || activeFile !== file) return
   addTpl(resLine({ name }))
 }
@@ -347,7 +417,7 @@ async function uploadProjectFiles(p, files, folder = '') {
       if (/\.zip$/i.test(file.name)) {
         const title = await ask(t('docs.newDocTitle'), { value: file.name.replace(/\.zip$/i, '') })
         if (!title?.trim()) continue
-        const body = new FormData(); body.append('f', file); body.append('title', title.trim())
+        const body = new FormData(); body.append('f', file); body.append('title', title.trim()); body.append('folder', folder)
         const response = await fetch(`/api/projects/${p.id}/import-zip`, { method: 'POST', body })
         if (!response.ok) throw new Error(expMsg(await response.text()))
         attachmentDoc ||= (await response.json()).id
@@ -359,7 +429,7 @@ async function uploadProjectFiles(p, files, folder = '') {
         } else if (choice === 1) await api('POST', `/api/projects/${p.id}/resources`, { name: at(file.name), content: await file.text() })
       } else if (TEXT_EXT.test(file.name)) await api('POST', `/api/projects/${p.id}/resources`, { name: at(file.name), content: await file.text() })
       else {
-        if (!attachmentDoc) attachmentDoc = (await api('POST', `/api/projects/${p.id}/docs`, { title: t('projects.attachments'), content: '' })).id
+        if (!attachmentDoc) attachmentDoc = (await api('POST', `/api/projects/${p.id}/docs`, { title: t('projects.attachments'), content: '', folder })).id
         const existing = (await api('GET', `/api/docs/${attachmentDoc}/files`)).files
         const name = at(file.name.replace(/^[.]+/, '').replace(/[^A-Za-z0-9._ ()-]/g, '_').slice(0, 100))
         if (existing.some(f => f.name === name)) throw new Error(t('common.nameExists'))
@@ -392,24 +462,29 @@ async function uploadToProject(files) {
   if (project) await uploadProjectFiles(project, files)
 }
 
-async function projectMenu(p, folder = '') {
-  const actions = ['doc', 'resource', 'folder', 'upload', 'personal']
-  const items = [[t('docs.newDocTitle'), t('docs.pickDocSub')], [t('projects.newResource'), t('projects.newResourceHint')], [t('projects.newFolder'), t('projects.newFolderHint')], [t('docs.pickUp'), t('docs.pickUpSub')], [t('projects.fromPersonal'), t('projects.fromPersonalHint')]]
-  if ((folder ? folder.split('/').length : 0) >= FOLDER_LEVELS) { actions.splice(2, 1); items.splice(2, 1) } // no deeper level below this one
-  const i = await askPick(folder || p.title, items)
-  if (i == null || i < 0 || !actions[i]) return
-  const action = actions[i]
-  if (action === 'doc') return newProjectDoc(p.id, folder)
-  if (action === 'resource') return newProjectResource(p.id, folder)
-  if (action === 'folder') return newProjectFolder(p, folder)
-  if (action === 'upload') {
-    const picker = document.createElement('input'); picker.type = 'file'; picker.multiple = true
-    picker.onchange = () => uploadProjectFiles(p, [...picker.files], folder).catch(e => toast(e.message))
-    picker.click(); return
+function projectMenu(p, folder = '', anchor) { // the + on a project/folder opens the same compact menu style as the sidebar actions
+  if (!window.showMenuAt) return
+  const run = fn => () => Promise.resolve().then(fn).catch(e => toast(e.message))
+  const items = [
+    { label: t('docs.newDocTitle'), title: t('docs.pickDocSub'), run: run(() => newProjectDoc(p.id, folder)) },
+    { label: t('projects.newResource'), title: t('projects.newResourceHint'), submenu: () => fileTypeMenuItems(ext => run(() => newProjectResource(p.id, folder, ext))()) },
+  ]
+  if ((folder ? folder.split('/').length : 0) < FOLDER_LEVELS) { // no deeper level below this one
+    items.push({ label: t('projects.newFolder'), title: t('projects.newFolderHint'), run: run(() => newProjectFolder(p, folder)) })
   }
-  await loadTpl()
-  const j = await askPick(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']))
-  if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id })
+  items.push(
+    { label: t('docs.pickUp'), title: t('docs.pickUpSub'), run: () => {
+      const picker = document.createElement('input'); picker.type = 'file'; picker.multiple = true
+      picker.onchange = () => uploadProjectFiles(p, [...picker.files], folder).catch(e => toast(e.message))
+      picker.click()
+    } },
+    { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), run: run(async () => {
+      await loadTpl()
+      const j = await askPick(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']))
+      if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id }, folder)
+    }) },
+  )
+  window.showMenuAt(anchor, items, 'left')
 }
 async function newProjectFolder(p, parent = '') {
   const raw = await ask(t('projects.newFolderHead'), { ph: t('projects.newFolderPh'), maxLen: 60 })
@@ -422,32 +497,62 @@ async function newProjectFolder(p, parent = '') {
   shut.delete('project:' + p.id); saveShut(); await sidebar()
 }
 async function deleteFolder(p, path) {
-  if (!await ask(t('projects.folderDeleteConfirm', { name: path }), { noInput: true, danger: true })) return
-  try { await api('DELETE', `/api/projects/${p.id}/folders?path=${encodeURIComponent(path)}`) }
-  catch (e) { toast(e.status === 409 ? t('projects.folderNotEmpty') : e.message); return }
+  if (window.changeSession || window.suggestionDraft) { toast(t('packages.sourceBlocked')); return }
+  if (!await flushTab() || !await flushTpl()) return
+  if (!await ask(t('projects.folderTrashConfirm', { name: path }), { noInput: true, danger: true })) return
+  const fresh = await api('GET', `/api/projects/${p.id}`)
+  const items = folderContents(fresh, path)
+  const trashedDocs = new Set(items.documents.map(d => d.id))
+  try {
+    for (const d of items.documents) await api('DELETE', `/api/docs/${d.id}`)
+    for (const r of items.resources) {
+      await api('DELETE', `/api/projects/${p.id}/resources/${encodeURIComponent(r.name)}?version=${encodeURIComponent(r.updated_at || '')}`)
+    }
+    for (const f of items.files) {
+      if (trashedDocs.has(f.doc_id)) continue // files travel with their trashed document
+      await api('DELETE', `/api/docs/${f.doc_id}/files/${encodeURIComponent(f.name)}`)
+    }
+    await api('DELETE', `/api/projects/${p.id}/folders?path=${encodeURIComponent(path)}`)
+  } catch (e) {
+    // The backend rejects a folder that refilled concurrently; keep the
+    // message local instead of leaking the raw 409 text into the UI.
+    toast(e.status === 409 && /not empty/i.test(e.message) ? t('projects.folderNotEmpty') : e.message)
+    await sidebar(); return
+  }
+  if (docId && trashedDocs.has(docId)) closeView()
+  else if (activeFile && (items.resources.some(r => TPLK + r.name === activeFile) || items.files.some(f => f.name === activeFile && f.doc_id === docId))) await switchTab('', true)
+  if (docId) { filesDirty = true; await loadDocResources(true); tabSig = ''; queueRender() }
   await sidebar()
 }
-async function renameFolder(p, path, host) {
-  if (!await flushTab() || !await flushTpl()) return
-  host = sidebarLiveHost(host, null) || host
-  const label = host?.querySelector('b')
-  const next = label ? await sidebarInlineRename(host, label, path, { label: t('projects.renameFolder'), maxLen: 120 }) : await ask(t('projects.renameFolder'), { value: path })
-  const target = (next || '').trim().replace(/^\/+|\/+$/g, '')
-  if (!target || target === path) return
-  if (target.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
-  const body = el('div', 'mBody')
-  body.append(el('div', 'mLabel', t('projects.newName')), el('div', 'mTarget', target), el('p', 'mNote', t('projects.folderRenameNote')))
-  if (!await ask(t('projects.renameFolder'), { noInput: true, body, ok: t('projects.renameAction') })) return
+async function afterFolderRename(p, path, target) {
   const doc = docId, epoch = openN, was = activeFile
   const inside = key => { const n = isTplKey(key) ? tabName(key) : key; return n === path || n.startsWith(path + '/') }
   const mapped = was && inside(was) ? (isTplKey(was) ? TPLK : '') + target + (isTplKey(was) ? tabName(was) : was).slice(path.length) : ''
-  await api('POST', `/api/projects/${p.id}/folders/rename`, { path, target })
   tabRemapPrefix(p.id, path, target)
   filesDirty = true
   if (mapped && docId === doc && openN === epoch) await switchTab('', true)
   if (docId === doc && openN === epoch && docProject === p.id) { await loadDocResources(true); tabSig = ''; queueRender() }
   await sidebar()
   if (mapped && docId === doc && openN === epoch) await switchTab(mapped)
+}
+async function renameFolder(p, path, host) {
+  if (window.changeSession || window.suggestionDraft) { toast(t('packages.sourceBlocked')); return }
+  if (!await flushTab() || !await flushTpl()) return
+  host = sidebarLiveHost(host, null) || host
+  const label = host?.querySelector('b')
+  const parent = folderParent(path), base = folderBase(path) // path stays out of the input; typing a path can still move the folder
+  const next = label ? await sidebarInlineRename(host, label, base, { label: t('projects.renameFolder'), maxLen: 120 }) : await ask(t('projects.renameFolder'), { value: base })
+  const typed = (next || '').trim().replace(/^\/+|\/+$/g, '')
+  if (!typed) return
+  const target = typed.includes('/') ? typed : joinFolder(parent, typed)
+  if (target === path) return
+  if (target.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
+  if (!folderTreeFits(folderContents(p, path), path, target)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
+  const body = el('div', 'mBody')
+  body.append(el('div', 'mLabel', t('projects.newName')), el('div', 'mTarget', target), el('p', 'mNote', t('projects.folderRenameNote')))
+  if (!await ask(t('projects.renameFolder'), { noInput: true, body, ok: t('projects.renameAction') })) return
+  await api('POST', `/api/projects/${p.id}/folders/rename`, { path, target })
+  await afterFolderRename(p, path, target)
 }
 async function renameProject(p, host) {
   if (host && !host.isConnected) host = [...document.querySelectorAll('.project-group')].find(group => group.dataset.projectId === p.id)?.querySelector('.fhd.project') || host
@@ -456,8 +561,14 @@ async function renameProject(p, host) {
   if (title?.trim()) { await api('POST', `/api/projects/${p.id}/rename`, { title: title.trim() }); await sidebar() }
 }
 async function deleteProject(p) {
+  if (!await flushTab() || !await flushTpl()) return
   if (!await ask(t('projects.deleteWarning'), { noInput: true, danger: true })) return
-  await api('DELETE', `/api/projects/${p.id}`); await sidebar()
+  await api('DELETE', `/api/projects/${p.id}`)
+  // The whole project is gone: leave no editable zombie tab behind (saves
+  // would only 410) and keep a local draft for offline main.typ edits.
+  const openModule = activeFile && isTplKey(activeFile) && projectEntries(p).resources.some(r => r.name === tabName(activeFile))
+  if (docProject === p.id || openModule) closeView()
+  await sidebar()
 }
 async function renameProjectDocument(d, host) {
   host = sidebarLiveHost(host, ['document', d.id, 'main.typ'].join(':'))
@@ -473,9 +584,13 @@ async function renameProjectEntry(p, name, document, resource, host) {
   host = sidebarLiveHost(host, [resource ? 'resource' : 'file', resource ? '' : document, name].join(':'))
   if (!await flushTab() || !await flushTpl()) return
   const label = host?.querySelector('.t')
-  const next = label ? await sidebarInlineRename(host, label, name, { label: t('docs.renameDoc'), maxLen: 240 }) : await ask(t('projects.renameWarning'), { value: name, maxLen: 240 })
-  if (!next?.trim() || next.trim() === name) return
-  await applyEntryRename(p, name, document, resource, next.trim())
+  const dir = folderParent(name), base = folderBase(name) // the row shows only the name; the folder path stays hidden while renaming
+  const next = label ? await sidebarInlineRename(host, label, base, { label: t('docs.renameDoc'), maxLen: 240, stem: true }) : await ask(t('projects.renameWarning'), { value: base, maxLen: 240, stem: true })
+  const typed = next?.trim().replace(/^\/+|\/+$/g, '')
+  if (!typed) return
+  const target = typed.includes('/') ? typed : joinFolder(dir, typed) // typing a path still moves as before
+  if (target === name) return
+  await applyEntryRename(p, name, document, resource, target)
 }
 function renameBody(name, references) { // structured rename dialog: target first, then references, then the warning
   const body = el('div', 'mBody')
@@ -516,6 +631,7 @@ async function applyEntryRename(p, name, document, resource, target, confirm = t
   toast(confirm ? t('files.renamed', { name: result.name }) : t('files.moved', { name: result.name }))
 }
 async function moveEntryToFolder(p, entry, folder) { // drag onto a folder (or the project): same project only
+  if (folder && folder.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
   if (entry.kind === 'document') {
     const current = projectEntries(p).documents.find(d => d.id === entry.doc_id)
     if (!current || (current.folder || '') === folder) return
@@ -525,6 +641,31 @@ async function moveEntryToFolder(p, entry, folder) { // drag onto a folder (or t
   const base = entry.name.split('/').pop(), next = folder ? folder + '/' + base : base
   if (next === entry.name) return
   await applyEntryRename(p, entry.name, entry.doc_id, entry.kind === 'resource', next, false) // drag = just move, no dialog
+}
+async function folderTransferTo(source, path, target, parent, move) { // drag a folder onto a folder header or the project root
+  if ((parent ? parent.split('/').length : 0) + 1 > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
+  if (source.id === target.id) {
+    const fresh = await api('GET', `/api/projects/${source.id}`)
+    if (move) {
+      let next = joinFolder(parent, folderBase(path))
+      if (next === path) return null
+      if (folderIsUsed(fresh, next)) {
+        const name = await targetFolderName(fresh, parent, folderBase(path), false)
+        if (!name) return null
+        next = joinFolder(parent, name)
+      }
+      if (next.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
+      if (!folderTreeFits(folderContents(fresh, path), path, next)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
+      await api('POST', `/api/projects/${source.id}/folders/rename`, { path, target: next })
+      await afterFolderRename(source, path, next)
+      return next
+    }
+    const name = await targetFolderName(fresh, parent, folderBase(path), true)
+    return name ? copyFolderTree(source, path, fresh, parent, name, false) : null
+  }
+  const fresh = await api('GET', `/api/projects/${target.id}`)
+  const name = await targetFolderName(fresh, parent, folderBase(path), !move)
+  return name ? copyFolderTree(source, path, fresh, parent, name, move) : null
 }
 async function deleteProjectEntry(p, name, document, resource) {
   if (!p) { toast(t('projects.contextGone')); return }
@@ -542,69 +683,328 @@ async function deleteProjectEntry(p, name, document, resource) {
   await sidebar()
 }
 
-async function projectEntryMenu(p, entry) {
-  const actions = ['copy'], items = [[t('projects.copyProject'), t('projects.copyProjectHint')]]
-  if (projectEditable(p)) {
-    actions.unshift('duplicate'); items.unshift([t('docs.duplicate'), t('projects.duplicateHint', { name: copyDisplayName(entry.name) })])
-    actions.push('move'); items.push([t('projects.moveProject'), t('projects.moveProjectHint')])
-  }
-  if (entry.kind === 'resource' || entry.kind === 'file' && TEXT_EXT.test(entry.name)) { actions.push('global'); items.push([t('projects.pullPersonal'), t('projects.pullPersonalHint')]) }
-  const i = await askPick(entry.name, items)
-  if (i == null || !actions[i]) return
-  if (actions[i] === 'duplicate') {
-    if (!await flushTab() || !await flushTpl()) return
-    await api('POST', `/api/projects/${p.id}/transfer`, { ...entry, target_project_id: p.id, target_doc_id: entry.doc_id || '', duplicate: true })
-    await sidebar(); filesDirty = true; if (docId) { await loadDocResources(true); queueRender() }
-    return
-  }
-  if (actions[i] === 'global') {
-    if (entry.kind === 'resource') return pullLibrary({ source_scope: 'project', source_project_id: p.id, source: entry.name }, { scope: 'personal' })
-    return copyToLibrary(entry.name, entry.doc_id, { scope: 'personal' })
-  }
-  return transferProjectEntry(p, entry, actions[i] === 'move')
+function projectFolderPaths(p) { return projectTree(p, projectEntries(p)).all }
+const folderBase = path => path.split('/').pop()
+const folderParent = path => path.split('/').slice(0, -1).join('/')
+const joinFolder = (parent, name) => parent ? parent + '/' + name : name
+const insideFolder = (path, folder) => path === folder || path.startsWith(folder + '/')
+function cleanFolderName(raw) { return String(raw || '').trim().replace(/[\\/]+/g, '_').replace(/^\.+/, '').slice(0, 100) }
+function folderIsUsed(p, path) {
+  if (projectFolderPaths(p).includes(path)) return true
+  const entries = projectEntries(p)
+  return entries.documents.some(d => (d.folder || '') === path) || entries.resources.some(r => r.name === path) || entries.files.some(f => f.name === path)
 }
-async function transferProjectEntry(p, entry, move, selectedTarget, direct = false) {
-  if (!await flushTab() || !await flushTpl()) return
-  let target = selectedTarget
-  if (!target) {
-    const targets = projects.filter(projectEditable)
-    const i = await askPick(t(move ? 'projects.moveProject' : 'projects.copyProject'), targets.map(p => [p.title, '']))
-    if (i == null || !targets[i]) return
-    target = targets[i]
+async function targetFolderName(p, parent, base, copy) {
+  if (!folderIsUsed(p, joinFolder(parent, base))) return base
+  if (copy) {
+    for (let n = 1; ; n++) {
+      const candidate = t(n === 1 ? 'projects.copyOne' : 'projects.copyMany', { name: base, n })
+      if (!folderIsUsed(p, joinFolder(parent, candidate))) return candidate
+    }
   }
-  let targetDoc = ''
-  if (entry.kind === 'file') {
+  const answer = await ask(t('projects.folderNameConflict'), { value: base, maxLen: 100, selectAll: true })
+  const cleaned = cleanFolderName(answer)
+  if (!cleaned) return null
+  if (cleaned === base) return null
+  return targetFolderName(p, parent, cleaned, false)
+}
+function folderContents(p, path) {
+  const entries = projectEntries(p)
+  return {
+    documents: entries.documents.filter(d => insideFolder(d.folder || '', path)),
+    resources: entries.resources.filter(r => insideFolder(r.name, path)),
+    files: entries.files.filter(f => insideFolder(f.name, path)),
+    folders: (p.folders || []).filter(f => insideFolder(f, path)),
+  }
+}
+function folderTreeFits(items, path, targetPath) { // never start a copy/move that must fail halfway on depth
+  const tooDeep = p => p.split('/').filter(Boolean).length > FOLDER_LEVELS
+  const rel = p => p === path ? '' : p.slice(path.length)
+  if (tooDeep(targetPath)) return false
+  if (items.folders.some(f => tooDeep(targetPath + rel(f)))) return false
+  if (items.documents.some(d => tooDeep(targetPath + rel(d.folder || '')))) return false
+  if (items.resources.some(r => tooDeep(folderParent(targetPath + rel(r.name))))) return false
+  if (items.files.some(f => tooDeep(folderParent(targetPath + rel(f.name))))) return false
+  return true
+}
+function projectCopyName(name, n = 1) {
+  const dot = name.lastIndexOf('.')
+  const ext = dot > name.lastIndexOf('/') + 1 ? name.slice(dot) : ''
+  const stem = ext ? name.slice(0, dot) : name
+  return t(n === 1 ? 'projects.copyOne' : 'projects.copyMany', { name: stem, n }) + ext
+}
+function uniqueDocTitle(used, title) {
+  if (!used.has(title.toLowerCase())) return title
+  for (let n = 1; ; n++) {
+    const candidate = projectCopyName(title, n)
+    if (!used.has(candidate.toLowerCase())) return candidate
+  }
+}
+async function attachmentsDoc(p) {
+  const docs = projectEntries(p).documents
+  if (docs.length) return docs[0].id
+  for (let n = 1; ; n++) {
+    const title = n === 1 ? t('projects.attachments') : `${t('projects.attachments')} ${n}`
+    try {
+      const r = await api('POST', `/api/projects/${p.id}/docs`, { title, content: '' })
+      p.documents = [...(p.documents || []), { id: r.id, title, folder: '' }]
+      return r.id
+    } catch (e) {
+      if (e.status !== 409) throw e
+    }
+  }
+}
+async function pickTargetFolder(p, head, exclude = '', reserve = 0) {
+  // reserve is the depth the moved entry adds itself: a folder needs one level,
+  // files/documents none. Both allowed levels stay selectable for entries.
+  const max = FOLDER_LEVELS - reserve
+  const paths = projectFolderPaths(p).filter(f => f.split('/').length <= max && (!exclude || !insideFolder(f, exclude)))
+  const values = ['', ...paths]
+  const i = await askPick(head, values.map(f => [f || t('menu.projectRoot'), '']))
+  return i == null || i < 0 ? null : values[i]
+}
+async function transferEntryTo(p, entry, target, folder, move, opts = {}) {
+  if (!await flushTab() || !await flushTpl()) return null
+  if (folder && folder.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
+  const same = p.id === target.id
+  if (same && move && entry.kind === 'document' && (entry.folder || '') === folder) return null
+  if (same && move && entry.kind !== 'document' && entryFolder(entry) === folder) return null
+  // Silent cross-project transfers (drop on the project row, trash restore)
+  // keep the existing folder path. Choosing a target folder explicitly wins.
+  const keep = !!opts.keepPath && !folder
+  const destFolder = entry.kind === 'document' ? (keep ? (entry.folder || '') : folder) : folder
+  let targetDoc = opts.targetDoc || ''
+  if (entry.kind === 'file' && !targetDoc) {
     const docs = projectEntries(target).documents
-    if (!docs.length) { toast(t('projects.uploadNeedsDoc')); return }
+    if (!docs.length) { toast(t('projects.uploadNeedsDoc')); return null }
     targetDoc = docs.find(d => d.id === entry.doc_id)?.id || docs.find(d => d.id === docId)?.id || docs[0].id
   }
-  if (direct && p.id === target.id && move) return
-  let name = entry.name
+  let name = opts.name || (entry.kind === 'document' ? entry.name : keep ? entry.name : entry.name.split('/').pop())
+  let askName = opts.askName !== false
+  let duplicate = !!opts.duplicate
   while (true) {
-    if (!direct) name = await ask(t('projects.copyName'), { value: name, maxLen: entry.kind === 'document' ? 100 : 240 })
-    if (!name?.trim()) return
+    if (askName) {
+      const input = await ask(t('projects.copyName'), { value: entry.kind === 'document' ? name : name.split('/').pop(), maxLen: entry.kind === 'document' ? 100 : 240, stem: true })
+      if (input == null || !input.trim()) return null
+      name = input.trim()
+    }
+    const targetName = entry.kind === 'document' || name.includes('/') ? name : (destFolder ? destFolder + '/' + name : name)
+    if (entry.kind !== 'document' && targetName.split('/').length - 1 > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
+    const body = { kind: entry.kind, doc_id: entry.doc_id || '', name: entry.name, target_project_id: target.id, target_doc_id: targetDoc, target_name: targetName, move }
+    if (entry.kind === 'document') body.target_folder = destFolder
+    if (duplicate) body.duplicate = true
     try {
-      const result = await api('POST', `/api/projects/${p.id}/transfer`, { ...entry, target_project_id: target.id, target_doc_id: targetDoc, target_name: name.trim(), move, duplicate: direct && !move && p.id === target.id })
-      await sidebar(); filesDirty = true
-      if (docId) { await loadDocResources(true); tabSig = ''; queueRender() }
+      const result = await api('POST', `/api/projects/${p.id}/transfer`, body)
+      if (opts.refresh !== false) {
+        await sidebar(); filesDirty = true
+        if (docId) { await loadDocResources(true); tabSig = ''; queueRender() }
+      }
       if (entry.kind === 'document' && move && docId === entry.doc_id) await openDoc(result.doc_id)
-      return
+      return result
     } catch (e) {
       if (e.status !== 409) throw e
       toast(e.message)
-      direct = false
+      if (opts.strict) throw e
+      askName = true; duplicate = false
     }
   }
+}
+function entryMenuItems(p, entry, actions) {
+  const what = entry.kind === 'document' ? 'document' : entry.kind === 'resource' ? 'module' : 'file'
+  const rename = actions.find(b => b.dataset.menuKey === 'rename')
+  const trash = actions.find(b => b.dataset.menuKey === 'trash')
+  const session = !!window.changeSession
+  const writable = projectEditable(p) && !session
+  return [
+    rename && menuButtonItem(rename, what),
+    writable && sidebarMenuItem('duplicate', () => transferEntryTo(p, entry, p, entryFolder(entry), false, { askName: false, duplicate: true }), { what }),
+    !session && sidebarMenuItem('copy', null, { what, submenu: () => entryDestinationItems(p, entry, false, writable) }),
+    writable && sidebarMenuItem('move', null, { what, submenu: () => entryDestinationItems(p, entry, true) }),
+    trash && menuButtonItem(trash, what),
+  ].filter(Boolean)
+}
+function entryDestinationItems(p, entry, move, within = true) {
+  const what = entry.kind === 'document' ? 'document' : entry.kind === 'resource' ? 'module' : 'file'
+  const items = []
+  if (within) items.push(sidebarMenuItem('copy', () => transferEntryWithin(p, entry, move), { what, label: t('menu.copyHere'), title: t('menu.copyHereHint') }))
+  items.push(sidebarMenuItem('copy', () => transferEntryOther(p, entry, move), { what, label: t('menu.copyOther'), title: t('menu.copyOtherHint') }))
+  if (!move && (entry.kind === 'resource' || (entry.kind === 'file' && TEXT_EXT.test(entry.name)))) {
+    items.push(sidebarMenuItem('copy', () => copyEntryGlobal(p, entry), { what, label: t('menu.copyGlobal'), title: t('menu.copyGlobalHint') }))
+  }
+  return items
+}
+function copyEntryGlobal(p, entry) {
+  if (entry.kind === 'resource') return pullLibrary({ source_scope: 'project', source_project_id: p.id, source: entry.name }, { scope: 'personal' })
+  return copyToLibrary(entry.name, entry.doc_id, { scope: 'personal' })
+}
+async function transferEntryWithin(p, entry, move) {
+  const folder = await pickTargetFolder(p, t('menu.copyHere'))
+  if (folder == null) return
+  // Documents may share a title across folders, but not within one; a copy into the same folder needs a new title.
+  return transferEntryTo(p, entry, p, folder, move, { askName: false, duplicate: !move && entry.kind === 'document' && (entry.folder || '') === folder })
+}
+async function transferEntryOther(p, entry, move) {
+  const targets = projects.filter(x => x.id !== p.id && projectEditable(x))
+  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  const i = await askPick(t('menu.copyOther'), targets.map(x => [x.title, '']))
+  if (i == null || !targets[i]) return
+  let target
+  try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return }
+  const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }))
+  if (folder == null) return
+  return transferEntryTo(p, entry, target, folder, move)
+}
+async function projectEntryMenu(p, entry, anchor) {
+  const what = entry.kind === 'document' ? 'document' : entry.kind === 'resource' ? 'module' : 'file'
+  const items = [
+    sidebarMenuItem('copy', null, { what, submenu: () => entryDestinationItems(p, entry, false) }),
+    sidebarMenuItem('move', null, { what, submenu: () => entryDestinationItems(p, entry, true) }),
+  ]
+  if (anchor && window.showMenuAt) { window.showMenuAt(anchor, items, 'left'); return }
+  const i = await askPick(entry.name, [[t('menu.copyTo'), t('menu.copyToHint', { what: menuWhat(what) })], [t('menu.moveTo'), t('menu.moveToHint', { what: menuWhat(what) })]])
+  if (i == null || i < 0) return
+  const destinations = entryDestinationItems(p, entry, i === 1)
+  const j = await askPick(i === 1 ? t('menu.moveTo') : t('menu.copyTo'), destinations.map(d => [d.label, d.title]))
+  if (j == null || j < 0 || !destinations[j]) return
+  return destinations[j].run()
+}
+async function duplicateFolder(p, path) {
+  const fresh = await api('GET', `/api/projects/${p.id}`)
+  const parent = folderParent(path)
+  const name = await targetFolderName(fresh, parent, folderBase(path), true)
+  if (name) await copyFolderTree(p, path, fresh, parent, name, false)
+}
+async function transferFolderWithin(p, path, move) {
+  const fresh = await api('GET', `/api/projects/${p.id}`)
+  const parent = await pickTargetFolder(fresh, t('menu.copyHere'), path, 1)
+  if (parent == null) return
+  if (move) {
+    let target = joinFolder(parent, folderBase(path))
+    if (target === path) return
+    if (folderIsUsed(fresh, target)) {
+      const name = await targetFolderName(fresh, parent, folderBase(path), false)
+      if (!name) return
+      target = joinFolder(parent, name)
+    }
+    if (!folderTreeFits(folderContents(fresh, path), path, target)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
+    await api('POST', `/api/projects/${p.id}/folders/rename`, { path, target })
+    await afterFolderRename(p, path, target)
+    return
+  }
+  const name = await targetFolderName(fresh, parent, folderBase(path), true)
+  if (name) await copyFolderTree(p, path, fresh, parent, name, false)
+}
+async function transferFolderOther(p, path, move) {
+  const targets = projects.filter(x => x.id !== p.id && projectEditable(x))
+  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  const i = await askPick(t('menu.copyOther'), targets.map(x => [x.title, '']))
+  if (i == null || !targets[i]) return
+  let target
+  try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return }
+  const parent = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', 1)
+  if (parent == null) return
+  const name = await targetFolderName(target, parent, folderBase(path), !move)
+  if (name) await copyFolderTree(p, path, target, parent, name, move)
+}
+async function copyFolderTree(source, path, target, parent, name, move) {
+  const src = await api('GET', `/api/projects/${source.id}`)
+  const tgt = target.id === source.id ? src : await api('GET', `/api/projects/${target.id}`)
+  const targetPath = joinFolder(parent, name)
+  const items = folderContents(src, path)
+  if (!folderTreeFits(items, path, targetPath)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
+  for (const p of folderParents(targetPath)) await api('POST', `/api/projects/${target.id}/folders`, { path: p })
+  for (const f of items.folders) {
+    const rel = f === path ? '' : f.slice(path.length + 1)
+    await api('POST', `/api/projects/${target.id}/folders`, { path: rel ? targetPath + '/' + rel : targetPath })
+  }
+  const usedByFolder = new Map() // titles are unique per folder, so a copied folder keeps document names unless its target folder already has them
+  const usedIn = folder => {
+    if (!usedByFolder.has(folder)) usedByFolder.set(folder, new Set(projectEntries(tgt).documents.filter(d => (d.folder || '') === folder).map(d => d.title.toLowerCase())))
+    return usedByFolder.get(folder)
+  }
+  const docMap = new Map()
+  for (const d of items.documents) {
+    const rel = d.folder && d.folder !== path ? d.folder.slice(path.length + 1) : ''
+    const folder = rel ? targetPath + '/' + rel : targetPath
+    const used = usedIn(folder)
+    const suggested = uniqueDocTitle(used, d.title)
+    used.add(suggested.toLowerCase())
+    const result = await transferEntryTo(source, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }, tgt, folder, move, {
+      askName: false, name: suggested, strict: true, refresh: false,
+    })
+    if (result) docMap.set(d.id, result.doc_id)
+  }
+  for (const r of items.resources) {
+    const rel = r.name.slice(path.length).replace(/^\/+/, '')
+    await transferEntryTo(source, { kind: 'resource', doc_id: '', name: r.name }, tgt, '', move, {
+      askName: false, name: targetPath + '/' + rel, strict: true, refresh: false,
+    })
+  }
+  let attachDoc = ''
+  for (const f of items.files) {
+    if (docMap.has(f.doc_id)) continue // files travel with their copied or moved document
+    let targetDoc = target.id === source.id ? f.doc_id : ''
+    if (!targetDoc) {
+      if (!attachDoc) attachDoc = await attachmentsDoc(tgt)
+      targetDoc = attachDoc
+    }
+    const rel = f.name.slice(path.length).replace(/^\/+/, '')
+    await transferEntryTo(source, { kind: 'file', doc_id: f.doc_id, name: f.name }, tgt, '', move, {
+      askName: false, name: targetPath + '/' + rel, targetDoc, strict: true, refresh: false,
+    })
+  }
+  if (move && target.id !== source.id) {
+    try { await api('DELETE', `/api/projects/${source.id}/folders?path=${encodeURIComponent(path)}`) }
+    catch (e) { if (e.status !== 409) throw e }
+  }
+  await sidebar(); filesDirty = true
+  if (docId) { await loadDocResources(true); tabSig = ''; queueRender() }
+  return targetPath
+}
+function folderMenuItems(p, path, actions) {
+  const rename = actions.find(b => b.dataset.menuKey === 'rename')
+  const trash = actions.find(b => b.dataset.menuKey === 'trash')
+  const session = !!window.changeSession || !!window.suggestionDraft
+  const writable = projectEditable(p) && !session
+  return [
+    rename && !session && menuButtonItem(rename, 'folder'),
+    writable && sidebarMenuItem('duplicate', () => duplicateFolder(p, path), { what: 'folder' }),
+    !session && sidebarMenuItem('copy', null, { what: 'folder', submenu: () => folderDestinationItems(p, path, false, writable) }),
+    writable && sidebarMenuItem('move', null, { what: 'folder', submenu: () => folderDestinationItems(p, path, true) }),
+    trash && !session && menuButtonItem(trash, 'folder'),
+  ].filter(Boolean)
+}
+function folderDestinationItems(p, path, move, within = true) {
+  const items = []
+  if (within) items.push(sidebarMenuItem('copy', () => transferFolderWithin(p, path, move), { what: 'folder', label: t('menu.copyHere'), title: t('menu.copyHereHint') }))
+  items.push(sidebarMenuItem('copy', () => transferFolderOther(p, path, move), { what: 'folder', label: t('menu.copyOther'), title: t('menu.copyOtherHint') }))
+  return items
+}
+async function transferProjectEntry(p, entry, move, selectedTarget, direct = false, folder = '') {
+  let target = selectedTarget
+  if (!target) {
+    const targets = projects.filter(projectEditable)
+    const i = await askPick(t(move ? 'menu.moveTo' : 'menu.copyTo'), targets.map(x => [x.title, '']))
+    if (i == null || !targets[i]) return
+    target = targets[i]
+  }
+  if (direct && p.id === target.id && move) return
+  return transferEntryTo(p, entry, target, folder, move, { askName: !direct, keepPath: p.id !== target.id })
 }
 function projectDrag(row, p, entry) {
   sidebarDrag(row, { project: p.id, entry }, projectEditable(p) ? 'copyMove' : 'copy')
 }
 function projectDropTarget(row, target, folder = '', visual = row) {
   if (!projectEditable(target)) return
+  const invalidDrop = data => {
+    if (!data || data.trashed || data.personal) return false
+    if (data.project === target.id && entryFolder(data.entry) === folder) return true // already here: no target, no drop
+    return data.entry.kind === 'folder' && insideFolder(folder, data.entry.name) // never into itself or a descendant
+  }
   row.ondragover = e => {
     if (!e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('application/x-typst-project-entry')) return
     const data = sidebarDragData
-    if (data && !data.trashed && data.project === target.id && entryFolder(data.entry) === folder) { markDropTarget(null); return } // already here: no target, no drop
+    if (invalidDrop(data)) { markDropTarget(null); return }
     e.preventDefault(); e.stopPropagation(); markDropTarget(visual)
     e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') || sidebarDragData?.personal || e.ctrlKey || e.metaKey ? 'copy' : 'move'
   }
@@ -615,11 +1015,17 @@ function projectDropTarget(row, target, folder = '', visual = row) {
     try {
       if (e.dataTransfer.files.length) { await uploadProjectFiles(target, [...e.dataTransfer.files], folder); return }
       const data = JSON.parse(e.dataTransfer.getData('application/x-typst-project-entry'))
+      if (invalidDrop(data)) return
       if (data.trashed) { await restoreSidebarDocument(data, target); return }
-      if (data.personal) { await pullLibrary({ source_scope: 'personal', source: data.entry.name }, { scope: 'project', project_id: target.id }); return }
+      if (data.personal) { await pullLibrary({ source_scope: 'personal', source: data.entry.name, folder: data.entry.folder || '' }, { scope: 'project', project_id: target.id }, folder); return }
       const source = projects.find(p => p.id === data.project)
-      if (source && source.id === target.id && projectEditable(source) && !e.ctrlKey && !e.metaKey) await moveEntryToFolder(source, data.entry, folder)
-      else if (source) await transferProjectEntry(source, data.entry, projectEditable(source) && !e.ctrlKey && !e.metaKey, target, true)
+      if (!source) return
+      if (data.entry.kind === 'folder') {
+        await folderTransferTo(source, data.entry.name, target, folder, projectEditable(source) && !e.ctrlKey && !e.metaKey)
+        return
+      }
+      if (source.id === target.id && projectEditable(source) && !e.ctrlKey && !e.metaKey) await moveEntryToFolder(source, data.entry, folder)
+      else await transferProjectEntry(source, data.entry, projectEditable(source) && !e.ctrlKey && !e.metaKey, target, true, folder)
     } catch (error) { toast(error.message) }
   }
 }
@@ -629,7 +1035,7 @@ async function renamePersonalResource(name, host) {
   if (editing && !await flushTpl()) return
   if (host && !host.isConnected) host = [...document.querySelectorAll('.private-module')].find(row => row.querySelector('.t')?.textContent === name) || host
   const label = host?.querySelector('.t')
-  const target = label ? await sidebarInlineRename(host, label, name, { label: t('templates.renameTpl'), maxLen: 100 }) : await ask(t('templates.renameTpl'), { value: name, maxLen: 100 })
+  const target = label ? await sidebarInlineRename(host, label, name, { label: t('templates.renameTpl'), maxLen: 100, stem: true }) : await ask(t('templates.renameTpl'), { value: name, maxLen: 100, stem: true })
   if (!target?.trim() || target.trim() === name) return
   try {
   await loadTpl()

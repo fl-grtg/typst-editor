@@ -95,6 +95,20 @@ test('private module insertion waits for copied snapshot and uses returned name'
   finish({ name: 'copied.typ' }); await pending
   assert.equal(inserted, '#include "copied.typ"')
 })
+test('personal pull keeps its collection folder or follows the target folder', async () => {
+  let initial, body, stem
+  const c = setup({ ask: async (_label, options) => { initial = options.value; stem = options.stem; return options.value }, api: async (_m, url, sent) => {
+    if (url.endsWith('pull-preview')) return { preview: 'token' }
+    body = sent; return { name: sent.name }
+  } })
+  assert.equal(await c.pullLibrary({ source_scope: 'personal', source: 'module.typ', folder: 'MeineOrdner' }, { scope: 'project', project_id: 'p' }), 'MeineOrdner/module.typ')
+  assert.equal(initial, 'MeineOrdner/module.typ')
+  assert.equal(stem, true)
+  assert.equal(body.name, 'MeineOrdner/module.typ')
+  assert.equal(await c.pullLibrary({ source_scope: 'personal', source: 'module.typ', folder: 'MeineOrdner' }, { scope: 'project', project_id: 'p' }, 'Ziel'), 'Ziel/module.typ')
+  assert.equal(initial, 'Ziel/module.typ')
+  assert.equal(body.name, 'Ziel/module.typ')
+})
 test('snapshot collision only offers rename or cancel, never overwrites', async () => {
   const calls = [], answers = ['taken.typ', null]
   const c = setup({ ask: async () => answers.shift(), api: async (_method, url, body) => {
@@ -124,7 +138,7 @@ test('project share uses project membership and omits document invites', async (
 })
 test('project actions use standard icons and never expose drawer membership', () => {
   const paint = source.slice(source.indexOf('function paintProjects'), source.indexOf('async function newProjectDoc'))
-  assert.match(paint, /ICO_PLUS/); assert.match(paint, /ICO_EDIT/); assert.match(paint, /ICO_TRASH/); assert.doesNotMatch(paint, /ICO_MORE/); assert.match(paint, /projectMenu\(p\)/)
+  assert.match(paint, /ICO_PLUS/); assert.match(paint, /ICO_EDIT/); assert.match(paint, /ICO_TRASH/); assert.doesNotMatch(paint, /ICO_MORE/); assert.match(paint, /projectMenu\(p, '', add\)/)
   assert.doesNotMatch(paint, /projectMembers|projects\.members/)
   assert.match(source, /b\.title = label; b\.setAttribute\('aria-label', label\)/)
 })
@@ -314,18 +328,18 @@ test('repeated CSV sidebar clicks share one pending open and review resources ne
 
 test('empty trash sends one bulk request for twelve entries and never opens a document', async () => {
   const nodes = new Map(), writes = []
-  const node = () => ({ style: {}, children: [], setAttribute: () => {}, appendChild(n) { this.children.push(n) },
+  const node = () => ({ style: {}, children: [], dataset: {}, setAttribute: () => {}, appendChild(n) { this.children.push(n) },
     append(...ns) { this.children.push(...ns) }, replaceChildren() { this.children = [] } })
   const c = vm.createContext({ $: id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id) },
     el: node, icoBtn: node, t: key => key, kb: () => {}, sidebarDropTarget: () => {}, sidebarDrag: () => {},
-    secShut: new Set(), docId: 'active', activeFile: '', ICO_UNDO: '', ICO_X: '',
-    ask: async () => true, sidebar: async () => {}, closeView: () => assert.fail('active document must stay open'),
+    secShut: new Set(), docId: 'active', activeFile: '', ICO_UNDO: '', ICO_X: '', ICO_MORE: '',
+    ask: async () => true, sidebar: async () => {}, reanchorSideMenu: () => {}, closeView: () => assert.fail('active document must stay open'),
     openDoc: () => assert.fail('deletion must not open a document'), toast: message => assert.fail(message),
     api: async (method, url) => { writes.push([method, url]); return { documents: [] } } })
   const docs = readFileSync('web/js/60-docs.js', 'utf8')
   vm.runInContext(docs.slice(docs.indexOf('function paintTrash('), docs.indexOf("$('q').oninput")), c)
   c.paintTrash(Array.from({ length: 12 }, (_, i) => ({ id: 'trash' + i, title: 'Old ' + i })))
-  await nodes.get('trashH').children[1].onclick({ stopPropagation: () => {} })
+  await nodes.get('trashH').children[1].sideMenuItems()[0].run()
   assert.deepEqual(writes, [['DELETE', '/api/trash']])
 })
 

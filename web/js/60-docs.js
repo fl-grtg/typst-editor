@@ -20,8 +20,9 @@ function paintSecs() { // all sections collapsible, + creates folder directly
     kb(H, togSec) // h3 is the button (Enter/Space), aria-expanded see below
     H.appendChild(l)
     if (plus) {
-      const p = icoBtn('mini', ICO_PLUS); p.title = plus === 'doc' ? t('shell.newDoc') : t('templates.newResource', { kind: resLabel(plus) }); p.setAttribute('aria-label', p.title)
-      p.onclick = e => { e.stopPropagation(); plus === 'doc' ? $('new').click() : newResource(plus) }
+      const plusTitle = plus === 'doc' ? t('shell.newDoc') : plus === 'resource' ? t('projects.newResource') : t('templates.newResource', { kind: resLabel(plus) })
+      const p = icoBtn('mini', ICO_PLUS); p.title = plusTitle; p.setAttribute('aria-label', p.title)
+      p.onclick = e => { e.stopPropagation(); plus === 'doc' ? openNewMenu(p) : openNewResourceMenu(p) }
       H.appendChild(p)
 
     }
@@ -177,6 +178,9 @@ function sidebarRenaming() { // an in-flight or direct repaint must not wipe the
   window.__sidebarDeferred = true
   return true
 }
+function reanchorSideMenu() { // an open row menu moves to the new row instead of hiding its actions
+  if (window.reanchorSidebarMenu) window.reanchorSidebarMenu()
+}
 function paintOwn() { // top-level first, then folders (A-Z); search replaces list
   if (sidebarRenaming()) return
   const box = $('own'); box.replaceChildren()
@@ -199,12 +203,14 @@ function paintOwn() { // top-level first, then folders (A-Z); search replaces li
       kb(div, openH)
       box.appendChild(div)
     })
+    reanchorSideMenu()
     return
   }
   if (qc) qc.textContent = ''
   lastOwn.filter(x => !x.project_id).forEach(x => box.appendChild(docRow(x)))
   paintProjects(box, false)
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noDocs')))
+  reanchorSideMenu()
 }
 function paintShared(list) { // one folder per person; one file = user/file like VSCode
   if (sidebarRenaming()) return
@@ -226,6 +232,7 @@ function paintShared(list) { // one folder per person; one file = user/file like
   })
   paintProjects(box, true)
   if (!box.hasChildNodes()) box.appendChild(el('div', 'empty', t('docs.noShared')))
+  reanchorSideMenu()
 }
 function paintTrash(trash) { // click peeks in (trash view), restore, delete permanently
   const h = $('trashH')
@@ -240,20 +247,21 @@ function paintTrash(trash) { // click peeks in (trash view), restore, delete per
   sidebarDropTarget($('trashDrop'), 'trash')
   $('trash').style.display = secShut.has('trashH') ? 'none' : ''
   if (!trash.length) { $('trash').replaceChildren(); $('trash').appendChild(el('div', 'empty', t('docs.trashEmpty'))); return }
-  const empty = el('button', 'mini trashClear', t('docs.emptyTrashBtn')); empty.title = t('docs.emptyTrashTitle'); empty.setAttribute('aria-label', empty.title)
-  empty.onclick = async e => {
-    e.stopPropagation()
+  const emptyItem = async () => {
     if (!await ask(trash.length === 1 ? t('docs.emptyTrashConfirmOne') : t('docs.emptyTrashConfirmMany', { n: trash.length }), { noInput: true, ok: t('common.delete'), danger: true })) return
-    if (empty.disabled) return
-    empty.disabled = true
-    try {
-      const result = await api('DELETE', '/api/trash')
-      if (result.documents.includes(docId)) closeView()
-      await sidebar()
-    } catch (e) { toast(e.message) }
-    finally { empty.disabled = false }
+    const result = await api('DELETE', '/api/trash')
+    if (result.documents.includes(docId)) closeView()
+    await sidebar()
   }
+  const empty = icoBtn('mini', ICO_MORE) // trash actions live behind the three-dot like every other section row
+  empty.title = t('shell.menuMore'); empty.setAttribute('aria-label', empty.title)
+  empty.setAttribute('aria-haspopup', 'menu'); empty.setAttribute('aria-expanded', 'false')
+  empty.dataset.sideMenu = ''
+  empty.sideMenuItems = () => [{
+    label: t('docs.emptyTrashItem'), title: t('docs.emptyTrashTitle'), danger: true, run: () => emptyItem().catch(e => toast(e.message)),
+  }]
   h.appendChild(empty)
+  reanchorSideMenu()
   const box = $('trash'); box.replaceChildren()
   box.style.display = secShut.has('trashH') ? 'none' : ''
   trash.forEach(x => {
@@ -291,16 +299,20 @@ async function runSearch() {
 function resRow(tpl) { // click opens in editor, drag sorts into folder (all three resource kinds share this row)
   const div = document.createElement('div')
   div.className = 'doc private-module sub' + (tpl.name === tplName ? ' cur' : '')
+  div.dataset.resourceName = tpl.name // stable across sidebar repaints: an open row menu can refocus its new button
   div.setAttribute('role', 'button')
   div.appendChild(el('span', 't', tpl.name)); div.title = tpl.name
   div.onclick = () => openTpl(tpl.name)
   kb(div, () => openTpl(tpl.name))
-  sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name } }, 'copyMove')
+  sidebarDrag(div, { personal: true, entry: { kind: 'resource', name: tpl.name, folder: tpl.folder || '' } }, 'copyMove')
   const ren = projectAction(div, ICO_EDIT, t('templates.renameTpl'), () => renamePersonalResource(tpl.name, div))
-  ren.dataset.menuLabel = t('templates.renameRes') // short menu item; the full title stays the tooltip
-  projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
-  projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
-  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''
+  ren.dataset.menuKey = 'rename'; ren.dataset.menuLabel = t('menu.renameShort'); ren.dataset.menuHint = 'menu.renameHint' // key: the menu formats it with the entry type
+  const dup = projectAction(div, ICO_DUP, t('docs.duplicate'), () => duplicatePersonalResource(tpl.name))
+  dup.dataset.menuKey = 'duplicate'; dup.dataset.menuLabel = t('menu.duplicateShort'); dup.dataset.menuHint = 'menu.duplicateHint'
+  const use = projectAction(div, ICO_SEND, t('projects.pullProject'), () => pullPersonalResource(tpl.name))
+  use.dataset.menuKey = 'use'; use.dataset.menuLabel = t('menu.useInProject'); use.dataset.menuHint = 'menu.useInProjectHint'
+  const del = el('button', 'mini'); del.innerHTML = ICO_TRASH; del.title = t('templates.delRes'); del.setAttribute('aria-label', del.title); del.dataset.menuDanger = ''; del.dataset.menuKey = 'trash'
+  del.dataset.menuLabel = t('menu.actionTrash'); del.dataset.menuHint = 'menu.trashHint'
   del.onclick = async e => {
     e.stopPropagation()
     if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
@@ -309,7 +321,7 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
     await loadTpl(); sidebar()
   }
   div.appendChild(del)
-  compactSidebarActions(div)
+  compactSidebarActions(div, 0, personalModuleMenu)
   return div
 }
 function paintKind(boxId, kind, emptyKey, key) { // one resource section (.typ/.bib/.csv) from the shared myTpl shelf
@@ -323,6 +335,7 @@ function paintTpls() { // templates + libraries + tables sections: click opens i
   paintKind('tpls', 'resource', 'templates.noTpls', 'tpl:')
   paintKind('libs', 'library', 'templates.noLibs', 'lib:')
   paintKind('tbls', 'table', 'templates.noTbls', 'tbl:')
+  reanchorSideMenu()
 }
 let tplName = '' // resource in editor (no doc): preview n/a, no read mode
 let tplDirty = false, tplVer = '', tplOpenN = 0, tplSaving = null // dirty text, base version and save in flight

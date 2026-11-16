@@ -12,8 +12,14 @@ from backend.services.locks import _named_lock
 
 
 def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
-             target_doc: str, target_name: str, move: bool, user: str, duplicate: bool = False) -> dict:
+             target_doc: str, target_name: str, move: bool, user: str, duplicate: bool = False,
+             target_folder: str | None = None, lang: str = "en") -> dict:
     new_id = db.new_id('d_') if kind == 'document' and not move else doc_id
+    folder: str | None = None
+    if target_folder is not None:
+        folder = (target_folder or '').strip().strip('/')
+        if folder:
+            folder = safe_name(folder + '/x', new=True)[:-2]
     backups: dict[tuple[str, str], bytes | None] = {}
     source_owner = target_owner = ''
     with ExitStack() as locks:
@@ -36,23 +42,41 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                     d = con.execute('SELECT * FROM docs WHERE id=? AND project_id=? AND trashed=0', (doc_id, source)).fetchone()
                     if not d:
                         raise HTTPException(404, 'Document not found')
+                    dest_folder = d['folder'] if folder is None else folder
                     if duplicate:
                         number = 1
-                        target_name = resources.copy_name(d['title'], number)
-                        while con.execute('SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0', (target, target_name)).fetchone():
+                        target_name = resources.copy_name(d['title'], number, lang=lang)
+                        while con.execute('SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0', (target, dest_folder, target_name)).fetchone():
                             number += 1
-                            target_name = resources.copy_name(d['title'], number)
+                            target_name = resources.copy_name(d['title'], number, lang=lang)
                     title = target_name.strip()
                     if not title or len(title) > 100:
                         raise HTTPException(400, 'Invalid document name')
-                    if con.execute('SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?', (target, title, doc_id if move else '')).fetchone():
-                        raise HTTPException(409, 'Name already exists in target project')
+                    if con.execute('SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?', (target, dest_folder, title, doc_id if move else '')).fetchone():
+                        raise HTTPException(409, 'Name already exists in target folder')
                     live = sync.room_snapshot(doc_id)
                     yjs, text = live if live is not None else (d['yjs'], d['content'])
                     local = projects.local_texts(doc_id)
                     copies = {n: c for n, c in resources.reachable_closure(shelf, local, text).items() if n not in local}
                     if not move:
-                        writes = {(new_id, f.path): store.get(doc_id, f.path) for f in store.list(doc_id)}
+                        # The project sidebar merges all document attachments
+                        # into one namespace. A copy in the same project (or a
+                        # target that already has the exact path) keeps using
+                        # that existing file instead of adding duplicate rows.
+                        # A case-only match must not be skipped silently: the
+                        # reference resolver and disk are case-sensitive, so
+                        # the copied document would point at a missing file.
+                        present = {r[0] for r in con.execute(
+                            "SELECT f.path FROM files f JOIN docs d ON d.id=f.doc_id "
+                            "WHERE d.project_id=? AND d.trashed=0", (target,))}
+                        present_case = {p.casefold(): p for p in present}
+                        writes = {}
+                        for entry in store.list(doc_id):
+                            other = present_case.get(entry.path.casefold())
+                            if other is not None and other != entry.path:
+                                raise HTTPException(409, f'File name differs only by case: {other}')
+                            if entry.path not in present:
+                                writes[(new_id, entry.path)] = store.get(doc_id, entry.path)
                     extra = len(text.encode()) + sum(len(v) for v in writes.values())
                     if move:
                         extra = len(text.encode()) + len(yjs or b'') - len(d['content'].encode()) - len(d['yjs'] or b'') if source_owner == target_owner else len(text.encode()) + sum(f.size for f in store.list(doc_id)) + len(yjs or b'') + con.execute('SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))),0) FROM snapshots WHERE doc_id=?', (doc_id,)).fetchone()[0]
@@ -63,10 +87,10 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                     name = resource_name(name)
                     if duplicate:
                         number = 1
-                        target_name = resources.copy_name(name, number)
+                        target_name = resources.copy_name(name, number, lang=lang)
                         while con.execute('SELECT 1 FROM project_resources WHERE project_id=? AND name=?', (target, target_name)).fetchone():
                             number += 1
-                            target_name = resources.copy_name(name, number)
+                            target_name = resources.copy_name(name, number, lang=lang)
                     target_name = resource_name(target_name, new=True)
                     if name not in shelf:
                         raise HTTPException(404, 'Module not found')
@@ -86,10 +110,10 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                     if duplicate:
                         target_doc = doc_id
                         number = 1
-                        target_name = resources.copy_name(name, number)
+                        target_name = resources.copy_name(name, number, lang=lang)
                         while store.stat(target_doc, target_name):
                             number += 1
-                            target_name = resources.copy_name(name, number)
+                            target_name = resources.copy_name(name, number, lang=lang)
                     target_name = safe_name(target_name, new=True)
                     if not con.execute('SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0', (doc_id, source)).fetchone() or not con.execute('SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0', (target_doc, target)).fetchone():
                         raise HTTPException(404, 'Source or target document not found')
@@ -127,11 +151,11 @@ def transfer(source: str, target: str, kind: str, doc_id: str, name: str,
                     con.execute('INSERT INTO project_resources VALUES (?,?,?,?)', (target, n, content, now))
                 if kind == 'document':
                     if move:
-                        con.execute('UPDATE docs SET project_id=?,owner=?,title=?,folder=?,content=?,yjs=?,updated_at=? WHERE id=?', (target, target_owner, title, d['folder'], text, yjs, now, doc_id))
+                        con.execute('UPDATE docs SET project_id=?,owner=?,title=?,folder=?,content=?,yjs=?,updated_at=? WHERE id=?', (target, target_owner, title, dest_folder, text, yjs, now, doc_id))
                         if source != target:
                             con.execute('DELETE FROM invites WHERE doc_id=?', (doc_id,))
                     else:
-                        con.execute('INSERT INTO docs(id,owner,title,content,folder,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', (new_id, target_owner, title, text, d['folder'], target, now, now))
+                        con.execute('INSERT INTO docs(id,owner,title,content,folder,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', (new_id, target_owner, title, text, dest_folder, target, now, now))
                 for (did, path), data in writes.items():
                     backups[(did, path)] = None
                     store.put(did, path, data)

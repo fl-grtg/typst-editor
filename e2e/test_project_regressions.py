@@ -9,8 +9,8 @@ def test_module_server_name_and_rename_preview(page):
     head = page.locator('aside .project-group').filter(has_text='Workspace').locator('.fhd.project')
     head.hover()
     head.locator('button.mini').first.click()
-    page.locator('#modal button.pk').nth(1).click()
-    page.locator('#modal button.pk').filter(has_text='.typ').first.click()
+    page.locator('#menu button').filter(has_text='New module').click()
+    page.locator('#submenu button').filter(has_text='.typ').first.click()
     page.fill('#mInp', 'Änderungen')
     page.click('#mYes')
     # Resource names use the server's ASCII normalization; the UI must open that returned name.

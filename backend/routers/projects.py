@@ -15,7 +15,7 @@ from backend import config, db, deps, sync
 from backend.constants import MAX_TXT
 from backend.schemas import Share
 from backend.services import projects, quota, resources, trash
-from backend.services.docfiles import safe_name, store
+from backend.services.docfiles import safe_name, safe_rename_target, store
 from backend.services.sidebar import notify_sidebar
 
 router = APIRouter()
@@ -246,8 +246,8 @@ def create_document(project_id: str, b: ProjectDoc, req: Request, user: str = De
         quota.check_quota(owner, len(b.content.encode("utf-8")), con)
         if con.execute("SELECT COUNT(*) FROM docs WHERE owner=?", (owner,)).fetchone()[0] >= config.load().MAX_DOCS_PER_USER:
             raise HTTPException(400, "Too many docs")
-        if con.execute("SELECT 1 FROM docs WHERE project_id=? AND title=? COLLATE NOCASE AND trashed=0", (project_id, b.title.strip())).fetchone():
-            raise HTTPException(409, "Document title already exists")
+        if con.execute("SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0", (project_id, folder, b.title.strip())).fetchone():
+            raise HTTPException(409, "Document title already exists in this folder")
         did, now = db.new_id("d_"), db.now_iso()
         try:
             con.execute("INSERT INTO docs(id,owner,title,content,folder,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
@@ -320,7 +320,8 @@ class EntryRename(BaseModel):
 @router.post("/api/projects/{project_id}/rename-entry-preview")
 def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "files_list")
-    name, target = safe_name(b.name), safe_name(b.target, new=True)
+    name = safe_name(b.name)
+    target = safe_rename_target(b.target, name)
     con = db.connect()
     try:
         projects.require(con, project_id, user, edit=True)
@@ -333,7 +334,7 @@ def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: st
             except FileNotFoundError:
                 raise HTTPException(404, "File not found") from None
         else:
-            target = resource_name(target, new=True)
+            target = resource_name(target)
             row = con.execute("SELECT updated_at,content FROM project_resources WHERE project_id=? AND name=?", (project_id, name)).fetchone()
             if not row:
                 raise HTTPException(404, "Resource not found")
@@ -367,7 +368,8 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
     from backend.services.locks import _named_lock
 
     deps.limited(req, "rename")
-    old, target = safe_name(b.name), safe_name(b.target, new=True)
+    old = safe_name(b.name)
+    target = safe_rename_target(b.target, old)
     with _named_lock(f"upload:{b.doc_id}"):
         renamed = False
         source = destination = None
@@ -409,7 +411,7 @@ def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depe
             with db.tx() as con:
                 projects.require(con, project_id, user, edit=True)
                 if not b.doc_id:
-                    target = resource_name(target, new=True)
+                    target = resource_name(target)
                     if con.execute("SELECT 1 FROM project_resources WHERE project_id=? AND name=?", (project_id, target)).fetchone():
                         raise HTTPException(409, "Name already exists")
                     # #7: also no case-variant duplicate inside the module
@@ -452,6 +454,7 @@ class TransferEntry(BaseModel):
     name: str = ''
     target_doc_id: str = ''
     target_name: str = Field(default='', max_length=240)
+    target_folder: str | None = None
     move: bool = False
     duplicate: bool = False
 
@@ -465,7 +468,7 @@ async def transfer_entry(project_id: str, b: TransferEntry, req: Request, user: 
     if b.duplicate and (b.move or b.target_project_id != project_id):
         raise HTTPException(400, 'Duplicate stays in the source project')
     audience = doc_users(b.doc_id) if b.kind == 'document' else []
-    result = await asyncio.to_thread(transfer, project_id, b.target_project_id, b.kind, b.doc_id, b.name, b.target_doc_id, b.target_name, b.move, user, b.duplicate)
+    result = await asyncio.to_thread(transfer, project_id, b.target_project_id, b.kind, b.doc_id, b.name, b.target_doc_id, b.target_name, b.move, user, b.duplicate, b.target_folder, deps.req_lang(req))
     if b.move and b.kind == 'document':
         for username in audience:
             sync.drop_role_cache(username)
@@ -476,13 +479,13 @@ async def transfer_entry(project_id: str, b: TransferEntry, req: Request, user: 
 
 
 @router.post('/api/projects/{project_id}/import-zip')
-def import_project_source(project_id: str, f: UploadFile, req: Request, title: str = Form(...), user: str = Depends(deps.me)) -> dict:
+def import_project_source(project_id: str, f: UploadFile, req: Request, title: str = Form(...), folder: str = Form(''), user: str = Depends(deps.me)) -> dict:
     from backend.constants import UPLOAD_MAX
     from backend.services.projectzip import import_project_zip
 
     deps.limited(req, 'create')
     data = f.file.read(UPLOAD_MAX + 1)
-    return import_project_zip(user, title, '', data, project_id)
+    return import_project_zip(user, title, folder, data, project_id)
 
 
 @router.get('/api/projects/{project_id}/export-zip')

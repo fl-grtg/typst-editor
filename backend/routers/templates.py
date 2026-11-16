@@ -142,8 +142,9 @@ def save_template(b: TplSave, req: Request, user: str = Depends(deps.me)) -> dic
 @router.post("/api/templates/{name}/duplicate")
 def duplicate_template(name: str, b: TplDuplicate, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "templates")
+    lang = deps.req_lang(req)
     src = _gone_404(name)
-    dst = res.res_name(b.name) if b.name else res.copy_name(src)
+    dst = res.res_name(b.name) if b.name else res.copy_name(src, lang=lang)
     if res.is_reserved(dst):
         raise HTTPException(400, "Reserved name")
     if res.kind_of(src) != res.kind_of(dst):
@@ -187,7 +188,7 @@ def duplicate_template(name: str, b: TplDuplicate, req: Request, user: str = Dep
                         number = 1
                         while con.execute('SELECT 1 FROM templates WHERE owner=? AND name=?', (user, dst)).fetchone():
                             number += 1
-                            dst = res.copy_name(src, number)
+                            dst = res.copy_name(src, number, lang)
                     if con.execute("SELECT 1 FROM templates WHERE owner=? AND name=?",
                                    (user, dst)).fetchone():
                         raise HTTPException(409, "Name already exists")

@@ -73,7 +73,7 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     head = page.locator("aside .project-group").filter(has_text="Main").first.locator(".fhd.project")
     head.hover()
     head.locator("button.mini").first.click()
-    page.locator("#modal button.pk", has_text="New folder").click()
+    page.locator("#menu button").filter(has_text="New folder").click()
     page.fill("#mInp", "chapters")
     page.click("#mYes")
     folder = page.locator("aside .fhd.folder", has_text="chapters")
@@ -81,8 +81,8 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     # new module inside the folder
     folder.hover()
     folder.locator("button.mini").first.click()
-    page.locator("#modal button.pk", has_text="New module").click()
-    page.locator("#modal button.pk", has_text=".typ").first.click()
+    page.locator("#menu button").filter(has_text="New module").click()
+    page.locator("#submenu button").filter(has_text=".typ").first.click()
     page.fill("#mInp", "intro")
     page.click("#mYes")
     expect(page.locator("#tabs button.tab", has_text="intro.typ")).to_have_count(1)
@@ -92,7 +92,7 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     folder.hover()
     folder.locator("button.mini").nth(1).click() if folder.locator("button.mini").count() > 1 else None
     if page.locator("#menu:not([hidden])").count():
-        page.locator("#menu button, #menu [role=menuitem]", has_text="Rename folder").click()
+        page.locator("#menu button, #menu [role=menuitem]", has_text="Rename").click()
     page.locator("aside input.renameInput").fill("parts")
     page.keyboard.press("Enter")
     page.click("#mYes")

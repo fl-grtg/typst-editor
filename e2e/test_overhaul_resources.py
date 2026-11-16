@@ -6,10 +6,10 @@ from e2e.helpers import register
 
 def test_global_library_and_table_can_be_created_and_reused(page):
     register(page, "shelf_creator")
-    for ext, name in [("bib", "sources.bib"), ("csv", "numbers.csv")]:
+    for ext, label, name in [("bib", "BibLaTeX", "sources.bib"), ("csv", "CSV", "numbers.csv")]:
         page.locator("#tplH").hover()
         page.locator("#tplH button[aria-label='New module']").click()
-        page.locator("#modal button.pk").filter(has_text="." + ext).first.click()
+        page.locator("#menu button").filter(has_text=label).click()
         expect(page.locator("#mHead")).to_have_text("New module")
         page.fill("#mInp", name)
         page.click("#mYes")

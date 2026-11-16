@@ -496,7 +496,12 @@ function mainAppend(line) { // add a line at the end of main.typ through Yjs (ed
   ydoc.transact(() => ytext.insert(s.length, (s && !s.endsWith('\n') ? '\n' : '') + line + '\n'), 'tabs')
 }
 const FILE_TYPES = ['typ', 'bib', 'csv', 'tsv', 'json', 'yaml', 'toml', 'xml', 'txt', 'csl']
-const fileStart = ext => ({ json: '{}\n', yaml: '{}\n', yml: '{}\n', toml: '', xml: '<data/>\n', csl: '<?xml version="1.0" encoding="utf-8"?>\n<style xmlns="http://purl.org/net/xbiblio/csl" version="1.0">\n  <info><title>Style</title><id>https://example.com/style</id></info>\n  <citation><layout><text variable="title"/></layout></citation>\n</style>\n' })[ext] || ''
+function fileTypeMenuItems(run) {
+  const labels = [t('files.type_typ'), t('files.type_bib'), t('files.type_csv'), t('files.type_tsv'), t('files.type_json'), t('files.type_yaml'), t('files.type_toml'), t('files.type_xml'), t('files.type_txt'), t('files.type_csl')]
+  const hints = ['files.type_typD', 'files.type_bibD', 'files.type_csvD', 'files.type_tsvD', 'files.type_jsonD', 'files.type_yamlD', 'files.type_tomlD', 'files.type_xmlD', 'files.type_txtD', 'files.type_cslD'].map(k => t(k))
+  return FILE_TYPES.map((ext, i) => ({ label: labels[i], title: hints[i], kbd: '.' + ext, run: () => run('.' + ext) }))
+}
+function fileStart(ext) { return ({ json: '{}\n', yaml: '{}\n', yml: '{}\n', toml: '', xml: '<data/>\n', csl: '<?xml version="1.0" encoding="utf-8"?>\n<style xmlns="http://purl.org/net/xbiblio/csl" version="1.0">\n  <info><title>Style</title><id>https://example.com/style</id></info>\n  <citation><layout><text variable="title"/></layout></citation>\n</style>\n' })[ext] || '' }
 async function chooseFileType() {
   const labels = [t('files.type_typ'), t('files.type_bib'), t('files.type_csv'), t('files.type_tsv'), t('files.type_json'), t('files.type_yaml'), t('files.type_toml'), t('files.type_xml'), t('files.type_txt'), t('files.type_csl')]
   const i = await askPick(t('files.chooseType'), FILE_TYPES.map((ext, i) => ['.' + ext, labels[i]]))

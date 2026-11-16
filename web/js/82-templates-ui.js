@@ -57,8 +57,8 @@ function renderTpl() {
   up.onclick = () => $('tplPick').click()
   p.appendChild(up)
 }
-async function newResource(kind) {
-  const ext = kind === 'resource' ? await chooseFileType() : RES_EXT[kind]
+async function newResource(kind, chosenExt) {
+  const ext = chosenExt || (kind === 'resource' ? await chooseFileType() : RES_EXT[kind])
   if (!ext) return
   const selected = await askNewTpl('file' + ext, t('templates.newTitle'))
   const raw = selected?.name

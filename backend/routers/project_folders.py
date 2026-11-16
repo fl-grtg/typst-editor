@@ -7,6 +7,7 @@ Depth is capped by MAX_FOLDER_DEPTH; deeper legacy paths stay readable.
 from __future__ import annotations
 
 import os
+import sqlite3
 from contextlib import ExitStack
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,7 +16,7 @@ from pydantic import BaseModel, Field
 from backend import db, deps
 from backend.constants import MAX_FOLDER_DEPTH
 from backend.services import projects
-from backend.services.docfiles import check_depth, file_type, safe_name, store
+from backend.services.docfiles import file_type, safe_name, store
 from backend.services.locks import _named_lock
 
 router = APIRouter()
@@ -34,12 +35,13 @@ class DocFolder(BaseModel):
     folder: str = Field(default="", max_length=240)
 
 
-def folder_path(raw: str) -> str:
-    """Clean folder path ("a/b"), at most MAX_FOLDER_DEPTH levels."""
+def folder_path(raw: str, *, new: bool = True) -> str:
+    """Clean folder path ("a/b"). New paths are capped at MAX_FOLDER_DEPTH;
+    existing deeper legacy paths stay usable for rename and delete."""
     n = safe_name((raw or "").strip().strip("/") + "/x")[:-2]
     if not n:
         raise HTTPException(400, "Folder path is empty")
-    if n.count("/") + 1 > MAX_FOLDER_DEPTH:
+    if new and n.count("/") + 1 > MAX_FOLDER_DEPTH:
         raise HTTPException(400, f"Folders can be nested at most {MAX_FOLDER_DEPTH} levels deep")
     return n
 
@@ -50,6 +52,15 @@ def _within(path: str, folder: str) -> bool:
 
 def _moved(path: str, old: str, new: str) -> str:
     return new + path[len(old):]
+
+
+def _moved_depth(path: str, old: str, new: str) -> str:
+    """Moving an entry inside a renamed folder may keep a legacy depth, but
+    never adds a level beyond MAX_FOLDER_DEPTH relative to where it came from."""
+    target = _moved(path, old, new)
+    if target.strip("/").count("/") > max(MAX_FOLDER_DEPTH, path.strip("/").count("/")):
+        raise HTTPException(400, f"Folders can be nested at most {MAX_FOLDER_DEPTH} levels deep")
+    return target
 
 
 @router.post("/api/projects/{project_id}/folders")
@@ -69,7 +80,7 @@ def create_folder(project_id: str, b: FolderPath, req: Request, user: str = Depe
 @router.post("/api/projects/{project_id}/folders/rename")
 def rename_folder(project_id: str, b: FolderRename, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "rename")
-    old, new = folder_path(b.path), folder_path(b.target)
+    old, new = folder_path(b.path, new=False), folder_path(b.target)
     if old == new:
         return {"path": new}
     if _within(new, old):
@@ -95,17 +106,21 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
     for d in doc_ids:
         for e in store.list(d):
             if _within(e.path, old):
-                target = check_depth(_moved(e.path, old, new))
-                moves.append((d, e.path, target))
+                moves.append((d, e.path, _moved_depth(e.path, old, new)))
     moved_src = {(d, o) for d, o, _ in moves}
     with db.tx() as con:
         projects.require(con, project_id, user, edit=True)
         res = [r[0] for r in con.execute("SELECT name FROM project_resources WHERE project_id=?", (project_id,))]
-        res_moves = [(n, check_depth(_moved(n, old, new))) for n in res if _within(n, old)]
-        docs = [(r[0], r[1]) for r in con.execute("SELECT id,folder FROM docs WHERE project_id=? AND trashed=0", (project_id,))]
-        doc_moves = [(i, _moved(f, old, new)) for i, f in docs if f and _within(f, old)]
-        for _, f in doc_moves:
-            folder_path(f)
+        res_moves = [(n, _moved_depth(n, old, new)) for n in res if _within(n, old)]
+        docs = [(r[0], r[1], r[2]) for r in con.execute("SELECT id,folder,title FROM docs WHERE project_id=? AND trashed=0", (project_id,))]
+        doc_moves = [(i, f, _moved_depth(f, old, new)) for i, f, _title in docs if f and _within(f, old)]
+        doc_titles = {i: title for i, _folder, title in docs}
+        for i, _src, f in doc_moves:
+            folder_path(f, new=False)
+            # Titles are unique per folder, so a rename can collide only here.
+            if con.execute("SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?",
+                           (project_id, f, doc_titles[i], i)).fetchone():
+                raise HTTPException(409, "Document title already exists in target folder")
         # every name in a project is one namespace: no collisions with what stays behind
         occupied = {n.casefold() for n in res if not _within(n, old)}
         for d in doc_ids:
@@ -140,14 +155,14 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
                             (d, n, st.size if st else 0, st.mtime if st else 0, file_type(n)))
             for o, n in res_moves:
                 con.execute("UPDATE project_resources SET name=?,updated_at=? WHERE project_id=? AND name=?", (n, now, project_id, o))
-            for i, f in doc_moves:
+            for i, _src, f in doc_moves:
                 con.execute("UPDATE docs SET folder=? WHERE id=?", (f, i))
             rows = [r[0] for r in con.execute("SELECT path FROM project_folders WHERE project_id=?", (project_id,))]
             for p in rows:
                 if _within(p, old):
                     con.execute("DELETE FROM project_folders WHERE project_id=? AND path=?", (project_id, p))
             parts = new.split("/")
-            for p in ["/".join(parts[:i]) for i in range(1, len(parts) + 1)] + [_moved(p, old, new) for p in rows if _within(p, old)]:
+            for p in ["/".join(parts[:i]) for i in range(1, len(parts) + 1)] + [_moved_depth(p, old, new) for p in rows if _within(p, old)]:
                 con.execute("INSERT OR IGNORE INTO project_folders VALUES (?,?,?)", (project_id, p, now))
     except Exception:
         for d, o, n in reversed(done):
@@ -163,7 +178,7 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
 def delete_folder(project_id: str, path: str, req: Request, user: str = Depends(deps.me)) -> dict:
     """Only empty folders go; moving or deleting the contents stays an explicit act."""
     deps.limited(req, "delete")
-    folder = folder_path(path)
+    folder = folder_path(path, new=False)
     with db.tx() as con:
         projects.require(con, project_id, user, edit=True)
         busy = any(_within(r[0], folder) for r in con.execute("SELECT name FROM project_resources WHERE project_id=?", (project_id,)))
@@ -182,10 +197,13 @@ def delete_folder(project_id: str, path: str, req: Request, user: str = Depends(
 def move_document(project_id: str, doc_id: str, b: DocFolder, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "move")
     folder = folder_path(b.folder) if b.folder.strip("/") else ""
-    with db.tx() as con:
-        projects.require(con, project_id, user, edit=True)
-        if not con.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (doc_id, project_id)).fetchone():
-            raise HTTPException(404, "Document not found")
-        con.execute("UPDATE docs SET folder=? WHERE id=?", (folder, doc_id))
+    try:
+        with db.tx() as con:
+            projects.require(con, project_id, user, edit=True)
+            if not con.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (doc_id, project_id)).fetchone():
+                raise HTTPException(404, "Document not found")
+            con.execute("UPDATE docs SET folder=? WHERE id=?", (folder, doc_id))
+    except sqlite3.IntegrityError as e:
+        raise HTTPException(409, "Document title already exists in this folder") from e
     projects.notify(project_id)
     return {"folder": folder}

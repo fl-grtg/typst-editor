@@ -137,19 +137,29 @@ function askNewTpl(uploadName, headTitle) { // one dialog: name + folder radio (
     $('mNo').onclick = () => done(null)
     yes.onclick = () => { done({ name: inp.value, folder: '' }) }
     inp.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
-    setTimeout(() => inp.focus(), 30)
+    inp.focus()
+    if (inp.value) inp.setSelectionRange(nameStemStart(inp.value), nameStemEnd(inp.value)) // suggested name selected, extension stays out
   })
 }
-$('new').onclick = async () => {
-  const k = await askPick(t('docs.newProjectTitle'), [[t('docs.newProject'), t('docs.pickDocSub')], [t('docs.pickUp'), t('docs.pickUpSub')]])
-  if (k === 1) { $('docPick').click(); return }
-  if (k !== 0) return
+function openNewMenu(anchor) {
+  if (!window.showMenuAt) { $('docPick').click(); return }
+  window.showMenuAt(anchor, [
+    { label: t('docs.newProject'), title: t('docs.pickDocSub'), run: newProjectFromMenu },
+    { label: t('docs.pickUp'), title: t('docs.pickUpSub'), run: () => $('docPick').click() },
+  ], 'left')
+}
+function openNewResourceMenu(anchor) {
+  if (!window.showMenuAt) { newResource('resource'); return }
+  window.showMenuAt(anchor, fileTypeMenuItems(ext => newResource('resource', ext).catch(e => toast(e.message))), 'left')
+}
+async function newProjectFromMenu() {
   const r = await askNewDoc(null, t('docs.newProjectTitle'))
   if (!r) return
   const b = $('new'); b.disabled = true
   try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('projects.new'), content: galleryContent(r.tpl), folder: '' })).id) }
   catch (e) { toast(e.message) } finally { b.disabled = false }
 }
+$('new').onclick = e => { e.stopPropagation(); openNewMenu($('new')) }
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
 async function importUpload(f) {

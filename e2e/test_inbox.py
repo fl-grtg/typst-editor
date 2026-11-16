@@ -73,9 +73,21 @@ def test_watch_level_from_the_bell_on_the_project_row(page):
     box = page.locator("#watchBox")
     expect(box.locator(".wItem[aria-checked=true]")).to_contain_text("Mentions and suggestions")
     page.wait_for_timeout(800)
+
+    box.locator(".wItem", has_text="Mentions only").click()  # the menu stays open for further changes
+    expect(box).to_be_visible()
+    expect(box.locator(".wItem[aria-checked=true]")).to_contain_text("Mentions only")
+    assert page.request.get(f"/api/projects/{pid}/watch").json()["level"] == "mentions"
+
+    box.locator(".wItem", has_text="Mentions and suggestions").click()  # the middle option stays selectable
+    expect(box).to_be_visible()
+    expect(box.locator(".wItem[aria-checked=true]")).to_contain_text("Mentions and suggestions")
+    assert page.request.get(f"/api/projects/{pid}/watch").json()["level"] == "proposals"
+
     box.locator(".wItem", has_text="Everything").click()
-    expect(box).to_have_count(0)
-    # The menu closes before its PUT lands; poll instead of racing the request.
+    expect(box).to_be_visible()
+    expect(box.locator(".wItem[aria-checked=true]")).to_contain_text("Everything")
+    # The PUT lands right after the menu updates; poll instead of racing it.
     level = None
     for _ in range(100):
         level = page.request.get(f"/api/projects/{pid}/watch").json()["level"]
@@ -83,6 +95,10 @@ def test_watch_level_from_the_bell_on_the_project_row(page):
             break
         page.wait_for_timeout(100)
     assert level == "all"
+
+    page.locator("#title").click()  # clicking outside still closes it
+    expect(box).to_have_count(0)
+
     page.reload()
     page.wait_for_function("window.__booted === true")
     head = page.locator("aside .fhd.project", has_text="Doc")
