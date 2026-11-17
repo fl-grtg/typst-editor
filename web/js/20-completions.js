@@ -54,9 +54,9 @@ const groupBy = list => { // top-level first + folder map (caller adds empty fol
   return { top, byF }
 }
 // Project-only completions (vendor typst_lezer handles the Typst language itself:
-// builtins, params, let-scope, @labels). Returns null everywhere else so the
-// vendor source answers alone. Triggers: file paths in "..." strings,
-// #ref(<label>, #cite("key", Ctrl-Space/Tab file fallback.
+// builtins, params, let-scope, document labels). Returns null everywhere else so
+// the vendor source answers alone. Triggers: file paths in "..." strings,
+// #ref(<label>, #cite(<key>, @bib key, Ctrl-Space/Tab file fallback.
 // Typst control keywords (stable language, not in vendor function data)
 const T_KW = 'set show let import include context if else for while return break continue in and or not as'.split(' ')
 // F10 snippets: Typst blocks with tabstops (additive to vendor completions)
@@ -107,11 +107,14 @@ function typstComplete(ctx) {
       }
     return out.length ? { from: pos - rf[2].length - rf[1].length, filter: false, options: out.slice(0, 50) } : null
   }
-  const ct = before.match(/#cite\w*\(\s*"([^"]*)$/) // #cite(": keys from all .bib (see shadowAll; vendor has no .bib view)
+  const ct = before.match(/#cite\w*\(\s*<([^>\s]*)$/) // #cite(<: keys from all .bib (see shadowAll; vendor has no .bib view)
   if (ct) {
     if (!bibKeys.length) return null
     const q = ct[1].toLowerCase()
-    const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
+    const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable', apply: (view, completion, from, to) => { // close the label, consume an existing `>`
+      const end = view.state.sliceDoc(to, to + 1) === '>' ? to + 1 : to
+      view.dispatch({ changes: { from, to: end, insert: k + '>' }, selection: { anchor: from + k.length + 1 }, userEvent: 'input.complete' })
+    } }))
     return out.length ? { from: pos - ct[1].length, filter: false, options: out.slice(0, 50) } : null
   }
   const sr = (() => { // innermost unclosed `#set FUNC(` (nesting-aware; parens in strings ignored)
@@ -130,9 +133,10 @@ function typstComplete(ctx) {
     }
     return { name: last[1], args } // depth >= 0: still inside (nested or not)
   })()
+  const at = before.match(/@([\p{ID_Continue}_:.-]*)$/u) // @: keys from all .bib (vendor's label list is document-only)
   const kwm = before.match(/#([\p{ID_Continue}_-]*)$/u)
   let blocked = null // ancestor blocking completion (mirror of vendor blockedNodes + Error); one parse shared by the #word branches
-  if ((sr || kwm) && typeof typstParser !== 'undefined') {
+  if ((at || sr || kwm) && typeof typstParser !== 'undefined') {
     try {
       const doc = ctx.state.doc
       if (doc.length <= 100000) { // huge docs: skip check (vendor turf, no fallback) instead of frame drops
@@ -143,6 +147,11 @@ function typstComplete(ctx) {
     } catch (e) { pcDoc = null; pcTree = null }
   }
   if (blocked === 'LineComment' || blocked === 'BlockComment') return null // comments: full silence (file/label/cite ran before; keywords/params stay silent like vendor)
+  if (at && (!blocked || blocked === 'Ref') && bibKeys.length) { // refs and citations share .bib keys; vendor adds the document's <labels>
+    const q = at[1].toLowerCase()
+    const out = bibKeys.filter(k => fuzzy(q, k)).map(k => ({ label: k, type: 'variable' }))
+    if (out.length) return { from: pos - at[1].length, filter: false, options: out.slice(0, 50) }
+  }
   if (sr && typeof typstBuiltinSignatures !== 'undefined') { // set-rule gaps: vendor hides non-settable flags (paper, gutter, radius...) although valid
     const sig = typstBuiltinSignatures[sr.name]
     if (Array.isArray(sig)) {

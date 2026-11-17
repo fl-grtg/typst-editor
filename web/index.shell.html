@@ -42,6 +42,16 @@
 
 <div id="booterr" role="alert" style="display:none"></div>
 <div id="offline" role="status" data-i18n="shell.offline">You're offline — changes will sync when you reconnect</div>
+<div id="mobileWarn" role="dialog" aria-modal="true" aria-labelledby="mwHead" aria-describedby="mwBody" hidden>
+  <div id="mwCard" tabindex="-1">
+    <b id="mwHead" data-i18n="shell.mobileHead">This editor isn't built for phones</b>
+    <p id="mwBody" data-i18n="shell.mobileBody">A mobile version is planned. Until then, it works best on a desktop.</p>
+    <div id="mwActions">
+      <button id="mwProceed" type="button" data-i18n="shell.mobileProceed">Continue anyway</button>
+      <button id="mwNever" type="button" data-i18n="shell.mobileProceedNever">Continue and don't show this again</button>
+    </div>
+  </div>
+</div>
 <a href="#cm" class="skip" data-i18n="shell.skip">Skip to editor</a>
 <script>
 window.addEventListener('error', function (e) {
