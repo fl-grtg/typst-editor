@@ -429,8 +429,17 @@ async function openTpl(name) {
   const n = ++openN
   if (!(await flushTpl())) return // dirty resource first: failed save keeps the old view, edits preserved
   if (n !== openN || !await flushTab(true) || n !== openN) return
-  const tpl = tplCached(name)
-  if (!tpl) return
+  let tpl = tplCached(name)
+  if (!tpl) { // the list refresh can still be in flight right after a create: ask the server for this row
+    try {
+      const r = await api('GET', '/api/templates/' + encodeURIComponent(name))
+      if (n !== openN) return
+      tpl = { ...r, updated_at: r.version || '' }
+      const i = myTpl.findIndex(x => x.name === name)
+      if (i >= 0) myTpl[i] = tpl
+      else myTpl.push(tpl)
+    } catch (e) { return }
+  }
   ++tplOpenN
   autoCloseDrawer()
   leaveDoc()

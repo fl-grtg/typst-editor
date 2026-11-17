@@ -143,6 +143,30 @@ test('template saves cannot mark input typed during the request as saved', async
   assert.equal(c.rearmed, 1)
 })
 
+test('opening a module right after a create asks the server when the list refresh lost the race', async () => {
+  const calls = [], els = new Map()
+  const c = context({
+    myTpl: [], tplName: '', tplVer: '', tplDirty: false, tplOpenN: 0,
+    flushTpl: async () => true, flushTab: async () => true,
+    tplCached: name => c.myTpl.find(x => x.name === name),
+    api: async (method, url) => { calls.push([method, url]); return { name: 'numbers.csv', content: 'a,b', version: 'v1' } },
+    autoCloseDrawer: () => {}, leaveDoc: () => {}, hidePops: () => {}, setView: () => {},
+    paintSuggestionControls: () => {}, paintOutline: () => {}, sidebar: () => {},
+    cm: { state: { facet: () => true }, dispatch: () => {} },
+    editableComp: { reconfigure: x => x }, editMode: x => x, gutter: () => {},
+    setT: v => { c.text = v }, resourceStashKey: n => n,
+    localStorage: { getItem: () => null, removeItem: () => {} },
+    $: id => { if (!els.has(id)) els.set(id, { style: {}, classList: { add() {}, remove() {} } }); return els.get(id) },
+  })
+  vm.runInContext(part('web/js/60-docs.js', 'async function openTpl(', 'function queueTplSave('), c)
+  await c.openTpl('numbers.csv')
+  assert.deepEqual(calls, [['GET', '/api/templates/numbers.csv']])
+  assert.equal(c.tplName, 'numbers.csv')
+  assert.equal(c.$('title').textContent, 'numbers.csv')
+  assert.equal(c.tplVer, 'v1')
+  assert.equal(c.myTpl.length, 1)
+})
+
 test('same-length source edits produce different compiler shadow signatures', () => {
   const c = context()
   vm.runInContext(part('web/js/50-preview.js', 'const PV_HASH_MAX', 'function pvResTpl()') + '\nthis.signature = pvFileSig', c)
