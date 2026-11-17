@@ -167,6 +167,35 @@ test('opening a module right after a create asks the server when the list refres
   assert.equal(c.myTpl.length, 1)
 })
 
+test('an awaited resource list waits for the load that superseded it', async () => {
+  const rows = [deferred(), deferred()], folders = [deferred(), deferred()]
+  const lists = [[{ name: 'sources.bib' }], [{ name: 'sources.bib' }, { name: 'numbers.csv' }]]
+  let next = -1
+  const c = vm.createContext({
+    user: 'alice', docId: '', docProject: '', activeFile: '', tabDirty: false,
+    myTpl: [], tplFolders: [], tplLoadN: 0, tplLoadP: null, painted: 0,
+    api: (_method, url) => {
+      if (!url.endsWith('/tplfolders')) next++
+      return (url.endsWith('/tplfolders') ? folders[next] : rows[next]).promise
+    },
+    paintTpls: () => { c.painted++ }, queueRender: () => {},
+  })
+  vm.runInContext(part('web/js/20-completions.js', 'async function loadTpl(', 'async function loadDocResources('), c)
+  const stale = c.loadTpl()
+  const fresh = c.loadTpl()
+  let staleDone = false
+  stale.then(() => { staleDone = true })
+  rows[0].resolve({ templates: lists[0] }); folders[0].resolve({ folders: [] })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(staleDone, false) // superseded load must not resolve against its stale list
+  rows[1].resolve({ templates: lists[1] }); folders[1].resolve({ folders: [] })
+  await stale
+  await fresh
+  assert.equal(staleDone, true)
+  assert.deepEqual(c.myTpl.map(x => x.name), ['sources.bib', 'numbers.csv'])
+  assert.equal(c.painted, 1)
+})
+
 test('same-length source edits produce different compiler shadow signatures', () => {
   const c = context()
   vm.runInContext(part('web/js/50-preview.js', 'const PV_HASH_MAX', 'function pvResTpl()') + '\nthis.signature = pvFileSig', c)

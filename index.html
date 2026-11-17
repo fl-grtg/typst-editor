@@ -1704,18 +1704,22 @@ const T_DOC = {
 // effective compile set of the open doc (owner's reachable names, read-only).
 let myTpl = [], tplFolders = []
 let docProject = '', docResReadonly = true
-let tplLoadN = 0, docResAt = 0, docResN = 0, docResRefs = ''
+let tplLoadN = 0, tplLoadP = null, docResAt = 0, docResN = 0, docResRefs = ''
 window.docTpl = []
 async function loadTpl() { // list only: never touches editor text (SSE-safe, dirty editors survive)
   const n = ++tplLoadN, who = user
-  try {
-    const [r, f] = await Promise.all([api('GET', '/api/templates'), api('GET', '/api/tplfolders')])
-    if (n !== tplLoadN || who !== user) return
-    myTpl = r.templates; tplFolders = f.folders
-    if (docId && !docProject && isTplKey(activeFile) && tabDirty) { const row = myTpl.find(x => x.name === tabName(activeFile)); if (row) row.content = getT() }
-  } catch (e) { return } // offline/error: keep the known shelf
-  paintTpls()
-  if (docId) queueRender()
+  let p = tplLoadP = (async () => {
+    try {
+      const [r, f] = await Promise.all([api('GET', '/api/templates'), api('GET', '/api/tplfolders')])
+      if (n !== tplLoadN || who !== user) return
+      myTpl = r.templates; tplFolders = f.folders
+      if (docId && !docProject && isTplKey(activeFile) && tabDirty) { const row = myTpl.find(x => x.name === tabName(activeFile)); if (row) row.content = getT() }
+    } catch (e) { return } // offline/error: keep the known shelf
+    paintTpls()
+    if (docId) queueRender()
+  })()
+  await p
+  while (p !== tplLoadP) { p = tplLoadP; await p } // superseded: wait for the list that really lands (callers open against it)
 }
 async function loadDocResources(force) {
   if (!docId || (docRole === 'owner' && !docProject)) return true
