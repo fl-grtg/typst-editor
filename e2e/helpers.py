@@ -43,7 +43,9 @@ def create_doc(page: Page, title: str = "New document") -> None:
 def type_source(page: Page, text: str) -> None:
     page.click("#cm .cm-content")
     page.keyboard.press("ControlOrMeta+A")
-    page.keyboard.type(text)
+    # Keyboard.type drops single keys when the CI runner is loaded; execCommand
+    # replaces the selection through the same CodeMirror input path as typing.
+    assert page.evaluate("(t) => document.execCommand('insertText', false, t)", text)
 
 
 def open_private_copy(page: Page, name: str) -> None:
