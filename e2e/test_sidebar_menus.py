@@ -408,8 +408,13 @@ def test_move_into_a_subfolder_and_copy_to_another_project(page):
 
     def row():
         item = page.locator("#own .doc").filter(has=page.locator(".t", has_text="Transfer source")).first
-        item.hover()
-        item.locator("button[data-side-menu]").click()
+        button = item.locator("button[data-side-menu]")
+        for _ in range(10):  # a repaint after the first action swaps the row under a resting pointer: hover again
+            item.hover()
+            if button.is_visible():
+                break
+            page.wait_for_timeout(150)
+        button.click()
         return page.locator("#menu")
 
     menu = row()
@@ -433,3 +438,56 @@ def test_move_into_a_subfolder_and_copy_to_another_project(page):
     expect(page.locator("#modal")).to_be_hidden()
     copied = page.request.get(f"/api/projects/{target_pid}").json()["documents"]
     assert [(d["title"], d["folder"]) for d in copied if d["title"] == "Transfer source"] == [("Transfer source", "ablage")]
+
+
+def test_read_only_member_can_still_copy_entries_out_of_a_shared_project(page, browser, base_url):
+    register(page, "e2e_ro_owner")
+    create_doc(page, "Shared source")
+    doc = next(d for d in page.request.get("/api/docs").json()["own"] if d["title"] == "Shared source")
+    pid = doc["project_id"]
+    assert page.request.post(f"/api/projects/{pid}/resources", data={"name": "layout.typ", "content": "#let a = 1"}).ok
+    other = browser.new_context(base_url=base_url, locale="en-US")
+    try:
+        peer = other.new_page()
+        register(peer, "e2e_ro_reviewer")
+        assert page.request.post(f"/api/projects/{pid}/members", data={"username": "e2e_ro_reviewer", "role": "reviewer"}).ok
+        peer.reload()
+        peer.wait_for_function("window.__booted === true")
+        for name in ("Shared source", "layout.typ"):
+            row = peer.locator("#shared .doc").filter(has=peer.locator(".t", has_text=name)).first
+            row.hover()
+            row.locator("button[data-side-menu]").click()
+            menu = peer.locator("#menu")
+            expect(menu.locator("button").filter(has_text="Copy to")).to_have_count(1)
+            expect(menu.locator("button").filter(has_text="Move to")).to_have_count(0)
+            expect(menu.locator("button").filter(has_text="Rename")).to_have_count(0)
+            peer.keyboard.press("Escape")
+    finally:
+        other.close()
+
+
+def test_folder_copy_to_another_project_is_rolled_back_when_an_entry_conflicts(page):
+    register(page, "e2e_folder_rollback")
+    create_doc(page, "Source doc")
+    pid = next(d["project_id"] for d in page.request.get("/api/docs").json()["own"] if d["title"] == "Source doc")
+    target = page.request.post("/api/projects", data={"title": "Rollback target"}).json()["id"]
+    assert page.request.post(f"/api/projects/{pid}/resources", data={"name": "util.typ", "content": "source"}).ok
+    assert page.request.post(f"/api/projects/{target}/resources", data={"name": "util.typ", "content": "other"}).ok
+    assert page.request.post(f"/api/projects/{pid}/docs", data={"title": "A ok", "folder": "src", "content": "fine"}).ok
+    assert page.request.post(f"/api/projects/{pid}/docs", data={"title": "B needs util", "folder": "src", "content": '#include "util.typ"'}).ok
+    page.reload()
+    page.wait_for_function("window.__booted === true")
+
+    row = page.locator("#own .fhd.folder").filter(has=page.locator("b", has_text="src")).first
+    row.hover()
+    row.locator("button[data-side-menu]").click()
+    page.locator("#menu button").filter(has_text="Copy to").first.hover()
+    page.locator("#submenu button").filter(has_text="To another project").click()
+    page.locator("#modal button").filter(has_text="Rollback target").first.click()
+    expect(page.locator("#mHead")).to_contain_text("Target folder")
+    page.locator("#modal button.pk").first.click()  # project root
+    expect(page.locator("#toast")).to_contain_text("was not transferred")
+    payload = page.request.get(f"/api/projects/{target}").json()
+    assert [d["title"] for d in payload["documents"]] == []  # the finished first copy was undone
+    assert "src" not in payload["folders"]
+    assert [r["name"] for r in payload["resources"]] == ["util.typ"]

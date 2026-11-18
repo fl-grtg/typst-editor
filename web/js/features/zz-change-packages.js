@@ -880,7 +880,7 @@ renameProjectDocument = async (document, host) => {
   if (s.original || s.busy) return
   host = sidebarLiveHost(host, ['document', document.id, 'main.typ'].join(':'))
   const label = host?.querySelector('.t')
-  const title = label ? await sidebarInlineRename(host, label, document.title, { label: t('docs.renameDoc'), maxLen: 100, stem: true }) : await ask(t('docs.renameDoc'), { value: document.title, maxLen: 100, stem: true })
+  const title = label ? await sidebarInlineRename(host, label, document.title, { label: t('docs.renameDoc'), maxLen: 100 }) : await ask(t('docs.renameDoc'), { value: document.title, maxLen: 100 })
   if (!title?.trim() || title.trim() === document.title || window.changeSession !== s) return
   const file = await sessionEnsure({ kind: 'document', doc_id: document.id, path: 'main.typ' })
   if (window.changeSession !== s) return

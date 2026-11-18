@@ -59,7 +59,7 @@ function personalModuleMenu(actions) {
 }
 function compactSidebarActions(host, keep = 0, decorate = null) {
   const actions = [...host.children].filter(node => node.matches('button.mini') && node.dataset.menuSkip === undefined).slice(keep)
-  if (!actions.length) return
+  if (!actions.length && !decorate) return // a decorated menu can offer actions without row buttons (read-only members still copy out)
   actions.forEach(button => button.remove()) // only the three-dot stays: no hidden icons stealing clicks
   const more = icoBtn('mini', ICO_MORE)
   more.title = t('shell.menuMore'); more.setAttribute('aria-label', more.title)
@@ -784,9 +784,11 @@ async function transferEntryTo(p, entry, target, folder, move, opts = {}) {
   let duplicate = !!opts.duplicate
   while (true) {
     if (askName) {
-      const input = await ask(t('projects.copyName'), { value: entry.kind === 'document' ? name : name.split('/').pop(), maxLen: entry.kind === 'document' ? 100 : 240, stem: true })
+      const dir = entry.kind !== 'document' && name.includes('/') ? name.slice(0, name.lastIndexOf('/') + 1) : '' // a kept path survives the conflict prompt
+      const input = await ask(t('projects.copyName'), { value: entry.kind === 'document' ? name : name.split('/').pop(), maxLen: entry.kind === 'document' ? 100 : 240, stem: entry.kind !== 'document' })
       if (input == null || !input.trim()) return null
       name = input.trim()
+      if (dir && !name.includes('/')) name = dir + name
     }
     const targetName = entry.kind === 'document' || name.includes('/') ? name : (destFolder ? destFolder + '/' + name : name)
     if (entry.kind !== 'document' && targetName.split('/').length - 1 > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
@@ -912,46 +914,82 @@ async function copyFolderTree(source, path, target, parent, name, move) {
   const targetPath = joinFolder(parent, name)
   const items = folderContents(src, path)
   if (!folderTreeFits(items, path, targetPath)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
-  for (const p of folderParents(targetPath)) await api('POST', `/api/projects/${target.id}/folders`, { path: p })
-  for (const f of items.folders) {
-    const rel = f === path ? '' : f.slice(path.length + 1)
-    await api('POST', `/api/projects/${target.id}/folders`, { path: rel ? targetPath + '/' + rel : targetPath })
+  // Every entry is its own request. Keep an undo step per finished entry so a
+  // conflict half-way (quota, a dependency module, a permission) rolls the
+  // whole folder back instead of leaving a half-transferred tree behind.
+  const done = [], created = []
+  const known = new Set(projectFolderPaths(tgt))
+  const back = body => () => api('POST', `/api/projects/${target.id}/transfer`, body) // a move is undone by moving it home again
+  const undoCopiedResource = to => async () => {
+    const fresh = await api('GET', `/api/projects/${target.id}`)
+    const r = (fresh.resources || []).find(x => x.name === to)
+    if (r) await api('DELETE', `/api/projects/${target.id}/resources/${encodeURIComponent(to)}?version=${encodeURIComponent(r.updated_at || '')}`)
   }
-  const usedByFolder = new Map() // titles are unique per folder, so a copied folder keeps document names unless its target folder already has them
-  const usedIn = folder => {
-    if (!usedByFolder.has(folder)) usedByFolder.set(folder, new Set(projectEntries(tgt).documents.filter(d => (d.folder || '') === folder).map(d => d.title.toLowerCase())))
-    return usedByFolder.get(folder)
+  const makeFolder = async p => {
+    await api('POST', `/api/projects/${target.id}/folders`, { path: p })
+    if (!known.has(p)) { known.add(p); created.push(p) }
   }
-  const docMap = new Map()
-  for (const d of items.documents) {
-    const rel = d.folder && d.folder !== path ? d.folder.slice(path.length + 1) : ''
-    const folder = rel ? targetPath + '/' + rel : targetPath
-    const used = usedIn(folder)
-    const suggested = uniqueDocTitle(used, d.title)
-    used.add(suggested.toLowerCase())
-    const result = await transferEntryTo(source, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }, tgt, folder, move, {
-      askName: false, name: suggested, strict: true, refresh: false,
-    })
-    if (result) docMap.set(d.id, result.doc_id)
-  }
-  for (const r of items.resources) {
-    const rel = r.name.slice(path.length).replace(/^\/+/, '')
-    await transferEntryTo(source, { kind: 'resource', doc_id: '', name: r.name }, tgt, '', move, {
-      askName: false, name: targetPath + '/' + rel, strict: true, refresh: false,
-    })
-  }
-  let attachDoc = ''
-  for (const f of items.files) {
-    if (docMap.has(f.doc_id)) continue // files travel with their copied or moved document
-    let targetDoc = target.id === source.id ? f.doc_id : ''
-    if (!targetDoc) {
-      if (!attachDoc) attachDoc = await attachmentsDoc(tgt)
-      targetDoc = attachDoc
+  try {
+    for (const p of folderParents(targetPath)) await makeFolder(p)
+    for (const f of items.folders) await makeFolder(f === path ? targetPath : targetPath + '/' + f.slice(path.length + 1))
+    const usedByFolder = new Map() // titles are unique per folder, so a copied folder keeps document names unless its target folder already has them
+    const usedIn = folder => {
+      if (!usedByFolder.has(folder)) usedByFolder.set(folder, new Set(projectEntries(tgt).documents.filter(d => (d.folder || '') === folder).map(d => d.title.toLowerCase())))
+      return usedByFolder.get(folder)
     }
-    const rel = f.name.slice(path.length).replace(/^\/+/, '')
-    await transferEntryTo(source, { kind: 'file', doc_id: f.doc_id, name: f.name }, tgt, '', move, {
-      askName: false, name: targetPath + '/' + rel, targetDoc, strict: true, refresh: false,
-    })
+    const docMap = new Map()
+    for (const d of items.documents) {
+      const rel = d.folder && d.folder !== path ? d.folder.slice(path.length + 1) : ''
+      const folder = rel ? targetPath + '/' + rel : targetPath
+      const used = usedIn(folder)
+      const suggested = uniqueDocTitle(used, d.title)
+      used.add(suggested.toLowerCase())
+      const result = await transferEntryTo(source, { kind: 'document', doc_id: d.id, name: d.title, folder: d.folder || '' }, tgt, folder, move, {
+        askName: false, name: suggested, strict: true, refresh: false,
+      })
+      if (!result) continue
+      docMap.set(d.id, result.doc_id)
+      done.push(move
+        ? back({ kind: 'document', doc_id: d.id, name: suggested, target_project_id: source.id, target_doc_id: '', target_name: d.title, target_folder: d.folder || '', move: true })
+        : () => api('DELETE', `/api/docs/${result.doc_id}`))
+    }
+    for (const r of items.resources) {
+      const to = targetPath + '/' + r.name.slice(path.length).replace(/^\/+/, '')
+      const result = await transferEntryTo(source, { kind: 'resource', doc_id: '', name: r.name }, tgt, '', move, {
+        askName: false, name: to, strict: true, refresh: false,
+      })
+      if (!result) continue
+      done.push(move
+        ? back({ kind: 'resource', doc_id: '', name: to, target_project_id: source.id, target_doc_id: '', target_name: r.name, move: true })
+        : undoCopiedResource(to))
+    }
+    let attachDoc = ''
+    for (const f of items.files) {
+      if (docMap.has(f.doc_id)) continue // files travel with their copied or moved document
+      let targetDoc = target.id === source.id ? f.doc_id : ''
+      if (!targetDoc) {
+        if (!attachDoc) attachDoc = await attachmentsDoc(tgt)
+        targetDoc = attachDoc
+      }
+      const to = targetPath + '/' + f.name.slice(path.length).replace(/^\/+/, '')
+      const result = await transferEntryTo(source, { kind: 'file', doc_id: f.doc_id, name: f.name }, tgt, '', move, {
+        askName: false, name: to, targetDoc, strict: true, refresh: false,
+      })
+      if (!result) continue
+      done.push(move
+        ? back({ kind: 'file', doc_id: targetDoc, name: to, target_project_id: source.id, target_doc_id: f.doc_id, target_name: f.name, move: true })
+        : () => api('DELETE', `/api/docs/${targetDoc}/files/${encodeURIComponent(to)}`))
+    }
+  } catch (e) {
+    let stuck = 0
+    for (const undo of done.reverse()) { try { await undo() } catch (err) { stuck++ } }
+    for (const p of created.sort((a, b) => b.split('/').length - a.split('/').length)) { // deepest first; a folder that is not empty stays
+      try { await api('DELETE', `/api/projects/${target.id}/folders?path=${encodeURIComponent(p)}`) } catch (err) {}
+    }
+    try { await sidebar(); filesDirty = true; if (docId) { await loadDocResources(true); tabSig = ''; queueRender() } } catch (err) {}
+    const failure = new Error(t(stuck ? 'projects.folderTransferPartial' : 'projects.folderTransferUndone', { reason: e.message }))
+    failure.status = e.status
+    throw failure
   }
   if (move && target.id !== source.id) {
     try { await api('DELETE', `/api/projects/${source.id}/folders?path=${encodeURIComponent(path)}`) }
