@@ -38,7 +38,7 @@ test('replacing a review buffer maps the selection and scroll anchor through tex
   const cm = { state: EditorState.create({ doc: old, selection: { anchor: 200, head: 250 } }),
     scrollSnapshot: () => EditorView.scrollIntoView(150, { y: 'start' }),
     setState(state) { this.state = state }, dispatch(spec) { effects = spec.effects } }
-  const c = vm.createContext({ cm, EditorState, EditorView, cmExtensions: [], window: {},
+  const c = vm.createContext({ cm, EditorState, EditorView, cmExtensions: [], window: {}, queueContentRefresh: () => {},
     editableComp: { reconfigure: () => 'mode' }, tabComp: { reconfigure: () => 'tabs' },
     wrapComp: { reconfigure: () => 'wrap' }, wrapOn: true,
     editMode: () => [], tabW: 2, indentUnit: { of: () => null } })
@@ -61,7 +61,7 @@ test('late whole-document acceptance echo leaves the displayed text and selectio
     dispatch(spec) { dispatches++; this.state = this.state.update(spec).state } }
   const c = vm.createContext({ cm, shadow: old, window: {}, ytext: { toString: () => accepted },
     getT: () => cm.state.doc.toString(), threads: [], activeFile: '', NO_HIST: [],
-    jumpWant() {}, reanchor() {}, paintOutline() {}, queueRender() {}, scrollApplyEditor() {} })
+    jumpWant() {}, queueContentRefresh() {}, reanchor() {}, paintOutline() {}, queueRender() {}, scrollApplyEditor() {} })
   vm.runInContext(fs.readFileSync('web/js/40-editor-sync.js', 'utf8'), c)
   c.pullRemote({ delta: [{ delete: old.length }, { insert: accepted }] })
   assert.equal(c.shadow, accepted)

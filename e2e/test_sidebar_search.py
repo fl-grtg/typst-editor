@@ -215,6 +215,17 @@ def test_content_search_badges_and_opens_find_in_document(page):
     expect(page.locator("#fN")).to_have_text("1/1")
     expect(page.locator("#cm .cm-find-cur").first).to_be_visible()
 
+    # Leftover regex / match-case toggles must not change what a sidebar hit finds.
+    page.click("#fRe")
+    page.click("#fCase")
+    page.fill("#q", "needle.exte")  # as a regex this would match; as plain text it must not
+    expect(page.locator("#own .doc", has_text="Alpha doc")).to_have_count(0)
+    page.fill("#q", "NEEDLETEXTE")
+    page.locator("#own .doc", has_text="Alpha doc").click()
+    expect(page.locator("#fN")).to_have_text("1/1")
+    expect(page.locator("#fRe")).to_have_attribute("aria-pressed", "false")
+    expect(page.locator("#fCase")).to_have_attribute("aria-pressed", "false")
+
     page.fill("#q", "bananaphone")
     module = page.locator("#own .doc.sub", has_text="assets/sub/bild1.typ")
     expect(module).to_be_visible()

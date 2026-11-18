@@ -220,3 +220,49 @@ def test_content_after_edit_uses_live_text(c):
         room["doc"].get("typst", type=Text).__iadd__(" neuerstand")
     room["dirty"] = True
     assert _one(_content(c, "neuerstand"), "doc", doc_id=did)["count"] == 1
+
+
+def test_content_requires_login(c):
+    assert c.get("/api/search/content", params={"q": "x"}).status_code == 401
+
+
+def test_content_private_entries_stay_private(c):
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    assert c.post("/api/templates", json={"name": "mine.typ", "content": "Privatwort"}).status_code == 200
+    gone = make_doc(c, "Weg", content="Privatwort")
+    c.delete(f"/api/docs/{gone}")
+    shared = make_doc(c, "Geteilt", content="leer")
+    assert c.post(f"/api/docs/{shared}/files",
+                  files={"f": ("notes.txt", b"Privatwort Privatwort")}).status_code == 200
+    c.post(f"/api/docs/{shared}/share", json={"username": "bob", "role": "reviewer"})
+    login(c, "bob")
+    rows = _content(c, "privatwort")
+    assert [e for e in rows if e["kind"] in ("template", "trash", "trash_doc")] == []
+    # attachments of a document that is shared with bob are searchable for bob
+    assert _one(rows, "file", doc_id=shared, name="notes.txt")["count"] == 2
+    login(c, "alice")
+    assert _one(_content(c, "privatwort"), "template", name="mine.typ")["count"] == 1
+
+
+def test_file_text_rejects_escaping_paths(tmp_path):
+    from backend import search
+
+    (tmp_path / "d").mkdir()
+    (tmp_path / "secret.txt").write_text("geheim")
+    (tmp_path / "d" / "ok.txt").write_text("fein")
+    assert search._file_text(tmp_path, "d", "ok.txt") == "fein"
+    assert search._file_text(tmp_path, "d", "../secret.txt") is None
+    assert search._file_text(tmp_path, "d", "/etc/passwd.txt") is None
+    assert search._file_text(tmp_path, "d", "bild.png") is None
+
+
+def test_content_result_is_capped(c, monkeypatch):
+    from backend import search
+
+    monkeypatch.setattr(search, "CONTENT_MAX_ENTRIES", 3)
+    register_user(c, "alice")
+    for i in range(6):
+        make_doc(c, f"Doc {i}", content="kappwort")
+    assert len(_content(c, "kappwort")) == 3

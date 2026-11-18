@@ -48,6 +48,7 @@ function pullRemote(ev) {
   synced = true // server text arrived: saves now write real content
   if (v === shadow) return
   const old = shadow, delta = ev && ev.delta
+  queueContentRefresh() // a peer's edit changes the counts too
   const map = delta ? deltaMap(delta) : diffMap(old, v)
   shadow = v
   if (window.suggestionDraft || window.changeSession) {

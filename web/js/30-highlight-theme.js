@@ -216,6 +216,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
   if (window.__booted) { paintCsv(); applySpell(); window.paintFileExtras?.(); try { updPos() } catch (e) {} } // status follows the new buffer
 }
 function onEdit(mapPos, changes, oldLen) {
+  queueContentRefresh()
   if (window.changeSession) { sessionRecord(changes, oldLen); return }
   if (window.suggestionDraft) { recordSuggestionEdit(changes, oldLen); return }
   if (window.suggestionPopup) closePop(true)

@@ -186,7 +186,7 @@ test('retyping removed text cancels the recorded change while preserving other e
 test('draft edits bypass all document writes and comment anchor mutations', () => {
   const source = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
   const calls = [], changes = {}
-  const c = vm.createContext({ window: { suggestionDraft: {} }, recordSuggestionEdit: value => calls.push(value),
+  const c = vm.createContext({ window: { suggestionDraft: {} }, recordSuggestionEdit: value => calls.push(value), queueContentRefresh: () => {},
     gutter: () => assert.fail('must not paint source anchors'), pushLocal: () => assert.fail('must not sync draft'), queueSave: () => assert.fail('must not save draft') })
   vm.runInContext(source.slice(source.indexOf('function onEdit'), source.indexOf('let anchorT')), c)
   c.onEdit(null, changes, 0)

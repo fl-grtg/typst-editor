@@ -18,6 +18,9 @@ function findWith(q) { // sidebar content hit: wait for the freshly opened text,
     if (!getT() && left-- > 0) { findWithTimer = setTimeout(run, 100); return }
     if (!$('app').classList.contains('on')) return
     scrollRestore = null // a content hit wins over the saved reading spot
+    // the sidebar counts plain case-insensitive text: a leftover regex/case toggle would find something else (or "bad regex")
+    findCase = false; findRe = false
+    for (const [id, on] of [['fCase', findCase], ['fRe', findRe]]) { $(id).classList.toggle('on', on); $(id).setAttribute('aria-pressed', String(on)) }
     openFind()
     $('fQ').value = q
     markFind(true)

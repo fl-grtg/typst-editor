@@ -72,7 +72,7 @@ test('editor edits map thread anchors against the pre-edit length, never past th
     window: {}, ytext: {}, tplName: '', docRole: 'owner', activeFile: '', popAnchor: null,
     sessionRecord: () => { throw Error('no session here') }, recordSuggestionEdit: () => { throw Error('no draft here') },
     closePop() {}, gutter() {}, paintOutline() {}, pushLocal() {}, queueRender() {}, queueSave() {}, reanchor() {}, refreshHl() {},
-    getT: () => '0123456789x', movePop() {},
+    getT: () => '0123456789x', movePop() {}, queueContentRefresh() {},
   })
   vm.runInContext(hlx.slice(hlx.indexOf('function onEdit'), hlx.indexOf('function initRanges')), c)
   c.threads = [{ id: 't', quote: 'q', anchor: 1, a: 999, b: 1000, suggestion_status: 'pending' }] // stale beyond any doc

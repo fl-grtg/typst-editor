@@ -485,7 +485,7 @@ function scCloseLayer() {
   if (document.getElementById('watchBox')) { closeWatchBox(true); return true } // watch menu: same, focus the bell
   closePop(); hidePops()
   if (document.getElementById('searchFilters')) { closeSearchFilters(); $('qFilter').focus(); return true }
-  if (findQ) { clearSearch(document.activeElement === $('q')); return true }
+  if (findQ && $('side').contains(document.activeElement)) { clearSearch(document.activeElement === $('q')); return true } // only with focus in the search/sidebar: Esc in the editor must not wipe it
   if (matchMedia('(max-width:720px)').matches && !document.body.classList.contains('noside')) {
     document.body.classList.add('noside'); updScrim(); $('navToggle').setAttribute('aria-pressed', 'false')
     if ($('side').contains(document.activeElement)) $('navToggle').focus()
