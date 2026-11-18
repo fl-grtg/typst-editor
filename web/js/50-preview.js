@@ -1073,8 +1073,6 @@ function pvBar() { // page-fit button next to fit-width (shell untouched: button
   $('zPlus').addEventListener('click', () => pvModeSet('pct'))
   pvModePaint()
 }
-const pvStepPv = stepPv // hoisting: single module script, so function stepPv (90-settings) exists before this line runs
-stepPv = d => { if (pvZoomMode !== 'pct') pvModeSet('pct'); pvStepPv(d); pvRelayout() } // explicit % leaves fit modes, slots follow at once (not via the zoomV observer only)
 const zoomV0 = $('zoomV') // guarded: a missing node must never kill the rest of the module (boot)
 if (zoomV0) new MutationObserver(() => pvRelayout()).observe(zoomV0, { childList: true, characterData: true, subtree: true }) // any zoom change relayouts slots
 addEventListener('resize', () => { if (!window.Present?.isOn() && pvZoomMode !== 'pct' && pvPageSize) { pvModeApply(); pvRelayout() } })

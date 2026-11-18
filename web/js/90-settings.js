@@ -154,6 +154,27 @@ function showKeySecret() {
   })
   setTimeout(() => { value.focus(); value.select() }, 30)
 }
+function settingRange(labelKey, id, min, max, def, step, get, unit, set) { // slider row: label, filled track, live value, reset
+  const row = el('div', 'row settingRow settingRangeRow')
+  const label = el('label', null, t(labelKey)); label.htmlFor = id
+  const box = el('div', 'settingRange')
+  const input = el('input', 'settingRangeInput'); input.type = 'range'; input.id = id
+  input.min = min; input.max = max; input.step = step
+  const val = el('span', 'val')
+  const reset = icoBtn('settingReset', ICO_UNDO); reset.type = 'button'
+  reset.title = t('settings.resetDefault'); reset.setAttribute('aria-label', reset.title + ': ' + label.textContent)
+  const paint = () => { // no re-render while dragging: the row updates itself
+    const v = Math.round(+get())
+    const text = v + unit
+    input.value = v; val.textContent = text; input.setAttribute('aria-valuetext', text)
+    input.style.setProperty('--fill', ((v - min) / (max - min) * 100) + '%')
+    reset.disabled = v === def
+  }
+  input.oninput = () => { set(+input.value); paint() }
+  reset.onclick = e => { e.stopPropagation(); set(def); paint(); input.focus() }
+  paint(); box.append(input, val, reset); row.append(label, box)
+  return row
+}
 function renderSettings() {
   const p = $('setPop')
   const fieldValues = new Map([...p.querySelectorAll('[data-setting-field]')].map(input => [input.dataset.settingField, input.value]))
@@ -210,22 +231,8 @@ function renderSettings() {
     })
   }
   activateSettingsCategory(settingsCategory)
-  const fr = el('div', 'row settingRow'); fr.append(el('label', null, t('settings.editorFontSize')))
-  const fm = el('button', 'step', '−'); fm.title = t('settings.fontMinus'); fm.setAttribute('aria-label', fm.title); fm.disabled = edSize <= ED_MIN
-  fm.onclick = e => { e.stopPropagation(); stepEd(-ED_STEP); renderSettings() }
-  const fontControls = el('div', 'settingControlGroup settingStepper')
-  fontControls.append(fm, el('span', 'val', edSize + 'px'))
-  const fp = el('button', 'step', '+'); fp.title = t('settings.fontPlus'); fp.setAttribute('aria-label', fp.title); fp.disabled = edSize >= ED_MAX
-  fp.onclick = e => { e.stopPropagation(); stepEd(ED_STEP); renderSettings() }
-  fontControls.appendChild(fp); fr.appendChild(fontControls)
-  const zr = el('div', 'row settingRow'); zr.append(el('label', null, t('settings.previewZoom')))
-  const zm = el('button', 'step', '−'); zm.title = t('settings.zoomMinus'); zm.setAttribute('aria-label', zm.title); zm.disabled = pvZoom <= PV_MIN
-  zm.onclick = e => { e.stopPropagation(); stepPv(-PV_STEP); renderSettings() }
-  const zoomControls = el('div', 'settingControlGroup settingStepper')
-  zoomControls.append(zm, el('span', 'val', pvZoom + ' %'))
-  const zp = el('button', 'step', '+'); zp.title = t('settings.zoomPlus'); zp.setAttribute('aria-label', zp.title); zp.disabled = pvZoom >= PV_MAX
-  zp.onclick = e => { e.stopPropagation(); stepPv(PV_STEP); renderSettings() }
-  zoomControls.appendChild(zp); zr.appendChild(zoomControls)
+  const fr = settingRange('settings.editorFontSize', 'edSizeSet', ED_MIN, ED_MAX, ED_DEF, ED_STEP, () => edSize, 'px', setEd)
+  const zr = settingRange('settings.previewZoom', 'pvZoomSet', PV_MIN, PV_MAX, PV_DEF, PV_SLIDER_STEP, () => pvZoom, ' %', setPv)
   const lr = el('div', 'row settingRow preferenceRow'); lr.append(el('label', null, t('settings.language')))
   const ls = el('select'); ls.id = 'langSel'; ls.setAttribute('aria-label', t('settings.language'))
   ;[['de', t('settings.langDe')], ['en', t('settings.langEn')]].forEach(([v, lab]) => { const o = el('option', null, lab); o.value = v; if (v === langCur) o.selected = true; ls.appendChild(o) })
@@ -595,8 +602,14 @@ $('vEdit').onclick = () => setView('editor')
 $('vSplit').onclick = () => setView('split')
 $('vRead').onclick = () => setView('read')
 // editor font + preview zoom (edSize/pvZoom declared above)
-function stepPv(d) { pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, pvZoom + d)); applyPv(); saveSet() }
-function stepEd(d) { edSize = Math.max(ED_MIN, Math.min(ED_MAX, edSize + d)); applyEd(); saveSet() }
+function setEd(v) { edSize = Math.max(ED_MIN, Math.min(ED_MAX, Math.round(v))); applyEd(); saveSet() }
+function stepEd(d) { setEd(edSize + d) }
+function setPv(v) { // explicit % leaves fit modes, slots follow at once (not via the zoomV observer only)
+  if (pvZoomMode !== 'pct') pvModeSet('pct')
+  pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(v)))
+  applyPv(); saveSet(); pvRelayout()
+}
+function stepPv(d) { setPv(pvZoom + d) }
 function applyEd() {
   const lh = Math.round(edSize * 1.5)
   $('cmWrap').style.setProperty('--ed', edSize + 'px')

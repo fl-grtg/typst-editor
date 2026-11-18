@@ -5,10 +5,9 @@ test_7 (G5): the textarea->Y.Text heal interval in web/js/92-downloads.js must
     oldLen) with undeclared identifiers -> ReferenceError. Runs the real
     sources (40-editor-sync.js + the extracted interval block) with a mocked
     Y-Text and drifted editor state, no server doc needed.
-test_8 (G6-B1): the Font/Zoom steppers in the settings dialog must not close
-    the dialog (outside-click closer fires after renderSettings() detaches
-    e.target, so the buttons need e.stopPropagation() like the key-create
-    button).
+test_8 (G6-B1): the font and preview zoom sliders in the settings dialog
+    must not close the dialog, and their reset buttons must return the default
+    value (no re-render while dragging, so the live row stays attached).
 """
 
 from pathlib import Path
@@ -80,7 +79,7 @@ def test_login_does_not_reload_when_module_fails(page):
     assert page.evaluate("window.__loginGuardMarker") == 1
 
 
-def test_8_settings_steppers_keep_dialog_open(page):
+def test_8_settings_sliders_keep_dialog_open(page):
     register(page, "e2e_gina")
     expect(page.locator("#cm .cm-content")).to_be_visible()  # tutorial open: openDoc's hidePops() calls are done
     page.click("#who")
@@ -88,22 +87,44 @@ def test_8_settings_steppers_keep_dialog_open(page):
     if not pop.is_visible():  # async openDoc hidePops() won the race: toggle back open (hidden -> click opens)
         page.click("#who")
     expect(pop).to_be_visible()
-    pop.locator('.setNavItem[data-category="editor"]').click()  # steppers live in the Editor view now
-    steps = pop.locator("button.step")
-    expect(steps).to_have_count(4)  # fm, fp, zm, zp
-    font = pop.locator("span.val", has_text="px").first
-    zoom = pop.locator("span.val", has_text="%").first
-    font0 = int(font.inner_text().replace("px", ""))
-    zoom0 = int(zoom.inner_text().replace("%", "").strip())
-    steps.nth(1).click()  # A+: dialog must stay open, font grows
+    pop.locator('.setNavItem[data-category="editor"]').click()  # sliders live in the Editor view now
+    ranges = pop.locator("input.settingRangeInput")
+    expect(ranges).to_have_count(2)
+    font, zoom = ranges.nth(0), ranges.nth(1)
+    expect(font).to_have_attribute("min", "10")
+    expect(font).to_have_attribute("max", "24")
+    expect(font).to_have_attribute("step", "1")
+    expect(zoom).to_have_attribute("min", "30")
+    expect(zoom).to_have_attribute("max", "400")
+    expect(zoom).to_have_attribute("step", "5")  # preview zoom moves in 5% steps
+    font_val = pop.locator(".settingRange .val").nth(0)
+    zoom_val = pop.locator(".settingRange .val").nth(1)
+    font_reset = pop.locator(".settingRange .settingReset").nth(0)
+    zoom_reset = pop.locator(".settingRange .settingReset").nth(1)
+    expect(font_reset).to_be_disabled()  # already at the 14px default
+    font.press("End")  # A+: max font, dialog must stay open
     expect(pop).to_be_visible()
-    assert int(font.inner_text().replace("px", "")) == font0 + 1
-    steps.nth(0).click()  # A-: back to start, still open
+    expect(font_val).to_have_text("24px")
+    assert page.evaluate("() => localStorage.getItem('typst_ed')") == "24"
+    expect(font_reset).to_be_enabled()
+    font_reset.click()  # back to the default without closing the dialog
     expect(pop).to_be_visible()
-    assert int(font.inner_text().replace("px", "")) == font0
-    steps.nth(3).click()  # zoom+: still open, zoom grows
+    expect(font_val).to_have_text("14px")
+    expect(font_reset).to_be_disabled()
+    assert page.evaluate("() => localStorage.getItem('typst_ed')") == "14"
+    zoom.press("End")  # zoom+: max preview size, still open
     expect(pop).to_be_visible()
-    assert int(zoom.inner_text().replace("%", "").strip()) == zoom0 + 10
-    steps.nth(2).click()  # zoom-: back to start, still open
+    expect(zoom_val).to_have_text("400 %")
+    assert page.evaluate("() => localStorage.getItem('typst_pv')") == "400"
+    expect(zoom_reset).to_be_enabled()
+    zoom.press("Home")
+    expect(zoom_val).to_have_text("30 %")
+    zoom.press("ArrowRight")
+    expect(zoom_val).to_have_text("35 %")  # 5% steps, not 1%
+    assert page.evaluate("() => localStorage.getItem('typst_pv')") == "35"
+    zoom_reset.click()  # reset also pins the explicit 100% default
     expect(pop).to_be_visible()
-    assert int(zoom.inner_text().replace("%", "").strip()) == zoom0
+    expect(zoom_val).to_have_text("100 %")
+    expect(zoom_reset).to_be_disabled()
+    assert page.evaluate("() => localStorage.getItem('typst_pv')") == "100"
+    assert page.evaluate("() => localStorage.getItem('typst_pv_mode')") == "pct"
