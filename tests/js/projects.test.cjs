@@ -299,14 +299,16 @@ test('file download menu follows the active extension and omits document exports
 
 test('rail shortcuts open a collapsed section and never close an open one', () => {
   const ui = readFileSync('web/js/ui-layer.js', 'utf8')
-  const fn = ui.slice(ui.indexOf('  function section(hid)'), ui.indexOf('  var RAIL ='))
-  let expanded = false, clicks = 0, scrolls = 0
+  const fn = ui.slice(ui.indexOf('  function section('), ui.indexOf('  var RAIL ='))
+  let expanded = false, clicks = 0, scrolls = 0, peeks = 0
+  const trigger = { rail: true }
   const heading = { getAttribute: () => String(expanded), click: () => assert.fail('header is not the toggle'),
     querySelector: () => ({ click: () => { expanded = true; clicks++ } }), scrollIntoView: () => scrolls++ }
-  const c = vm.createContext({ expand: () => {}, $: () => heading, setTimeout: fn => fn() })
+  const c = vm.createContext({ peek: t => { assert.equal(t, trigger); peeks++ }, $: () => heading, setTimeout: fn => fn() })
   vm.runInContext(fn, c)
-  c.section('trashH'); c.section('trashH')
-  assert.equal(expanded, true); assert.equal(clicks, 1); assert.equal(scrolls, 2)
+  c.section('trashH', trigger); c.section('trashH', trigger)
+  assert.equal(expanded, true); assert.equal(clicks, 1); assert.equal(scrolls, 2) // an open section stays open
+  assert.equal(peeks, 2) // compact mode still peeks the panel for every rail click
 })
 
 

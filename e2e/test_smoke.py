@@ -1,4 +1,5 @@
 """Six core browser paths (Wave 0C safety net for the frontend split)."""
+import re
 import struct
 import zlib
 
@@ -84,6 +85,11 @@ def test_7_mobile_viewport_login_and_open_doc(browser, base_url):
         mp = mctx.new_page()
         register(mp, "e2e_grace")
         mp.click("#navToggle")  # <=720px the sidebar is a closed drawer; open it first
+        expect(mp.locator("#navToggle")).to_have_attribute("aria-expanded", "true")
+        mp.keyboard.press("Escape")  # Escape closes the drawer and keeps the toggle state honest
+        expect(mp.locator("body")).to_have_class(re.compile(r"\bnoside\b"))
+        expect(mp.locator("#navToggle")).to_have_attribute("aria-expanded", "false")
+        mp.click("#navToggle")  # reopen for the doc below
         create_doc(mp, "Mobile doc")
         expect(mp.locator("#title")).to_have_text("Mobile doc")
         expect(mp.locator("#cm .cm-content")).to_be_visible()

@@ -148,6 +148,7 @@ function openNewMenu(anchor) {
     { label: t('docs.pickUp'), title: t('docs.pickUpSub'), run: () => $('docPick').click() },
   ], 'left')
 }
+window.openNewMenu = openNewMenu // the classic rail layer opens the split menu from the rail + only
 function openNewResourceMenu(anchor) {
   if (!window.showMenuAt) { newResource('resource'); return }
   window.showMenuAt(anchor, fileTypeMenuItems(ext => newResource('resource', ext).catch(e => toast(e.message))), 'left')
@@ -160,7 +161,10 @@ async function newProjectFromMenu() {
   catch (e) { toast(e.message) } finally { b.disabled = false }
 }
 window.newProjectFromMenu = newProjectFromMenu // menubar proxy (classic ui-layer): File > New project opens the centered dialog
-$('new').onclick = e => { e.stopPropagation(); openNewMenu($('new')) }
+$('new').onclick = e => {
+  e.stopPropagation()
+  newProjectFromMenu() // the panel + opens the new project screen directly, also while peeking
+}
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
 async function importUpload(f) {

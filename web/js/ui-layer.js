@@ -3,7 +3,7 @@
   'use strict'
   function t(k, p) { return window.t ? window.t(k, p) : String(k).split('.').pop() } // module (05-i18n.js) owns t(); this classic script only delegates (labels render on click, after the module ran)
   var $ = function (id) { return document.getElementById(id) }
-  var menu = $('menu'), submenu = $('submenu'), body = document.body
+  var menu = $('menu'), submenu = $('submenu'), body = document.body, sideEl = $('side')
   var mac = /Mac|iPhone|iPad/.test(navigator.platform || '')
   var M = mac ? '\u2318' : 'Ctrl+'
   var openFor = null, items = [], idx = -1
@@ -207,6 +207,7 @@
     document.querySelectorAll('aside .menu-open').forEach(function (row) { row.classList.remove('menu-open') })
     openFor = null; items = []; idx = -1
     menu.hidden = true; menu.replaceChildren()
+    schedulePeekClose(!refocus) // Escape closes the peek; an item's focus may stay in the panel (inline rename)
   }
   window.closeMenu = close // header pops live in module scope, close the menu through this
   function focusPanel(panel, i) {
@@ -297,7 +298,12 @@
   }
   ;[menu, submenu].forEach(function (panel) { // grace period when the pointer crosses the gap between the panels
     panel.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') cancelSubClose() })
-    panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor) scheduleSubClose() })
+    panel.addEventListener('pointerleave', function (e) {
+      if (e.pointerType !== 'mouse') return
+      if (subFor) scheduleSubClose()
+      if (panel.hidden) return // a menu that just closed also fires pointerleave: its close path already scheduled
+      schedulePeekClose(true) // a real leave: keep an inline rename alive
+    })
   })
   function show(anchor, list, name, align) {
     var r = anchor.getBoundingClientRect() // before closing a parent popover: its child would otherwise measure 0x0
@@ -307,16 +313,26 @@
       if (p.contains(anchor)) return
       if (p.id === 'watchBox') { if (typeof closeWatchBox === 'function') closeWatchBox(); else p.remove() } else p.style.display = 'none'
     })
+    var placeRight = !!(anchor.dataset && anchor.dataset.menuPlacement === 'right') // rail flyout: beside the rail, vertically centred on the button
     menu.replaceChildren()
     list.forEach(function (d) { paintMenuItem(menu, d) })
     menu.hidden = false
     var w = menu.offsetWidth, h2 = menu.offsetHeight
-    var left = align === 'right' ? r.right - w : r.left
-    left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
-    var top = r.bottom + 6
-    if (top + h2 > window.innerHeight - 8) { // rows near the bottom dock: open upwards when there is room
-      var above = r.top - h2 - 6
-      top = above >= 8 ? above : Math.max(8, window.innerHeight - h2 - 8)
+    var left, top
+    if (placeRight) {
+      var rail = anchor.closest && anchor.closest('.sbRail')
+      left = (rail ? rail.getBoundingClientRect().right : r.right) + 6
+      if (left + w > window.innerWidth - 8) left = Math.max(8, r.left - w - 6)
+      top = Math.round(r.top + (r.height - h2) / 2)
+      top = Math.max(8, Math.min(top, window.innerHeight - h2 - 8))
+    } else {
+      left = align === 'right' ? r.right - w : r.left
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
+      top = r.bottom + 6
+      if (top + h2 > window.innerHeight - 8) { // rows near the bottom dock: open upwards when there is room
+        var above = r.top - h2 - 6
+        top = above >= 8 ? above : Math.max(8, window.innerHeight - h2 - 8)
+      }
     }
     menu.style.left = left + 'px'; menu.style.top = top + 'px'
     anchor.setAttribute('aria-expanded', 'true')
@@ -432,37 +448,115 @@
 
   /* Sidebar (one component: thin strip collapsed, full panel open) */
   function collapsed() { return body.classList.contains('noside') }
-  function expand() { if (collapsed()) click('navToggle') }
-  function section(hid) {
-    expand()
+  var peekTimer = null, peekOutTimer = null, peekFrom = null
+  var PEEK_OUT_MS = 260 // keep in sync with the close transition in 30-shell.css
+  function peek(trigger) { // compact mode: float the panel over the editor, keep the rail's layout slot
+    if (!collapsed()) return
+    if (matchMedia('(max-width:720px)').matches) { click('navToggle'); return } // rail is desktop-only
+    if (peekTimer) { clearTimeout(peekTimer); peekTimer = null } // a pending leave must not close the new peek
+    var a = trigger || document.activeElement
+    var nextFrom = a && a.closest && a.closest('.sbRail [data-rail]') ? a : null
+    if (peekFrom && peekFrom !== nextFrom) peekFrom.setAttribute('aria-expanded', 'false')
+    peekFrom = nextFrom
+    if (peekFrom) peekFrom.setAttribute('aria-expanded', 'true') // rail actions are transient disclosures
+    if (sideEl) {
+      if (sideEl.style.width) sideEl.style.setProperty('--peek-w', sideEl.style.width)
+      else sideEl.style.removeProperty('--peek-w')
+    }
+    if (peekOutTimer) { clearTimeout(peekOutTimer); peekOutTimer = null }
+    body.classList.remove('sidePeekOut')
+    body.classList.add('sidePeek')
+  }
+  function endPeek(animate) {
+    var was = body.classList.contains('sidePeek')
+    var active = document.activeElement
+    var hadFocus = !!(active && active.closest && (active.closest('#side .sbPanel') || active.closest('#searchFilters')))
+    var from = peekFrom
+    if (peekTimer) { clearTimeout(peekTimer); peekTimer = null }
+    if (peekOutTimer) { clearTimeout(peekOutTimer); peekOutTimer = null }
+    body.classList.remove('sidePeek'); body.classList.remove('sidePeekOut')
+    if (peekFrom) { peekFrom.setAttribute('aria-expanded', 'false'); peekFrom = null }
+    if (was && animate && !matchMedia('(max-width:720px)').matches) { // keep the panel mounted for the collapse animation
+      body.classList.add('sidePeekOut')
+      peekOutTimer = setTimeout(function () {
+        peekOutTimer = null
+        body.classList.remove('sidePeekOut')
+      }, PEEK_OUT_MS)
+    }
+    if (was && openFor && sideEl && sideEl.contains(openFor)) close(false) // a menu opened from the floating panel must not outlive it
+    if (was && window.closeSearchFilters) window.closeSearchFilters() // the search filter menu floats beside the panel: close it together
+    if (was && animate && hadFocus && from && from.isConnected) from.focus() // do not strand focus inside the hidden panel
+  }
+  window.closeSidePeek = function () { endPeek(false) } // permanent layout changes: drop the overlay at once
+  window.scheduleSidePeekClose = function () { schedulePeekClose(true) } // floating children (search filters) trigger the leave check
+  function hovering(el) { try { return !!el && el.matches(':hover') } catch (e) { return false } }
+  function peekFilterBox() { return document.getElementById('searchFilters') }
+  function schedulePeekClose(keepOnFocus) { // pointer may cross into a row menu before it leaves the peek
+    if (!body.classList.contains('sidePeek')) return
+    if (peekTimer) clearTimeout(peekTimer)
+    peekTimer = setTimeout(function () {
+      peekTimer = null
+      if (!body.classList.contains('sidePeek')) return
+      if (keepOnFocus && document.activeElement && document.activeElement.matches && document.activeElement.matches('#side .sbPanel input.renameInput')) return // an inline rename keeps the panel
+      if (hovering(sideEl) || (!menu.hidden && hovering(menu)) || (!submenu.hidden && hovering(submenu)) || hovering(peekFilterBox())) return
+      endPeek(true)
+    }, 200)
+  }
+  if (sideEl) sideEl.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse') schedulePeekClose(true) })
+  document.addEventListener('pointerdown', function (e) { // touch tablets have no pointerleave and keyboard peeks need a mouse dismissal too
+    if (!body.classList.contains('sidePeek') || (e.button !== undefined && e.button !== 0)) return
+    var t = e.target
+    if (t && t.closest && (t.closest('#side') || t.closest('#menu') || t.closest('#submenu') || t.closest('#searchFilters'))) return
+    endPeek(true)
+  }, true)
+  document.addEventListener('keydown', function (e) { // Escape: menu first (handled above), then the floating panel
+    if (e.key !== 'Escape' || e.defaultPrevented || openFor || !body.classList.contains('sidePeek')) return
+    e.preventDefault()
+    var from = peekFrom
+    endPeek(true)
+    if (from && from.isConnected) from.focus()
+  })
+  function section(hid, trigger) {
+    peek(trigger)
     var h = $(hid)
     if (!h) return
     if (h.getAttribute('aria-expanded') === 'false') {
       var label = h.querySelector('.lbl')
       if (label) label.click(); else h.click()
     }
-    setTimeout(function () { try { h.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } catch (e) {} }, 60)
+    setTimeout(function () { try { h.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } catch (e) {} }, 200) // let the peek finish expanding first: no combined motion
   }
   var RAIL = {
     toggle: function () { click('navToggle') },
-    new: function () { click('new') },
-    docs: function () { section('ownH') },
-    search: function () { expand(); setTimeout(function () { var q = $('q'); if (q) { q.focus(); q.select() } }, 80) },
-    ol: function () { section('olH') },
-    tpl: function () { section('tplH') },
-    trash: function () { section('trashH') },
+    new: function () {
+      var plus = document.querySelector('.sbRail [data-rail="new"]')
+      if (window.openNewMenu && plus) window.openNewMenu(plus) // compact: only the rail + offers project/upload
+      else click('new')
+    },
+    docs: function (b) { section('ownH', b) },
+    search: function (b) { peek(b); setTimeout(function () { var q = $('q'); if (q) { q.focus(); q.select() } }, 80) },
+    ol: function (b) { section('olH', b) },
+    tpl: function (b) { section('tplH', b) },
+    trash: function (b) { section('trashH', b) },
     theme: function () { setTheme(effective() === 'dark' ? 'light' : 'dark') },
-    set: function () { click('userMain') },
     help: function () { click('helpBtn') }
   }
   document.querySelectorAll('[data-rail]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var f = RAIL[b.dataset.rail]; if (f) f()
+    b.addEventListener('click', function (e) {
+      var f = RAIL[b.dataset.rail]; if (!f) return
+      if (b.dataset.rail === 'new') e.stopPropagation() // the flyout must survive this click (document handler closes menus)
+      f(b)
     })
   })
 
   /* Collapsed strip shows the same avatar as the user box */
   var meDot = $('meDot'), railAv = $('railAv')
+  if (railAv) railAv.sideMenuItems = function () {
+    return [
+      it(t('settings.title'), function () { click('userMain') }),
+      it(t('shell.signOut'), function () { click('out') })
+    ]
+  }
   function syncAv() { if (!meDot || !railAv) return; railAv.style.background = meDot.style.background; railAv.textContent = meDot.textContent }
   if (meDot && railAv) { new MutationObserver(syncAv).observe(meDot, { attributes: true, childList: true, characterData: true, subtree: true }); syncAv() }
 

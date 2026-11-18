@@ -506,11 +506,23 @@ $('split').addEventListener('pointerdown', e => {
   if (e.pointerType === 'mouse') return
   $('split').dispatchEvent(new MouseEvent('mousedown', { clientX: e.clientX }))
 })
+const SIDE_STATE_KEY = 'typst_side_open' // per browser: reopen the sidebar exactly as the user left it
+function sideSavedOpen() { try { return localStorage.getItem(SIDE_STATE_KEY) !== '0' } catch (e) { return true } }
+function setSideOpen(open, save) { // one setter: class, scrim, toggle ARIA and the remembered state stay in sync
+  if (!open) { // freeze the panel content width first: collapsing must clip, not reflow
+    const w = $('side').getBoundingClientRect().width
+    if (w > 0) $('side').style.setProperty('--side-w', w + 'px')
+  }
+  document.body.classList.toggle('noside', !open)
+  $('navToggle').setAttribute('aria-pressed', String(open))
+  $('navToggle').setAttribute('aria-expanded', String(open))
+  updScrim()
+  if (save) lsSet(SIDE_STATE_KEY, open ? '1' : '0')
+}
 $('navToggle').onclick = () => {
-  document.body.classList.toggle('noside'); updScrim()
-  const open = !document.body.classList.contains('noside')
-  $('navToggle').setAttribute('aria-pressed', String(open)) // pressed = sidebar open, not hidden
-  $('navToggle').setAttribute('aria-expanded', String(open)) // disclose pattern for SR
+  if (window.closeSidePeek) window.closeSidePeek()
+  const open = document.body.classList.contains('noside') // currently closed -> this click opens it
+  setSideOpen(open, true)
   if (open && matchMedia('(max-width:720px)').matches) { // drawer opened: focus first control
     const f = $('side').querySelector('input,button')
     if (f) setTimeout(() => { try { f.focus() } catch (e) {} }, 60)
@@ -520,8 +532,8 @@ function updScrim() {
   const mob = matchMedia('(max-width:720px)').matches
   $('scrim').style.display = mob && !document.body.classList.contains('noside') ? '' : 'none'
 }
-$('scrim').onclick = () => { document.body.classList.add('noside'); updScrim(); $('navToggle').setAttribute('aria-pressed', 'false'); $('navToggle').setAttribute('aria-expanded', 'false'); $('navToggle').focus() } // drawer closed: focus back to toggle
-function autoCloseDrawer() { if (matchMedia('(max-width:720px)').matches) { document.body.classList.add('noside'); updScrim() } }
+$('scrim').onclick = () => { setSideOpen(false, true); $('navToggle').focus() } // drawer closed: focus back to toggle
+function autoCloseDrawer() { if (matchMedia('(max-width:720px)').matches) setSideOpen(false, false) } // transient: keep the desktop choice
 const sideEl = $('side') // drag sidebar width, 150-420px
 try { const sw = +localStorage.getItem('typst_side'); if (sw >= SIDE_MIN && sw <= SIDE_MAX) sideEl.style.width = sw + 'px' } catch (e) {}
 $('sideSplit').addEventListener('mousedown', e => {
@@ -555,7 +567,10 @@ function vStart(y0) { // mobile: drag editor height (mouse + touch)
 }
 $('vsplit').addEventListener('mousedown', e => { e.preventDefault(); vStart(e.clientY) })
 $('vsplit').addEventListener('touchstart', e => vStart(e.touches[0].clientY), { passive: true })
-kb($('sideSplit'), () => { document.body.classList.toggle('noside'); updScrim() }) // keyboard: like menu
+kb($('sideSplit'), () => { // keyboard: like the toggle, remember the choice
+  if (window.closeSidePeek) window.closeSidePeek()
+  setSideOpen(document.body.classList.contains('noside'), true)
+})
 $('sideSplit').addEventListener('keydown', e => { // arrows: resize sidebar width
   const cur = Math.round(sideEl.getBoundingClientRect().width)
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -581,9 +596,9 @@ $('vsplit').addEventListener('keydown', e => { // arrows: resize editor height
   updVsplitAria()
 })
 matchMedia('(max-width:720px)').addEventListener('change', m => { // back on desktop: clear fixed height
-  if (!m.matches) { $('leftCol').style.height = ''; $('leftCol').style.flex = ''; document.body.classList.remove('noside') }
-  else document.body.classList.add('noside')
-  updScrim()
+  if (m.matches && window.closeSidePeek) window.closeSidePeek()
+  if (!m.matches) { $('leftCol').style.height = ''; $('leftCol').style.flex = '' }
+  setSideOpen(!m.matches && sideSavedOpen(), false) // mobile drawer closed; desktop restores the saved layout
 })
 function setView(m) { // 3-way segment: editor | split | read (not 1 read-mode button)
   document.body.classList.toggle('read', m === 'read')
@@ -1446,5 +1461,5 @@ applyEd() // apply saved font at once
 applyPv()
 updExports()
 closeView() // boot with no doc: onboarding card, no blobs, no comment button, read-only
-try { if (matchMedia('(max-width:720px)').matches) document.body.classList.add('noside') } catch (e) {} // mobile: sidebar closed
+try { setSideOpen(!matchMedia('(max-width:720px)').matches && sideSavedOpen(), false) } catch (e) {} // desktop: last layout; mobile: drawer closed
 updScrim()

@@ -487,7 +487,7 @@ function scCloseLayer() {
   if (document.getElementById('searchFilters')) { closeSearchFilters(); $('qFilter').focus(); return true }
   if (findQ && $('side').contains(document.activeElement)) { clearSearch(document.activeElement === $('q')); return true } // only with focus in the search/sidebar: Esc in the editor must not wipe it
   if (matchMedia('(max-width:720px)').matches && !document.body.classList.contains('noside')) {
-    document.body.classList.add('noside'); updScrim(); $('navToggle').setAttribute('aria-pressed', 'false')
+    setSideOpen(false, false) // transient drawer: reuse the setter so toggle ARIA and scrim stay in sync
     if ($('side').contains(document.activeElement)) $('navToggle').focus()
     return true
   }

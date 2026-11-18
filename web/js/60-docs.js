@@ -512,6 +512,7 @@ function closeSearchFilters() {
   document.removeEventListener('pointerdown', searchFiltersOutside, true)
   document.removeEventListener('keydown', searchFiltersEsc, true)
 }
+window.closeSearchFilters = closeSearchFilters // the compact sidebar peek closes its floating filter menu with it
 function searchFiltersOutside(e) {
   if ($('qFilter').contains(e.target)) return
   const box = document.getElementById('searchFilters')
@@ -594,6 +595,9 @@ function openSearchFilters() {
   box.appendChild(el('hr'))
   addItem('content', 'docs.sfContent')
   document.body.appendChild(box)
+  box.addEventListener('pointerleave', e => { // leaving the flyout also ends a compact-sidebar peek
+    if (e.pointerType === 'mouse' && window.scheduleSidePeekClose) window.scheduleSidePeekClose()
+  })
   const r = $('qFilter').getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight, gap = 6
   let left = r.right + gap // open to the right of the button, over the editor
   if (left + w > innerWidth - 8) left = Math.max(8, r.left - w - gap) // narrow viewport: flip back into the sidebar

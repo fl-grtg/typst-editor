@@ -33,7 +33,7 @@
   --sh-modal: 0 0 0 1px rgba(15, 17, 22, .06), 0 28px 70px rgba(15, 17, 22, .28);
   --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --z-pop: 60; --z-menu: 250; --z-scrim: 205; --z-drawer: 210; --z-modal: 300; --z-toast: 400;
+  --z-pop: 60; --z-menu: 250; --z-scrim: 205; --z-drawer: 210; --z-peek: 240; --z-modal: 300; --z-toast: 400;
   --rail: 52px; --bar: 48px;
 }
 @media (prefers-color-scheme: dark) {

@@ -28,17 +28,39 @@ def test_settings_open_across_the_full_user_box(page):
         expect(main).to_have_attribute("aria-expanded", "false")
 
 
-def test_collapsed_rail_avatar_opens_settings(page):
+def test_collapsed_rail_avatar_opens_account_menu(page):
     register(page, "e2e_settings_rail")
     create_doc(page, "Settings rail doc")
     page.click("#navToggle")
     rail = page.locator("#railAv")
+    menu = page.locator("#menu")
     pop = page.locator("#setPop")
     expect(rail).to_be_visible()
+    expect(rail).to_have_attribute("aria-haspopup", "menu")
+    expect(rail).to_have_attribute("title", "Account menu")
     expect(rail).to_have_attribute("aria-expanded", "false")
     page.click("#railAv")
-    expect(pop).to_be_visible()
+    expect(menu).to_be_visible()
     expect(rail).to_have_attribute("aria-expanded", "true")
-    page.click("#railAv")
-    expect(pop).not_to_be_visible()
+    rail_box, menu_box = rail.bounding_box(), menu.bounding_box()
+    assert rail_box and menu_box
+    assert menu_box["x"] >= rail_box["x"] + rail_box["width"]  # flyout to the right of the rail
+    assert menu_box["y"] + menu_box["height"] > rail_box["y"]  # vertically beside the avatar, not above it
+    items = menu.locator("button")
+    expect(items).to_have_count(2)
+    expect(items.nth(0)).to_have_text("Settings")
+    expect(items.nth(1)).to_have_text("Sign out")
+    items.filter(has_text="Settings").click()
+    expect(pop).to_be_visible()
     expect(rail).to_have_attribute("aria-expanded", "false")
+
+
+def test_collapsed_rail_account_menu_signs_out(page):
+    register(page, "e2e_rail_signout")
+    page.click("#navToggle")
+    page.click("#railAv")
+    menu = page.locator("#menu")
+    expect(menu).to_be_visible()
+    menu.locator("button").filter(has_text="Sign out").click()
+    expect(page.locator("#login")).to_be_visible()
+    expect(page.locator("#app")).to_be_hidden()
