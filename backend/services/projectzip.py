@@ -74,7 +74,8 @@ def import_project_zip(user: str, title: str, folder: str, data: bytes, project_
     title = title.strip()
     if not title or len(title) > TITLE_MAX:
         raise HTTPException(400, f"Title: 1-{TITLE_MAX} chars")
-    folder = folder_path(folder) if folder.strip() else ""
+    # Project folders are sanitized paths; a standalone document keeps its free-form folder name.
+    folder = (folder_path(folder) if project_id else deps.check_folder_name(folder)) if folder.strip() else ""
     main, files = read_project_zip(data)
     did, now = db.new_id("d_"), db.now_iso()
     root = deps.get_files_dir().resolve()

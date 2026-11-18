@@ -46,13 +46,16 @@ def test_rename_folder_moves_modules_files_docs_and_empty_children(c):
     assert upload(c, did, "lib/pic.png").status_code == 200
     other = c.post(f"/api/projects/{pid}/docs", json={"title": "Ch1", "folder": "lib"}).json()["id"]
     c.post(f"/api/projects/{pid}/folders", json={"path": "lib/empty"})
+    # the empty child would land on three levels: rejected before anything moves
+    assert c.post(f"/api/projects/{pid}/folders/rename", json={"path": "lib", "target": "parts/lib"}).status_code == 400
+    assert c.delete(f"/api/projects/{pid}/folders", params={"path": "lib/empty"}).status_code == 200
     r = c.post(f"/api/projects/{pid}/folders/rename", json={"path": "lib", "target": "parts/lib"})
     assert r.status_code == 200, r.text
     p = c.get(f"/api/projects/{pid}").json()
     assert [x["name"] for x in p["resources"]] == ["parts/lib/util.typ"]
     assert [f["name"] for f in p["files"]] == ["parts/lib/pic.png"]
     assert {d["id"]: d["folder"] for d in p["documents"]}[other] == "parts/lib"
-    assert set(p["folders"]) == {"parts", "parts/lib", "parts/lib/empty"}
+    assert set(p["folders"]) == {"parts", "parts/lib"}
     assert c.get(f"/api/docs/{did}/files/parts/lib/pic.png").status_code == 200
     assert c.get(f"/api/docs/{did}/files/lib/pic.png").status_code == 404
 
@@ -236,3 +239,16 @@ def test_folder_path_rejects_empty_aliases(c):
     assert upload(c, did, "a/x.txt").status_code == 200
     assert c.post(f"/api/projects/{pid}/folders/rename", json={"path": "a", "target": "."}).status_code == 400
     assert [f["name"] for f in c.get(f"/api/docs/{did}/files").json()["files"]] == ["a/x.txt"]
+
+
+def test_rename_cannot_push_documents_or_empty_folders_past_the_depth_limit(c):
+    pid, _ = make(c)
+    c.post(f"/api/projects/{pid}/docs", json={"title": "Chapter", "folder": "a/b"})
+    # a/b -> q/r/b would be three folder levels for the document
+    assert c.post(f"/api/projects/{pid}/folders/rename", json={"path": "a", "target": "q/r"}).status_code == 400
+    c.post(f"/api/projects/{pid}/folders", json={"path": "e/f"})
+    # an empty child folder is held to the same limit
+    assert c.post(f"/api/projects/{pid}/folders/rename", json={"path": "e", "target": "m/n"}).status_code == 400
+    payload = c.get(f"/api/projects/{pid}").json()
+    assert [d["folder"] for d in payload["documents"] if d["title"] == "Chapter"] == ["a/b"]
+    assert "e/f" in payload["folders"]

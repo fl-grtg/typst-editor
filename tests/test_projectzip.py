@@ -98,3 +98,11 @@ def test_source_zip_preserves_generic_binary_attachment(c):
     assert response.status_code == 200
     assert response.content == b"\x00\xff"
     assert response.headers["content-disposition"].startswith("attachment;")
+
+
+def test_standalone_import_keeps_a_free_form_folder_name(c):
+    register_user(c, "zipfolder")
+    result = import_zip(c, bundle([("main.typ", "= Hi")]), folder="Übung 1")
+    assert result.status_code == 200, result.text
+    project = c.get(f"/api/docs/{result.json()['id']}").json()["project_id"]
+    assert c.get(f"/api/projects/{project}").json()["title"] == "Übung 1"

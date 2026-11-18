@@ -54,11 +54,13 @@ def _moved(path: str, old: str, new: str) -> str:
     return new + path[len(old):]
 
 
-def _moved_depth(path: str, old: str, new: str) -> str:
+def _moved_depth(path: str, old: str, new: str, *, folder: bool = False) -> str:
     """Moving an entry inside a renamed folder may keep a legacy depth, but
-    never adds a level beyond MAX_FOLDER_DEPTH relative to where it came from."""
+    never adds a level beyond MAX_FOLDER_DEPTH relative to where it came from.
+    File paths carry their name in the last segment; folder paths do not."""
     target = _moved(path, old, new)
-    if target.strip("/").count("/") > max(MAX_FOLDER_DEPTH, path.strip("/").count("/")):
+    extra = 1 if folder else 0  # a folder path of n segments is n levels, a file path n-1
+    if target.strip("/").count("/") + extra > max(MAX_FOLDER_DEPTH, path.strip("/").count("/") + extra):
         raise HTTPException(400, f"Folders can be nested at most {MAX_FOLDER_DEPTH} levels deep")
     return target
 
@@ -113,7 +115,7 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
         res = [r[0] for r in con.execute("SELECT name FROM project_resources WHERE project_id=?", (project_id,))]
         res_moves = [(n, _moved_depth(n, old, new)) for n in res if _within(n, old)]
         docs = [(r[0], r[1], r[2]) for r in con.execute("SELECT id,folder,title FROM docs WHERE project_id=? AND trashed=0", (project_id,))]
-        doc_moves = [(i, f, _moved_depth(f, old, new)) for i, f, _title in docs if f and _within(f, old)]
+        doc_moves = [(i, f, _moved_depth(f, old, new, folder=True)) for i, f, _title in docs if f and _within(f, old)]
         doc_titles = {i: title for i, _folder, title in docs}
         for i, _src, f in doc_moves:
             folder_path(f, new=False)
@@ -162,7 +164,7 @@ def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list
                 if _within(p, old):
                     con.execute("DELETE FROM project_folders WHERE project_id=? AND path=?", (project_id, p))
             parts = new.split("/")
-            for p in ["/".join(parts[:i]) for i in range(1, len(parts) + 1)] + [_moved_depth(p, old, new) for p in rows if _within(p, old)]:
+            for p in ["/".join(parts[:i]) for i in range(1, len(parts) + 1)] + [_moved_depth(p, old, new, folder=True) for p in rows if _within(p, old)]:
                 con.execute("INSERT OR IGNORE INTO project_folders VALUES (?,?,?)", (project_id, p, now))
     except Exception:
         for d, o, n in reversed(done):
