@@ -540,6 +540,7 @@ function smoothScroll(el, y) { // jump: quintic in-out, one fixed duration so ed
   pvSelfWrite(el) // mark the start: a scroll event still in flight from before must not stop this animation
   const dur = 320, t0 = performance.now(), a = { jump: true, target, raf: 0 }
   const step = now => {
+    if (!smoothWrote(el)) { scrollAnims.delete(el); return } // someone else moved it (reader, scrollbar, CM): their position wins
     const k = Math.min(1, (now - t0) / dur)
     el.scrollTop = from + dy * k * k * k * (k * (6 * k - 15) + 10) // smootherstep: no overshoot, no hard start
     pvSelfWrite(el)
@@ -562,6 +563,7 @@ function smoothFollow(el, y) { // cursor/scroll follow: new targets keep positio
   pvSelfWrite(el) // mark the start: a scroll event still in flight from before must not stop this follow
   a = { follow: true, target, v: 0, t: performance.now(), omega: 28, raf: 0 }
   const step = now => {
+    if (!smoothWrote(el)) { scrollAnims.delete(el); return } // someone else moved it (reader, scrollbar, CM): their position wins
     const dt = Math.max(0.001, Math.min(0.05, (now - a.t) / 1000))
     a.t = now
     const x = el.scrollTop, c = x - a.target, e = Math.exp(-a.omega * dt)

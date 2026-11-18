@@ -572,7 +572,7 @@ async function afterFolderRename(p, path, target) {
   filesDirty = true
   if (mapped && docId === doc && openN === epoch) await switchTab('', true)
   if (docId === doc && openN === epoch && docProject === p.id) { await loadDocResources(true); tabSig = ''; queueRender() }
-  await sidebar()
+  await sidebarFresh() // a refresh started before the rename still lists the old path: paintTabs would drop the mapped tab
   if (mapped && docId === doc && openN === epoch) await switchTab(mapped)
 }
 async function renameFolder(p, path, host) {
