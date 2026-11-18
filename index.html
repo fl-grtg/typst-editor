@@ -2881,7 +2881,7 @@ function pvSrcList() { // live source texts for honest cross-file anchors: [{key
   return out
 }
 async function render() {
-  const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName
+  const id = ++renderN, preview = $('preview'), myDoc = docId, myTplName = tplName, myEpoch = openN
   if (!myDoc || myTplName) return
   pvBar() // zoom pill extras once (needs consts from later files)
   if (pvWorkerFail || !pvEnsureWorker()) { await renderDirect(id, preview); return } // no worker: main-thread compile
@@ -2892,7 +2892,8 @@ async function render() {
   try {
     const main = window.changeSession ? sessionMainText() : activeFile ? shadow : getT() // file tab: preview still compiles main.typ
     const pf = await pvFiles()
-    if (!pf || pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
+    if (!pf) { if (myEpoch === openN && myDoc === docId) queueRender(); return } // a resource poll superseded the list load: retry, no other render would
+    if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
     const job = { cmd: 'work', id: ++pvJobN, main, sig: pf.sig,
       files: [...fileCache].map(([n, c]) => ({ name: n, bytes: c.bytes })),
       tpl: (pf.tpl || []).map(x => ({ name: x.name, content: x.content })) }
