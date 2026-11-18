@@ -48,7 +48,8 @@ def test_formatter_does_not_replace_a_document_opened_during_load(page):
     pending = []
     page.route("**/vendor/typstyle-wasm-glue-*.js", lambda route: pending.append(route))
     page.locator('#menubar [data-menu="edit"]').click()
-    page.locator('#menu button').filter(has_text='Format document').click()
+    page.locator('#menu button').filter(has_text='Formatting').click()
+    page.locator('#submenu button').filter(has_text='Format document').click()
     page.wait_for_timeout(150)
     assert pending, "formatter import must remain pending for the race"
     _open(page, "Audit second")

@@ -16,7 +16,7 @@
   function scRun(id) { try { return !!(window.scRunShortcut && window.scRunShortcut(id)) } catch (e) { return false } } // same handler as the key itself
   function fmt(kind) { var b = document.querySelector('[data-fmt="' + kind + '"]'); if (b && !b.disabled) b.click() }
   function fmtOn(kind) { var b = document.querySelector('[data-fmt="' + kind + '"]'); return !!b && !b.disabled }
-  function it(label, run, o) { o = o || {}; return { label: label, run: run, kbd: o.kbd, on: o.on !== false, checked: o.checked, ext: o.ext } }
+  function it(label, run, o) { o = o || {}; return Object.assign({ label: label, run: run, on: o.on !== false }, o) }
   var EXT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>'
   var ARROW_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>'
   var SEP = { sep: true }
@@ -33,85 +33,116 @@
       it(t('menu.dlZip'), function () { click('dlZip') }, { on: shown('dlZip') })
     ]
   }
+  function formatItems() {
+    return [
+      it(t('menu.bold'), function () { fmt('bold') }, { kbd: scKey('bold', M + 'B'), on: fmtOn('bold') }),
+      it(t('menu.italic'), function () { fmt('italic') }, { kbd: scKey('italic', M + 'I'), on: fmtOn('italic') }),
+      it(t('menu.underline'), function () { fmt('underline') }, { kbd: scKey('underline', M + 'U'), on: fmtOn('underline') }),
+      SEP,
+      it(t('shell.fmtHead'), function () { fmt('heading') }, { on: fmtOn('heading') }),
+      it(t('shell.fmtBul'), function () { fmt('bullets') }, { on: fmtOn('bullets') }),
+      it(t('shell.fmtNum'), function () { fmt('numbers') }, { on: fmtOn('numbers') }),
+      it(t('shell.fmtMath'), function () { fmt('math') }, { on: fmtOn('math') }),
+      it(t('shell.fmtCode'), function () { fmt('code') }, { on: fmtOn('code') }),
+      it(t('shell.fmtLink'), function () { fmt('link') }, { on: fmtOn('link') }),
+      SEP,
+      it(t('editor.formatDoc'), function () { click('fmtDoc') }, { kbd: scKey('format', 'Alt+Shift+F'), on: shown('fmtDoc') })
+    ]
+  }
+  function insertItems() {
+    return [
+      it(t('menu.addPic'), function () { click('imgBtn') }, { on: shown('imgBtn') }),
+      it(t('menu.addTpl'), function () { click('tplBtn') }, { on: shown('tplBtn') }),
+      it(t('menu.addSym'), function () { click('symBtn') }, { on: shown('symBtn') })
+    ]
+  }
+  function viewModeItems() {
+    var edit = pressed('vEdit'), read = pressed('vRead')
+    return [
+      it(t('menu.edOnly'), function () { click('vEdit') }, { checked: edit }),
+      it(t('menu.edSplit'), function () { click('vSplit') }, { checked: !edit && !read }),
+      it(t('menu.pvOnly'), function () { click('vRead') }, { checked: read }),
+      SEP,
+      it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), checked: !!(window.Present && window.Present.isOn()) })
+    ]
+  }
+  function previewItems() {
+    var edit = pressed('vEdit'), read = pressed('vRead')
+    return [
+      it(t('menu.follow'), function () { click('followBtn') }, { checked: pressed('followBtn'), on: !edit && !read }),
+      it(t('menu.clickSync'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
+      SEP,
+      it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: scKey('zoomIn', M + '+'), on: !edit }),
+      it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: scKey('zoomOut', M + '\u2212'), on: !edit }),
+      it(t('menu.fitPage'), function () { click('fitPageBtn') }, { on: !edit }),
+      it(t('menu.resetZoom'), function () { scRun('zoomReset') }, { kbd: scKey('zoomReset', M + '0'), on: !edit })
+    ]
+  }
+  function themeItems() {
+    return [
+      it(t('menu.sysTheme'), function () { setTheme('system') }, { checked: themeMode() === 'system' }),
+      it(t('menu.light'), function () { setTheme('light') }, { checked: themeMode() === 'light' }),
+      it(t('menu.dark'), function () { setTheme('dark') }, { checked: themeMode() === 'dark' })
+    ]
+  }
   var DEF = {
     insert: function () {
-      return [
-        it(t('menu.addPic'), function () { click('imgBtn') }, { on: shown('imgBtn') }),
-        it(t('menu.addTpl'), function () { click('tplBtn') }, { on: shown('tplBtn') }),
-        it(t('menu.addSym'), function () { click('symBtn') }, { on: shown('symBtn') }),
+      return insertItems().concat([
         it(t('editor.citeLibrary'), function () { click('citeLibrary') }, { on: shown('citeLibrary') }),
         it(t('shell.colWrap'), function () { click('colPick') }, { on: shown('colWrap') })
-      ]
+      ])
     },
     file: function () {
       return [
-        it(t('menu.newDoc'), function () { click('new') }),
-        it(t('menu.uploadTyp'), function () { click('upDoc') }),
+        it(t('menu.newDoc'), function () { if (window.newProjectFromMenu) newProjectFromMenu(); else click('new') }),
+        it(t('menu.upload'), function () { click('upDoc') }, { title: t('docs.pickUpSub') }),
         SEP,
         it(t('menu.rename'), function () { click('renBtn') }, { on: shown('renBtn') }),
         it(t('menu.share'), function () { click('shareBtn') }, { on: shown('shareBtn') }),
         it(t('menu.history'), function () { click('histBtn') }, { on: shown('histBtn') }),
         it(t('menu.saveNow'), function () { scRun('save') }, { kbd: scKey('save', M + 'S') }),
-        SEP
-      ].concat(exportItems(), [
         SEP,
-        it(t('menu.moveTrash'), function () { click('del') }, { on: shown('del') }),
-        it(t('menu.signOut'), function () { click('out') })
-      ])
+        it(t('menu.export'), null, { submenu: exportItems, on: shown('dlTyp') }),
+        SEP,
+        it(t('menu.moveTrash'), function () { click('del') }, { on: shown('del'), danger: true })
+      ]
     },
     edit: function () {
+      var formats = formatItems(), inserts = insertItems()
       return [
         it(t('menu.find'), function () { scRun('find') }, { kbd: scKey('find', M + 'F') }),
         SEP,
-        it(t('menu.bold'), function () { fmt('bold') }, { kbd: scKey('bold', M + 'B'), on: fmtOn('bold') }),
-        it(t('menu.italic'), function () { fmt('italic') }, { kbd: scKey('italic', M + 'I'), on: fmtOn('italic') }),
-        it(t('menu.underline'), function () { fmt('underline') }, { kbd: scKey('underline', M + 'U'), on: fmtOn('underline') }),
-        it(t('editor.formatDoc'), function () { click('fmtDoc') }, { kbd: scKey('format', 'Alt+Shift+F'), on: shown('fmtDoc') }),
-        it(t('shell.fmtHead'), function () { fmt('heading') }, { on: fmtOn('heading') }),
-        it(t('shell.fmtBul'), function () { fmt('bullets') }, { on: fmtOn('bullets') }),
-        it(t('shell.fmtNum'), function () { fmt('numbers') }, { on: fmtOn('numbers') }),
-        it(t('shell.fmtMath'), function () { fmt('math') }, { on: fmtOn('math') }),
-        it(t('shell.fmtCode'), function () { fmt('code') }, { on: fmtOn('code') }),
-        it(t('shell.fmtLink'), function () { fmt('link') }, { on: fmtOn('link') }),
+        it(t('menu.formatting'), null, { submenu: formatItems, on: formats.some(function (d) { return !d.sep && d.on !== false }) }),
+        it(t('shell.fmtIns'), null, { submenu: insertItems, on: inserts.some(function (d) { return d.on !== false }) }),
         SEP,
-        it(t('menu.comment'), function () { click('cNew') }, { on: shown('cNew') }),
-        it(t('menu.addPic'), function () { click('imgBtn') }, { on: shown('imgBtn') }),
-        it(t('menu.addTpl'), function () { click('tplBtn') }, { on: shown('tplBtn') }),
-        it(t('menu.addSym'), function () { click('symBtn') }, { on: shown('symBtn') }),
-        it(t('menu.media'), function () { click('mediaBtn') }, { on: shown('mediaBtn') })
+        it(t('menu.comment'), function () { click('cNew') }, { on: shown('cNew') })
       ]
     },
     view: function () {
-      var edit = pressed('vEdit'), read = pressed('vRead')
+      var modes = viewModeItems(), previews = previewItems()
       return [
-        it(t('menu.edOnly'), function () { click('vEdit') }, { checked: edit }),
-        it(t('menu.edSplit'), function () { click('vSplit') }, { checked: !edit && !read }),
-        it(t('menu.pvOnly'), function () { click('vRead') }, { checked: read }),
-        it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), checked: !!(window.Present && window.Present.isOn()) }),
+        it(t('menu.viewMode'), null, { submenu: viewModeItems, on: modes.some(function (d) { return !d.sep && d.on !== false }) }),
+        it(t('menu.preview'), null, { submenu: previewItems, on: previews.some(function (d) { return !d.sep && d.on !== false }) }),
         SEP,
         it(t('menu.sidebar'), function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
-        it(t('menu.follow'), function () { click('followBtn') }, { checked: pressed('followBtn'), on: !edit && !read }),
-        it(t('menu.clickSync'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
         SEP,
-        it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: scKey('zoomIn', M + '+'), on: !edit }),
-        it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: scKey('zoomOut', M + '\u2212'), on: !edit }),
-        it(t('menu.fitPage'), function () { click('fitPageBtn') }, { on: !edit }),
-        it(t('menu.resetZoom'), function () { scRun('zoomReset') }, { kbd: scKey('zoomReset', M + '0'), on: !edit }),
-        SEP,
-        it(t('menu.fontUp'), function () { click('fPlus') }, { on: !read }),
-        it(t('menu.fontDown'), function () { click('fMinus') }, { on: !read }),
-        head(t('menu.appearance')),
-        it(t('menu.sysTheme'), function () { setTheme('system') }, { checked: themeMode() === 'system' }),
-        it(t('menu.light'), function () { setTheme('light') }, { checked: themeMode() === 'light' }),
-        it(t('menu.dark'), function () { setTheme('dark') }, { checked: themeMode() === 'dark' })
+        it(t('menu.appearance'), null, { submenu: themeItems }),
+        it(t('menu.fontSize'), null, { submenu: function () {
+          var read = pressed('vRead')
+          return [
+            it(t('menu.fontUp'), function () { click('fPlus') }, { on: !read }),
+            it(t('menu.fontDown'), function () { click('fMinus') }, { on: !read })
+          ]
+        }, on: !pressed('vRead') })
       ]
     },
     help: function () {
       return [
-        it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') }, { ext: true }),
-        it(t('menu.issues'), function () { window.open('https://github.com/fl-grtg/typst-editor/issues', '_blank', 'noopener') }, { ext: true }),
         it(t('menu.shortcuts'), function () { if (window.openShortcutSettings) window.openShortcutSettings(); else click('helpBtn') }),
-        it(t('menu.agent'), function () { if (window.openSettingsCategory) window.openSettingsCategory('api'); else click('userMain') })
+        it(t('menu.agent'), function () { if (window.openSettingsCategory) window.openSettingsCategory('api'); else click('userMain') }),
+        SEP,
+        it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') }, { ext: true }),
+        it(t('menu.issues'), function () { window.open('https://github.com/fl-grtg/typst-editor/issues', '_blank', 'noopener') }, { ext: true })
       ]
     },
     export: function () { return [head(t($('dlTyp').dataset.kind === 'file' ? 'menu.dlFileHead' : 'menu.dlHead'))].concat(exportItems()) },

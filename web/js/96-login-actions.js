@@ -159,6 +159,7 @@ async function newProjectFromMenu() {
   try { openDoc((await api('POST', '/api/docs/create', { title: (r.title || '').trim() || t('projects.new'), content: galleryContent(r.tpl), folder: '' })).id) }
   catch (e) { toast(e.message) } finally { b.disabled = false }
 }
+window.newProjectFromMenu = newProjectFromMenu // menubar proxy (classic ui-layer): File > New project opens the centered dialog
 $('new').onclick = e => { e.stopPropagation(); openNewMenu($('new')) }
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
