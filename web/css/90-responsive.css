@@ -37,8 +37,17 @@
   .sbHead { justify-content: flex-end; margin: 0 0 8px; }
   #cBadge, #eBadge { min-height: 24px; min-width: 0; height: 24px; }
   body.noside #scrim { display: none; }
-  #find { flex-wrap: nowrap; overflow-x: auto; }
-  #find button { min-height: 40px; }
+  #find { top: 6px; right: 8px; left: 8px; width: auto; }
+  #find .fRow:first-child { flex-wrap: wrap; row-gap: 6px; }
+  #find .fRow:first-child .fField { flex: 1 1 calc(100% - 48px); order: 0; }
+  #find .fRow:first-child .n { order: 1; margin-right: auto; text-align: left; padding-left: 6px; }
+  #find .fRow:first-child .fgroup, #find .fRow:first-child .x { order: 2; }
+  #find .fField input { min-height: 38px; font-size: 16px; }
+  #find .fOpt { min-width: 32px; height: 32px; }
+  #find .fIc, #find .fTog { width: 38px; min-width: 38px; height: 38px; min-height: 38px; }
+  #find .fTxt { min-height: 40px; }
+  #find .n { min-width: 44px; }
+  #find .fRepRow, #find .fMsg { padding-left: 0; margin-left: 0; }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
   #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
   #menu button, #submenu button { min-height: 40px; }

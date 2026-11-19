@@ -327,6 +327,12 @@ const findField = StateField.define({
   update: (v, tr) => { for (const e of tr.effects) if (e.is(setFind)) v = e.value; return v.map(tr.changes) },
   provide: f => EditorView.decorations.from(f),
 })
+const setFindScope = StateEffect.define() // find-in-selection range: tinted, follows edits via mapping
+const findScopeField = StateField.define({
+  create: () => Decoration.none,
+  update: (v, tr) => { for (const e of tr.effects) if (e.is(setFindScope)) v = e.value; return v.map(tr.changes) },
+  provide: f => EditorView.decorations.from(f),
+})
 const setErrLine = StateEffect.define() // error lines: full-line red tint (old look), follows edits via mapping
 const errLineField = StateField.define({
   create: () => Decoration.none,
