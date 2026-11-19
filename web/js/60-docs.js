@@ -214,7 +214,7 @@ async function sidebarFresh() { // after a write: a refresh that was already run
   return sidebar()
 }
 async function refreshSidebar() {
-  const id = ++sideN
+  const id = ++sideN, openAt = openN
   let d
   try {
     d = await api('GET', '/api/docs')
@@ -235,7 +235,7 @@ async function refreshSidebar() {
   if (sideResourcesDirty) { sideResourcesDirty = false; await resSync() }
   if (document.body.classList.contains('dnd-active')) { window.__sidebarDeferred = true; return } // a refresh already in flight must not repaint mid-drag
   lastOwn = d.own; lastShared = d.shared; lastTrash = d.trash
-  if (docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView()
+  if (openAt === openN && docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView() // list may predate a just-opened doc
   refreshDocRole(d)
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
   paintTpls()
