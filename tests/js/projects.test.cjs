@@ -40,12 +40,13 @@ test('rename confirmation lists references and submits the preview version', asy
   const prompts = [], writes = []
   const c = setup({ ask: async (label, opts) => { prompts.push(opts?.body ? opts.body.all() : label); return opts?.noInput ? true : 'new.typ' },
     api: async (_method, url, body) => {
-      if (url.endsWith('-preview')) return { name: 'new.typ', version: 'v1', references: ['Doc/main.typ: old.typ'] }
+      if (url.endsWith('-preview')) return { name: 'new.typ', version: 'v1', changes: [{ kind: 'main', doc: 'Doc', path: 'main.typ', old: 'old.typ', new: 'new.typ' }] }
       writes.push(body); return { name: 'new.typ' }
     }, TPLK: '@', filesDirty: false, tabSig: '', queueRender: () => {} })
   await c.renameProjectEntry({ id: 'p' }, 'old.typ', 'd', true)
-  assert.ok(prompts[1].includes('Doc/main.typ: old.typ'))
+  assert.ok(prompts[1].includes('Doc/main.typ: "old.typ" → "new.typ"'))
   assert.equal(writes[0].version, 'v1')
+  assert.equal(writes[0].update_references, true) // rewriting is on by default
 })
 
 test('late rename completion cannot reset a different document draft', async () => {

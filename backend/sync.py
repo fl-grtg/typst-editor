@@ -1050,6 +1050,45 @@ async def replace_text(doc_id: str, content: str) -> None:
                                        write_var(len(update)), update))
 
 
+async def patch_text(doc_id: str, compute: Any) -> int | None:
+    """Targeted edits on a live room (cursors and undo history of others stay
+    intact, unlike replace_text). `compute(text)` returns (start, end, new)
+    str offsets for the current text; it runs under the room lock so the
+    offsets cannot go stale. Returns the number of edits, None without room."""
+    r = rooms.get(doc_id)
+    if not r:
+        return None
+    doc: Doc = r["doc"]
+    try:
+        with _doc_lock(r):
+            text = doc.get("typst", type=Text)
+            current = str(text)
+            edits = sorted(compute(current), reverse=True)
+            if not edits:
+                return 0
+            before = doc.get_update()
+            with doc.transaction():
+                for start, end, new in edits:  # back to front: earlier offsets stay valid
+                    # yrs indexes text in UTF-8 bytes
+                    b0 = len(current[:start].encode("utf-8"))
+                    b1 = b0 + len(current[start:end].encode("utf-8"))
+                    if b1 > b0:
+                        del text[b0:b1]
+                    text.insert(b0, new)
+            update = doc.get_update()
+            r["text_len"] = len(str(text).encode("utf-8"))
+    except Exception as e:
+        log.warning("patch_text %s: apply failed: %s", doc_id, e)
+        return 0
+    if update != before:
+        _mark_dirty(doc_id, r)
+        await bcast(r["conns"], None, blob(write_var(MSG_SYNC), write_var(UPDATE),
+                                           write_var(len(update)), update))
+        if not await asyncio.to_thread(persist, doc_id):
+            ensure_flusher()  # quota/busy: the flusher retries like any dirty room
+    return len(edits)
+
+
 async def _close(ws: WebSocket, doc_id: str, code: int, why: str) -> None:
     try:
         await ws.close(code=code)

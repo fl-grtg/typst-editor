@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import posixpath
 import sqlite3
 from typing import Literal
 
@@ -14,7 +13,7 @@ from pydantic import BaseModel, Field
 from backend import config, db, deps, sync
 from backend.constants import MAX_TXT
 from backend.schemas import Share
-from backend.services import projects, quota, resources, trash
+from backend.services import projects, quota, ref_rewrite, resources, trash
 from backend.services.docfiles import safe_name, safe_rename_target, store
 from backend.services.sidebar import notify_sidebar
 
@@ -315,6 +314,7 @@ class EntryRename(BaseModel):
     target: str = Field(min_length=1, max_length=240)
     doc_id: str = ""
     version: str = ""
+    update_references: bool = False
 
 
 @router.post("/api/projects/{project_id}/rename-entry-preview")
@@ -339,23 +339,10 @@ def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: st
             if not row:
                 raise HTTPException(404, "Resource not found")
             version = row[0]
-        references = []
-        library = {r[0]: r[1] for r in con.execute("SELECT name,content FROM project_resources WHERE project_id=?", (project_id,))}
-        for d in docs:
-            if b.doc_id and d['id'] != b.doc_id:
-                continue
-            local = projects.local_texts(d['id'])
-            local_names = {f.path for f in store.list(d['id'])}
-            live = sync.room_text(d['id'])
-            for path, content in {**library, **local, 'main.typ': live if live is not None else d['content']}.items():
-                if not path.lower().endswith('.typ'):
-                    continue
-                for match in resources.REF_RE.finditer(content):
-                    ref = match.group(1).replace('\\', '/')
-                    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), ref)) if not ref.startswith('/') else ref.lstrip('/')
-                    if resolved == name and (b.doc_id or name not in local_names):
-                        references.append(f"{d['title']}/{path}: {ref}")
-        return {"name": target, "version": version, "references": sorted(set(references))}
+        moves = {name: target}
+        changes = ref_rewrite.plan(project_id, {} if b.doc_id else moves, {b.doc_id: moves} if b.doc_id else {})
+        return {"name": target, "version": version, "references": sorted({c.label() for c in changes}),
+                "changes": [c.payload() for c in changes]}
     except OSError as e:
         raise HTTPException(409, "Files changed or could not be read; retry rename preview") from e
     finally:
@@ -363,11 +350,24 @@ def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: st
 
 
 @router.post("/api/projects/{project_id}/rename-entry")
-def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depends(deps.me)) -> dict:
+async def rename_entry(project_id: str, b: EntryRename, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "rename")
+    old = safe_name(b.name)
+    result = await asyncio.to_thread(_rename_entry, project_id, b, user)
+    result["updated"] = 0
+    if b.update_references and result["name"] != old:
+        moves = {old: result["name"]}
+        result["updated"] = await ref_rewrite.apply(project_id, {} if b.doc_id else moves,
+                                                    {b.doc_id: moves} if b.doc_id else {}, user)
+        if result["updated"]:
+            projects.notify(project_id)
+    return result
+
+
+def _rename_entry(project_id: str, b: EntryRename, user: str) -> dict:
     from backend.services.docfiles import file_type
     from backend.services.locks import _named_lock
 
-    deps.limited(req, "rename")
     old = safe_name(b.name)
     target = safe_rename_target(b.target, old)
     with _named_lock(f"upload:{b.doc_id}"):

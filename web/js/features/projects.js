@@ -588,11 +588,27 @@ async function renameFolder(p, path, host) {
   if (target === path) return
   if (target.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
   if (!folderTreeFits(folderContents(p, path), path, target)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
-  const body = el('div', 'mBody')
-  body.append(el('div', 'mLabel', t('projects.newName')), el('div', 'mTarget', target), el('p', 'mNote', t('projects.folderRenameNote')))
-  if (!await ask(t('projects.renameFolder'), { noInput: true, body, ok: t('projects.renameAction') })) return
-  await api('POST', `/api/projects/${p.id}/folders/rename`, { path, target })
+  await moveFolderWithRefs(p, path, target, true)
+}
+async function moveFolderWithRefs(p, path, target, confirm) { // folder rename/move: offers to rewrite the Typst paths into it (drag asks only when there are any)
+  const preview = await api('POST', `/api/projects/${p.id}/folders/rename-preview`, { path, target })
+  const changes = preview?.changes || []
+  let update = false
+  if (confirm || changes.length) {
+    const body = renameBody(target, changes, t('projects.folderRenameNote'))
+    if (!await ask(confirm ? t('projects.renameFolder') : t('projects.moveFolder'), { noInput: true, body, ok: confirm ? t('projects.renameAction') : t('projects.moveAction') })) return null
+    update = body.updateRefs()
+  }
+  const result = await api('POST', `/api/projects/${p.id}/folders/rename`, update ? { path, target, update_references: true } : { path, target })
   await afterFolderRename(p, path, target)
+  if (result?.updated) { await reloadRewrittenTab(); toast(t('projects.refsUpdated', { n: result.updated })) }
+  return result
+}
+async function reloadRewrittenTab() { // the server rewrote texts: an open file/module tab must not keep (and later save over) the old text
+  if (!activeFile || tabDirty) return
+  const name = activeFile, doc = docId
+  filesDirty = true; await loadDocResources(true)
+  if (docId === doc && activeFile === name && await switchTab('', true)) await switchTab(name, true, true)
 }
 async function renameProject(p, host) {
   if (host && !host.isConnected) host = [...document.querySelectorAll('.project-group')].find(group => group.dataset.projectId === p.id)?.querySelector('.fhd.project') || host
@@ -632,28 +648,49 @@ async function renameProjectEntry(p, name, document, resource, host) {
   if (target === name) return
   await applyEntryRename(p, name, document, resource, target)
 }
-function renameBody(name, references) { // structured rename dialog: target first, then references, then the warning
+function refWhere(ch) { return ch.kind === 'resource' ? ch.path : (ch.doc ? ch.doc + '/' : '') + ch.path }
+function renameBody(name, changes, note = '') { // structured rename dialog: target, the references it rewrites, a switch to skip that, the warning
   const body = el('div', 'mBody')
   body.append(el('div', 'mLabel', t('projects.newName')))
   const target = el('div', 'mTarget', name); body.append(target)
+  if (note) body.append(el('p', 'mNote', note))
+  const auto = changes.filter(ch => !ch.manual), manual = changes.filter(ch => ch.manual)
   body.append(el('div', 'mLabel', t('projects.referencesTitle')))
-  if (references.length) {
+  let toggle = null
+  if (auto.length) {
     const list = el('div', 'mRefs')
-    references.forEach(ref => list.append(el('code', null, ref)))
+    auto.forEach(ch => list.append(el('code', null, `${refWhere(ch)}: "${ch.old}" → "${ch.new}"`)))
     body.append(list)
-  } else body.append(el('p', 'mText', t('projects.noReferences')))
+    const row = el('label', 'mSwitch')
+    toggle = el('input', 'mCheck'); toggle.type = 'checkbox'; toggle.checked = true
+    row.append(toggle, el('span', null, t('projects.updateReferences', { n: auto.length })))
+    body.append(row)
+  } else if (!manual.length) body.append(el('p', 'mText', t('projects.noReferences')))
+  if (manual.length) {
+    body.append(el('div', 'mLabel', t('projects.manualReferences')))
+    const list = el('div', 'mRefs')
+    manual.forEach(ch => list.append(el('code', null, `${refWhere(ch)}: "${ch.old}"`)))
+    body.append(list)
+  }
   body.append(el('p', 'mNote', t('projects.dynamicReferences')))
+  body.updateRefs = () => !!toggle?.checked
   return body
 }
-async function applyEntryRename(p, name, document, resource, target, confirm = true) { // rename or move (a new path = a new folder): references are listed, never rewritten
+async function applyEntryRename(p, name, document, resource, target, confirm = true) { // rename or move (a new path = a new folder); drag (confirm=false) asks only when paths point at it
   if (!await flushTab() || !await flushTpl()) return
   const doc = docId, epoch = openN
   const body = { name, target, doc_id: resource ? '' : document }
   const preview = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, body)
   if (doc !== docId || epoch !== openN) return
-  if (confirm && !await ask(t('files.renameHead'), { noInput: true, body: renameBody(preview.name, preview.references), ok: t('projects.renameAction') })) return
+  const changes = preview.changes || []
+  let update = false
+  if (confirm || changes.length) {
+    const dialog = renameBody(preview.name, changes)
+    if (!await ask(confirm ? t('files.renameHead') : t('files.moveHead'), { noInput: true, body: dialog, ok: confirm ? t('projects.renameAction') : t('projects.moveAction') })) return
+    update = dialog.updateRefs()
+  }
   if (doc !== docId || epoch !== openN) return
-  const result = await api('POST', `/api/projects/${p.id}/rename-entry`, { ...body, target: preview.name, version: preview.version })
+  const result = await api('POST', `/api/projects/${p.id}/rename-entry`, { ...body, target: preview.name, version: preview.version, update_references: update })
   tabRemapEntry(p.id, resource ? 'r:' + name : 'f:' + document + '/' + name, resource ? 'r:' + result.name : 'f:' + document + '/' + result.name)
   if (docId === doc && openN === epoch && docProject === p.id) {
     const old = resource ? TPLK + name : name, next = resource ? TPLK + result.name : result.name
@@ -666,9 +703,11 @@ async function applyEntryRename(p, name, document, resource, target, confirm = t
       if (tabDirty) queueFileSave()
     }
     filesDirty = true; await loadDocResources(true); tabSig = ''; queueRender()
+    if (result.updated) await reloadRewrittenTab()
   }
   await sidebar()
-  toast(confirm ? t('files.renamed', { name: result.name }) : t('files.moved', { name: result.name }))
+  const done = confirm ? t('files.renamed', { name: result.name }) : t('files.moved', { name: result.name })
+  toast(result.updated ? done + ' · ' + t('projects.refsUpdated', { n: result.updated }) : done)
 }
 async function moveEntryToFolder(p, entry, folder) { // drag onto a folder (or the project): same project only
   if (folder && folder.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
@@ -696,9 +735,7 @@ async function folderTransferTo(source, path, target, parent, move) { // drag a 
       }
       if (next.split('/').length > FOLDER_LEVELS) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
       if (!folderTreeFits(folderContents(fresh, path), path, next)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return null }
-      await api('POST', `/api/projects/${source.id}/folders/rename`, { path, target: next })
-      await afterFolderRename(source, path, next)
-      return next
+      return await moveFolderWithRefs(source, path, next, false) ? next : null
     }
     const name = await targetFolderName(fresh, parent, folderBase(path), true)
     return name ? copyFolderTree(source, path, fresh, parent, name, false) : null
@@ -882,6 +919,7 @@ function copyEntryGlobal(p, entry) {
 async function transferEntryWithin(p, entry, move) {
   const folder = await pickTargetFolder(p, t('menu.copyHere'))
   if (folder == null) return
+  if (move && entry.kind !== 'document') return moveEntryToFolder(p, entry, folder) // same place, new path: references can follow
   // Documents may share a title across folders, but not within one; a copy into the same folder needs a new title.
   return transferEntryTo(p, entry, p, folder, move, { askName: false, duplicate: !move && entry.kind === 'document' && (entry.folder || '') === folder })
 }
@@ -929,8 +967,7 @@ async function transferFolderWithin(p, path, move) {
       target = joinFolder(parent, name)
     }
     if (!folderTreeFits(folderContents(fresh, path), path, target)) { toast(t('projects.folderDepth', { n: FOLDER_LEVELS })); return }
-    await api('POST', `/api/projects/${p.id}/folders/rename`, { path, target })
-    await afterFolderRename(p, path, target)
+    await moveFolderWithRefs(p, path, target, false)
     return
   }
   const name = await targetFolderName(fresh, parent, folderBase(path), true)

@@ -6,6 +6,7 @@ Depth is capped by MAX_FOLDER_DEPTH; deeper legacy paths stay readable.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import sqlite3
 from contextlib import ExitStack
@@ -15,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from backend import db, deps
 from backend.constants import MAX_FOLDER_DEPTH
-from backend.services import projects
+from backend.services import projects, ref_rewrite
 from backend.services.docfiles import file_type, safe_name, store
 from backend.services.locks import _named_lock
 
@@ -29,6 +30,7 @@ class FolderPath(BaseModel):
 class FolderRename(BaseModel):
     path: str = Field(min_length=1, max_length=240)
     target: str = Field(min_length=1, max_length=240)
+    update_references: bool = False
 
 
 class DocFolder(BaseModel):
@@ -79,13 +81,21 @@ def create_folder(project_id: str, b: FolderPath, req: Request, user: str = Depe
     return {"path": path}
 
 
-@router.post("/api/projects/{project_id}/folders/rename")
-def rename_folder(project_id: str, b: FolderRename, req: Request, user: str = Depends(deps.me)) -> dict:
-    deps.limited(req, "rename")
+def _folder_moves(project_id: str, old: str, new: str, doc_ids: list[str]) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    """Module and document-file paths a folder rename moves (old -> new)."""
+    con = db.connect()
+    try:
+        res = [r[0] for r in con.execute("SELECT name FROM project_resources WHERE project_id=?", (project_id,))]
+    finally:
+        con.close()
+    res_moves = {n: _moved(n, old, new) for n in res if _within(n, old)}
+    file_moves = {d: {e.path: _moved(e.path, old, new) for e in store.list(d) if _within(e.path, old)} for d in doc_ids}
+    return res_moves, {d: m for d, m in file_moves.items() if m}
+
+
+def _folder_args(project_id: str, b: FolderRename, user: str) -> tuple[str, str, list[str]]:
     old, new = folder_path(b.path, new=False), folder_path(b.target)
-    if old == new:
-        return {"path": new}
-    if _within(new, old):
+    if _within(new, old) and old != new:
         raise HTTPException(400, "A folder cannot move into itself")
     pre = db.connect()
     try:
@@ -93,14 +103,49 @@ def rename_folder(project_id: str, b: FolderRename, req: Request, user: str = De
         doc_ids = sorted(r[0] for r in pre.execute("SELECT id FROM docs WHERE project_id=? AND trashed=0", (project_id,)))
     finally:
         pre.close()
+    return old, new, doc_ids
+
+
+@router.post("/api/projects/{project_id}/folders/rename-preview")
+def rename_folder_preview(project_id: str, b: FolderRename, req: Request, user: str = Depends(deps.me)) -> dict:
+    """References into (or out of) the folder that a rename would rewrite."""
+    deps.limited(req, "files_list")
+    old, new, doc_ids = _folder_args(project_id, b, user)
+    if old == new:
+        return {"path": new, "changes": []}
+    try:
+        changes = ref_rewrite.plan(project_id, *_folder_moves(project_id, old, new, doc_ids))
+    except OSError as e:
+        raise HTTPException(409, "Files changed or could not be read; retry rename preview") from e
+    return {"path": new, "changes": [c.payload() for c in changes]}
+
+
+@router.post("/api/projects/{project_id}/folders/rename")
+async def rename_folder(project_id: str, b: FolderRename, req: Request, user: str = Depends(deps.me)) -> dict:
+    deps.limited(req, "rename")
+    res = await asyncio.to_thread(_rename_folder, project_id, b, user)
+    res["updated"] = 0
+    moves = res.pop("_moves", None)
+    if b.update_references and moves:
+        res["updated"] = await ref_rewrite.apply(project_id, moves[0], moves[1], user)
+        if res["updated"]:
+            projects.notify(project_id)
+    return res
+
+
+def _rename_folder(project_id: str, b: FolderRename, user: str) -> dict:
+    old, new, doc_ids = _folder_args(project_id, b, user)
+    if old == new:
+        return {"path": new}
     with ExitStack() as stack:
         for d in doc_ids:  # sorted: one fixed lock order
             stack.enter_context(_named_lock(f"upload:{d}"))
+        moves = _folder_moves(project_id, old, new, doc_ids)
         res = _rename_locked(project_id, user, old, new, doc_ids)
     # notify() -> auto() -> prepared() takes the same upload locks; call it
     # only after the rename released them (threading.Lock is not reentrant).
     projects.notify(project_id)
-    return res
+    return {**res, "_moves": moves}
 
 
 def _rename_locked(project_id: str, user: str, old: str, new: str, doc_ids: list[str]) -> dict:

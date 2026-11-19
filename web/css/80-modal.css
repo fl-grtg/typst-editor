@@ -13,9 +13,12 @@
 .mBody .mLabel { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .mBody .mLabel + .mTarget { margin-bottom: 16px; }
 .mBody .mTarget { padding: 7px 10px; border-radius: var(--r-sm); background: var(--hover); color: var(--text); font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; overflow-wrap: anywhere; }
-.mBody .mRefs { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+.mBody .mRefs { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-height: 220px; overflow-y: auto; }
 .mBody .mRefs code { padding: 5px 9px; border-radius: var(--r-sm); background: var(--hover); color: var(--text); font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; overflow-wrap: anywhere; }
 .mBody .mText { margin: 0 0 14px; }
+.mBody .mTarget + .mNote { margin: -8px 0 16px; }
+.mBody .mSwitch { display: flex; align-items: center; gap: 10px; margin: -6px 0 14px; color: var(--text); cursor: pointer; }
+.mBody .mSwitch input.mCheck { flex: none; width: 16px; height: 16px; min-width: 0; min-height: 0; margin: 0; padding: 0; accent-color: var(--ink); cursor: pointer; }
 .mBody .mNote { margin: 12px 0 0; color: var(--faint); font-size: 12px; }
 .mRow { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .mRow button { padding: 7px 16px; min-height: 34px; font-size: 13px; border-radius: var(--r-sm); }

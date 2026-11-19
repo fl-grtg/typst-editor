@@ -67,8 +67,9 @@ test('folders drag as one entry and move into the first level with the rename en
   assert.equal(calls[0][0], 'GET')
   assert.equal(calls[0][1], '/api/projects/p')
   assert.equal(calls[0][2], undefined)
-  assert.equal(JSON.stringify(calls[1]), JSON.stringify(['POST', '/api/projects/p/folders/rename', { path: 'src', target: 'a/src' }]))
-  assert.equal(calls[2][0], 'after')
+  assert.equal(JSON.stringify(calls[1]), JSON.stringify(['POST', '/api/projects/p/folders/rename-preview', { path: 'src', target: 'a/src' }]))
+  assert.equal(JSON.stringify(calls[2]), JSON.stringify(['POST', '/api/projects/p/folders/rename', { path: 'src', target: 'a/src' }])) // no references: drag moves silently
+  assert.equal(calls[3][0], 'after')
   calls.length = 0
   // a folder in a second-level folder would become three levels deep
   await c.folderTransferTo({ id: 'p' }, 'src', { id: 'p' }, 'a/b', true)
@@ -234,4 +235,49 @@ test('renaming a folder keeps its tabs, in memory and in storage', () => {
   assert.deepEqual(Array.from(vm.runInContext('openTabs', c)), ['d:d', 'r:parts/lib/a.typ', 'r:libx/b.typ', 'f:d/parts/lib/pic.png', 'f:o/parts/lib/other.png'])
   vm.runInContext("tabRemapEntry('p', 'r:libx/b.typ', 'r:b.typ')", c)
   assert.ok(vm.runInContext('openTabs', c).includes('r:b.typ'))
+})
+
+function fakeEl(tag, cls, text) {
+  const node = { tag, className: cls, textContent: text || '', children: [], append(...xs) { node.children.push(...xs) }, setAttribute() {} }
+  return node
+}
+const refChange = { kind: 'main', doc_id: 'd', doc: 'Main', path: 'main.typ', old: 'logo.png', new: 'img/logo.png', manual: false }
+
+test('entry rename offers to rewrite references and sends the choice', async () => {
+  const calls = [], asked = []
+  let answer = true, checked = true
+  const c = projectCtx({
+    el: fakeEl, loadDocResources: async () => {}, queueRender: () => {}, tabRemapEntry: () => {},
+    ask: async (head, o) => { asked.push(head); const box = o.body.children.find(n => n.tag === 'label')?.children[0]; if (box) box.checked = checked; return answer },
+    api: async (method, url, body) => { calls.push([url, body]); return url.endsWith('preview') ? { name: 'img/logo.png', version: 'v', changes: [refChange] } : { name: 'img/logo.png', version: 'w', updated: 1 } },
+  })
+  await c.applyEntryRename({ id: 'p' }, 'logo.png', 'd', false, 'img/logo.png', false) // drag with references: asks
+  assert.deepEqual(asked, ['files.moveHead'])
+  assert.equal(calls[1][1].update_references, true)
+  checked = false; calls.length = 0
+  await c.applyEntryRename({ id: 'p' }, 'logo.png', 'd', false, 'img/logo.png')
+  assert.equal(calls[1][1].update_references, false) // switch turned off: rename only
+  answer = false; calls.length = 0
+  await c.applyEntryRename({ id: 'p' }, 'logo.png', 'd', false, 'img/logo.png')
+  assert.equal(calls.length, 1) // cancelled after the preview
+})
+
+test('drag without references moves without a dialog', async () => {
+  const calls = []
+  let asked = 0
+  const c = projectCtx({
+    el: fakeEl, loadDocResources: async () => {}, queueRender: () => {}, ask: async () => { asked++; return true },
+    api: async (method, url, body) => { calls.push([url, body]); return { name: 'img/x.png', version: 'v', changes: [] } },
+  })
+  await c.applyEntryRename({ id: 'p' }, 'x.png', 'd', false, 'img/x.png', false)
+  assert.equal(asked, 0)
+  assert.equal(calls[1][1].update_references, false)
+})
+
+test('rename dialog lists shared-module references as manual and has no switch without automatic ones', () => {
+  const c = projectCtx({ el: fakeEl })
+  const body = c.renameBody('img/x.png', [{ ...refChange, kind: 'resource', path: 'lib/a.typ', manual: true }])
+  assert.equal(body.children.some(n => n.tag === 'label'), false)
+  assert.equal(body.updateRefs(), false)
+  assert.ok(body.children.some(n => n.textContent === 'projects.manualReferences'))
 })
