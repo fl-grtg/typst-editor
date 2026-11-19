@@ -13,6 +13,7 @@ function paintInboxBadge() {
   n.textContent = inboxUnread > 99 ? '99+' : String(inboxUnread)
   const label = t('inbox.title') + (inboxUnread ? ' (' + inboxUnread + ')' : '')
   b.title = label; b.setAttribute('aria-label', label)
+  paintWelcomeBadge()
 }
 function inboxText(it) {
   const v = { actor: it.actor, project: it.project_title || '', title: it.text }

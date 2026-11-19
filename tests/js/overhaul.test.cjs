@@ -150,7 +150,7 @@ test('opening a module right after a create asks the server when the list refres
     flushTpl: async () => true, flushTab: async () => true,
     tplCached: name => c.myTpl.find(x => x.name === name),
     api: async (method, url) => { calls.push([method, url]); return { name: 'numbers.csv', content: 'a,b', version: 'v1' } },
-    autoCloseDrawer: () => {}, leaveDoc: () => {}, hidePops: () => {}, setView: () => {},
+    autoCloseDrawer: () => {}, leaveDoc: () => {}, hidePops: () => {}, setView: () => {}, setWelcome: () => {},
     paintSuggestionControls: () => {}, paintOutline: () => {}, sidebar: () => {},
     cm: { state: { facet: () => true }, dispatch: () => {} },
     editableComp: { reconfigure: x => x }, editMode: x => x, gutter: () => {},

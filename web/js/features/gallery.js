@@ -1,4 +1,4 @@
-// Document gallery and static welcome screen.
+// Document gallery: template thumbnails for the new-project dialog.
 const THUMBS = {
   blank: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150" viewBox="0 0 120 150"><rect width="120" height="150" fill="#e8e9ec"/><rect x="24" y="23" width="72" height="104" rx="3" fill="#ffffff"/></svg>',
   report: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150" viewBox="0 0 120 150"><rect width="120" height="150" fill="#e8e9ec"/><rect x="24" y="23" width="72" height="104" rx="3" fill="#ffffff"/><rect x="34" y="35" width="52" height="8" rx="2" fill="#4f46e5"/><rect x="34" y="51" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="60" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="69" width="44" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="78" width="52" height="4" rx="2" fill="#c3c6cd"/><rect x="34" y="87" width="38" height="4" rx="2" fill="#c3c6cd"/></svg>',
@@ -35,11 +35,3 @@ function galleryCard(g, sel, onPick) { // thumb + title + desc, keyboard-operabl
   b.onclick = onPick
   return b
 }
-function fitEmptyCard() {
-  const card = document.getElementById('emptyCard'), preview = document.getElementById('preview')
-  if (!card) return
-  const scale = Math.min(1, (preview.clientHeight - 32) / card.offsetHeight, (preview.clientWidth - 32) / card.offsetWidth)
-  card.style.setProperty('--empty-scale', Math.max(.1, scale))
-}
-new ResizeObserver(fitEmptyCard).observe(document.getElementById('preview'))
-new MutationObserver(fitEmptyCard).observe(document.getElementById('preview'), { childList: true, subtree: true })

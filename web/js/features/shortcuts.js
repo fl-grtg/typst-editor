@@ -308,7 +308,7 @@ function scFocusSearch() {
   } catch (e) {}
 }
 function scPaintEmpty() { // keep the onboarding hints in sync with custom bindings
-  try { if ($('emptyCard') && typeof paintEmpty === 'function') paintEmpty() } catch (e) {}
+  try { paintWelcome() } catch (e) {}
 }
 function scResetRecordingState() { scRecordingId = ''; scNotice = null }
 function scRecordingRow(id) {

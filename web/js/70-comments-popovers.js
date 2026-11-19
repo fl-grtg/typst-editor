@@ -296,29 +296,6 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
   p.textContent = t('docs.posCompact', { ln, col }) + (words ? (wc() || '') : '')
   p.title = t('docs.posLine', { ln, col }) + t('docs.syncState', { state: syncOn ? t('docs.syncOn') : t('docs.syncOff') })
 }
-function paintEmpty() { // onboarding card instead of pick-left note
-  const card = el('div'); card.id = 'emptyCard'
-  card.appendChild(el('h2', null, t('docs.emptyTitle')))
-  card.appendChild(el('p', 'sub', t('docs.emptySub')))
-  ;[t('docs.emptyS1'), t('docs.emptyS2'), t('docs.emptyS3')].forEach((s, i) => {
-    const st = el('div', 'step')
-    st.appendChild(el('span', 'n', String(i + 1)))
-    st.appendChild(el('span', null, s))
-    card.appendChild(st)
-  })
-  const hint = el('p', 'hint')
-  const wants = [['openHelp', 'docs.emptyHintHelp'], ['find', 'docs.emptyHintFind'], ['save', 'docs.emptyHintSave']]
-  wants.forEach(([id, label], i) => {
-    const k = window.scKeyLabel ? window.scKeyLabel(id) : ''
-    if (!k) return
-    if (hint.childNodes.length) hint.append(document.createTextNode(' · '))
-    hint.appendChild(el('kbd', null, k))
-    hint.append(document.createTextNode(' ' + t(label)))
-  })
-  if (hint.childNodes.length) card.appendChild(hint) // no empty hint line before shortcuts are registered
-  $('preview').replaceChildren(card)
-
-}
 const lineOf = pos => getT().slice(0, pos).split('\n').length
 function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), only new marks need refresh
   let m = new Set()

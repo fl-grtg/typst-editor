@@ -239,6 +239,7 @@ async function refreshSidebar() {
   refreshDocRole(d)
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
   paintTpls()
+  paintWelcome() // recent list follows sidebar data (no-op while a doc is open)
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
   watchHitBadges()
   queueContentRefresh() // list changes (new/moved/trashed entries) change the hit set too
@@ -762,6 +763,7 @@ async function openTpl(name) {
   autoCloseDrawer()
   leaveDoc()
   docId = ''; tplName = name; docRole = ''
+  setWelcome(false)
   tplVer = tpl.updated_at || ''; tplDirty = false
   hidePops()
   setView('split') // segment hidden: reset view, else editonly sticks
@@ -847,7 +849,7 @@ function closeView() { // no doc open: buttons off, empty view in
   $('title').textContent = t('docs.welcome'); $('title').classList.add('is-empty'); $('role').textContent = ''; $('role').onclick = null; $('role').title = ''
   $('roBanner').style.display = 'none'
   $('tools').style.display = 'none'; $('pvTools').style.display = 'none'
-  paintEmpty()
+  setWelcome(true) // full-screen start page: no topbar, no editor/preview split
   paintTabs() // hides the tab bar: no doc open
   paintOwn(); paintShared(lastShared) // clear the active row highlight
   setT(''); gutter(); paintOutline()
@@ -867,6 +869,7 @@ async function openDoc(id) {
   if (tplName) setView('split')
   hidePops()
   docId = id; docRole = d.role; tplName = ''; docProject = d.project_id || ''
+  setWelcome(false)
   scrollRestore = scrollRead(id)
   if (scrollRestore) scrollRestore.epoch = n
   openedTrashed = !!d.trashed

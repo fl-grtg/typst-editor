@@ -69,7 +69,7 @@ function refreshLang() {
   try { if (typeof updPos === 'function') updPos() } catch (e) {}
   try { if (typeof paintOutline === 'function') paintOutline() } catch (e) {}
   try { if (typeof paintBadge === 'function') paintBadge() } catch (e) {}
-  try { if (typeof paintEmpty === 'function' && $('emptyCard')) paintEmpty() } catch (e) {} // shortcut hints are localized too
+  try { paintWelcome() } catch (e) {} // shortcut hints are localized too
   window.Present?.relabel()
   try { if (user && typeof sidebar === 'function') sidebar().catch(() => {}) } catch (e) {}
 }

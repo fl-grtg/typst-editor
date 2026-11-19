@@ -142,7 +142,10 @@ def test_last_tab_closes_to_the_plain_welcome_screen(page):
     expect(page.locator("#tabs button.tab")).to_have_count(1)
     page.locator("#tabs button.tab").last.click(button="right")
     page.locator("#menu button").filter(has_text="Close tab").click()
-    expect(page.locator("#title")).to_have_text("Welcome")
-    expect(page.locator("#emptyCard")).to_be_visible()
-    expect(page.locator("#emptyCard .step")).to_have_count(3)
-    expect(page.locator("#emptyCard #galQuick")).to_have_count(0)  # no decorative, dead template grid
+    expect(page.locator("#welcome")).to_be_visible()
+    expect(page.locator("main > header #docHead")).to_be_hidden()  # no top bar on the welcome screen
+    expect(page.locator("#mid")).to_be_hidden()  # no empty editor/preview split behind it
+    expect(page.locator("#welcome .wDoc").filter(has_text="Only")).to_have_count(1)
+    page.locator("#welcome .wDoc").filter(has_text="Only").click()
+    expect(page.locator("#welcome")).to_be_hidden()
+    expect(page.locator("#cm .cm-content")).to_be_visible()

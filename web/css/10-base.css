@@ -42,7 +42,7 @@ select {
 select option { background: var(--card); color: var(--text); }
 
 /* Buttons: default = quiet tinted, primary = ink, danger */
-.btn, #preview .empty button, .row button, #mYes, #mNo, .mTop button, .save, #emptyCard button, #login #go,
+.btn, #preview .empty button, .row button, #mYes, #mNo, .mTop button, .save, #login #go,
 #setPop .step, #setPop .btnSecondary, #setPop .btnDanger, #media > button, #find button,
 #histPop .srow button, aside .empty button, aside #new, aside #upDoc, #userBox button, #toast button {
   border: 1px solid var(--line-2); border-radius: var(--r-sm);
@@ -50,22 +50,22 @@ select option { background: var(--card); color: var(--text); }
   font-weight: 500; font-size: 12.5px; padding: 5px 12px; min-height: 30px;
   box-shadow: var(--sh-1);
 }
-.btn:not(:disabled):hover, #preview .empty button:not(:disabled):hover, .row button:not(:disabled):hover, #mNo:not(:disabled):hover, .mTop button:not(:disabled):hover, .save:not(:disabled):hover, #emptyCard button.ghost:not(:disabled):hover,
+.btn:not(:disabled):hover, #preview .empty button:not(:disabled):hover, .row button:not(:disabled):hover, #mNo:not(:disabled):hover, .mTop button:not(:disabled):hover, .save:not(:disabled):hover.ghost:not(:disabled):hover,
 #setPop .step:not(:disabled):hover, #setPop .btnSecondary:not(:disabled):hover, #media > button:not(:disabled):hover, #find button:not(:disabled):hover,
 #histPop .srow button:not(:disabled):hover, aside .empty button:not(:disabled):hover, aside #upDoc:not(:disabled):hover, #userBox button:not(:disabled):hover { background: var(--hover); }
-.row button:not(.ghost), #mYes, .save.primary, #emptyCard button:not(.ghost), #login #go, aside #new, #pop .rr .ib {
+.row button:not(.ghost), #mYes, .save.primary, #login #go, aside #new, #pop .rr .ib {
   background: var(--ink); color: var(--on-ink); border-color: transparent; box-shadow: none; font-weight: 600;
 }
-.row button:not(.ghost):not(:disabled):hover, #mYes:not(:disabled):hover, .save.primary:not(:disabled):hover, #emptyCard button:not(.ghost):not(:disabled):hover, #login #go:not(:disabled):hover, aside #new:not(:disabled):hover, #pop .rr .ib:not(:disabled):hover {
+.row button:not(.ghost):not(:disabled):hover, #mYes:not(:disabled):hover, .save.primary:not(:disabled):hover, #login #go:not(:disabled):hover, aside #new:not(:disabled):hover, #pop .rr .ib:not(:disabled):hover {
   background: var(--ink); filter: opacity(.86);
 }
 #setPop .btnDanger { color: var(--danger); background: var(--danger-soft); border-color: transparent; box-shadow: none; }
 #setPop .btnDanger:not(:disabled):hover { background: var(--danger-soft); filter: brightness(.96); }
 #setPop .btnDanger:not(:disabled):active { background: var(--danger-soft); filter: brightness(.92); }
-.btn:not(:disabled):active, #preview .empty button:not(:disabled):active, .row button.ghost:not(:disabled):active, #mNo:not(:disabled):active, .mTop button:not(:disabled):active, .save:not(.primary):not(:disabled):active, #emptyCard button.ghost:not(:disabled):active,
+.btn:not(:disabled):active, #preview .empty button:not(:disabled):active, .row button.ghost:not(:disabled):active, #mNo:not(:disabled):active, .mTop button:not(:disabled):active, .save:not(.primary):not(:disabled):active.ghost:not(:disabled):active,
 #setPop .step:not(:disabled):active, #setPop .btnSecondary:not(:disabled):active, #media > button:not(:disabled):active, #find button:not(:disabled):active,
 #histPop .srow button:not(:disabled):active, aside .empty button:not(:disabled):active, aside #upDoc:not(:disabled):active, #userBox button:not(:disabled):active { background: var(--press); }
-.row button:not(.ghost):not(:disabled):active, #mYes:not(:disabled):active, .save.primary:not(:disabled):active, #emptyCard button:not(.ghost):not(:disabled):active, #login #go:not(:disabled):active, aside #new:not(:disabled):active, #pop .rr .ib:not(:disabled):active {
+.row button:not(.ghost):not(:disabled):active, #mYes:not(:disabled):active, .save.primary:not(:disabled):active, #login #go:not(:disabled):active, aside #new:not(:disabled):active, #pop .rr .ib:not(:disabled):active {
   filter: opacity(.78);
 }
 #pop .rr .ib:not(:disabled):active { background: var(--ink); color: var(--on-ink); }

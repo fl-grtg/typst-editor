@@ -1,0 +1,70 @@
+/* ==========================================================================
+   Welcome screen (no document open): replaces topbar + editor/preview split
+   ========================================================================== */
+body.welcome main > header { height: 0; min-height: 0; padding: 0; border: 0; overflow: visible; }
+body.welcome main > header > .hl, body.welcome main > header > .hr, body.welcome #docHead { display: none; }
+body.welcome #mid { display: none; }
+body.welcome #inboxPop { top: 56px; right: 16px; }
+
+#welcome { position: relative; flex: 1; min-height: 0; overflow: auto; background: var(--bg); }
+#welcome button { margin: 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; }
+#welcome button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+#welcome .wCorner { position: absolute; top: 12px; left: 16px; right: 16px; display: flex; align-items: center; pointer-events: none; }
+#welcome .wCorner button { pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: var(--r-sm); color: var(--sub); }
+#welcome .wCorner button:hover { background: var(--hover); color: var(--text); }
+#welcome .wNav { display: none !important; }
+#welcome .wBell { position: relative; margin-left: auto; }
+#wInboxN { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
+
+#welcome .wInner { display: flex; flex-direction: column; justify-content: center; width: 100%; max-width: 760px; min-height: 100%; margin: 0 auto; padding: 88px 32px 64px; }
+#welcome .wHero { animation: wIn .3s ease both; }
+#welcome h1 { margin: 0; font-size: 26px; font-weight: 650; line-height: 1.25; letter-spacing: -.021em; overflow-wrap: anywhere; }
+#welcome .wLead { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--sub); }
+
+#welcome .wActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 28px; animation: wIn .3s ease .04s both; }
+#welcome .wBtn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--card); color: var(--text); box-shadow: var(--sh-1); font-size: 13px; font-weight: 500; }
+#welcome .wBtn:not(:disabled):hover { background: var(--hover); }
+#welcome .wBtn:not(:disabled):active { background: var(--press); }
+#welcome .wPrimary { padding: 0 14px; border-color: transparent; background: var(--ink); color: var(--on-ink); box-shadow: none; font-weight: 600; }
+#welcome .wPrimary:not(:disabled):hover { background: var(--ink); color: var(--on-ink); filter: opacity(.86); }
+#welcome .wPrimary:not(:disabled):active { background: var(--ink); color: var(--on-ink); filter: opacity(.78); }
+#welcome .wIco { display: inline-flex; flex: none; color: var(--sub); }
+#welcome .wPrimary .wIco { color: currentColor; }
+#welcome .wBtn kbd { margin: 0 0 0 2px; padding: 0 5px; background: var(--hover); border: 1px solid var(--line-2); border-radius: 5px; font: 11px/16px var(--mono); color: var(--sub); }
+#welcome .wLbl { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+#welcome .wRecent { margin-top: 34px; animation: wIn .3s ease .08s both; }
+#welcome .wRecent h2 { margin: 0 0 10px; padding: 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+#welcome .wList { overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--sh-1); }
+#welcome .wDoc { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 14px; color: var(--text); }
+#welcome .wDoc + .wDoc { border-top: 1px solid var(--line); }
+#welcome .wDoc:hover { background: var(--hover); }
+#welcome .wDoc:active { background: var(--press); }
+#welcome .wDoc:focus-visible { outline-offset: -2px; }
+#welcome .wTile { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--hover); color: var(--sub); }
+#welcome .wDocMain { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
+#welcome .wDocTitle { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13.5px; font-weight: 550; }
+#welcome .wDocMeta { position: relative; flex: 0 1 auto; min-width: 0; padding-left: 9px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--faint); }
+#welcome .wDocMeta::before { content: "·"; position: absolute; left: 0; opacity: .7; }
+#welcome .wDocWhen { flex: none; margin-left: auto; padding-left: 16px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+#welcome .wEmpty { margin: 0; padding: 26px 16px; border: 1px dashed var(--line-2); border-radius: var(--r-lg); color: var(--faint); font-size: 13px; text-align: center; }
+
+@keyframes wIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #welcome .wHero, #welcome .wActions, #welcome .wRecent { animation: none; } }
+
+@media (max-width: 720px) {
+  #welcome .wNav { display: inline-flex !important; }
+  #welcome .wCorner button { width: 40px; height: 40px; }
+  #welcome .wInner { justify-content: flex-start; padding: 80px 16px 40px; }
+  #welcome h1 { font-size: 22px; }
+  #welcome .wLead { font-size: 13px; }
+  #welcome .wActions { gap: 7px; margin-top: 24px; }
+  #welcome .wPrimary { flex: 1 1 100%; justify-content: center; }
+  #welcome .wBtn { height: 38px; }
+  #welcome .wRecent { margin-top: 28px; }
+  #welcome .wDoc { min-height: 56px; padding: 6px 12px; gap: 10px; }
+  #welcome .wDocMeta { display: none; }
+  #welcome .wDocTitle { font-size: 13px; }
+  #welcome .wDocWhen { padding-left: 10px; }
+}
