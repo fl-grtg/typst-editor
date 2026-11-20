@@ -38,15 +38,58 @@
 #tabs button { background: none; border: 0; padding: 3px 11px; min-height: 26px; white-space: nowrap; color: var(--sub); font-weight: 500; }
 #tabs button:hover { background: var(--hover); color: var(--text); }
 #tabs button.on { background: var(--sel); color: var(--text); font-weight: 600; }
-#find { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 10px; min-height: 44px; font-size: 12.5px; background: var(--panel); border-top: 1px solid var(--line); }
-#find input { flex: 1 1 140px; min-width: 110px; max-width: 240px; min-height: 28px; padding: 3px 9px; }
-#find .n { min-width: 44px; text-align: center; color: var(--sub); font-variant-numeric: tabular-nums; }
-#find .fgroup { display: flex; gap: 2px; }
-#find button { min-height: 28px; padding: 2px 10px; }
-#find button.on { background: var(--ink); color: var(--on-ink); border-color: transparent; }
-#find button.on:hover { background: var(--ink); color: var(--on-ink); filter: opacity(.86); }
-#find button.on:not(:disabled):active { background: var(--ink); color: var(--on-ink); filter: opacity(.78); }
-#find .x { margin-left: auto; border: 0; background: none; box-shadow: none; color: var(--sub); }
+/* Find + replace: floating panel at the top right of the editor */
+#find {
+  position: absolute; top: 10px; right: 22px; z-index: calc(var(--z-pop) - 1);
+  display: flex; flex-direction: column; gap: 6px; width: min(480px, calc(100% - 36px)); padding: 6px;
+  font-size: 12.5px; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop);
+  animation: findIn .14s ease-out;
+}
+@keyframes findIn { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { #find { animation: none; } }
+#find .fRow { display: flex; align-items: center; gap: 4px; min-width: 0; }
+#find .fRepRow { padding-left: 30px; }
+#find .fRepRow[hidden] { display: none; }
+#find .fField {
+  position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
+  background: var(--field); border: 1px solid var(--line-2); border-radius: var(--r-sm); transition: border-color .12s, box-shadow .12s;
+}
+#find .fField:focus-within { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+#find.none .fRow:first-child .fField { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+#find .fField input { flex: 1 1 auto; min-width: 0; width: 100%; min-height: 30px; padding: 4px 9px; border: 0; background: none; box-shadow: none; outline: 0; font: 13px/1.3 var(--mono); }
+#find .fOpts { display: flex; gap: 1px; padding-right: 3px; flex: none; }
+#find button { box-shadow: none; }
+#find .fOpt { min-width: 26px; min-height: 24px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: var(--r-xs); background: none; color: var(--sub); font: 600 12px/1 var(--mono); }
+#find .fOpt .ww { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+#find .fOpt:not(:disabled):hover { background: var(--hover); color: var(--text); }
+#find .fOpt.on, #find .fOpt.on:not(:disabled):hover { background: var(--acc-soft); color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, transparent); }
+#find .fIc, #find .fTog { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--sub); }
+#find .fIc:not(:disabled):hover, #find .fTog:not(:disabled):hover { background: var(--hover); color: var(--text); }
+#find .fIc:disabled { opacity: .35; }
+#find .fIc.on, #find .fIc.on:not(:disabled):hover { background: var(--acc-soft); color: var(--acc); }
+#find .fTog svg { transition: transform .15s ease; }
+#find.rep .fTog svg { transform: rotate(90deg); }
+#find .fTog[hidden] { display: none; }
+#find .fgroup { display: flex; gap: 0; flex: none; }
+#find .n { flex: none; width: 74px; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; text-align: center; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#find .n.none { color: var(--danger); font-weight: 500; }
+#find .fTxt { flex: none; min-height: 30px; padding: 2px 11px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--card); color: var(--text); }
+#find .fTxt:disabled { opacity: .45; }
+#find .fMsg { margin: -2px 0 0 30px; padding: 5px 9px; border-radius: var(--r-sm); font-size: 12px; color: var(--danger); background: var(--danger-soft); overflow-wrap: anywhere; }
+#find .fMsg.ok { color: var(--sub); background: var(--hover); }
+#find .fMsg[hidden], #find .fRes[hidden] { display: none; }
+#find .fRes { display: flex; flex-direction: column; max-height: min(320px, 45vh); overflow: auto; margin: 0 -6px -6px; padding: 4px; border-top: 1px solid var(--line); }
+#find .fHit { flex: none; display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 0; padding: 5px 8px; border: 0; border-radius: var(--r-xs); background: none; text-align: left; font-weight: 400; cursor: pointer; }
+#find .fHit:hover { background: var(--hover); }
+#find .fHit.on { background: var(--acc-soft); }
+#find .fHit .ln { flex: none; min-width: 34px; text-align: right; color: var(--faint); font: 500 11px/1.5 var(--mono); font-variant-numeric: tabular-nums; }
+#find .fHit .tx { flex: 1; min-width: 0; overflow: hidden; white-space: pre; text-overflow: ellipsis; color: var(--sub); font: 12px/1.5 var(--mono); }
+#find .fHit mark { background: color-mix(in srgb, var(--editor) 50%, #ffc400); color: var(--text); border-radius: 3px; padding: 0 1px; }
+#find .fMore { padding: 6px 8px; color: var(--faint); font-size: 11.5px; }
+#fRail { position: absolute; top: 8px; right: 0; bottom: 0; width: 10px; pointer-events: none; z-index: 3; }
+#fRail i { position: absolute; right: 1px; width: 8px; height: 3px; margin-top: -1px; border-radius: 2px; background: color-mix(in srgb, #e0a800 75%, transparent); }
+#fRail i.cur { background: #f26b00; height: 4px; z-index: 1; }
+#fRail i.scope { right: 0; width: 10px; height: auto; margin: 0; border-radius: 0; background: var(--acc-soft); }
 /* Wave 2B: format button only; format-on-save + spellcheck live in Settings (toolbar stays one line) */
 
 /* Document tabs: main.typ, project files, templates in use */

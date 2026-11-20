@@ -150,7 +150,7 @@ def test_11_shortcut_settings_conflict_reset(page):
     categories = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('[data-shortcut-row]')].map(r => [r.dataset.shortcutRow, r.closest('.grp').querySelector('h4').textContent]))")
     assert categories == {
         "nextTab": "General", "prevTab": "General", "openHelp": "General", "closeLayer": "General",
-        "save": "Editor", "find": "Editor", "findNext": "Editor", "findPrev": "Editor",
+        "save": "Editor", "find": "Editor", "findReplace": "Editor", "findNext": "Editor", "findPrev": "Editor",
         "bold": "Editor", "italic": "Editor", "underline": "Editor", "format": "Editor",
         "complete": "Editor", "accept": "Editor", "dedent": "Editor",
         "zoomIn": "Preview", "zoomOut": "Preview", "zoomReset": "Preview",

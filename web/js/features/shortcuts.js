@@ -50,7 +50,8 @@ const SC_ACTIONS = [
   // Editor: documents, find and formatting
   { id: 'save', cat: 'editor', label: 'shortcuts.save', def: 'mod+s', run: () => { if (!scAppOn()) return false; saveNow(); return true } },
   { id: 'find', cat: 'editor', label: 'shortcuts.find', def: 'mod+f', run: () => { if (!scAppOn()) return false; openFind(); return true } },
-  { id: 'findNext', cat: 'editor', label: 'shortcuts.findNext', def: 'enter', typing: true, when: () => findOpen && (document.activeElement === $('fQ') || document.activeElement === $('fR')), run: () => { stepFind(1); return true } },
+  { id: 'findReplace', cat: 'editor', label: 'shortcuts.findReplace', def: SC_MAC ? 'mod+alt+f' : 'mod+h', run: () => { if (!scAppOn()) return false; openFind(true); return true } },
+  { id: 'findNext', cat: 'editor', label: 'shortcuts.findNext', def: 'enter', typing: true, when: () => findOpen && document.activeElement === $('fQ'), run: () => { stepFind(1); return true } },
   { id: 'findPrev', cat: 'editor', label: 'shortcuts.findPrev', def: 'shift+enter', typing: true, when: () => findOpen && (document.activeElement === $('fQ') || document.activeElement === $('fR')), run: () => { stepFind(-1); return true } },
   { id: 'bold', cat: 'editor', label: 'shortcuts.bold', def: 'mod+b', typing: true, when: () => cm.hasFocus, run: () => { fmtApply('bold'); return true } },
   { id: 'italic', cat: 'editor', label: 'shortcuts.italic', def: 'mod+i', typing: true, when: () => cm.hasFocus, run: () => { fmtApply('italic'); return true } },
