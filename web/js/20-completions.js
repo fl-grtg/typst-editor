@@ -29,13 +29,20 @@ async function loadDocResources(force) {
   const r = await api('GET', `/api/docs/${id}/resources`)
   if (id !== docId || epoch !== openN || n !== docResN) return false
   docResReadonly = r.readonly !== false
+  const oldRows = window.docTpl || []
   window.docTpl = Object.entries(r.resources || {}).map(([name, content]) => ({ name, content, updated_at: r.versions?.[name] || '' }))
+  for (const row of window.docTpl) { // a late snapshot must not replace the row text a tab switch would load
+    const old = oldRows.find(x => x.name === row.name)
+    const seen = old && [old.updated_at, tabVersions.get(TPLK + row.name)].filter(Boolean).sort().pop()
+    if (old && row.updated_at && seen > row.updated_at) { row.content = old.content; row.updated_at = seen }
+  }
   if (isTplKey(activeFile) && !window.changeSession) {
     const row = window.docTpl.find(x => x.name === tabName(activeFile))
+    const stale = row && row.updated_at && (tabVersions.get(activeFile) || '') > row.updated_at // a late snapshot from before our save
     if (row && (tabDirty || tabSaveFlight)) row.content = getT()
-    else if (row) {
+    else if (row && !stale) {
       if (getT() !== row.content) { setT(row.content); gutter(); refreshHl(); paintOutline() }
-      tabVersions.set(activeFile, row.updated_at)
+      if (row.updated_at) tabVersions.set(activeFile, row.updated_at)
     }
   }
   docResAt = Date.now(); docResRefs = refs

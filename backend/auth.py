@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import sqlite3 as _sqlite3
 import threading as _threading
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 from backend import config, db
 from backend.constants import PBKDF2_ROUNDS
@@ -20,6 +22,8 @@ CURRENT_ROUNDS = max(int(PBKDF2_ROUNDS), HASH_ROUNDS)
 
 _FALLBACK_SESSION_SECONDS = 14 * 24 * 3600
 COOKIE = "typst_session"
+LOGIN_TOKEN_PREFIX = "tpl_"
+LOGIN_TOKEN_RE = re.compile(r"^tpl_[0-9a-f]{64}$")
 DUMMY_HASH = f"pbkdf2${CURRENT_ROUNDS}$" + "00" * 16 + "$" + "00" * 32
 OIDC_HASH_SENTINEL = "!oidc"
 
@@ -100,6 +104,31 @@ def check_password(password: str, stored: str) -> bool:
 
 def sha(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def cookie_name(host: str) -> str:
+    """Session cookie name scoped to the request port.
+
+    Browsers scope cookies by host, not port: two dev servers on the same
+    host would otherwise overwrite each other's session. Default ports keep
+    the plain name so production URLs and existing cookies stay unchanged.
+    """
+    try:
+        port = urlsplit("//" + (host or "")).port
+    except ValueError:
+        return COOKIE
+    if not port or port in (80, 443):
+        return COOKIE
+    return f"{COOKIE}_{port}"
+
+
+def cookie_token(cookies: dict[str, str], host: str) -> str:
+    """Read the port-scoped session cookie, falling back to a pre-scoped one."""
+    name = cookie_name(host)
+    token = cookies.get(name, "")
+    if token or name == COOKIE:
+        return token
+    return cookies.get(COOKIE, "")
 
 
 def _cached_conn() -> _sqlite3.Connection:
@@ -232,6 +261,81 @@ def mint(username: str) -> str:
             con.close()
         except Exception as e:
             log.warning("mint close failed: %s", e)
+
+
+def mint_login_token(username: str) -> tuple[str, str]:
+    """Create a reusable URL login token. Only its hash is stored."""
+    tid = db.new_id("lt_")
+    token = LOGIN_TOKEN_PREFIX + secrets.token_hex(32)
+    con = db.connect()
+    try:
+        con.execute("INSERT INTO login_tokens (id, username, token_hash, created_at) VALUES (?,?,?,?)",
+                    (tid, username, sha(token), db.now_iso()))
+        con.commit()
+        return tid, token
+    finally:
+        try:
+            con.close()
+        except Exception as e:
+            log.warning("mint_login_token close failed: %s", e)
+
+
+def verify_login_token(token: str) -> dict | None:
+    if not token or not LOGIN_TOKEN_RE.fullmatch(token):
+        return None
+    con = db.connect()
+    try:
+        row = con.execute("SELECT id, username FROM login_tokens WHERE token_hash=?",
+                          (sha(token),)).fetchone()
+        if not row:
+            return None
+        try:
+            con.execute("UPDATE login_tokens SET last_used=? WHERE id=?",
+                        (db.now_iso(), row["id"]))
+            con.commit()
+        except Exception as e:
+            log.warning("verify_login_token last_used failed: %s", e)
+        return {"id": row["id"], "username": row["username"]}
+    finally:
+        try:
+            con.close()
+        except Exception as e:
+            log.warning("verify_login_token close failed: %s", e)
+
+
+def list_login_tokens(username: str) -> list[dict]:
+    """Internal listing for maintenance scripts, never exposed over HTTP."""
+    con = db.connect()
+    try:
+        rows = con.execute("SELECT id, created_at, last_used FROM login_tokens "
+                           "WHERE username=? ORDER BY created_at", (username,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        try:
+            con.close()
+        except Exception as e:
+            log.warning("list_login_tokens close failed: %s", e)
+
+
+def revoke_login_token(tid: str, username: str = "") -> bool:
+    """Internal revoke for maintenance scripts.
+
+    Only the link dies: a session minted from it earlier is a normal session
+    and stays valid until it expires or is revoked in the app.
+    """
+    con = db.connect()
+    try:
+        if username:
+            cur = con.execute("DELETE FROM login_tokens WHERE id=? AND username=?", (tid, username))
+        else:
+            cur = con.execute("DELETE FROM login_tokens WHERE id=?", (tid,))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        try:
+            con.close()
+        except Exception as e:
+            log.warning("revoke_login_token close failed: %s", e)
 
 
 def create_session(username: str, password: str) -> str | None:

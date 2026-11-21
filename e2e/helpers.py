@@ -48,6 +48,24 @@ def type_source(page: Page, text: str) -> None:
     assert page.evaluate("(t) => document.execCommand('insertText', false, t)", text)
 
 
+def put_source(page: Page, text: str) -> None:
+    """Replace the whole source in one edit once the live connection stands.
+
+    Typing hundreds of characters one by one races the first server sync of a
+    freshly opened document on a busy runner: a remote update can land between
+    two keystrokes and one of them vanishes ("=Omega", "#pgebreak()"). The
+    fixtures of the sync tests are measured against the exact source, so they
+    insert it atomically.
+    """
+    try:  # the dot says "Live" once the websocket is up; never fail on a different label
+        expect(page.locator("#wsTxt")).to_contain_text("Live", timeout=15_000)
+    except AssertionError:
+        pass
+    page.click("#cm .cm-content")
+    page.keyboard.press("ControlOrMeta+A")
+    assert page.evaluate("(t) => document.execCommand('insertText', false, t)", text)
+
+
 def open_private_copy(page: Page, name: str) -> None:
     source = page.locator('#cm .cm-content').inner_text()
     response = page.request.post('/api/templates', data={'name': name, 'content': source})

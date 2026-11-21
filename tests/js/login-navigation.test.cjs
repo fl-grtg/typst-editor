@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 
 const source = fs.readFileSync('web/js/96-login-actions.js', 'utf8')
-const start = source.indexOf("api('GET', '/api/me').then(async d => { // session")
+const start = source.indexOf('let tokenInvalid = false') // bootSession + the /api/me boot block
 const restore = source.slice(start, source.indexOf('try { (window.requestIdleCallback', start))
 
 test('late session initialization respects an already-started document navigation', async () => {
@@ -21,6 +21,56 @@ test('late session initialization respects an already-started document navigatio
     await vm.runInContext(restore, context)
     assert.deepEqual(opened, openN === 0 ? ['tutorial'] : [])
   }
+})
+
+test('boot exchanges a URL token and reports an invalid one after the session check', async () => {
+  const nodes = {
+    login: { style: {} },
+    app: { classList: { add() {} } },
+    err: { textContent: '' },
+  }
+  const bootContext = extra => vm.createContext({
+    api: async () => ({ user: 'alice' }), loadSpell() {}, paintMe() {},
+    $: id => nodes[id] || { style: {}, classList: { add() {} } }, cm: { measure() {} },
+    sidebar: async () => {}, watchSidebar() {}, loadInbox: async () => {}, loadTpl: async () => {},
+    checkJoin: async () => false, lastOwn: [], lastShared: [], openDoc() {},
+    openN: 1, docId: '', tplName: '', URLSearchParams, location: { search: '', hash: '' }, console,
+    hadOidcErr: false, hadInvite: false, t: k => k, loadAuthConfig: async () => {},
+    ...extra,
+  })
+
+  // A token is exchanged first; the normal /api/me call then boots the app.
+  // The fragment is canonical: browsers do not send it to the server.
+  const calls = []
+  const ctx = bootContext({
+    location: { search: '', hash: '#token=tpl_abc' },
+    api: async (method, path, body) => {
+      calls.push([method, path, body])
+      return { user: 'alice' }
+    },
+  })
+  await vm.runInContext(restore, ctx)
+  assert.equal(calls.length, 2)
+  assert.deepEqual(calls[0].slice(0, 2), ['POST', '/api/login/token'])
+  assert.equal(calls[0][2].token, 'tpl_abc')
+  assert.deepEqual(calls[1].slice(0, 2), ['GET', '/api/me'])
+  assert.equal(ctx.user, 'alice')
+  assert.equal(nodes.login.style.display, 'none')
+
+  // A rejected exchange still lets the cookie session decide; if both fail,
+  // the login view explains that the link is gone.
+  let authConfig = 0, authArgs = null
+  const bad = bootContext({
+    location: { search: '', hash: '#token=tpl_dead' },
+    api: async () => { throw { status: 401 } },
+    loadAuthConfig: async (...args) => { authConfig++; authArgs = args },
+  })
+  await vm.runInContext(restore, bad)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(authConfig, 1)
+  // badToken=true keeps OIDC auto-redirect from hiding the error.
+  assert.equal(authArgs[3], true)
+  assert.equal(nodes.err.textContent, 'login.linkInvalid')
 })
 
 const oidcStart = source.indexOf('function oidcErrMsg(code)')
@@ -73,6 +123,10 @@ test('OIDC login config hides password fields and auto-redirects with join token
   assert.deepEqual(assigned, [])
 
   assert.equal(context.oidcErrMsg('rate_limited'), 'login.oidcRateLimited')
+
+  // A failed login-link exchange shows its error instead of bouncing to the IdP.
+  await context.loadAuthConfig(false, false, undefined, true)
+  assert.deepEqual(assigned, [])
 
   // Auto-redirects when no error or invite is present.
   await context.loadAuthConfig(false, false)

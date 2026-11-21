@@ -15,6 +15,10 @@ class Register(BaseModel):
     invite: str = Field(default="", max_length=200)
 
 
+class LoginToken(BaseModel):
+    token: str = Field(max_length=200)
+
+
 class DocCreate(BaseModel):
     title: str = Field(default="New document", max_length=100)
     content: str = Field(default="", max_length=200001)

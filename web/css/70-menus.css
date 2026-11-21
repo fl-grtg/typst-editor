@@ -5,9 +5,10 @@
   position: fixed; z-index: var(--z-menu); width: max-content; max-width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 24px); overflow: auto; padding: 4px;
   background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop);
 }
-#menu button, #submenu button { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 27px; padding: 3px 6px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); }
-#menu button:hover:not(:disabled), #menu button:focus-visible, #menu button.sub-open, #submenu button:hover:not(:disabled), #submenu button:focus-visible, #submenu button.sub-open { background: var(--hover); color: var(--text); outline: none; }
-#menu button:focus-visible, #submenu button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+/* Menubar menus share the width of their longest sibling (measured in ui-layer.js); submenus size to their content. */
+#menu button, #submenu button, #menu a, #submenu a { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 27px; padding: 3px 6px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); text-decoration: none; }
+#menu button:hover:not(:disabled), #menu button:focus-visible, #menu button.sub-open, #menu a:hover, #menu a:focus-visible, #submenu button:hover:not(:disabled), #submenu button:focus-visible, #submenu button.sub-open, #submenu a:hover, #submenu a:focus-visible { background: var(--hover); color: var(--text); outline: none; }
+#menu button:focus-visible, #submenu button:focus-visible, #menu a:focus-visible, #submenu a:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #menu button:disabled, #submenu button:disabled { opacity: .4; }
 #menu button.danger, #submenu button.danger { color: var(--danger); }
 #menu button.danger:hover:not(:disabled), #menu button.danger:focus-visible, #submenu button.danger:hover:not(:disabled), #submenu button.danger:focus-visible { background: var(--danger-soft); color: var(--danger); }
@@ -18,7 +19,20 @@
 #menu .ext svg, #submenu .ext svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #menu .arrow, #submenu .arrow { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 12px; height: 12px; margin-left: 2px; color: var(--faint); }
 #menu .arrow svg, #submenu .arrow svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-#menu button:hover:not(:disabled) .ext, #menu button:focus-visible .ext, #menu button.sub-open .ext, #submenu button:hover:not(:disabled) .ext, #submenu button:focus-visible .ext, #submenu button.sub-open .ext,
+#menu button:hover:not(:disabled) .ext, #menu button:focus-visible .ext, #menu button.sub-open .ext, #menu a:hover .ext, #menu a:focus-visible .ext, #submenu button:hover:not(:disabled) .ext, #submenu button:focus-visible .ext, #submenu button.sub-open .ext, #submenu a:hover .ext, #submenu a:focus-visible .ext,
 #menu button:hover:not(:disabled) .arrow, #menu button:focus-visible .arrow, #menu button.sub-open .arrow, #submenu button:hover:not(:disabled) .arrow, #submenu button:focus-visible .arrow, #submenu button.sub-open .arrow { color: var(--sub); }
 #menu hr, #submenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 3px; }
 #menu .mh, #submenu .mh { padding: 6px 8px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+:is(#menu, #submenu) .mRange { display: flex; align-items: center; gap: 8px; min-height: 27px; padding: 3px 6px; font-size: 13px; color: var(--text); }
+:is(#menu, #submenu) .mRange.disabled { opacity: .4; }
+:is(#menu, #submenu) .mRange .lb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:is(#menu, #submenu) .mRange input { flex: none; width: 104px; height: 20px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; appearance: none; -webkit-appearance: none; cursor: pointer; }
+:is(#menu, #submenu) .mRange input::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: linear-gradient(to right, var(--ink) var(--fill, 0%), var(--press) var(--fill, 0%)); }
+:is(#menu, #submenu) .mRange input::-moz-range-track { height: 4px; border-radius: 999px; background: var(--press); }
+:is(#menu, #submenu) .mRange input::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--ink); }
+:is(#menu, #submenu) .mRange input::-webkit-slider-thumb { box-sizing: border-box; width: 14px; height: 14px; margin-top: -5px; border: 2px solid var(--ink); border-radius: 50%; background: var(--card); box-shadow: var(--sh-1); -webkit-appearance: none; }
+:is(#menu, #submenu) .mRange input::-moz-range-thumb { box-sizing: border-box; width: 14px; height: 14px; border: 2px solid var(--ink); border-radius: 50%; background: var(--card); box-shadow: var(--sh-1); }
+:is(#menu, #submenu) .mRange input:focus-visible { outline: none; }
+:is(#menu, #submenu) .mRange input:focus-visible::-webkit-slider-thumb { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+:is(#menu, #submenu) .mRange input:focus-visible::-moz-range-thumb { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+:is(#menu, #submenu) .mRange .val { flex: none; min-width: 36px; text-align: right; font: 11.5px var(--ui); font-variant-numeric: tabular-nums; opacity: .55; }

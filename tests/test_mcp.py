@@ -2,6 +2,10 @@
 import asyncio
 import json
 import re
+import shutil
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import login, make_doc, register_user
@@ -580,6 +584,30 @@ def test_pdf_page_count_parser():
     assert t._pdf_page_count(b"<</Type /Page>>") == 1
 
 
+def test_page_count_counts_rendered_pages_not_pdf_markers(monkeypatch):
+    monkeypatch.setattr(t.shutil, "which", lambda _: "/usr/bin/typst")
+
+    def fake_run(cmd, cwd, **_):
+        assert "svg" in cmd  # every page rendered, no PDF object stream to parse
+        for page in (1, 2, 3):
+            (Path(cwd) / "__pages__" / f"p-{page}.svg").write_text("<svg/>")
+            (Path(cwd) / f"out-{page}.svg").write_text("<svg/>")  # a user file with that name is no page
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(t.subprocess, "run", fake_run)
+    assert t._compile_pdf_pages("= Hi", [("out-9.svg", b"<svg/>")]) == 3
+
+
+def test_typst_version_matches_audited_sync_fixtures():
+    typst = shutil.which("typst")
+    if not typst:
+        pytest.skip("typst CLI not installed")
+    out = subprocess.run([typst, "--version"], capture_output=True, text=True, check=True).stdout.strip()
+    assert out.startswith("typst 0.15."), (
+        f"{out}: page count and sync fixtures were audited against Typst 0.15.x; "
+        "re-check _typst_page_files, e2e/test_sync_precision.py and the math-font/image anchors before bumping")
+
+
 def test_view_scale_edges_and_pages_guard(c, monkeypatch):
     register_user(c, "u1")
     t.op_create("u1", "owner", "/docs/SE", "= Hi")
@@ -619,5 +647,22 @@ def test_view_totals_cache_no_poison(c, monkeypatch):
     t._VIEW_CACHE.clear()
     v2 = asyncio.run(t.op_view("u1", "owner", "/docs/TP", pages="6-10"))
     assert v2.structured_content["total_pages"] == 12
+    t._VIEW_CACHE.clear()
+    t._VIEW_TOTALS.clear()
+
+
+def test_view_cache_hit_recounts_after_failed_count(c, monkeypatch):
+    register_user(c, "u1")
+    t.op_create("u1", "owner", "/docs/TQ", "= Hi")
+    monkeypatch.setattr(t, "_compile_pngs", lambda *a, **k: [b"x"])
+    monkeypatch.setattr(t, "_compile_pdf_pages", lambda *a, **k: None)
+    t._VIEW_CACHE.clear()
+    t._VIEW_TOTALS.clear()
+    v1 = asyncio.run(t.op_view("u1", "owner", "/docs/TQ", pages="1-5"))
+    assert v1.structured_content["total_pages"] == 5  # guess, never stored as the real total
+    monkeypatch.setattr(t, "_compile_pdf_pages", lambda *a, **k: 12)
+    v2 = asyncio.run(t.op_view("u1", "owner", "/docs/TQ", pages="1-5"))
+    assert v2.structured_content["cache_hit"] is True
+    assert v2.structured_content["total_pages"] == 12  # the cached render is reused, the page count is retried
     t._VIEW_CACHE.clear()
     t._VIEW_TOTALS.clear()

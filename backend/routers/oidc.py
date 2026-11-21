@@ -83,7 +83,7 @@ async def oidc_callback(req: Request) -> RedirectResponse:
         res = RedirectResponse(f"/?oidc_error={exc.code}", status_code=302)
         res.delete_cookie(oidc_svc.STATE_COOKIE, path=oidc_svc.STATE_COOKIE_PATH, samesite="lax", secure=secure, httponly=True)
         return res
-    old_tok = req.cookies.get(deps.COOKIE, "")
+    old_tok = deps.session_token(req)
     if old_tok:
         sync.drop_sess_token(old_tok)
         await asyncio.to_thread(auth.delete_session, old_tok)

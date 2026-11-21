@@ -6,7 +6,7 @@ const vm = require('node:vm')
 test('queued preview jobs remap after a superseded compile changed the worker resources', async () => {
   const source = fs.readFileSync('web/js/50-preview.js', 'utf8'), sent = []
   const context = vm.createContext({
-    renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true,
+    setTimeout, clearTimeout, renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true,
     pvJobs: new Map(), pvEnsureWorker: () => ({ postMessage: message => sent.push(message) }), t: key => key
   })
   vm.runInContext(source.slice(source.indexOf('let pvTail ='), source.indexOf('let typstT0 =')), context)
@@ -37,7 +37,7 @@ function fileContext(files, cache = new Map()) {
   const c = vm.createContext({ docId: 'doc', openN: 1, loadDocResources: async () => true,
     filesDirty: false, filesAt: Date.now(), FILES_TTL: 15000, lastFiles: files, fileCache: cache,
     activeFile: '', tabDirty: false, fetch: async () => ({ ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer }),
-    pvResTpl: () => [], pvFileSig: n => n, pvBibSig: '', bibKeys: [], TextDecoder, Uint8Array,
+    api: async () => ({ files }), pvResTpl: () => [], pvFileSig: n => n, pvBibSig: '', bibKeys: [], TextDecoder, Uint8Array,
     t: (_key, args) => args.name + ': HTTP ' + args.status, setTimeout: fn => fn() })
   vm.runInContext(source.slice(source.indexOf('async function pvFiles()'), source.indexOf('async function shadowAll(')), c)
   return c
@@ -102,4 +102,44 @@ test('persistent server failures stop after two attempts and retain readable dia
   c.fetch = async () => { calls++; return { ok: false, status: 503 } }
   await assert.rejects(c.pvFiles(), error => error.diags[0].message === 'god-test.png: HTTP 503')
   assert.equal(calls, 2)
+})
+
+test('a deleted file refreshes the list once instead of blocking the preview', async () => {
+  const files = [{ name: 'gone.png', size: 1, mtime: 1 }, { name: 'keep.png', size: 1, mtime: 1 }]
+  const c = fileContext(files)
+  c.filesAt = 0 // first list still names the deleted file
+  c.fetch = async url => String(url).includes('gone.png')
+    ? { ok: false, status: 404 }
+    : { ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer }
+  let lists = 0
+  c.api = async () => ({ files: lists++ === 0 ? files : [files[1]] })
+  await c.pvFiles()
+  assert.equal(lists, 2)
+  assert.ok(c.fileCache.has('keep.png'))
+  assert.equal(c.fileCache.has('gone.png'), false)
+  assert.equal(c.filesDirty, false)
+})
+
+test('a content error after the worker mapped the files does not resend them', async () => {
+  const source = fs.readFileSync('web/js/50-preview.js', 'utf8'), sent = []
+  const context = vm.createContext({
+    setTimeout, clearTimeout, renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true,
+    pvJobs: new Map(), pvEnsureWorker: () => ({ postMessage: message => sent.push(message) }), t: key => key
+  })
+  vm.runInContext(source.slice(source.indexOf('let pvTail ='), source.indexOf('let typstT0 =')), context)
+  const tick = () => new Promise(resolve => setImmediate(resolve))
+  const job = (id, sig) => ({ id, sig, cmd: 'work', main: sig, files: [{ name: sig + '.png' }], tpl: [] })
+  const first = context.pvCall(job(1, 'with-image'), 1)
+  await tick()
+  context.pvJobs.get(1).bad(Object.assign(new Error('content'), { mapped: true, diags: [] }))
+  await assert.rejects(first, /content/)
+  assert.equal(context.pvMapped, true)
+  assert.equal(context.pvSentSig, 'with-image')
+  context.renderN = 2
+  const second = context.pvCall(job(2, 'with-image'), 2)
+  await tick()
+  assert.equal(sent[1].full, false)
+  assert.equal(sent[1].files, undefined)
+  context.pvJobs.get(2).ok({})
+  await second
 })

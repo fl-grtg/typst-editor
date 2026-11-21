@@ -107,6 +107,8 @@ def test_ui_presentation_enter_navigate_exit(page):
     type_source(page, "= P1\n\n#pagebreak()\n\n= P2")
     expect(page.locator("#preview .pvPage[data-done] canvas").first).to_be_visible(timeout=PREVIEW_TIMEOUT)
     assert page.evaluate("window.Present.pages()") >= 2
+    # cursor follow may have scrolled the preview to page 2 (the cursor sits on "= P2"); the presentation starts at the first visible page
+    page.evaluate("() => { const pv = document.getElementById('preview'); pv.scrollTop = 0 }")
     assert page.evaluate("window.Present.enter()") is True
     expect(page.locator("body")).to_have_class(re.compile(r"\bpresent\b"))
     expect(page.locator("#presentBar")).to_be_visible()

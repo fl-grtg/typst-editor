@@ -237,12 +237,30 @@ async function refreshSidebar() {
   lastOwn = d.own; lastShared = d.shared; lastTrash = d.trash
   if (openAt === openN && docId && docRole && ![...d.own, ...d.shared, ...d.trash].some(x => x.id === docId)) closeView() // list may predate a just-opened doc
   refreshDocRole(d)
+  const held = sideFocusKey() // the repaint replaces the focused row action: keyboard focus moves to the same action of the new row
   paintOwn(); paintTrash(d.trash); paintShared(d.shared); paintSecs(); paintTabs()
   paintTpls()
+  if (held && !held.el.isConnected) sideFocusBack(held)
   const nv = $('nav'); nv.onscroll = updNavFade; updNavFade()
   watchHitBadges()
   queueContentRefresh() // list changes (new/moved/trashed entries) change the hit set too
   if (!window.__navFadeArmed) { window.__navFadeArmed = true; addEventListener('resize', updNavFade) } // once: sidebar() runs per SSE push
+}
+const SIDE_ROW_KEYS = ['docId', 'packageKey', 'resourceName', 'folderPath', 'projectId']
+function sideFocusKey() { // focused sidebar row action and the data key of its row (null: focus is elsewhere)
+  const el = document.activeElement
+  if (!el || !el.closest || !el.closest('aside') || !el.matches('[data-side-menu]')) return null
+  for (const k of SIDE_ROW_KEYS) {
+    const row = el.closest('[data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + ']')
+    if (row) return { el, k, v: row.dataset[k] }
+  }
+  return null
+}
+function sideFocusBack(held) {
+  const attr = 'data-' + held.k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())
+  const row = [...document.querySelectorAll('aside [' + attr + ']')].find(r => r.dataset[held.k] === held.v)
+  const btn = row && row.querySelector('[data-side-menu]')
+  if (btn && (!document.activeElement || document.activeElement === document.body)) btn.focus({ preventScroll: true })
 }
 function refreshDocRole(d) {
   if (!docId) return

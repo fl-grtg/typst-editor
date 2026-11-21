@@ -348,7 +348,7 @@ async function switchTab(name, nosave, preserveView = false) { // true = switche
     if (my !== tabSeq || dk !== docId) return false
     if (!tp) { toast(t('files.tplGone')); return false }
     tabPins.add(tp.name); text = tp.content || ''
-    if (tp.updated_at) tabVersions.set(name, tp.updated_at)
+    if (tp.updated_at && (tabVersions.get(name) || '') < tp.updated_at) tabVersions.set(name, tp.updated_at) // late snapshot: never rewind a save
   } else if (!TEXT_EXT.test(name)) {
     const file = lastFiles.find(f => f.name === name)
     text = t('files.binaryInfo', { name, kb: Math.round((file?.size || 0) / 1024) })

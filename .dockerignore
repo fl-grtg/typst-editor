@@ -28,7 +28,6 @@ backup/
 exports/
 *.tmp
 .cache/
-docs/
 roadmap.html
 web/
 e2e/

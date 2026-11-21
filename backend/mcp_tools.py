@@ -1340,6 +1340,36 @@ def _pdf_page_count(pdf_bytes: bytes) -> int | None:
         return None
 
 
+def _page_no(path: Path) -> int:
+    """page-10.png sorts after page-9.png: the number in the name, not the text, decides."""
+    m = re.search(r"(\d+)\D*$", path.stem)
+    return int(m.group(1)) if m else 0
+
+
+def _typst_page_files(root: Path, typst: str) -> int | None:
+    """Render every page as SVG and count the files: no PDF object parsing."""
+    try:
+        (root / "__pages__").mkdir(exist_ok=True)  # own output folder: a user file named out-1.svg is no rendered page
+    except OSError as e:
+        log.warning("svg pages dir failed: %s", e)
+        return None
+    cmd = [typst, "compile", "--format", "svg", "main.typ", "__pages__/p-{p}.svg"]
+    try:
+        proc = subprocess.run(cmd, cwd=root, capture_output=True,
+                              timeout=VIEW_TIMEOUT, env=_typst_env(root),
+                              preexec_fn=_subprocess_preexec())
+    except (subprocess.TimeoutExpired, OSError) as e:
+        log.warning("svg pages compile failed: %s", e)
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return len(list((root / "__pages__").glob("p-*.svg"))) or None
+    except OSError as e:
+        log.warning("svg pages count failed: %s", e)
+        return None
+
+
 def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
                   pages: str, ppi: int = VIEW_BASE_PPI) -> list[bytes]:
     """Temp-dir typst compile, 10s timeout. Returns PNG bytes (<=20, longest side <=1280)."""
@@ -1364,8 +1394,9 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
                     dest.write_bytes(data)
             except OSError as e:
                 raise _bad(f"compile failed: {e}", 500) from e
+            (root / "__shots__").mkdir(exist_ok=True)  # own output folder: uploaded page-*.png files are never returned as pages
             cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
-                   "--pages", pages, "main.typ", "page-{p}.png"]
+                   "--pages", pages, "main.typ", "__shots__/page-{p}.png"]
             env = _typst_env(root)
             try:
                 proc = subprocess.run(cmd, cwd=tmp, capture_output=True, timeout=VIEW_TIMEOUT, env=env,
@@ -1380,7 +1411,7 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
                 short = raw.strip()[-500:] or "unknown"
                 raise HTTPException(422, {"message": f"compile error: {short}",
                                           "diagnostics": diags})
-            shots = sorted(root.glob("page-*.png"))[:VIEW_MAX_PAGES]
+            shots = sorted((root / "__shots__").glob("page-*.png"), key=_page_no)[:VIEW_MAX_PAGES]
             if not shots:
                 raise _bad("no pages rendered", 500)
             out = []
@@ -1401,7 +1432,7 @@ def _compile_pngs(main_text: str, files: list[tuple[str, bytes]],
 
 
 def _compile_pdf_pages(main_text: str, files: list[tuple[str, bytes]]) -> int | None:
-    """Compile to PDF and count pages. None when the count is unknown."""
+    """Count every page of a compile. SVG files first (stable), PDF markers as fallback."""
     with _compile_slot():
         typst = shutil.which("typst")
         if not typst:
@@ -1419,6 +1450,9 @@ def _compile_pdf_pages(main_text: str, files: list[tuple[str, bytes]]) -> int | 
             except OSError as e:
                 log.warning("pdf-pages write failed: %s", e)
                 return None
+            n = _typst_page_files(root, typst)
+            if n is not None:
+                return n
             cmd = [typst, "compile", "--format", "pdf", "main.typ", "out.pdf"]
             try:
                 proc = subprocess.run(cmd, cwd=tmp, capture_output=True,
@@ -1436,24 +1470,36 @@ def _compile_pdf_pages(main_text: str, files: list[tuple[str, bytes]]) -> int | 
                 return None
 
 
-def _total_pages_cached(doc_id: str, main_text: str,
-                        files: list[tuple[str, bytes]], fallback: int) -> int:
-    """Total doc pages via cached PDF page count, fallback = max requested page."""
+_VIEW_TOTALS_LOCK = _compile_threading.Lock()  # the counts run in worker threads: LRU refresh and eviction must not interleave
+
+
+def _total_pages_exact(doc_id: str, main_text: str,
+                       files: list[tuple[str, bytes]]) -> int | None:
+    """Rendered page count (cached), None when it could not be counted right now."""
     key = _content_hash(doc_id, main_text, files)
-    hit = _VIEW_TOTALS.get(key)
-    if hit is not None:
-        _VIEW_TOTALS[key] = _VIEW_TOTALS.pop(key)  # LRU refresh
-        return hit
+    with _VIEW_TOTALS_LOCK:
+        hit = _VIEW_TOTALS.pop(key, None)
+        if hit is not None:
+            _VIEW_TOTALS[key] = hit  # LRU refresh
+            return hit
     try:
         n = _compile_pdf_pages(main_text, files)
     except HTTPException:
         n = None
     if n is None:
-        return fallback  # transient PDF failure: do not poison the cache
-    if len(_VIEW_TOTALS) >= VIEW_CACHE_MAX:
-        _VIEW_TOTALS.pop(next(iter(_VIEW_TOTALS)), None)
-    _VIEW_TOTALS[key] = n
+        return None  # transient failure (busy slot, timeout): never cached
+    with _VIEW_TOTALS_LOCK:
+        while len(_VIEW_TOTALS) >= VIEW_CACHE_MAX:
+            _VIEW_TOTALS.pop(next(iter(_VIEW_TOTALS)), None)
+        _VIEW_TOTALS[key] = n
     return n
+
+
+def _total_pages_cached(doc_id: str, main_text: str,
+                        files: list[tuple[str, bytes]], fallback: int) -> int:
+    """Total doc pages via cached page count, fallback = max requested page."""
+    n = _total_pages_exact(doc_id, main_text, files)
+    return fallback if n is None else n
 
 
 def _view_result(pngs: list[bytes], cache_hit: bool, last_seen: str,
@@ -1507,13 +1553,18 @@ async def op_view(user: str, cap: str, path: str,
     hit = _view_cache_get(key)
     if hit is not None:
         cached_total = hit.get("total_pages")
-        total_hit: int = (cached_total if isinstance(cached_total, int) else
-                          _total_pages_cached(res["doc_id"], main_text, files, max(wanted)))
-        hit["total_pages"] = total_hit
+        if isinstance(cached_total, int):
+            total_hit = cached_total
+        else:  # an earlier count failed: try again, keep the guess out of the cache
+            exact = await asyncio.to_thread(_total_pages_exact, res["doc_id"], main_text, files)
+            total_hit = max(wanted) if exact is None else exact
+            if exact is not None:
+                hit["total_pages"] = exact
         return _view_result(hit["pngs"], True, row["updated_at"], total_hit, pages_arg, float(scale))
     pngs = await asyncio.to_thread(_compile_pngs, main_text, files, pages_arg, ppi)
-    total = await asyncio.to_thread(_total_pages_cached, res["doc_id"], main_text, files, max(wanted))
-    _view_cache_put(key, {"pngs": pngs, "total_pages": total})
+    exact_total = await asyncio.to_thread(_total_pages_exact, res["doc_id"], main_text, files)
+    total = max(wanted) if exact_total is None else exact_total
+    _view_cache_put(key, {"pngs": pngs, "total_pages": exact_total})  # None: counted again on the next hit
     return _view_result(pngs, False, row["updated_at"], total, pages_arg, float(scale))
 
 
@@ -1761,13 +1812,18 @@ def _compile_export_doc(main_text: str, files: list[tuple[str, bytes]], fmt: str
             except OSError as e:
                 raise _bad(f"compile failed: {e}", 500) from e
             return _sized(payload, EXPORT_MIMES["pdf"], False)
+        out = root / "__export__"  # own output folder: an uploaded page-1.png is never exported as a page
+        try:
+            out.mkdir(exist_ok=True)
+        except OSError as e:
+            raise _bad(f"compile failed: {e}", 500) from e
         if f == "svg":
-            _typst_compile(["compile", "--format", "svg", *pg_args, "main.typ", "page-{p}.svg"], tmp)
-            shots = sorted(root.glob("page-*.svg"))
+            _typst_compile(["compile", "--format", "svg", *pg_args, "main.typ", "__export__/page-{p}.svg"], tmp)
+            shots = sorted(out.glob("page-*.svg"), key=_page_no)  # page-10 after page-9
             return _pages_or_zip(shots, EXPORT_MIMES["svg"])
         _typst_compile(["compile", "--format", "png", "--ppi", str(res or EXPORT_PPI),
-                        *pg_args, "main.typ", "page-{p}.png"], tmp)
-        shots = sorted(root.glob("page-*.png"))
+                        *pg_args, "main.typ", "__export__/page-{p}.png"], tmp)
+        shots = sorted(out.glob("page-*.png"), key=_page_no)
         return _pages_or_zip(shots, EXPORT_MIMES["png"])
 
 

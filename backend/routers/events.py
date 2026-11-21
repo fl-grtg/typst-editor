@@ -60,7 +60,7 @@ async def sidebar_events(req: Request, user: str = Depends(deps.me), doc_id: str
                     etype, data = split_event(msg)
                     yield f"event: {etype}\ndata: {data or '1'}\n\n"
                 except TimeoutError:
-                    if not auth.verify_session(req.cookies.get(deps.COOKIE, "")):
+                    if not auth.verify_session(deps.session_token(req)):
                         break  # logged out/expired/revoked mid-stream: stop, client reconnects on next login
                     yield ": ping\n\n"  # keep proxies from closing idle streams
         finally:

@@ -22,8 +22,8 @@
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/fl-grtg/typst-editor" alt="License" /></a>
 </p>
 
-<a href="./docs/screenshot.png">
-  <img src="./docs/screenshot.png" width="100%" alt="Typst Editor with Typst source on the left and a live PDF preview on the right" />
+<a href="./.github/screenshot.png">
+  <img src="./.github/screenshot.png" width="100%" alt="Typst Editor with Typst source on the left and a live PDF preview on the right" />
 </a>
 
 Typst Editor is a browser-based workspace for Typst documents that several people work on at once. Edits sync live, and the PDF is compiled in your own browser with Typst as WebAssembly, so there is no compile service to run or trust. On the server it is a single process: FastAPI for the API, Yjs for sync, SQLite for storage, and no Node at runtime.

@@ -34,12 +34,12 @@ def _make_fake(pages=1, rc=0, err=b""):
             return _FakeProc(rc, err)
         if fmt == "pdf":
             (cwd / "out.pdf").write_bytes(b"%PDF-1.7-fake")
-        elif fmt == "svg":
+        elif fmt in ("svg", "png"):  # the output template of the command, as the real CLI writes it
+            body = b"<svg>fake</svg>" if fmt == "svg" else b"\x89PNG-fake"
             for i in range(1, pages + 1):
-                (cwd / f"page-{i}.svg").write_bytes(b"<svg>fake</svg>")
-        elif fmt == "png":
-            for i in range(1, pages + 1):
-                (cwd / f"page-{i}.png").write_bytes(b"\x89PNG-fake")
+                target = cwd / cmd[-1].replace("{p}", str(i))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(body)
         return _FakeProc(0, b"")
 
     return _fake
@@ -304,3 +304,20 @@ def _doc_id(c, owner, title):
                            (owner, title)).fetchone()["id"]
     finally:
         con.close()
+
+
+def test_export_pages_keep_page_order_and_skip_uploaded_page_files(c, monkeypatch):
+    register_user(c, "alice")
+    did = make_doc(c, "Rpt", content="= Hi")
+    up = c.post(f"/api/docs/{did}/files", files={"f": ("page-1.svg", b"<svg>upload</svg>")})
+    assert up.status_code == 200, up.text
+    _patch_typst(monkeypatch, pages=11)
+    r = c.post(f"/api/docs/{did}/export", params={"format": "svg"})
+    assert r.status_code == 200, r.text
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert z.namelist() == [f"page-{i}.svg" for i in range(1, 12)]  # page-10 after page-9, not after page-1
+    assert z.read("page-1.svg") == b"<svg>fake</svg>"  # the rendered page, never the uploaded file of that name
+    _patch_typst(monkeypatch, pages=11)
+    r = c.post(f"/api/docs/{did}/export", params={"format": "png"})
+    assert r.status_code == 200, r.text
+    assert zipfile.ZipFile(io.BytesIO(r.content)).namelist() == [f"page-{i}.png" for i in range(1, 12)]

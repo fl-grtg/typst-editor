@@ -30,7 +30,6 @@ from backend.services import quota as _quota
 
 log = logging.getLogger("typst.sync")
 
-COOKIE = auth.COOKIE
 
 MSG_SYNC = 0
 MSG_AWARENESS = 1
@@ -1061,7 +1060,7 @@ async def handle(ws: WebSocket, doc_id: str) -> None:
     # 1C: no synchronous DB on the event loop. Every DB touch below goes
     # through asyncio.to_thread (directly or via the _*_async helpers that
     # serve room-cached role/trash/session first).
-    token = ws.cookies.get(COOKIE, "")
+    token = auth.cookie_token(ws.cookies, ws.headers.get("host", ""))
     try:
         user = await asyncio.to_thread(auth.verify_session, token)
         role = await asyncio.to_thread(db.doc_role, user or "", doc_id) if user else None

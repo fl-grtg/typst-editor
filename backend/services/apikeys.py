@@ -6,7 +6,7 @@ import re
 import secrets
 from datetime import UTC, datetime
 
-from fastapi import Cookie, HTTPException, Request, status
+from fastapi import HTTPException, Request, status
 
 from backend import auth, db, deps
 
@@ -65,7 +65,7 @@ def verify_api_key(key: str) -> dict | None:
         con.close()
 
 
-def me_with_key(req: Request, session: str | None = Cookie(default=None, alias=deps.COOKIE)) -> tuple[str, str]:
+def me_with_key(req: Request) -> tuple[str, str]:
     # Bearer first (MCP/agents), then cookie fallback (human UI).
     # Returns (user, cap): cap "owner" for sessions, else the key role.
     authz = req.headers.get("authorization", "")
@@ -74,7 +74,7 @@ def me_with_key(req: Request, session: str | None = Cookie(default=None, alias=d
         if not hit:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API key")
         return hit["user"], hit["role"]
-    user = auth.verify_session(session or "")
+    user = auth.verify_session(deps.session_token(req))
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
     return user, "owner"

@@ -36,7 +36,7 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     help = page.locator("#helpOverlay")
     expect(help).to_be_visible()
     assert "blur(6px)" in help.evaluate("n => getComputedStyle(n).backdropFilter")  # the page behind the dialog stays softly blurred
-    expect(page.locator("#helpCard")).to_contain_text("GitHub Issues")
+    expect(page.locator("#helpCard")).to_contain_text("Report an issue")
     expect(page.locator("#helpCard")).to_contain_text("Keyboard shortcuts")
     expect(page.locator("#helpCard")).to_contain_text("Connect your agent")
     expect(page.locator("#helpCard .helpTips")).to_have_count(0)  # no keyboard tips block anymore
@@ -92,9 +92,18 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     expect(pop.locator("#spellSel")).to_have_value("de")
     expect(page.locator('#cm .cm-content')).to_have_attribute('lang', 'de')
     assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('spellcheck')") == "true"
+    expect(page.locator('#cm .cm-content')).to_have_attribute('autocorrect', 'on')  # CodeMirror defaults these off; grammar extensions need the full set
+    expect(page.locator('#cm .cm-content')).to_have_attribute('writingsuggestions', 'true')
+    expect(page.locator('#cm .cm-content')).to_have_attribute('data-lt-active', 'true')
     pop.locator("#spellSel").select_option("off")
     expect(page.locator('#cm .cm-content')).to_have_attribute('spellcheck', 'false')
     assert page.eval_on_selector("#cm .cm-content", "n => n.getAttribute('lang')") is None
+    expect(page.locator('#cm .cm-content')).to_have_attribute('autocorrect', 'off')
+    expect(page.locator('#cm .cm-content')).to_have_attribute('writingsuggestions', 'false')
+    expect(page.locator('#cm .cm-content')).to_have_attribute('data-lt-active', 'false')
+    page.eval_on_selector("#cm .cm-content", "n => { n.setAttribute('spellcheck', 'true'); n.setAttribute('data-lt-active', 'true') }")  # extension detach restores its old values
+    expect(page.locator('#cm .cm-content')).to_have_attribute('spellcheck', 'false')
+    expect(page.locator('#cm .cm-content')).to_have_attribute('data-lt-active', 'false')
 
 
 def test_10_line_wrap_setting(page):

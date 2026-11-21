@@ -122,7 +122,11 @@ def test_bib_form_adds_custom_field(page):
     isbn = page.locator('.bibField').filter(has=page.locator('span', has_text=re.compile('^isbn$')))
     expect(isbn.locator('input')).to_be_focused()
     expect(page.locator('#cm .cm-content')).not_to_contain_text('isbn')  # the empty row never reaches the document
+<<<<<<< HEAD
     with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources') and '978-3-16-148410-0' in (r.request.post_data or ''), timeout=15_000) as saved:
+=======
+    with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources') and 'isbn = {978-3-16-148410-0}' in (r.request.post_data or ''), timeout=15_000) as saved:
+>>>>>>> origin/main
         isbn.locator('input').fill('978-3-16-148410-0')
     assert saved.value.ok
     resources = page.request.get(f'/api/projects/{project}/resources').json()['resources']
@@ -149,7 +153,11 @@ def test_bib_form_pending_field_survives_entry_rename(page):
     page.locator('.bibMoreFields summary').click()
     isbn = page.locator('.bibField[data-field="isbn"]')
     expect(isbn.locator('input')).to_have_value('')
+<<<<<<< HEAD
     with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources') and 'isbn' in (r.request.post_data or ''), timeout=15_000) as saved:
+=======
+    with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources') and 'isbn = {978-3-16-148410-0}' in (r.request.post_data or ''), timeout=15_000) as saved:
+>>>>>>> origin/main
         isbn.locator('input').fill('978-3-16-148410-0')
     assert saved.value.ok
     content = next(r for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'] if r['name'] == 'sources.bib')['content']
@@ -205,7 +213,7 @@ def test_bib_form_add_field_accepts_ui_label_names(page):
         expect(row.locator('input')).to_have_count(1)
         expect(row.locator('span').first).to_have_text(name)
         assert row.evaluate('r => !!r.closest(".bibMoreFields")')
-        with page.expect_response(lambda r: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources'), timeout=15_000) as saved:
+        with page.expect_response(lambda r, name=name, value=value: r.request.method == 'POST' and r.url.endswith(f'/api/projects/{project}/resources') and f'{name} = {{{value}}}' in (r.request.post_data or ''), timeout=15_000) as saved:
             row.locator('input').fill(value)
         assert saved.value.ok
     content = next(r for r in page.request.get(f'/api/projects/{project}/resources').json()['resources'] if r['name'] == 'sources.bib')['content']

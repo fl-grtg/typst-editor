@@ -7,7 +7,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from fastapi import Cookie, HTTPException, Request, status
+from fastapi import HTTPException, Request, status
 
 from backend import auth, config, db, ratelimit
 from backend.constants import FOLDER_MAX, RATE_DEFAULTS
@@ -87,8 +87,16 @@ def _load_vendor_manifest() -> frozenset[str]:
 VENDOR_FILES = _load_vendor_manifest()
 
 
-def me(session: str | None = Cookie(default=None, alias=COOKIE)) -> str:
-    user = auth.verify_session(session or "")
+def cookie_name(req: Request) -> str:
+    return auth.cookie_name(req.headers.get("host", ""))
+
+
+def session_token(req: Request) -> str:
+    return auth.cookie_token(req.cookies, req.headers.get("host", ""))
+
+
+def me(req: Request) -> str:
+    user = auth.verify_session(session_token(req))
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
     return user

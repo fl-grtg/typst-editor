@@ -10,18 +10,26 @@ function loadSpell(value, who = user) {
   try { localStorage.setItem('typst_spell_user_' + who, value || 'auto') } catch (e) {}
   applySpell()
 }
+function spellAttrs() { // CodeMirror defaults these off on .cm-content; grammar extensions opt in per element (data-lt-active is LanguageTool's flag)
+  const v = spellStored(), on = v !== 'off' && /\.typ$/i.test(tplName || tabName(activeFile))
+  const attrs = { spellcheck: on ? 'true' : 'false', autocorrect: on ? 'on' : 'off', writingsuggestions: on ? 'true' : 'false', 'data-lt-active': on ? 'true' : 'false' }
+  if (on && v !== 'auto') attrs.lang = v
+  return EditorView.contentAttributes.of(attrs)
+}
+let spellOffAttrs = null // off: LanguageTool restores spellcheck="true" when it detaches; enforce ours after it
+const spellDomObs = new MutationObserver(() => {
+  if (!spellOffAttrs) return
+  const dom = cm.contentDOM
+  for (const [name, value] of Object.entries(spellOffAttrs)) {
+    if (value === null) { if (dom.hasAttribute(name)) dom.removeAttribute(name) }
+    else if (dom.getAttribute(name) !== value) dom.setAttribute(name, value)
+  }
+})
+spellDomObs.observe(cm.contentDOM, { attributes: true, attributeFilter: ['spellcheck', 'autocorrect', 'writingsuggestions', 'data-lt-active', 'lang'] })
 function applySpell() { // the account preference applies to each text editor
-  const v = spellStored(), dom = cm.contentDOM
-  if (v === 'off') { dom.setAttribute('spellcheck', 'false'); dom.removeAttribute('lang') }
-  else {
-    dom.setAttribute('spellcheck', /\.typ$/i.test(tplName || tabName(activeFile)) ? 'true' : 'false')
-    if (v === 'auto') dom.removeAttribute('lang'); else dom.setAttribute('lang', v)
-  }
-  if (window.suggestionDraft?.view) {
-    const draft = window.suggestionDraft.view.contentDOM
-    draft.setAttribute('spellcheck', v === 'off' ? 'false' : 'true')
-    if (v === 'auto' || v === 'off') draft.removeAttribute('lang'); else draft.setAttribute('lang', v)
-  }
+  const v = spellStored(), on = v !== 'off' && /\.typ$/i.test(tplName || tabName(activeFile))
+  spellOffAttrs = on ? null : { spellcheck: 'false', autocorrect: 'off', writingsuggestions: 'false', 'data-lt-active': 'false', lang: null }
+  cm.dispatch({ effects: spellComp.reconfigure(spellAttrs()) })
   const sel = $('spellSel')
   if (sel && sel.value !== v) sel.value = v
 }

@@ -23,7 +23,7 @@ function context(extra = {}) {
     docId: 'document-a', docRole: 'owner', activeFile: 'chapter.typ', openN: 1,
     tplName: '', tplDirty: false, tabDirty: true, tabSaveFlight: null,
     tabVersions: new Map(), fileCache: new Map(), text: 'Draft', navigator: { onLine: true },
-    tabCanEdit: () => true, isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.replace(/^@tpl\//, ''),
+    TPLK: '@tpl/', tabCanEdit: () => true, isTplKey: k => k.startsWith('@tpl/'), tabName: k => k.replace(/^@tpl\//, ''),
     tabReq: (key, text) => ({ url: key, body: { content: text } }),
     toast: () => {}, t: (key, args) => key + (args?.msg || ''), wc: () => '',
     clearTimeout, fileT: null, myTpl: [], localStorage: { removeItem: () => {} }, saveDocScroll() {},
@@ -319,6 +319,37 @@ test('resource refresh updates only a clean idle active module and its base vers
     assert.equal(c.tabVersions.get(c.activeFile), state === 'clean' ? 'v2' : 'v1')
     assert.equal(c.window.docTpl[0].content, state === 'clean' ? 'Remote' : 'Draft')
   }
+})
+
+test('a late resource snapshot cannot rewind the saved base version or text', async () => {
+  const c = context({ activeFile: '@tpl/layout.typ', docProject: 'project-a', docResN: 0, tabDirty: false,
+    shadow: '', window: {}, tabSig: '',
+    api: async () => ({ resources: { 'layout.typ': 'Old remote' }, versions: { 'layout.typ': '2026-01-01T00:00:00+00:00' }, readonly: false }),
+    cm: { dispatch: () => {} }, editableComp: { reconfigure: x => x }, editMode: x => x,
+    queueTabs: () => {}, gutter: () => {}, refreshHl: () => {}, paintOutline: () => {},
+  })
+  c.setT = text => { c.text = text }
+  c.tabVersions.set(c.activeFile, '2026-01-01T00:00:01+00:00')
+  vm.runInContext(part('web/js/20-completions.js', 'async function loadDocResources(', 'const projectResources'), c)
+  await c.loadDocResources(true)
+  assert.equal(c.tabVersions.get(c.activeFile), '2026-01-01T00:00:01+00:00')
+  assert.equal(c.text, 'Draft')
+})
+
+test('a late resource snapshot cannot replace the saved row a tab switch would reload', async () => {
+  const c = context({ activeFile: '', docProject: 'project-a', docResN: 0,
+    shadow: '', tabSig: '',
+    window: { docTpl: [{ name: 'layout.typ', content: 'Saved', updated_at: '2026-01-01T00:00:01+00:00' }] },
+    api: async () => ({ resources: { 'layout.typ': 'Old remote' }, versions: { 'layout.typ': '2026-01-01T00:00:00+00:00' }, readonly: false }),
+    cm: { dispatch: () => {} }, editableComp: { reconfigure: x => x }, editMode: x => x,
+    queueTabs: () => {}, gutter: () => {}, refreshHl: () => {}, paintOutline: () => {},
+  })
+  c.setT = text => { c.text = text }
+  c.tabVersions.set('@tpl/layout.typ', '2026-01-01T00:00:01+00:00')
+  vm.runInContext(part('web/js/20-completions.js', 'async function loadDocResources(', 'const projectResources'), c)
+  await c.loadDocResources(true)
+  assert.equal(c.window.docTpl[0].content, 'Saved')
+  assert.equal(c.window.docTpl[0].updated_at, '2026-01-01T00:00:01+00:00')
 })
 
 test('sidebar role changes disable the main editor in place and preserve drafts and Yjs', () => {

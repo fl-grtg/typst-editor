@@ -19,6 +19,7 @@ from backend.schemas import (
     KeyCreate,
     KeyUpdate,
     Login,
+    LoginToken,
     NameChange,
     PwChange,
     PwOnly,
@@ -58,6 +59,25 @@ def login(b: Login, res: Response, req: Request) -> dict:
     return {"user": auth.verify_session(token) or name}
 
 
+@router.post("/api/login/token")
+def login_with_token(b: LoginToken, res: Response, req: Request) -> dict:
+    """Exchange a persistent URL login token for a session cookie.
+
+    The URL token stays in the address bar: every reload re-validates it,
+    and an existing session for the same user is reused (no session churn).
+    """
+    deps.limited(req, "auth")  # part of every boot: the 10/min login bucket would throttle reloads
+    current = auth.verify_session(deps.session_token(req))
+    hit = auth.verify_login_token(b.token)
+    if not hit:
+        log.warning("login-link failed")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid login")
+    user = hit["username"]
+    if current != user:
+        set_cookie(res, req, auth.mint(user))
+    return {"user": user}
+
+
 def _cookie_secure(req: Request) -> bool:
     cfg = config.load()
     if not cfg.TRUST_PROXY and req.headers.get("x-forwarded-proto"):
@@ -74,12 +94,19 @@ def _cookie_secure(req: Request) -> bool:
 
 def set_cookie(res: Response, req: Request, token: str) -> None:
     cfg = config.load()
-    res.set_cookie(deps.COOKIE, token, max_age=min(max(cfg.SESSION_SECONDS, 3600), 90 * 86400),
+    name = deps.cookie_name(req)
+    res.set_cookie(name, token, max_age=min(max(cfg.SESSION_SECONDS, 3600), 90 * 86400),
                    path="/", httponly=True, samesite="lax", secure=_cookie_secure(req))
 
 
 def clear_cookie(res: Response, req: Request) -> None:
-    res.delete_cookie(deps.COOKIE, path="/", samesite="lax", secure=_cookie_secure(req), httponly=True)
+    secure = _cookie_secure(req)
+    name = deps.cookie_name(req)
+    res.delete_cookie(name, path="/", samesite="lax", secure=secure, httponly=True)
+    if name != deps.COOKIE:
+        # The legacy cookie is shared by every port: leaving it behind would
+        # sign the browser straight back in through the fallback.
+        res.delete_cookie(deps.COOKIE, path="/", samesite="lax", secure=secure, httponly=True)
 
 
 @router.post("/api/register")
@@ -126,7 +153,7 @@ def register(b: Register, res: Response, req: Request) -> dict:
 @router.post("/api/logout")
 async def logout(req: Request, res: Response) -> dict:
     deps.limited(req, "auth")
-    tok = req.cookies.get(deps.COOKIE, "")
+    tok = deps.session_token(req)
     user = None
     if tok:
         try:
@@ -152,7 +179,8 @@ def list_sessions(req: Request, res: Response, user: str = Depends(deps.me)) -> 
     that made this call.
     """
     deps.limited(req, "auth")
-    cur_hash = auth.sha(req.cookies.get(deps.COOKIE, "")) if req.cookies.get(deps.COOKIE) else ""
+    cur_tok = deps.session_token(req)
+    cur_hash = auth.sha(cur_tok) if cur_tok else ""
     con = db.connect()
     try:
         try:
@@ -179,7 +207,7 @@ async def revoke_session(sid: str, req: Request, res: Response,
     sid = (sid or "").strip().lower()
     if not sid or len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
         raise HTTPException(404, "Session gone")
-    cur_tok = req.cookies.get(deps.COOKIE, "")
+    cur_tok = deps.session_token(req)
     cur_hash = auth.sha(cur_tok) if cur_tok else ""
     con = db.connect()
     try:
@@ -420,6 +448,7 @@ async def rename_me(b: NameChange, req: Request, user: str = Depends(deps.me)) -
             con.execute("UPDATE templates SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE folders SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE api_keys SET username=? WHERE username=?", (new, user))
+            con.execute("UPDATE login_tokens SET username=? WHERE username=?", (new, user))
             con.execute("UPDATE projects SET owner=? WHERE owner=?", (new, user))
             con.execute("UPDATE project_members SET username=? WHERE username=?", (new, user))
             con.execute("UPDATE project_watch SET username=? WHERE username=?", (new, user))
@@ -582,7 +611,8 @@ async def delete_me(b: PwOnly, req: Request, res: Response, user: str = Depends(
             log.warning("delete_me %s: rmtree failed", dst.name)
     await sync.kick_all(user)
     _drop_user_locks(user)
-    if req.cookies.get(deps.COOKIE):
-        auth.delete_session(req.cookies[deps.COOKIE])
+    tok = deps.session_token(req)
+    if tok:
+        auth.delete_session(tok)
     clear_cookie(res, req)
     return {"ok": True}

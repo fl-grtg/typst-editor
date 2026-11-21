@@ -111,6 +111,18 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username);
 
+-- login_tokens: reusable, long-lived ?token= links. Only the sha256 hash is
+-- stored; the URL secret is shown once at creation and stays revocable.
+CREATE TABLE IF NOT EXISTS login_tokens (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    last_used TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_tokens_hash ON login_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_login_tokens_user ON login_tokens(username);
+
 -- FTS5 index over docs(title, content) for /api/search + MCP search.
 -- External-content table keyed by docs.rowid (docs.id is TEXT, so FTS
 -- content-sync is not an option); triggers keep it in sync. Fresh DBs get

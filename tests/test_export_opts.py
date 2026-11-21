@@ -25,10 +25,10 @@ def _fake(cmd, **kw):
     fmt = cmd[cmd.index("--format") + 1]
     if fmt == "pdf":
         (cwd / "out.pdf").write_bytes(b"%PDF-1.7-fake")
-    elif fmt == "svg":
-        (cwd / "page-1.svg").write_bytes(b"<svg>fake</svg>")
-    elif fmt == "png":
-        (cwd / "page-1.png").write_bytes(b"\x89PNG-fake")
+    elif fmt in ("svg", "png"):  # the output template of the command, as the real CLI writes it
+        target = cwd / cmd[-1].replace("{p}", "1")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"<svg>fake</svg>" if fmt == "svg" else b"\x89PNG-fake")
     return _FakeProc(0, b"")
 
 

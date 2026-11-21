@@ -47,6 +47,7 @@ function spellCodeMarks(state) {
 }
 const languageComp = new Compartment()
 const wrapComp = new Compartment() // F26: line wrapping (settings, persisted)
+const spellComp = new Compartment() // spelling/grammar content attributes (account setting)
 const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup defaults
       { key: 'ArrowDown', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(true)(v); return false } }, // creator call: (forward)(view), else cursor moves along
       { key: 'ArrowUp', run: v => { if (currentCompletions(v.state).length) return moveCompletionSelection(false)(v); return false } },
@@ -60,7 +61,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
       ...foldKeymap]), // F10: fold shortcuts alongside completion keys
     minimalSetup, languageComp.of(typstSupport), Prec.high(syntaxHighlighting(typstTheme)), typstSupport.language.data.of({ autocomplete: typstComplete }), wrapComp.of(wrapOn ? EditorView.lineWrapping : []), tabComp.of([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]),
     autocompletion({ defaultKeymap: false }), closeBrackets(), bracketMatching(), hoverTooltip(hoverAll), // F10 bracket-match; vendor Typst source + project source (files/labels/bib); Enter stays newline, Tab/Shift-Tab and Ctrl-Space come from the shortcut registry; arrows navigate
-    editableComp.of(EditorView.editable.of(true)), hlComp.of(hlField), peerField, findScopeField, findField, errLineField, syncLineField,
+    editableComp.of(EditorView.editable.of(true)), spellComp.of([]), hlComp.of(hlField), peerField, findScopeField, findField, errLineField, syncLineField,
     linter(null, { tooltipFilter: () => [] }), // F1: compiler errors only (setDiagnostics below); null source: lint never overwrites them, positions map across edits; no lint tooltip (line hover shows the message, no aim needed), no gutter lane
     spellCode, markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
@@ -225,7 +226,7 @@ function onEdit(mapPos, changes, oldLen) {
   if (docRole === 'reviewer' || !ytext) return
   paintOutline()
   if (activeFile) { queueFileSave(); tabLive(); return } // file/template tab: only that text + preview, no Yjs
-  pushLocal(); queueRender(); queueSave()
+  pushLocal(changes, oldLen); queueRender(); queueSave()
   if (mapPos) mapThreads(mapPos, true, oldLen) // oldLen: anchors can sit at the pre-edit end; full-doc growth must not clip them before mapPos
   reanchor()
   if (threads.length) refreshHl()
