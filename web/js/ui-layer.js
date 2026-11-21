@@ -6,7 +6,7 @@
   var menu = $('menu'), submenu = $('submenu'), body = document.body
   var mac = /Mac|iPhone|iPad/.test(navigator.platform || '')
   var M = mac ? '\u2318' : 'Ctrl+'
-  var openFor = null, items = [], idx = -1
+  var openFor = null, items = [], idx = -1, openAlign = 'left', menuAction = false
   var subFor = null, subItems = [], subIdx = -1, subTimer = null
 
   function click(id) { var b = $(id); if (b) b.click() }
@@ -63,8 +63,16 @@
       it(t('menu.edSplit'), function () { click('vSplit') }, { checked: !edit && !read }),
       it(t('menu.pvOnly'), function () { click('vRead') }, { checked: read }),
       SEP,
-      it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), checked: !!(window.Present && window.Present.isOn()) })
+      it(t('presentation.enter'), function () { if (window.Present) window.Present.toggle() }, { on: shown('dlPdf'), close: true })
     ]
+  }
+  function zoomItem() { // same range row as the font slider, backed by the settings zoom
+    var zoom = window.previewZoom || {}
+    return {
+      slider: { id: 'menuPreviewZoom', label: t('menu.zoom'), aria: t('settings.previewZoom'), min: zoom.min, max: zoom.max, step: zoom.step, unit: '%',
+        get: function () { return zoom.get ? zoom.get() : 100 }, set: function (v) { if (zoom.set) zoom.set(v) } },
+      on: !pressed('vEdit')
+    }
   }
   function previewItems() {
     var edit = pressed('vEdit'), read = pressed('vRead')
@@ -72,8 +80,7 @@
       it(t('menu.follow'), function () { click('followBtn') }, { checked: pressed('followBtn'), on: !edit && !read }),
       it(t('menu.clickSync'), function () { click('syncBtn') }, { checked: pressed('syncBtn'), on: !edit && !read }),
       SEP,
-      it(t('menu.zoomIn'), function () { click('zPlus') }, { kbd: scKey('zoomIn', M + '+'), on: !edit }),
-      it(t('menu.zoomOut'), function () { click('zMinus') }, { kbd: scKey('zoomOut', M + '\u2212'), on: !edit }),
+      zoomItem(),
       it(t('menu.fitPage'), function () { click('fitPageBtn') }, { on: !edit }),
       it(t('menu.resetZoom'), function () { scRun('zoomReset') }, { kbd: scKey('zoomReset', M + '0'), on: !edit })
     ]
@@ -85,6 +92,15 @@
       it(t('menu.dark'), function () { setTheme('dark') }, { checked: themeMode() === 'dark' })
     ]
   }
+  function fontItem() { // same range row as Settings: the editor module owns the value
+    var font = window.editorFont || {}
+    return {
+      slider: { id: 'menuFontSize', label: t('menu.fontSizeShort'), aria: t('menu.fontSize'), min: font.min, max: font.max, step: font.step, unit: 'px',
+        get: function () { return font.get ? font.get() : 14 }, set: function (v) { if (font.set) font.set(v) } },
+      on: !pressed('vRead')
+    }
+  }
+  function fontItems() { return [fontItem()] }
   var DEF = {
     insert: function () {
       return insertItems().concat([
@@ -124,16 +140,10 @@
         it(t('menu.viewMode'), null, { submenu: viewModeItems, on: modes.some(function (d) { return !d.sep && d.on !== false }) }),
         it(t('menu.preview'), null, { submenu: previewItems, on: previews.some(function (d) { return !d.sep && d.on !== false }) }),
         SEP,
-        it(t('menu.sidebar'), function () { click('navToggle') }, { checked: !body.classList.contains('noside') }),
+        it(t('menu.toggleSidebar'), function () { click('navToggle') }, { keepOpen: true }),
         SEP,
         it(t('menu.appearance'), null, { submenu: themeItems }),
-        it(t('menu.fontSize'), null, { submenu: function () {
-          var read = pressed('vRead')
-          return [
-            it(t('menu.fontUp'), function () { click('fPlus') }, { on: !read }),
-            it(t('menu.fontDown'), function () { click('fMinus') }, { on: !read })
-          ]
-        }, on: !pressed('vRead') })
+        it(t('menu.fontSize'), null, { submenu: fontItems, on: !pressed('vRead') })
       ]
     },
     help: function () {
@@ -141,8 +151,8 @@
         it(t('menu.shortcuts'), function () { if (window.openShortcutSettings) window.openShortcutSettings(); else click('helpBtn') }),
         it(t('menu.agent'), function () { if (window.openSettingsCategory) window.openSettingsCategory('api'); else click('userMain') }),
         SEP,
-        it(t('menu.source'), function () { window.open('https://github.com/fl-grtg/typst-editor', '_blank', 'noopener') }, { ext: true }),
-        it(t('menu.issues'), function () { window.open('https://github.com/fl-grtg/typst-editor/issues', '_blank', 'noopener') }, { ext: true })
+        it(t('menu.source'), null, { href: 'https://github.com/fl-grtg/typst-editor', ext: true }),
+        it(t('menu.issues'), null, { href: 'https://github.com/fl-grtg/typst-editor/issues', ext: true })
       ]
     },
     export: function () { return [head(t($('dlTyp').dataset.kind === 'file' ? 'menu.dlFileHead' : 'menu.dlHead'))].concat(exportItems()) },
@@ -214,14 +224,14 @@
   }
   window.closeMenu = close // header pops live in module scope, close the menu through this
   function focusPanel(panel, i) {
-    var btns = panel.querySelectorAll('button:not(:disabled)')
-    if (!btns.length) return
+    var rows = panel.querySelectorAll('button:not(:disabled), a[href], input[type=range]:not(:disabled)')
+    if (!rows.length) return
     if (panel === submenu) {
-      subIdx = (i + btns.length) % btns.length
-      btns[subIdx].focus()
+      subIdx = (i + rows.length) % rows.length
+      rows[subIdx].focus()
     } else {
-      idx = (i + btns.length) % btns.length
-      btns[idx].focus()
+      idx = (i + rows.length) % rows.length
+      rows[idx].focus()
     }
   }
   function focusItem(i) { focusPanel(menu, i) }
@@ -234,9 +244,13 @@
     if (!list || !list.length) { closeSub(false); return }
     closeSub(false)
     submenu.replaceChildren()
+    submenu.dataset.name = menu.dataset.name || ''
     list.forEach(function (item) { paintMenuItem(submenu, item) })
     subItems = list
     submenu.hidden = false
+    submenu.style.width = 'max-content'
+    var natural = submenu.getBoundingClientRect().width
+    submenu.style.width = Math.ceil(natural + 10) + 'px' // each submenu gets 10px past its longest row
     var r = button.getBoundingClientRect()
     var w = submenu.offsetWidth, h2 = submenu.offsetHeight
     var left = r.right + 3
@@ -253,6 +267,7 @@
   function runMenuItem(d) { // async actions used to reject silently: surface the same toast row actions show
     setTimeout(function () {
       if (typeof d.run !== 'function') return
+      menuAction = true // proxy clicks (view mode, sidebar, ...) bubble to the same document handler and must not close the menu
       try {
         var out = d.run()
         if (out && typeof out.catch === 'function') out.catch(function (e) {
@@ -260,21 +275,87 @@
         })
       } catch (e) {
         if (window.toast) window.toast((e && e.message) || String(e))
-      }
+      } finally { menuAction = false }
     }, 0)
+  }
+  function focusRow(panel, row) { // keep keyboard position on the clicked row: some browsers do not focus buttons on click
+    if (!row || !row.isConnected || row.disabled) return
+    var rows = Array.prototype.slice.call(panel.querySelectorAll('button:not(:disabled), a[href], input[type=range]:not(:disabled)'))
+    var at = rows.indexOf(row)
+    if (at < 0) return
+    if (panel === submenu) subIdx = at
+    else idx = at
+    row.focus()
+  }
+  function syncPanel(panel, list) { // update ticks in place: rebuilding the row would drop the parent's hover/sub-open state
+    Array.prototype.forEach.call(panel.querySelectorAll('button, a[href]'), function (b) {
+      var d = b._menuItem, fresh = null
+      if (!d || d.sep || d.head || d.slider) return
+      for (var i = 0; i < list.length; i++) {
+        var x = list[i]
+        if (!x.sep && !x.head && !x.slider && x.label === d.label) { fresh = x; break }
+      }
+      if (!fresh) return
+      b._menuItem = fresh
+      if (fresh.checked !== undefined) {
+        b.setAttribute('aria-checked', String(!!fresh.checked))
+        var c = b.querySelector('.chk')
+        if (c) c.textContent = fresh.checked ? '\u2713' : ''
+      }
+      if (b.tagName === 'BUTTON') b.disabled = fresh.on === false || !!fresh.disabled
+    })
+  }
+  function refreshOpen(panel, row) { // checkable rows keep the menu open: sync state without replacing the submenu-opening button
+    if (!openFor || !openFor.closest('#menubar')) return
+    var name = menu.dataset.name
+    if (!DEF[name]) return
+    var inSub = panel === submenu
+    if (inSub && !subFor) return
+    var top = DEF[name]() || []
+    var list = inSub ? submenuList(subFor._menuItem) : top
+    if (!list) return
+    if (inSub) subItems = list
+    syncPanel(panel, list)
+    if (inSub) syncPanel(menu, top) // parent availability follows the new mode without closing the menu
+    focusRow(panel, row) // the clicked row identifies its panel; activeElement is unreliable on Safari
+  }
+  function paintMenuRange(panel, d) {
+    var s = d.slider
+    var row = document.createElement('div'); row.className = 'mRange'; row.setAttribute('role', 'group')
+    if (d.on === false) row.classList.add('disabled')
+    var label = document.createElement('label'); label.className = 'lb'; label.htmlFor = s.id; label.textContent = s.label
+    var input = document.createElement('input'); input.type = 'range'; input.id = s.id
+    input.min = s.min; input.max = s.max; input.step = s.step; input.disabled = d.on === false
+    if (s.aria || s.label) input.setAttribute('aria-label', s.aria || s.label)
+    var val = document.createElement('span'); val.className = 'val'
+    var paint = function () {
+      var v = Math.round(+s.get()), text = v + (s.unit || '')
+      input.value = v; val.textContent = text; input.setAttribute('aria-valuetext', text)
+      input.style.setProperty('--fill', ((v - s.min) / (s.max - s.min) * 100) + '%')
+    }
+    input.oninput = function () { s.set(+input.value); paint() }
+    paint(); row.append(label, input, val); panel.appendChild(row)
   }
   function paintMenuItem(panel, d) {
     if (d.sep) { panel.appendChild(document.createElement('hr')); return }
     if (d.head) { var h = document.createElement('div'); h.className = 'mh'; h.textContent = d.head; panel.appendChild(h); return }
-    var b = document.createElement('button')
-    b.type = 'button'
+    if (d.slider) { paintMenuRange(panel, d); return }
+    var b = document.createElement(d.href ? 'a' : 'button')
+    if (d.href) { // a real <a href>: the browser's own status bar shows the destination on hover
+      b.href = d.href
+      b.target = '_blank'
+      b.rel = 'noopener noreferrer'
+      if (d.on === false) { b.removeAttribute('href'); b.setAttribute('aria-disabled', 'true') }
+    } else {
+      b.type = 'button'
+      b.disabled = d.on === false || !!d.disabled
+    }
     b.setAttribute('role', d.checked === undefined ? 'menuitem' : 'menuitemcheckbox')
     if (d.checked !== undefined) b.setAttribute('aria-checked', String(!!d.checked))
-    b.disabled = d.on === false || !!d.disabled
     if (d.danger) b.className = 'danger'
     if (d.title) b.title = d.title
     if (d.label) b.setAttribute('aria-label', d.label)
-    var c = document.createElement('span'); c.className = 'chk'; c.textContent = d.checked ? '\u2713' : ''; c.setAttribute('aria-hidden', 'true')
+    var c = document.createElement('span'); c.className = 'chk'; c.setAttribute('aria-hidden', 'true'); c.textContent = d.checked ? '\u2713' : ''
     var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
     if (d.checked !== undefined) b.appendChild(c)
     b.appendChild(l)
@@ -291,7 +372,15 @@
         if (subFor !== b) openSub(panel, b, d, false)
       })
     } else {
-      b.onclick = function () { close(false); runMenuItem(d) }
+      if (d.href) b.onclick = function () { setTimeout(function () { close(false) }, 0) } // navigate first, then drop the menu
+      else {
+        var stay = !d.close && (d.keepOpen || (d.checked !== undefined && openFor && openFor.closest('#menubar')))
+        b.onclick = function () {
+          if (!stay) { close(false); runMenuItem(d); return }
+          runMenuItem(d)
+          if (d.checked !== undefined) setTimeout(function () { refreshOpen(panel, b) }, 0) // plain keep-open rows (sidebar) do not need a repaint
+        }
+      }
       b.addEventListener('pointerenter', function (e) { // hover another row: collapse the old submenu right away instead of leaving it over the list for 400 ms
         if (panel === menu && e.pointerType === 'mouse' && subFor) closeSub(false)
       })
@@ -303,18 +392,32 @@
     panel.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') cancelSubClose() })
     panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor) scheduleSubClose() })
   })
-  function show(anchor, list, name, align) {
-    var r = anchor.getBoundingClientRect() // before closing a parent popover: its child would otherwise measure 0x0
-    close(false)
-    if (window.closeFloatPanels) window.closeFloatPanels() // one floating panel at a time (popovers, watch menu, comment card)
-    document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop,#inboxPop,#watchBox').forEach(function (p) { // fallback when the module hook is not ready
-      if (p.contains(anchor)) return
-      if (p.id === 'watchBox') { if (typeof closeWatchBox === 'function') closeWatchBox(); else p.remove() } else p.style.display = 'none'
-    })
-    menu.replaceChildren()
-    list.forEach(function (d) { paintMenuItem(menu, d) })
+  var MENUBAR = { file: 1, edit: 1, view: 1, help: 1 }
+  function sharedMenubarWidth() { // all four menus take the natural width of the longest one
+    var wasHidden = menu.hidden, prev = menu.style.width, max = 0
+    menu.style.width = 'max-content'
     menu.hidden = false
-    var w = menu.offsetWidth, h2 = menu.offsetHeight
+    menu.style.visibility = 'hidden'
+    try {
+      Object.keys(MENUBAR).forEach(function (name) {
+        if (!DEF[name]) return
+        menu.replaceChildren()
+        var list = null
+        try { list = DEF[name]() } catch (e) { return } // one broken definition must not leave #menu in a half-open state
+        if (!list) return
+        list.forEach(function (d) { paintMenuItem(menu, d) })
+        max = Math.max(max, menu.getBoundingClientRect().width)
+      })
+    } finally {
+      menu.replaceChildren()
+      menu.hidden = wasHidden
+      menu.style.visibility = ''
+      menu.style.width = prev
+    }
+    return max ? Math.ceil(max) + 10 : 0 // longest entry of the four plus a little air
+  }
+  function place(anchor, align, rect) {
+    var r = rect || anchor.getBoundingClientRect(), w = menu.offsetWidth, h2 = menu.offsetHeight
     var left = align === 'right' ? r.right - w : r.left
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
     var top = r.bottom + 6
@@ -323,11 +426,27 @@
       top = above >= 8 ? above : Math.max(8, window.innerHeight - h2 - 8)
     }
     menu.style.left = left + 'px'; menu.style.top = top + 'px'
+  }
+  function show(anchor, list, name, align) {
+    var r = anchor.getBoundingClientRect() // before closing a parent popover: its child would otherwise measure 0x0
+    close(false)
+    if (window.closeFloatPanels) window.closeFloatPanels() // one floating panel at a time (popovers, watch menu, comment card)
+    document.querySelectorAll('#sharePop,#setPop,#tplPop,#histPop,#symPop,#inboxPop,#watchBox').forEach(function (p) { // fallback when the module hook is not ready
+      if (p.contains(anchor)) return
+      if (p.id === 'watchBox') { if (typeof closeWatchBox === 'function') closeWatchBox(); else p.remove() } else p.style.display = 'none'
+    })
+    var width = MENUBAR[name] ? sharedMenubarWidth() : 0
+    menu.replaceChildren()
+    list.forEach(function (d) { paintMenuItem(menu, d) })
+    menu.hidden = false
+    menu.dataset.name = name
+    if (width) menu.style.width = width + 'px'
+    else menu.style.removeProperty('width')
+    place(anchor, align, r)
     anchor.setAttribute('aria-expanded', 'true')
     var row = anchor.closest && anchor.closest('aside .doc, aside .fhd, aside h3')
     if (row) row.classList.add('menu-open') // the whole row keeps the hover while its menu is open
-    openFor = anchor; items = list
-    menu.dataset.name = name
+    openFor = anchor; items = list; openAlign = align
   }
   function open(anchor, name) {
     show(anchor, DEF[name] ? DEF[name]() : [], name, name === 'export' ? 'right' : 'left')
@@ -348,6 +467,7 @@
     }
   }, true)
   document.addEventListener('click', function (e) {
+    if (menuAction) return
     var a = e.target.closest && e.target.closest('[data-menu]')
     if (a) {
       e.preventDefault()
@@ -368,6 +488,14 @@
       if (s && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
         var list = typeof s.sideMenuItems === 'function' ? s.sideMenuItems() : []
         if (list.length) { e.preventDefault(); show(s, list, 'sidebar', 'left'); focusItem(0) }
+      }
+      return
+    }
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) { // menu slider: arrows adjust the value, Esc backs out like any submenu row
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation()
+        if (subFor && submenu.contains(e.target)) closeSub(true)
+        else close(true)
       }
       return
     }
@@ -406,6 +534,8 @@
   }, true)
   addEventListener('resize', function () { close(false) })
   addEventListener('blur', function () { close(false) })
+  var side = $('side')
+  if (side) side.addEventListener('transitionend', function (e) { if (openFor && e.propertyName === 'width') place(openFor, openAlign) }) // sidebar toggle moved the anchor
   document.querySelectorAll('#menubar [data-menu], #exportBtn, #insertMore').forEach(function (b) {
     b.addEventListener('keydown', function (e) {
       if ((e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') && openFor !== b) { e.preventDefault(); open(b, b.dataset.menu); focusItem(0) }

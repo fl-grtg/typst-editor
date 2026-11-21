@@ -608,12 +608,14 @@ $('vRead').onclick = () => setView('read')
 // editor font + preview zoom (edSize/pvZoom declared above)
 function setEd(v) { edSize = Math.max(ED_MIN, Math.min(ED_MAX, Math.round(v))); applyEd(); saveSet() }
 function stepEd(d) { setEd(edSize + d) }
+window.editorFont = { min: ED_MIN, max: ED_MAX, step: ED_STEP, get: () => edSize, set: setEd } // View menu slider mirrors the Settings row
 function setPv(v) { // explicit % leaves fit modes, slots follow at once (not via the zoomV observer only)
   if (pvZoomMode !== 'pct') pvModeSet('pct')
   pvZoom = Math.max(PV_MIN, Math.min(PV_MAX, Math.round(v)))
   applyPv(); saveSet(); pvRelayout()
 }
 function stepPv(d) { setPv(pvZoom + d) }
+window.previewZoom = { min: PV_MIN, max: PV_MAX, step: PV_SLIDER_STEP, get: () => pvZoom, set: setPv } // View > Preview options slider mirrors the Settings row
 function applyEd() {
   const lh = Math.round(edSize * 1.5)
   $('cmWrap').style.setProperty('--ed', edSize + 'px')

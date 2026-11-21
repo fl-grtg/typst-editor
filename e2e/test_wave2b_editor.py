@@ -36,7 +36,7 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     help = page.locator("#helpOverlay")
     expect(help).to_be_visible()
     assert "blur(6px)" in help.evaluate("n => getComputedStyle(n).backdropFilter")  # the page behind the dialog stays softly blurred
-    expect(page.locator("#helpCard")).to_contain_text("GitHub Issues")
+    expect(page.locator("#helpCard")).to_contain_text("Report an issue")
     expect(page.locator("#helpCard")).to_contain_text("Keyboard shortcuts")
     expect(page.locator("#helpCard")).to_contain_text("Connect your agent")
     expect(page.locator("#helpCard .helpTips")).to_have_count(0)  # no keyboard tips block anymore
