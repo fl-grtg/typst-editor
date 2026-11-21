@@ -18,7 +18,6 @@ function viewCtx(srcs) {
   vm.runInContext(slice(settings, 'const SRC_MATH', 'function srcObjs'), c)
   vm.runInContext(slice(settings, 'function srcLineWords', 'function syncWords'), c)
   vm.runInContext(slice(settings, 'function pvWordChar', 'function locateNear'), c)
-  vm.runInContext(slice(settings, 'function pvClickedWord', 'function pvMainText'), c)
   vm.runInContext('function pvSrcList() { return srcList }', c)
   return c
 }
@@ -32,28 +31,6 @@ test('a line-break hyphen the PDF text layer drops still finds the source word a
   assert.equal(at, src.indexOf('higkeits') + 2)
   assert.equal(c.pvViewPos(src, needle, needle.indexOf('Arbeits') + 1, 1), src.indexOf('Arbeits') + 1)
   assert.equal(c.pvViewPos('The therapist lineup is long enough here.', 'herapist lineup is long enoug', 0, 1), -1) // still whole words on both ends, never a word fragment
-})
-
-test('text a function or loop builds maps to the string or definition that holds the word', () => {
-  const src = '#let greet(name) = [Hello #name friend]\n= Functions\n#note[Custom note body sentence.]\n#greet("Wanda")\n#for p in ("Ada", "Grace") [Person #p listed.]\n// Wanda in a comment'
-  const c = viewCtx()
-  const at = c.pvCodeWord(src, { s: 'Hello Wanda friend', off: 7 }, 3)
-  assert.equal(at, src.indexOf('Wanda') + 1) // the call site, letter kept; the comment never counts
-  assert.equal(c.pvCodeWord(src, { s: 'Hello Wanda friend', off: 1 }, 3), src.indexOf('Hello') + 1) // the definition owns its own words
-  assert.equal(c.pvCodeWord(src, { s: 'Person Grace listed.', off: 8 }, 5), src.indexOf('Grace') + 1)
-  assert.equal(c.pvCodeWord(src, { s: 'Nobody here', off: 1 }, 1), -1)
-})
-
-test('a word that exists once across all sources owns the click (bibliography fields in another order)', () => {
-  const bib = '@book{knuth,\n  title={The TeXbook},\n  author={Knuth, Donald},\n  year={1984},\n  publisher={Addison-Wesley}\n}\n'
-  const main = 'As shown by @knuth, typesetting matters.\n#bibliography("refs.bib")'
-  const c = viewCtx([{ key: '', text: main }, { key: 'refs.bib', text: bib }])
-  const hit = c.pvUniqueWord({ s: '. Addison-Wesley, 1984.', off: 3 })
-  assert.equal(hit.key, 'refs.bib')
-  assert.equal(hit.at, bib.indexOf('Addison') + 1)
-  assert.equal(c.pvUniqueWord({ s: 'D. Knuth, The TeXbook', off: 4 }), null) // "knuth" is the key and the author: not unique
-  const any = c.pvUniqueAny({ s: 'D. Knuth, The TeXbook. Addison-Wesley, 1984.', off: 0 })
-  assert.equal(any.at, bib.indexOf('TeXbook'))
 })
 
 test('a short formula that shares three glyphs with a longer display line is no candidate', () => {

@@ -2,6 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const { loadMap, useDoc } = require('./sync-map-ctx.cjs')
 const read = name => fs.readFileSync('web/js/' + name, 'utf8')
 const settings = read('90-settings.js')
 const preview = read('50-preview.js')
@@ -18,6 +19,9 @@ function syncCtx() {
   vm.runInContext(slice(preview, 'function srcMask', 'function pvSecAt'), c)
   vm.runInContext(slice(settings, 'const SRC_MATH', 'function srcObjs'), c)
   vm.runInContext(slice(settings, 'function syncText', 'function syncToPv'), c)
+  vm.runInContext(slice(settings, 'function srcLineWords', 'function pvCaretIndex') + slice(settings, 'function srcAfter', 'function pvViewWords'), c)
+  loadMap(c)
+  c.anchor = (lines, line, pages) => { useDoc(c, lines, pages); return c.syncAnchor(lines, line) }
   return c
 }
 
@@ -25,18 +29,18 @@ test('argument lines of a multi-line call never anchor to body text with the sam
   const c = syncCtx()
   const lines = ['#figure(', '  image("chart.png", width: 80%),', '  caption: [Width of the chart],', ')', '', 'The chart png width is shown at 80 percent.']
   const pages = [page(['Figure 1: Width of the chart', 'The chart png width is shown at 80 percent.'])]
-  assert.equal(c.syncAnchor(lines, 2, pages), null) // "chart png width 80" is code, not the paragraph below
-  assert.equal(c.syncAnchor(lines, 3, pages).it.s, 'Figure 1: Width of the chart')
+  assert.equal(c.anchor(lines, 2, pages), null) // "chart png width 80" is code, not the paragraph below
+  assert.equal(c.anchor(lines, 3, pages).it.s, 'Figure 1: Width of the chart')
   const table = ['#table(', '  columns: (1fr, 2fr),', '  [Columns], [Value],', ')']
-  assert.equal(c.syncAnchor(table, 2, [page(['Columns Value'])]), null)
+  assert.equal(c.anchor(table, 2, [page(['Columns Value'])]), null)
 })
 
 test('statements and code blocks have no words on paper; their content does', () => {
   const c = syncCtx()
   const lines = ['#if true [', '  Conditional paragraph text here.', '] else [', '  Other branch.', ']', '#let title = [Conditional paragraph text here]']
   const pages = [page(['Conditional paragraph text here.'])]
-  assert.equal(c.syncAnchor(lines, 2, pages).it.s, 'Conditional paragraph text here.')
-  assert.equal(c.syncAnchor(lines, 6, pages), null) // a definition renders where it is used, not here
+  assert.equal(c.anchor(lines, 2, pages).it.s, 'Conditional paragraph text here.')
+  assert.equal(c.anchor(lines, 6, pages), null) // a definition renders where it is used, not here
 })
 
 test('localized figure supplements are cut from caption needles', () => {
@@ -98,7 +102,7 @@ test('an include resolves by full path first and in every common form', () => {
 })
 test('the structure mask reads left to right: raw and URLs hide comment starters, headings may be functions', () => {
   const c = vm.createContext({})
-  vm.runInContext(slice(preview, 'function srcMask', 'function srcOutlineLine'), c)
+  vm.runInContext(slice(preview, 'function srcMask', 'function pvOlNorm'), c)
   const mask = c.srcMask('A `/*` b\n= H\nc `*/` d\nsee https://x.io/a//b #image("x.png") // note')
   assert.ok(mask.includes('= H') && mask.includes('#image("x.png")') && !mask.includes('note')) // "/*" inside raw opens no comment
   assert.equal(mask.length, 'A `/*` b\n= H\nc `*/` d\nsee https://x.io/a//b #image("x.png") // note'.length)

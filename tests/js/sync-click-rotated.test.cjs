@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const src = fs.readFileSync('web/js/90-settings.js', 'utf8')
 const ctx = vm.createContext({})
-vm.runInContext(src.slice(src.indexOf('function pvCharW'), src.indexOf('function pvNearItems')), ctx)
+vm.runInContext(src.slice(src.indexOf('function pvCharW'), src.indexOf("$('preview').addEventListener('click'")), ctx)
 
 // One rotated run as PDF.js reports it (viewport units at render scale 2):
 // 20deg, baseline origin (481.9, 608.88), 240.2 wide, 22 high.

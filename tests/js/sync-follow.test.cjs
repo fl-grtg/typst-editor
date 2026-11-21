@@ -30,15 +30,17 @@ function edCtx({ text, items, owned, active = '', secAt = {} }) {
     const cm = { state: { doc: { lines: text.split('\\n').length, lineAt: p => ({ number: text.slice(0, p).split('\\n').length }) } }, scrollDOM: {} }
     function cmTop(p) { return p }
     function smoothFollow(el, y) { log.push(y) }
+    function scrollEdge() { return 0 }
     function pvPageHint() { return 1 }
     function pvSecAtY() { return secAt }
     function pvSecAtLine() { return null }
     function pvSections() { return [] }
     function syncText(s) { return String(s).toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, ' ').trim() }
-    function pvClickNeedles(items, it) { return [{ s: it.s, off: 0 }] }
-    function pvHerePos(needles) { const p = owned[needles[0].s]; return p == null ? -1 : p }
+    function smMap() { return { own: items.map(it => owned[it.s] != null) } }
+    function smTokenAt(M, pi, ii) { return ii >= 0 ? { ti: ii, k: 0 } : null }
+    function smWordAt(M, ti) { return { key: activeFile, at: owned[items[ti].s] } }
   `, c)
-  vm.runInContext(slice(settings, 'function pvItemDist', 'function pvNearItems'), c)
+  vm.runInContext(slice(settings, 'function pvItemDist', "$('preview').addEventListener('click'"), c)
   vm.runInContext(slice(settings, 'function pvBlockLines', 'function pvBlockNeedle'), c)
   vm.runInContext(slice(settings, 'function syncEdTab', "try { $('preview').addEventListener('wheel'"), c)
   return c
@@ -80,29 +82,6 @@ test('a generated marker keeps the gap it stands in, so a back-link lands beside
   const L = v.srcViewScan('Short#footnote[Note body.] here').lines[0]
   assert.equal(L.s, 'Short here')
   assert.equal(L.map[5], 5) // the gap of the marker sits on the #footnote call
-})
-
-test('a click in a heading with markup keeps the clicked word', () => {
-  const text = '#set heading(numbering: "1.1")\n= Results *Bold* Part\nText.'
-  const anchor = item('Bold', 300, 146, 50, 30)
-  const c = vm.createContext({ posOfLine, text, anchor })
-  vm.runInContext(slice(preview, 'function srcMask', 'function srcHeadings'), c)
-  vm.runInContext(slice(settings, 'const SRC_MATH', 'function srcObjs'), c)
-  vm.runInContext(slice(settings, 'function srcLineWords', 'function syncWords'), c)
-  vm.runInContext(slice(settings, 'function pvNumCut', 'function pvBlockLines'), c)
-  vm.runInContext(`
-    let activeFile = ''
-    const pvTexts = [[anchor]]
-    function getT() { return text }
-    function pvSecAtLine() { return null }
-    function syncAnchor() { return { pi: 0, it: anchor, items: [anchor] } }
-    function locateNear() { return -1 }
-    function pvViewWords() { return -1 }
-    function pvPosIn() { return -1 }
-  `, c)
-  vm.runInContext(slice(settings, 'function pvHerePos', 'function pvJumpHere'), c)
-  const pos = c.pvHerePos([{ s: '1 Results Bold Part', off: 10 }], 2, 0, anchor)
-  assert.equal(pos, text.indexOf('Bold'))
 })
 
 test('the 1:1 Yjs path repairs a start text that differed from Y', () => {

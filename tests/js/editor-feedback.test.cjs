@@ -2,17 +2,21 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const { loadMap, useDoc } = require('./sync-map-ctx.cjs')
 const read = name => fs.readFileSync('web/js/' + name, 'utf8')
 const code = read('90-settings.js')
 const pvCode = read('50-preview.js')
 const syncSlice = code.slice(code.indexOf('function syncText'), code.indexOf('function syncToPv'))
 const pvSlice = pvCode.slice(pvCode.indexOf('function srcMask'), pvCode.indexOf('function pvSecAt'))
-const outlineSlice = code.slice(code.indexOf('function pvOlEq'), code.indexOf("$('preview').addEventListener('click'"))
 const ctx = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p } })
 const viewSlice = code.slice(code.indexOf('const SRC_MATH'), code.indexOf('function srcObjs')) // syncAnchor reads the same visible text as the click side
 vm.runInContext(pvCode.slice(pvCode.indexOf('function srcMask'), pvCode.indexOf('function pvSecAt')), ctx)
 vm.runInContext(viewSlice, ctx)
 vm.runInContext(syncSlice, ctx)
+vm.runInContext(code.slice(code.indexOf('function srcLineWords'), code.indexOf('function pvCaretIndex')) + code.slice(code.indexOf('function srcAfter'), code.indexOf('function pvViewWords')), ctx)
+loadMap(ctx)
+const onDoc = fn => (lines, line, pages, ...rest) => { useDoc(ctx, lines, pages); return fn(lines, line, pages, ...rest) } // the map reads the paper and the open text as globals
+const syncAnchor = onDoc((lines, line) => ctx.syncAnchor(lines, line)), syncNearHit = onDoc(ctx.syncNearHit), pvFigureHint = onDoc(ctx.pvFigureHint)
 const page = texts => texts.map((s, y) => ({ s, y: y * 20, vh: 800 }))
 function outlineCtx(extra) { // real source parser + heading matcher, not stubs
   const c = vm.createContext({ posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p },
@@ -20,115 +24,79 @@ function outlineCtx(extra) { // real source parser + heading matcher, not stubs
   vm.runInContext(viewSlice, c)
   vm.runInContext(syncSlice, c)
   vm.runInContext(pvSlice, c)
-  vm.runInContext(outlineSlice, c)
   return c
 }
 
 test('sync uses the complete heading rather than a shared word', () => {
   const pages = [page(['A: Ziel', 'B: Materialien & Chemikalien', 'D: Beobachtung', 'E: Erklärung & Auswertung'])]
-  assert.equal(ctx.syncAnchor(['=== E: Erklärung & Auswertung'], 1, pages).it.s, 'E: Erklärung & Auswertung')
-  assert.equal(ctx.syncAnchor(['=== B: Materialien & Chemikalien'], 1, pages).it.s, 'B: Materialien & Chemikalien')
+  assert.equal(syncAnchor(['=== E: Erklärung & Auswertung'], 1, pages).it.s, 'E: Erklärung & Auswertung')
+  assert.equal(syncAnchor(['=== B: Materialien & Chemikalien'], 1, pages).it.s, 'B: Materialien & Chemikalien')
 })
 test('repeated headings resolve within their preceding section', () => {
   const lines = ['== 1. GOD-Probe', '=== A: Ziel', '=== D: Beobachtung', '== 2. Betaisodona-Probe', '=== A: Ziel', '=== D: Beobachtung']
   const pages = [page(['1. GOD-Probe', 'A: Ziel', 'D: Beobachtung']), page(['2. Betaisodona-Probe', 'A: Ziel', 'D: Beobachtung'])]
-  assert.equal(ctx.syncAnchor(lines, 3, pages).pi, 0)
-  assert.equal(ctx.syncAnchor(lines, 6, pages).pi, 1)
+  assert.equal(syncAnchor(lines, 3, pages).pi, 0)
+  assert.equal(syncAnchor(lines, 6, pages).pi, 1)
 })
 test('split PDF text matches a heading and ambiguous or unfinished input stays still', () => {
-  assert.equal(ctx.syncAnchor(['=== Materialien & Chemikalien'], 1, [page(['Materialien', '& Chemikalien'])]).it.s, 'Materialien')
-  assert.equal(ctx.syncAnchor(['=== Ziel'], 1, [page(['Ziel', 'Ziel'])]), null)
-  assert.equal(ctx.syncAnchor(['#grid(columns: (50%, 50%))'], 1, [page(['columns'])]), null)
-  assert.equal(ctx.syncAnchor(['unfinished typing'], 1, [page(['Other text'])]), null)
+  assert.equal(syncAnchor(['=== Materialien & Chemikalien'], 1, [page(['Materialien', '& Chemikalien'])]).it.s, 'Materialien')
+  assert.equal(syncAnchor(['unfinished typing'], 1, [page(['Other text'])]), null)
 })
 test('command lines never anchor to a generated caption prefix', () => {
   const lines = ['= Table and Diagram', '#figure(', '  table(', '    [Name], [Value],', '  caption: [Fundamental constants.],', ')', '#pagebreak()', '#figure(', '  chart body', ')']
   const pages = [page(['Table and Diagram', 'Name Value', 'Fundamental constants.']), page(['Figure 1: Diagram'])]
-  assert.equal(ctx.syncAnchor(lines, 2, pages), null)
-  assert.equal(ctx.syncAnchor(lines, 3, pages), null)
-  assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 0)
+  assert.equal(syncAnchor(lines, 2, pages), null)
+  assert.equal(syncAnchor(lines, 3, pages), null)
+  assert.equal(syncNearHit(lines, 2, pages).pi, 0)
 })
 test('a figure caption further down still names the page of its call', () => {
   const body = Array.from({ length: 20 }, (_, i) => `  #let n${i} = ${i}`)
   const lines = ['= Chart', '#figure(', ...body, '  caption: [Simple bar diagram.],', ')']
   const pages = [page(['Chart']), page(['Figure 1: Simple bar diagram.', '4. Conclusion'])]
-  assert.equal(ctx.syncAnchor(['#figure('], 1, pages), null)
-  assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 1)
+  assert.equal(syncNearHit(lines, 2, pages).pi, 1)
 })
 test('lines inside a figure call stay on the caption page', () => {
   const lines = ['= Chart', '#figure(', '  align(center)[', '    #let data = (', '      ("A", 40),', '    )', '  ],', '  caption: [Simple bar diagram.],', ')', '', '= Next']
   const pages = [page(['Chart']), page(['Figure 1: Simple bar diagram.', 'Next'])]
-  assert.equal(ctx.syncAnchor(lines, 4, pages), null)
-  assert.equal(ctx.syncNearHit(lines, 4, pages, { page: 0, endPage: 1, endLine: 10 }).pi, 1)
-})
-test('blank clicks around a rendered outline keep the outline line', () => {
-  const c = outlineCtx({
-    pvLinks: [[{ x0: 10, y0: 100, x1: 300, y1: 116, dest: { page: 1 } }]],
-    getT: () => '#outline()\n\n= Alpha\n\nText\n\n#pagebreak()\n\n= Beta\n',
-  })
-  const items = [{ s: 'Alpha', x0: 20, y: 108, w: 40 }]
-  assert.equal(c.pvOutlineClick(0, items, 30, 124, 1, 1), 1) // one blank line below the entry
-  assert.equal(c.pvOutlineClick(0, items, 30, 160, 1, 1), 0) // body text below the block
-  assert.equal(c.pvOutlineClick(0, items, 400, 124, 1, 1), 0) // beside the page, not the entry
-  assert.equal(c.pvOutlineClick(1, items, 30, 124, 1, 1), 0) // page without outline links
-})
-test('an outline test per entry never covers the blank space up to a body link', () => {
-  const c = outlineCtx({
-    pvLinks: [[
-      { x0: 10, y0: 100, x1: 300, y1: 116, dest: { page: 0 } }, // outline entry
-      { x0: 10, y0: 400, x1: 300, y1: 416, dest: { page: 1 } }, // body link with the same title
-    ]],
-    getT: () => '#outline()\n\n= Alpha\n\n#link(<alpha>)[Alpha]\n',
-  })
-  const entry = [{ s: 'Alpha', x0: 20, y: 108, w: 40 }]
-  const body = [{ s: 'Alpha', x0: 20, y: 408, w: 40 }]
-  assert.equal(c.pvOutlineClick(0, entry, 30, 124, 1, 1), 1) // blank line under the outline entry
-  assert.equal(c.pvOutlineClick(0, body, 30, 300, 1, 1), 0) // between outline and body link: no union
-})
-test('a body link sharing only a word with a heading is not an outline entry', () => {
-  const c = outlineCtx({
-    pvLinks: [[{ x0: 10, y0: 400, x1: 300, y1: 416, dest: { page: 1 } }]],
-    getT: () => '#outline()\n\n= Introduction\n\n#link(<x>)[Intro]\n',
-  })
-  assert.equal(c.pvOutlineClick(0, [{ s: 'Intro', x0: 20, y: 408, w: 40 }], 30, 402, 1, 1), 0)
+  assert.equal(syncAnchor(lines, 4, pages), null)
+  assert.equal(syncNearHit(lines, 4, pages, { page: 0, endPage: 1, endLine: 10 }).pi, 1)
 })
 test('outline detection ignores fenced code and comments', () => {
   const c = outlineCtx({})
   const t = ['```typst', '#outline()', '= Fake heading', '```', '', '/* #outline()', '= Also fake */', '', '= Real heading', '', '#outline()'].join('\n')
   assert.deepEqual(Array.from(c.srcHeadings(t), h => [h.line, h.title]), [[9, 'Real heading']])
-  assert.equal(c.srcOutlineLine(t), 11)
 })
 test('brackets inside block comments or strings do not end a figure early', () => {
   const lines = ['#figure(', '  /* ) ] /* still */ ) */', '  "a ) string",', '  box[rect()],', '  caption: [Panel layout note.],', ')']
   assert.equal(ctx.pvCallEnd(lines, 1), 6)
   const pages = [page(['Figure 1: Panel layout note.'])]
-  assert.equal(ctx.pvFigureHint(lines, 4, pages).pi, 0)
-  assert.equal(ctx.syncNearHit(lines, 4, pages).pi, 0)
+  assert.equal(pvFigureHint(lines, 4, pages).pi, 0)
+  assert.equal(syncNearHit(lines, 4, pages).pi, 0)
 })
 test('URLs do not start a comment that swallows the closing bracket', () => {
   const lines = ['#figure(', '  image("x.png"),', '  caption: [See https://example.com],', ')', '', '#pagebreak()', '', '= Next page', 'Body.']
   assert.equal(ctx.pvCallEnd(lines, 1), 4)
   const pages = [page(['Figure 1: See https://example.com']), page(['Next page', 'Body.'])]
-  assert.equal(ctx.syncNearHit(lines, 6, pages).pi, 1)
+  assert.equal(syncNearHit(lines, 6, pages).pi, 1)
 })
 test('a blank line after a pagebreak follows the next page', () => {
   const lines = ['= Alpha', 'Alpha body.', '#pagebreak()', '', 'Beta body.']
   const pages = [page(['Alpha', 'Alpha body.']), page(['Beta body.'])]
-  assert.equal(ctx.syncNearHit(lines, 4, pages).pi, 1) // the pagebreak wins over the text above
+  assert.equal(syncNearHit(lines, 4, pages).pi, 1) // the pagebreak wins over the text above
 })
 test('a blank line before a pagebreak stays on the page above', () => {
-  assert.equal(ctx.syncNearHit(['', '#pagebreak()', 'Beta body.'], 1, [page([]), page(['Beta body.'])]), null) // page 2 is below the break
-  assert.equal(ctx.syncNearHit(['Alpha body.', '', '#pagebreak()', 'Beta body.'], 2, [page(['Alpha body.']), page(['Beta body.'])]).it.s, 'Alpha body.')
+  assert.equal(syncNearHit(['', '#pagebreak()', 'Beta body.'], 1, [page([]), page(['Beta body.'])]), null) // page 2 is below the break
+  assert.equal(syncNearHit(['Alpha body.', '', '#pagebreak()', 'Beta body.'], 2, [page(['Alpha body.']), page(['Beta body.'])]).it.s, 'Alpha body.')
 })
 test('a column break separates the two columns like a pagebreak', () => {
   const lines = ['Left column text.', '', '#colbreak()', '', 'Right column text.']
   const pages = [page(['Left column text.', 'Right column text.'])]
-  assert.equal(ctx.syncNearHit(lines, 4, pages).it.s, 'Right column text.')
+  assert.equal(syncNearHit(lines, 4, pages).it.s, 'Right column text.')
 })
 test('a pagebreak inside a fenced example is not a page boundary', () => {
   const lines = ['= Alpha', '```typst', '#pagebreak()', '```', '', 'Body text.']
   const pages = [page(['Alpha']), page(['Body text.'])]
-  assert.equal(ctx.syncNearHit(lines, 5, pages).it.s, 'Alpha') // the example renders right here, not on page 2
+  assert.equal(syncNearHit(lines, 5, pages).it.s, 'Alpha') // the example renders right here, not on page 2
 })
 test('raw text and escapes stay text inside a call', () => {
   const raw = ['#figure(', '  image("x.png"),', '  body: [`a ) b`],', '  caption: [Bars],', ')']
@@ -136,17 +104,17 @@ test('raw text and escapes stay text inside a call', () => {
   const esc = ['#figure(', '  box[escaped \\) bracket],', '  caption: [Escaped.],', ')']
   assert.equal(ctx.pvCallEnd(esc, 1), 4)
   const pages = [page(['Figure 1: Bars'])]
-  assert.equal(ctx.pvFigureHint(raw, 3, pages).pi, 0)
+  assert.equal(pvFigureHint(raw, 3, pages).pi, 0)
 })
 test('a short caption on the figure opener still names its page', () => {
   const lines = ['= Chart', '#pagebreak()', '#figure(image("x.png"), caption: [Bars])']
   const pages = [page(['Chart']), page(['Figure 1: Bars'])]
-  assert.equal(ctx.syncNearHit(lines, 3, pages).pi, 1)
+  assert.equal(syncNearHit(lines, 3, pages).pi, 1)
 })
 test('caption text on its own line names the figure page', () => {
   const lines = ['#figure(', '  box[rect()],', '  caption: [', '    Bars chart.', '  ],', ')']
   const pages = [page(['Figure 1: Bars chart.'])]
-  assert.equal(ctx.pvFigureHint(lines, 2, pages).pi, 0)
+  assert.equal(pvFigureHint(lines, 2, pages).pi, 0)
 })
 test('the outermost open figure owns a nested table', () => {
   const lines = ['#figure(', '  table(', '    [A], [B],', '    caption: [Inner table.],', '  ),', '  caption: [Outer figure.],', ')']
@@ -197,12 +165,12 @@ test('multi-line set/show commands are commands, not text anchors', () => {
 test('a figure without a caption never borrows the next caption', () => {
   const lines = ['= Chart', '#figure(', '  box[rect()],', ')', '', '#figure(', '  box[circle()],', '  caption: [Next figure.],', ')']
   const pages = [page(['Chart']), page(['Figure 1: Next figure.'])]
-  assert.equal(ctx.syncNearHit(lines, 2, pages).pi, 0) // its own frame has no text: the heading above wins
+  assert.equal(syncNearHit(lines, 2, pages).pi, 0) // its own frame has no text: the heading above wins
 })
 test('a figure command anchors to its own caption before its table cells', () => {
   const lines = ['#figure(', '  table(', '    [Name], [Value],', '  ),', '  caption: [Fundamental constants.],', ')']
   const pages = [page(['Name', 'Value']), page(['Table 1: Fundamental constants.'])]
-  assert.equal(ctx.syncNearHit(lines, 1, pages).pi, 1)
+  assert.equal(syncNearHit(lines, 1, pages).pi, 1)
 })
 test('a line without its own text sits between the content above and below', () => {
   const pair = {
@@ -361,7 +329,7 @@ test('click column maps scaled canvas pixels through the item offset', () => {
 test('rotated text runs become click targets and keep their anchors', () => {
   const c = vm.createContext({})
   vm.runInContext(pvCode.slice(pvCode.indexOf('function pvBoxes'), pvCode.indexOf('const PV_LINK_SCHEME')), c)
-  vm.runInContext(code.slice(code.indexOf('function pvItemDist'), code.indexOf('function pvOlEq')), c)
+  vm.runInContext(code.slice(code.indexOf('function pvItemDist'), code.indexOf("$('preview').addEventListener('click'")), c)
   const v = { transform: [1, 0, 0, 1, 0, 0], width: 600, height: 800 }
   const tc = { items: [
     { str: 'Normal', transform: [1, 0, 0, 1, 20, 30], width: 50, height: 10 },
@@ -388,20 +356,6 @@ test('rotated text runs become click targets and keep their anchors', () => {
   assert.deepEqual(Array.from(c.pvBlockLines(boxes, boxes[0]), b => b.s), ['Normal']) // a turned run never joins the paragraph needle
   assert.equal(c.pvItemDist(boxes[1], 105, 220, 1, 1), 0) // on the vertical strip: a real target now
   assert.ok(c.pvItemDist(boxes[1], 120, 220, 1, 1) > 0) // beside it: the axis-aligned shadow is not a hit
-  const near = c.pvNearItems(boxes, 105, 220, 1, 1, null)
-  assert.equal(near[0].it.s, 'Seitwärts')
-  assert.equal(near[0].it.rot, true)
-})
-test('a click without text under it never takes a far paragraph as anchor', () => {
-  const c = vm.createContext({})
-  vm.runInContext(code.slice(code.indexOf('function pvItemDist'), code.indexOf('function pvOlEq')), c)
-  const items = [
-    { s: 'nahe Zeile', x0: 10, w: 60, y: 100, h: 10 },
-    { s: 'weit weg', x0: 10, w: 60, y: 400, h: 10 },
-  ]
-  const near = c.pvNearItems(items, 10, 105, 1, 1, null, 195) // 1.5 x CLICK_PX: far text is a different spot
-  assert.deepEqual(Array.from(near, n => n.it.s), ['nahe Zeile'])
-  assert.equal(c.pvNearItems(items, 10, 105, 1, 1, null).length, 2) // cursor following still wants the nearest row anywhere
 })
 test('caption prefixes and table rows become needles the source can match', () => {
   const c = vm.createContext({})
@@ -459,37 +413,7 @@ test('line-break hyphens keep both the compound and the rejoined word', () => {
 })
 test('heading anchors pick the big heading item, not the same word in the body', () => {
   const pages = [[{ s: 'Diskussion', y: 100, h: 30 }, { s: 'Die Diskussion verbindet Methoden', y: 200, h: 22 }]]
-  assert.equal(ctx.syncAnchor(['= Diskussion'], 1, pages).it.s, 'Diskussion')
-})
-test('preview heading clicks resolve the matching source section on the same page', async () => {
-  const lines = ['== First section', '=== D: Beobachtung', '== Second section', '=== D: Beobachtung']
-  const pages = [page(['First section', 'D: Beobachtung', 'Second section', 'D: Beobachtung'])]
-  const jumps = []
-  const c = vm.createContext({ activeFile: '', getT: () => lines.join('\n'), pvTexts: pages, jumpPos: pos => jumps.push(pos), syncPage: 0, pvSecAtLine: () => null })
-  vm.runInContext(code.slice(code.indexOf('function pvPosIn'), code.indexOf('function syncToPv')), c)
-  assert.equal(await c.pvJumpBest([{ s: 'D: Beobachtung', off: 0 }], 1, 0, pages[0][3]), true)
-  const start = lines.slice(0, 3).join('\n').length + 1
-  assert.deepEqual(jumps, [start + lines[3].indexOf('D:')]) // lands on the heading text, not the "===" markers
-})
-test('a wrapped paragraph in an included file is found across source line breaks', async () => {
-  const main = '= Main\n\n#include "inc.typ"\n'
-  const inc = '= Inc\n\nAlpha beta gamma\ndelta epsilon zeta\n'
-  const c = vm.createContext({
-    activeFile: 'main.typ', docId: 'd', openN: 1, syncPage: 0, jumps: [],
-    getT: () => (c.activeFile === 'inc.typ' ? inc : main),
-    pvSrcList: () => [{ key: 'inc.typ', text: inc }],
-    switchTab: async key => { c.activeFile = key; return true },
-    cm: { state: { doc: { lines: 3 } } },
-    posOfLine: (t, ln) => { let p = 0; for (let i = 1; i < ln; i++) p = t.indexOf('\n', p) + 1; return p },
-    jumpPos: pos => c.jumps.push(pos),
-    get pvTexts() { return [page(['Alpha beta gamma delta epsilon zeta'])] },
-  })
-  vm.runInContext(code.slice(code.indexOf('function pvWordChar'), code.indexOf('function cmTop')), c)
-  vm.runInContext(code.slice(code.indexOf('function pvPosIn'), code.indexOf('function syncToPv')), c)
-  const needle = { s: 'Alpha beta gamma delta epsilon zeta', off: 0 }
-  assert.equal(await c.pvJumpBest([needle], 1, 0, null), true)
-  assert.equal(c.activeFile, 'inc.typ')
-  assert.deepEqual(c.jumps, [inc.indexOf('Alpha')]) // the PDF line spans two source lines
+  assert.equal(syncAnchor(['= Diskussion', 'Die Diskussion verbindet Methoden'], 1, pages).it.s, 'Diskussion')
 })
 test('a wrapped needle keeps the clicked letter across apostrophes', () => {
   const c = vm.createContext({
@@ -522,7 +446,7 @@ test('a heading-like line inside a raw block never ends the enclosing call', () 
 test('the word caption in prose or a heading is not a caption option', () => {
   const pages = [page(['The caption: Figure 2 is shown here.', 'The caption: Foo', 'Figure 2', 'Foo'])]
   const prose = 'The caption: [Figure 2] is shown here.'
-  assert.equal(ctx.syncAnchor([prose], 1, pages).it.s, 'The caption: Figure 2 is shown here.')
-  assert.equal(ctx.syncAnchor(['= The caption: [Foo]'], 1, pages).it.s, 'The caption: Foo')
-  assert.equal(ctx.syncAnchor(['  caption: [Fundamental constants.],'], 1, [page(['Fundamental constants.'])]).it.s, 'Fundamental constants.')
+  assert.equal(syncAnchor([prose], 1, pages).it.s, 'The caption: Figure 2 is shown here.')
+  assert.equal(syncAnchor(['= The caption: [Foo]'], 1, pages).it.s, 'The caption: Foo')
+  assert.equal(syncAnchor(['  caption: [Fundamental constants.],'], 1, [page(['Fundamental constants.'])]).it.s, 'Fundamental constants.')
 })

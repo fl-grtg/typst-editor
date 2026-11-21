@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
 const settings = fs.readFileSync('web/js/90-settings.js', 'utf8')
-const matchSrc = settings.slice(settings.indexOf('function pvImgMatch'), settings.indexOf('function pvImgAt'))
+const matchSrc = settings.slice(settings.indexOf('function pvImgMatch'), settings.indexOf('function pvImgLineHit'))
 
 function context() {
   const state = { boxes: 0, srcs: 0, sigs: 0, sig: 1, total: 30, lines: [10, 20] }

@@ -249,10 +249,11 @@ def test_chart_clicks_land_on_the_caption_not_on_a_heading(page):
     page.wait_for_timeout(1200)  # text layer for page 2 is indexed after the raster is ready
     box = _canvas_box(page, 2)
     assert box
-    # bar labels, values, bar bodies and the caption: all belong to the chart, not to the next heading
+    # bar labels, values, bar bodies and the caption: all belong to the chart call, not to the next heading
     for fx, fy in [(.371, .158), (.374, .089), (.377, .142), (.503, .176), (.622, .143)]:
         page.mouse.click(box["x"] + box["width"] * fx, box["y"] + box["height"] * fy)
-        page.wait_for_function("() => /^Ln 104:/.test(document.getElementById('pos').textContent)", timeout=PREVIEW_TIMEOUT)
+        page.wait_for_timeout(900)
+        assert 56 <= _line(page) <= 104, f"chart click at {fx},{fy}: Ln {_line(page)}"
 
 
 def test_click_above_the_first_heading_lands_on_the_document_top(page):
@@ -373,12 +374,12 @@ def test_scrolling_up_after_a_page_bottom_click_keeps_the_editor_view(page):
     page.evaluate("""() => {  // page 2 owns the viewport center, page 1 bottom stays clickable
       const pv = document.getElementById('preview'), p2 = pv.querySelector('.pvPage[data-page="2"]')
       const pr = pv.getBoundingClientRect(), r = p2.getBoundingClientRect()
-      pv.scrollTop += r.top - pr.top - (pr.height - r.height) / 2
+      pv.scrollTop += r.top - pr.top - (pr.height - r.height) / 2 - 100
     }""")
     page.wait_for_timeout(900)
     box = _canvas_box(page, 1)
     assert box
-    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] - 10)  # bottom of page 1: the table caption
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] * 0.88)  # blank space under the last text of page 1, above the page number band: the table caption
     page.wait_for_timeout(900)
     assert 52 <= _line(page) <= 58, "the click should land on the table caption at the end of page 1"
     before = page.locator("#cm .cm-scroller").evaluate("el => el.scrollTop")

@@ -650,23 +650,64 @@ function applySyncBtn() { const b = $('syncBtn'); if (!b) return; b.classList.to
 function applyFollowBtn() { const b = $('followBtn'); if (!b) return; b.classList.toggle('on', followAll); b.setAttribute('aria-pressed', followAll) }
 let syncSkip = false // our own jump selects a line: that selection is not a cursor move
 let cmSelT = 0 // last cursor move: an editor scroll right after it is cursor-follow, not a reader scroll
-function queueSyncPv(at) { // throttle: continuous cursor/scroll movement still updates the preview (no wait-for-idle)
+let syncEdge = 0 // reader scrolled the editor to its very top (-1) or bottom (1): the preview goes to its own end too
+const SYNC_EDGE_PX = 2 // scroll distance to an end that still counts as that end
+function scrollEdge(el) { return el.scrollHeight - el.clientHeight <= 2 * SYNC_EDGE_PX ? 0 : el.scrollTop <= SYNC_EDGE_PX ? -1 : el.scrollTop + el.clientHeight >= el.scrollHeight - SYNC_EDGE_PX ? 1 : 0 }
+function queueSyncPv(at, edge) { // throttle: continuous cursor/scroll movement still updates the preview (no wait-for-idle)
   if (syncSkip) return
   if (!followAll) return
   syncView = Number.isFinite(at) ? at : -1
+  syncEdge = edge || 0
   if (syncT) return // a run is already scheduled and reads the latest position
   syncT = setTimeout(() => { syncT = 0; syncToPv() }, SYNC_MS)
 }
-try { // wheel over the editor: the preview follows what is on screen, not only the cursor
+const SCROLL_LEAD_MS = 400 // the pane the reader touched last leads; the other one only follows it
+let scrollLead = '', scrollLeadT = 0, linkPvRaf = 0, linkEdRaf = 0
+function leadBy(pane) { scrollLead = pane; scrollLeadT = Date.now() }
+function leads(pane) { return scrollLead === pane && Date.now() - scrollLeadT < SCROLL_LEAD_MS }
+function queueLinkPv() { if (!linkPvRaf) linkPvRaf = requestAnimationFrame(() => { linkPvRaf = 0; linkPv() }) } // one step per frame: the preview moves with the editor, not after it
+function linkPv() { // reader scroll in the editor: the preview stands on the same spot, between the anchored lines around the middle
+  const fileTab = syncEdTab(), sc = cm.scrollDOM, pv = $('preview')
+  if (!followAll || !docId || tplName || (activeFile && !fileTab) || (scrollRestore && !scrollRestore.pv)) return
+  if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
+  const edge = scrollEdge(sc)
+  let y = null
+  if (edge && !fileTab) y = edge < 0 ? 0 : pv.scrollHeight - pv.clientHeight // the first or last line on screen: so is the first or last page
+  else try { y = smScrollPv() } catch (e) { y = null }
+  if (y == null) { try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from, edge) } catch (e) {} return } // no word on paper nearby: the line follow
+  smoothStop(pv)
+  syncMiss = false
+  syncEdOff = 0
+  pv.scrollTop = Math.max(0, Math.min(pv.scrollHeight - pv.clientHeight, y))
+  pvSelfWrite(pv)
+}
+function queueLinkEd() { if (!linkEdRaf) linkEdRaf = requestAnimationFrame(() => { linkEdRaf = 0; linkEd() }) }
+function linkEd() { // reader scroll in the preview: the editor stands on the same spot, between the anchored words around the reading point
+  const fileTab = syncEdTab(), pv = $('preview'), sc = cm.scrollDOM
+  if (!followAll || !docId || tplName || (activeFile && !fileTab)) return
+  if (!pv.clientHeight || document.body.classList.contains('editonly')) return
+  if (!fileTab && scrollEdge(pv)) { syncToEd(); return } // the first or last page: the first or last line
+  let y = null
+  try { y = smScrollEd(syncEdOff, syncEdX >= 0 ? syncEdX : null) } catch (e) { y = null }
+  if (y == null) { queueSyncEd(); return } // no word of this file near the reading point: the page follow
+  smoothStop(sc)
+  syncEdMiss = false
+  sc.scrollTop = Math.max(0, Math.min(sc.scrollHeight - sc.clientHeight, y))
+  pvSelfWrite(sc)
+}
+try { // the editor view: a reader scroll moves the preview in step, not only the cursor
   const sc = cm.scrollDOM
-  sc.addEventListener('wheel', () => smoothStop(sc), { passive: true })
+  sc.addEventListener('wheel', () => { smoothStop(sc); leadBy('ed') }, { passive: true })
+  for (const ev of ['pointerdown', 'touchstart', 'keydown']) sc.addEventListener(ev, () => leadBy('ed'), { passive: true })
   sc.addEventListener('scroll', () => {
     if (!followAll || syncSkip) return
     if (smoothWrote(sc)) return // our own glide/follow wrote it
     if (Date.now() - cmSelT < 150) return // a cursor move already synced the cursor
+    if (leads('pv')) return // the preview leads: CodeMirror settling under our follow is no reader scroll
     smoothStop(sc) // scrollbar drag/touch/page key: the reader owns the editor view
     syncEdMiss = false // a pending follow from the preview must not pull the editor back
-    try { queueSyncPv(cm.elementAtHeight(sc.scrollTop + sc.clientHeight / 2).from) } catch (e) {}
+    leadBy('ed')
+    queueLinkPv()
   }, { passive: true })
 } catch (e) {}
 let syncEdT = 0
@@ -681,6 +722,16 @@ function syncToEd() {
   if (!followAll || !docId || tplName || (activeFile && !fileTab)) return
   const pv = $('preview')
   if (!pv.clientHeight || document.body.classList.contains('editonly')) return
+  const edge = !fileTab && scrollEdge(pv)
+  if (edge) { // the first or last page is on screen: so is the first or last line
+    syncEdMiss = false
+    if (edge < 0) smoothFollow(cm.scrollDOM, 0)
+    else { // CodeMirror measures lazily rendered lines on the way down: let it bring the end in, then sit flush on it
+      cm.dispatch({ effects: EditorView.scrollIntoView(cm.state.doc.length, { y: 'end' }) })
+      requestAnimationFrame(() => { const sc = cm.scrollDOM; sc.scrollTop = sc.scrollHeight; pvSelfWrite(sc) })
+    }
+    return
+  }
   const pi = pvViewPage(pv, syncEdOff), slot = pi >= 0 ? pv.querySelectorAll('.pvPage')[pi] : null
   if (!slot) return
   const pr = pv.getBoundingClientRect(), sr = slot.getBoundingClientRect()
@@ -702,26 +753,33 @@ function syncToEd() {
   const near = items.filter(it => /\p{L}/u.test(it.s || '')).map(it => ({ it, d: pvItemDist(it, rx, ry, 1, 1) })).sort((a, b) => row(a.it) - row(b.it) || a.d - b.d) // no running header/footer, no needle-less lone letters
     .filter(({ it }) => it.y >= vh * 0.05 && it.y <= vh * 0.95
       && (syncText(it.s || '').length >= 4 || pvBlockLines(items, it).length > 1)).slice(0, 3)
+  const M = smMap()
   for (const { it } of near) { // real text under the reading point: exact, even inside large figures
-    const pos = pvHerePos(pvClickNeedles(items, it, 0), line, pi, it, true) // reading follow: no guess from a lone shared word, the line estimate is better than a far-away twin
-    if (pos < 0) continue
-    const ln = cm.state.doc.lineAt(pos).number, sec = pvSecAtLine(ln)
+    const tk = smTokenAt(M, pi, items.indexOf(it), 0), res = tk && M.own[tk.ti] ? smWordAt(M, tk.ti, 0) : null // reading follow: owned words only, generated text has no line of its own
+    if (!res || res.key !== (activeFile || '')) continue
+    const pos = res.at, ln = cm.state.doc.lineAt(Math.min(pos, cm.state.doc.length)).number, sec = pvSecAtLine(ln)
     if (!sec ? (fileTab || pi === 0 || !pvSections().length) : sec.page <= pi && pi <= sec.endPage) { smoothFollow(cm.scrollDOM, cmTop(pos)); return } // no heading with a page at all: any page's text may name its line // another page's text (header, repeated title): not this spot
   }
   if (fileTab && !at.sec) return // main-document text at the reading point: the chapter tab stays where it is
   smoothFollow(cm.scrollDOM, cmTop(posOfLine(getT(), line)))
 }
+try { for (const ev of ['pointerdown', 'touchstart', 'keydown']) $('preview').addEventListener(ev, () => leadBy('pv'), { passive: true }) } catch (e) {}
 try { $('preview').addEventListener('wheel', () => { // a reader wheel wins over a pending sync retry
+  leadBy('pv')
   if (syncT) { clearTimeout(syncT); syncT = 0 } // no pending cursor sync may yank the preview back
   syncMiss = false // nor the retry from a render that started before the reader scrolled
+  syncEdge = 0
 }, { passive: true }) } catch (e) {}
 try { $('preview').addEventListener('scroll', () => { // reader scroll: the editor view moves along
   const pv = $('preview')
   if (Math.abs(pv.scrollTop - pvSelfTop) < 2) return // this app wrote it: follow or a jump, not the reader
+  if (leads('ed')) return // the editor leads: a page settling under our follow is no reader scroll
   smoothStop(pv) // scrollbar drag/touch/keyboard: the reader wins over a running animation
   if (syncT) { clearTimeout(syncT); syncT = 0 } // the reader took over: no pending cursor sync may yank the preview back
   syncMiss = false // nor the retry from a render that started before the reader scrolled
-  queueSyncEd()
+  syncEdge = 0
+  leadBy('pv')
+  queueLinkEd()
 }, { passive: true }) } catch (e) {}
 function pvPageHint(pi, total, n, at, frac) { // click page -> source line: section window first, then layout ratio
   const f0 = typeof frac === 'number' && isFinite(frac) ? Math.max(0, Math.min(1, frac)) : 0.5
@@ -768,137 +826,6 @@ function pvNormWords(s) { // syncText words with their raw span: "don’t" -> do
     out.push({ start: map[at], end: end < n.length ? map[end] : s.length, text: m[0], map: map.slice(at, end) })
   }
   return out
-}
-function pvHerePos(needles, hint, pi, anchor, strict) { // source position of the best needle in the current file; -1: none; strict: no lone-word guess
-  const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
-  const cur = activeFile || ''
-  if (!cur && anchor) { // heading clicks: the PDF line's own height decides between repeated titles
-    const lines = getT().split('\n'), matches = []
-    let pos = 0
-    const bare = nd => { const s = nd.s.trim(), k = pvNumCut(s); return { s: s.slice(k), off: Math.max(0, (nd.off || 0) - k) } } // "1.2 Results" on paper, "= Results" in the source
-    lines.forEach((text, i) => {
-      const nd = /^\s*=+\s/.test(text) ? list.map(bare).find(n => syncPlain(n.s) && syncPlain(text).includes(syncPlain(n.s))) : null
-      if (nd) {
-        const s = nd.s, off = Math.max(0, Math.min(nd.off, s.length))
-        const hit = syncAnchor(lines, i + 1, pvTexts, pvSecAtLine(i + 1))
-        if (hit && hit.pi === pi && hit.items.includes(anchor)) {
-          const at = text.indexOf(s), seen = at >= 0 ? at + off : pvViewPos(text, s, off, 1) // markup inside the title ("Results *Bold* Part"): the visible letters keep the clicked column
-          matches.push({ pos: seen >= 0 ? pos + seen : pos + (text.match(/^\s*=+\s*/) || [''])[0].length, distance: Math.abs(hit.it.y - anchor.y) })
-        }
-      }
-      pos += text.length + 1
-    })
-    matches.sort((a, b) => a.distance - b.distance)
-    if (matches.length && (matches.length === 1 || matches[0].distance < matches[1].distance)) return matches[0].pos
-  }
-  const total = getT()
-  for (const nd of list) { // needles are ordered by confidence: paragraph context first, then the clicked run
-    const s = nd.s.trim(), off = Math.max(0, Math.min(nd.off || 0, s.length))
-    let at = pvViewPos(total, s, off, hint) // visible words: markup and URLs never capture the click
-    if (at < 0) { const p = locateNear(total, s, hint); if (p >= 0) at = p + off }
-    if (at < 0) at = pvViewWords(total, s, off, hint, strict ? 2 : 0)
-    if (at < 0) at = pvPosIn(total, s, off, hint, strict) // last resort: the old word matcher
-    if (at >= 0) return at
-  }
-  return -1
-}
-function pvJumpHere(needles, hint, pi, anchor, strict) { // current file: exact word first, then the clicked word of a reflowed run
-  const pos = pvHerePos(needles, hint, pi, anchor, strict)
-  if (pos < 0) return false
-  syncPage = pi
-  jumpPos(pos)
-  return true
-}
-async function pvJumpBest(needles, hint, pi, anchor, anyWord) { // current file, else the unique owner, else stay; anyWord: no clicked letter (link destination), any unique word of the text decides
-  const list = (needles || []).filter(n => n && n.s && n.s.trim().length >= 2)
-  if (!list.length) return false
-  if (pvJumpHere(list, hint, pi, anchor, true)) return true // strong evidence in this file first, then in the others, a lone shared word last
-  const cur = activeFile || ''
-  const total = cm.state.doc.lines || 1
-  for (const nd of list) {
-    const s = nd.s.trim(), off = Math.max(0, Math.min(nd.off || 0, s.length))
-    let srcs = []
-    try { srcs = pvSrcList() } catch (e) { srcs = [] }
-    let found = null, dup = false
-    for (const src of srcs) {
-      if (!src || src.key === cur) continue
-      const txt = src.text || ''
-      const lines = txt ? txt.split('\n').length : 1
-      const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
-      const at = pvPosIn(txt, s, off, h2, true)
-      if (at >= 0) {
-        if (found) { dup = true; break }
-        found = { key: src.key }
-      }
-    }
-    if (found && !dup) {
-      syncPage = pi
-      const doc = docId, epoch = openN
-      try { if (!await switchTab(found.key)) return false } catch (e) { return false }
-      if (doc !== docId || epoch !== openN || activeFile !== found.key) return false
-      const t = getT(), lines = cm.state.doc.lines || 1
-      const h2 = Math.max(1, Math.min(lines, Math.round(hint / Math.max(1, total) * lines)))
-      const at = pvPosIn(t, s, off, h2, true)
-      if (at >= 0) { jumpPos(at); return true }
-    }
-  }
-  const one = pvUniqueWord(list[0]) || (anyWord ? pvUniqueAny(list[0]) : null) // a word that exists once in all sources: a .bib field, a name in another chapter
-  if (one) {
-    if (one.key === cur) { syncPage = pi; jumpPos(one.at); return true }
-    const doc = docId, epoch = openN
-    try { if (!await switchTab(one.key)) return false } catch (e) { return false }
-    if (doc !== docId || epoch !== openN || (activeFile || '') !== one.key) return false
-    const again = pvUniqueWord(list[0]) || (anyWord ? pvUniqueAny(list[0]) : null)
-    if (again && again.key === one.key) { syncPage = pi; jumpPos(again.at); return true }
-    return false
-  }
-  if (pvJumpHere(list, hint, pi, anchor)) return true // nothing strong anywhere: the clicked word in this file is still the honest guess
-  const code = pvCodeWord(getT(), list[0], hint) // text a function, loop or string builds: the call site or definition that holds the word
-  if (code < 0) return false
-  syncPage = pi
-  jumpPos(code)
-  return true
-}
-function pvClickedWord(nd) { // needle -> the normalized word under its caret, with the letter index inside it
-  const nw = pvNormCaret(String(nd && nd.s || '').trim()), k = pvCaretIndex(nw, (nd && nd.off) || 0)
-  for (const m of nw.s.matchAll(/[\p{L}\p{N}]+/gu)) if (k <= m.index + m[0].length) return { w: m[0], k: Math.max(0, Math.min(m[0].length - 1, k - m.index)) }
-  return null
-}
-function pvUniqueWord(nd) { // the clicked word, when it occurs exactly once in the visible text of all sources
-  const cw = pvClickedWord(nd)
-  if (!cw || cw.w.length < 4 || SRC_CJK.test(cw.w)) return null
-  let hit = null
-  let srcs = []
-  try { srcs = pvSrcList() } catch (e) { return null }
-  for (const src of srcs) {
-    if (!src || !src.text) continue
-    for (const w of srcViewWords(srcViewOf(src.text))) {
-      if (w.w !== cw.w) continue
-      if (hit) return null
-      hit = { key: src.key || '', at: w.map[Math.min(cw.k, w.map.length - 1)] }
-    }
-  }
-  return hit
-}
-function pvUniqueAny(nd) { // the first word of the needle that is unique across all sources (a bibliography entry: title, publisher, year)
-  const s = String(nd && nd.s || '').trim()
-  for (const m of s.matchAll(/[\p{L}\p{N}]{4,}/gu)) {
-    const hit = pvUniqueWord({ s, off: m.index })
-    if (hit) return hit
-  }
-  return null
-}
-function pvCodeWord(txt, nd, hint) { // the clicked word in code or a string of this file (comments excluded), nearest to the hint line
-  const cw = pvClickedWord(nd)
-  if (!cw || cw.w.length < 3) return -1
-  const mask = srcMask(txt), { s, map } = syncNormMap(mask), hp = posOfLine(txt, hint)
-  let best = -1, bd = Infinity, p = -1
-  while ((p = s.indexOf(cw.w, p + 1)) >= 0) {
-    if (pvWordChar(s[p - 1]) || pvWordChar(s[p + cw.w.length])) continue
-    const at = map[p], d = Math.abs(at - hp)
-    if (d < bd) { bd = d; best = map[p + cw.k] }
-  }
-  return best
 }
 function pvMainText() { return activeFile ? shadow : getT() } // main.typ, also while a text tab is open
 function pvFileAnchor(key, main) { // main line where a text file enters the page (include first, import as weak hint)
@@ -1019,12 +946,6 @@ function pvImgHeapPop(h) {
   }
   h[i] = last
   return top
-}
-function pvImgAt(pi, x, y, sx, sy) { // click inside an image box -> that image's source line
-  for (const b of pvImgMatch()) {
-    if (b.page === pi && x >= b.x0 * sx - 2 && x <= b.x1 * sx + 2 && y >= b.y0 * sy - 2 && y <= b.y1 * sy + 2) return b
-  }
-  return null
 }
 function pvImgLineHit(line) { // cursor on an image/figure line -> its rendered box
   const lines = getT().split('\n'), key = activeFile || ''
@@ -1876,6 +1797,8 @@ function syncShow(text) { // source markup -> display text: casing kept, labels/
 function syncNormMap(line) { // normalized text + raw offset of every normalized char (math/ligatures keep their position)
   let s = '', map = []
   for (let i = 0; i < line.length;) {
+    const c = line.charCodeAt(i)
+    if (c < 128 && !(line.charCodeAt(i + 1) >= 0x300)) { s += c >= 65 && c <= 90 ? String.fromCharCode(c + 32) : line[i]; map.push(i); i++; continue } // plain ASCII: nothing to normalize (fast path, the sync map scans whole documents)
     let j = i + (line.codePointAt(i) > 0xffff ? 2 : 1) // one code point …
     while (j < line.length && /\p{M}/u.test(String.fromCodePoint(line.codePointAt(j)))) j += line.codePointAt(j) > 0xffff ? 2 : 1 // … plus its marks: a+¨ -> ä
     const n = line.slice(i, j).normalize('NFKC').toLowerCase().replace(/[­​⁠﻿]/g, '') // soft hyphen / zero-width: no word gap, no letter
@@ -1929,28 +1852,9 @@ function pvCmdLine(s) { // bare command (also "table(", "#set page("): no render
     || /^[\w-]+\s*[\(\[]$/.test(s) // bare table(
     || /^#(?:set|show|let|import|include)\b[^\[]*$/.test(s) // #set page(, #show heading.where(...): no content block
 }
-function syncAnchor(lines, line, pages, sec) { // source line -> word box on paper, section window first
-  let raw = (lines[line - 1] || '').trim()
-  if (!raw) return null
-  const head = raw.match(/^(=+)\s+(.+)$/)
-  const seen = srcViewLine(lines, line) // the same visible text the click side uses: call arguments, code and labels are not words
-  if (seen != null ? !seen.trim() : pvCmdLine(raw)) return null // "#figure(" must never match a generated "Figure 1:" caption prefix; #strong("Hello") still has words
-  if (seen != null) raw = head ? seen : seen.replace(/^caption\s*:\s*/, '') // an orphan "caption: [..]" line (opener out of reach) is still its caption
-  else {
-    if (head) raw = head[2] // heading: the title, not the "=" markers
-    const cap = !head && /^(?:caption\s*:|#(?:figure|table|image|listing|algorithm)\b)/.test(raw) && raw.match(/caption\s*:\s*\[([^\]]*)\]/) // a real caption option, not the word in prose
-    raw = cap ? cap[1] : raw.replace(/^caption\s*:\s*/, '')
-  }
-  const exact = syncPlain(raw)
-  if (exact.length < 4) return null
-  const p0 = sec ? Math.max(0, sec.page) : 0
-  const p1 = sec ? Math.min(pages.length - 1, line === sec.line ? sec.page : sec.endPage) : pages.length - 1 // heading: its own page only
-  const win = pvPageIndex(pages, p0, p1)
-  const hit = (head && pvHeadingHit(win, exact)) || pvFindIn(win, exact)
-  if (hit) return hit
-  if (p0 === 0 && p1 === pages.length - 1) return pvHeadingPick(win, lines, line, exact) // no window: heading context decides
-  const all = pvPageIndex(pages, 0, pages.length - 1) // stale outline: global last resort
-  return pvFind(all.text, all.spans, exact) || pvHeadingPick(all, lines, line, exact) || pvRunPick(all, exact)
+function syncAnchor(lines, line) { // source line of the open tab -> its first word on paper (null: nothing on paper belongs to it)
+  if (!(lines[line - 1] || '').trim()) return null
+  return smHitAt(posOfLine(lines.join('\n'), line))
 }
 const srcViewLines = new WeakMap() // one scan per lines array: syncNearPair and pvSecAtY ask line after line
 function srcViewLine(lines, line) { // visible text of one source line in its document context (null: no scanner loaded)
@@ -1959,78 +1863,6 @@ function srcViewLine(lines, line) { // visible text of one source line in its do
   if (!view) { view = srcViewOf(lines.join('\n')); srcViewLines.set(lines, view) }
   const L = view.lines[line - 1]
   return L ? (L.s || (L.note ? L.note.s : '')) : null // a line inside a footnote body has only its note text
-}
-function pvFindIn(win, exact) { // exact whole words, else a unique 3-6 word run
-  return pvFind(win.text, win.spans, exact) || pvRunPick(win, exact)
-}
-function pvRunPick(win, exact) {
-  return pvRuns(exact).map(run => pvFind(win.text, win.spans, run)).find(Boolean) || null
-}
-function pvHeadingPick(win, lines, line, needle) { // repeated text: the nearest unique preceding heading decides
-  const hits = []
-  let at = -1
-  while ((at = win.text.indexOf(needle, at + 1)) >= 0) {
-    if ((at && win.text[at - 1] !== ' ') || (at + needle.length < win.text.length && win.text[at + needle.length] !== ' ')) continue
-    const span = win.spans.find(s => s.to > at)
-    if (span) hits.push({ ...span, at, items: win.spans.filter(s => s.from < at + needle.length && s.to > at).map(s => s.it) })
-  }
-  if (!hits.length) return null
-  if (hits.length === 1) return hits[0]
-  const headings = lines.slice(0, line - 1).filter(s => /^\s*=+\s/.test(s)).map(syncPlain).reverse()
-  for (const heading of headings) {
-    if (win.text.indexOf(heading) !== win.text.lastIndexOf(heading)) continue // not unique: useless as a marker
-    const scored = hits.map(hit => ({ hit, d: win.text.lastIndexOf(heading, hit.at - 1) })).filter(s => s.d >= 0)
-      .sort((a, b) => (a.hit.at - a.d) - (b.hit.at - b.d))
-    if (scored.length && (scored.length === 1 || scored[0].hit.at - scored[0].d < scored[1].hit.at - scored[1].d)) return scored[0].hit
-  }
-  return null
-}
-function pvPageIndex(pages, p0, p1) { // flat word text of one page window + item spans
-  const parts = [], spans = []
-  let offset = 0
-  for (let pi = p0; pi <= p1; pi++) (pages[pi] || []).forEach(it => {
-    const text = it.nt != null ? it.nt : (it.nt = syncText(it.s || '')) // normalized once per item: every cursor move scans whole windows
-    if (!text) return
-    parts.push(text); spans.push({ from: offset, to: offset + text.length, pi, it })
-    offset += text.length + 1
-  })
-  return { text: parts.join(' '), spans }
-}
-function pvHits(text, spans, needle) { // every whole-word occurrence inside the window
-  const out = []
-  let at = -1
-  while ((at = text.indexOf(needle, at + 1)) >= 0) {
-    if ((at && text[at - 1] !== ' ') || (at + needle.length < text.length && text[at + needle.length] !== ' ')) continue
-    let lo = 0, hi = spans.length // spans are sorted: the first one ending behind the hit, by bisection
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (spans[mid].to > at) hi = mid; else lo = mid + 1 }
-    const span = spans[lo]
-    if (span) {
-      const items = []
-      for (let k = lo; k < spans.length && spans[k].from < at + needle.length; k++) items.push(spans[k].it)
-      out.push({ ...span, at, items })
-    }
-  }
-  return out
-}
-function pvFind(text, spans, needle) { // whole-word, unique within the window (else null)
-  const hits = pvHits(text, spans, needle)
-  return hits.length === 1 ? hits[0] : null
-}
-function pvHeadingHit(win, needle) { // heading page: the biggest type wins over the same word in the body
-  const hits = pvHits(win.text, win.spans, needle)
-  if (!hits.length) return null
-  const top = Math.max(...hits.map(h => h.it.h || 0))
-  const best = hits.filter(h => Math.abs((h.it.h || 0) - top) <= 0.5)
-  return best.length === 1 ? best[0] : null
-}
-function pvRuns(text) { // 6..3 word runs, 12+ chars: lines with inline markup still match the paper text
-  const words = text.split(' ').filter(Boolean), out = []
-  for (let n = Math.min(6, words.length); n >= 3; n--)
-    for (let i = 0; i + n <= words.length; i++) {
-      const run = words.slice(i, i + n).join(' ')
-      if (run.length >= 12) out.push(run)
-    }
-  return out
 }
 function pvViewPage(pv, off) { // page at the reading point: viewport center, shifted to the last preview click
   const pr = pv.getBoundingClientRect(), mid = pr.top + pv.clientHeight / 2 + (off || 0)
@@ -2092,7 +1924,7 @@ function pvFigureStart(lines, line) { // outermost figure/table/image call that 
   for (let k = cand.length - 1; k >= 0; k--) if (line <= pvCallEnd(lines, cand[k])) return cand[k] // farthest open call wins
   return 0
 }
-function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call: its own caption names the page
+function pvFigureHint(lines, line) { // cursor inside a figure call: its own caption names the page
   const from = pvFigureStart(lines, line)
   if (!from) return null
   const to = pvCallEnd(lines, from)
@@ -2101,26 +1933,26 @@ function pvFigureHint(lines, line, pages, sec) { // cursor inside a figure call:
   for (let ln = from; ln <= to; ln++) {
     const s = (lines[ln - 1] || '').trim()
     if (cap) {
-      const hit = syncAnchor(lines, ln, pages, sec)
+      const hit = syncAnchor(lines, ln)
       if (hit) return hit
       if (s.includes(']')) cap = 0
       continue
     }
     if (!/(?:^|[\s,])caption\s*:/.test(s)) continue // same-line captions start on the opener itself
     if (!s.includes(']')) cap = 1
-    const hit = syncAnchor(lines, ln, pages, sec)
+    const hit = syncAnchor(lines, ln)
     if (hit) return hit
   }
   return null
 }
-function syncNearPair(lines, line, pages, sec) { // nearest anchored content above and below (blank/command lines)
+function syncNearPair(lines, line) { // nearest anchored content above and below (blank/command lines)
   const mask = srcMask(lines.join('\n')).split('\n') // a fenced example is text, never a real page/column break
   const scan = (from, to, dir) => {
     for (let ln = from; dir > 0 ? ln <= to : ln >= to; ln += dir) {
       const s = (lines[ln - 1] || '').trim()
       if (!s) continue
       if (/^#(?:pagebreak|colbreak)\b/.test((mask[ln - 1] || '').trim())) return null // text on one side of the break belongs to the other page/column
-      const hit = syncAnchor(lines, ln, pages, sec)
+      const hit = syncAnchor(lines, ln)
       if (hit) return hit
     }
     return null
@@ -2133,10 +1965,10 @@ function syncNearPair(lines, line, pages, sec) { // nearest anchored content abo
     fwd: scan(line + 1, inFig ? end : Math.min(lines.length, line + 12), 1) // inside a figure: its own span only
   }
 }
-function syncNearHit(lines, line, pages, sec) { // blank/command lines still move the paper: next content for a command, the text above for a blank
-  const hint = pvFigureHint(lines, line, pages, sec)
+function syncNearHit(lines, line) { // blank/command lines still move the paper: next content for a command, the text above for a blank
+  const hint = pvFigureHint(lines, line)
   if (hint) return hint
-  const pair = syncNearPair(lines, line, pages, sec)
+  const pair = syncNearPair(lines, line)
   return pvCmdLine(lines[line - 1]) ? (pair.fwd || pair.back) : (pair.back || pair.fwd)
 }
 function pvGuessBetween(pair) { // no anchor on this line: the paper space between the text above and below
@@ -2165,25 +1997,28 @@ function pvGuessLine(line, sec) { // no text anchor at all: proportional inside 
   return { page, x0: 0, x1: 0, y0: within * h, y1: within * h, h: 1, vw: slot ? +slot.dataset.w || h : h, vh: h }
 }
 function syncToPv(force) { // force: explicit navigation (outline/find), works even with follow off
+  const edge = force ? 0 : syncEdge // read once: a stale end from an earlier editor scroll never steers a later sync
+  syncEdge = 0
   const fileTab = !!activeFile && !window.changeSession && /\.typ$/i.test(activeFile) && !isTplKey(activeFile) // an included chapter is on the page too: its text and its own headings (also in the PDF outline) anchor it
   if ((!followAll && !force) || !docId || tplName || (activeFile && !window.changeSession && !fileTab)) return
   if (scrollRestore && !scrollRestore.pv) return // reopened doc: saved preview spot wins over the first follow
   const pv = $('preview')
   if (!pv.scrollHeight || document.body.classList.contains('editonly')) return
+  if (edge && !fileTab) { syncView = -1; syncMiss = false; smoothFollow(pv, edge < 0 ? 0 : pv.scrollHeight - pv.clientHeight); return } // the first or last line of the document is on screen: so is the first or last page
   const lines = getT().split('\n'), at = syncView >= 0 ? syncView : cm.state.selection.main.head
   const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, at))).number
   syncView = -1
   const sec = pvSecAtLine(line)
   const obj = pvImgLineHit(line) || pvMathLineHit(line) // image/formula line: its own box beats any nearby text
   if (obj) { syncMiss = false; pvScrollBox(obj); return }
-  let hit = syncAnchor(lines, line, pvTexts, sec)
+  let hit = smHitAt(at) // the word under the cursor, or the first word its construct printed
   if (!hit) {
-    hit = pvFigureHint(lines, line, pvTexts, sec)
+    hit = pvFigureHint(lines, line)
     if (!hit) { // blank/command line: the spot between its neighbours, else a proportional estimate
       const win0 = sec ? Math.max(0, sec.page) : 0, win1 = sec ? Math.min(pvTexts.length - 1, sec.endPage) : pvTexts.length - 1
       let pending = false // a render is still indexing its pages: no proportional jump now, the retry in pvTextAll follows with real text
       for (let k = win0; k <= win1; k++) if (!pvTextDone[k]) { pending = true; break }
-      const near = pvGuessBetween(syncNearPair(lines, line, pvTexts, sec))
+      const near = pvGuessBetween(syncNearPair(lines, line))
       const guess = near || (pending ? null : (fileTab && !sec ? null : pvGuessLine(line, sec))) // a file line has no ratio on the main document
       if (guess) { syncMiss = false; pvScrollBox(guess); return }
       if (pending) { syncMiss = true; return }
@@ -2208,19 +2043,18 @@ function syncToPv(force) { // force: explicit navigation (outline/find), works e
   else if (Math.abs(dy) > SYNC_PX) smoothFollow(pv, want) // small steps follow without ever restarting
 }
 async function pvSyncDest(dest) { // internal PDF link: the editor cursor follows the same destination
-  if (!syncOn || !docId || tplName || activeFile || !dest) return // a link click is a click: the eye does not gate it
+  if (!syncOn || !docId || tplName || !dest) return // a link click is a click: the eye does not gate it
   const items = pvTexts[dest.page] || [], slot = pvSlots[dest.page]
   if (!items.length || !slot) return
   const hPt = (+slot.dataset.w || 0) * (+slot.dataset.r || 0)
   const vh = items[0].vh || hPt
   const y = dest.top != null ? Math.max(0, Math.min(vh, vh - dest.top * pvScale)) : 0 // dest.top is PDF points, vh viewport units
-  const hint = pvPageHint(dest.page, cm.state.doc.lines || 1, pvTexts.length, pvSecAtY(dest.page, Math.min(vh, y + vh * 0.02)), y / (vh || 1))
   const lx = dest.left != null ? dest.left * pvScale : null // XYZ left: on a two-column page the column decides, not only the height
   const rank = it => { // text that starts at or below the destination first: a location marks the top of its element
     const top = it.y - (it.h || 10) / 2, d = top >= y - 2 ? top - y : (y - top) * 3
-    return d + (lx != null ? Math.abs((it.x0 || 0) - lx) * 0.5 : 0) + (it.y + (it.h || 10) / 2 < y ? (it.h || 10) * 2 : 0)
+    return d + (lx != null ? Math.abs((it.x0 || 0) - lx) * 0.1 : 0) + (it.y + (it.h || 10) / 2 < y ? (it.h || 10) * 2 : 0)
   }
-  const anchor = items.filter(it => it.s.trim()).sort((a, b) => rank(a) - rank(b))[0]
+  const anchor = items.filter(it => /[\p{L}\p{N}]/u.test(it.s || '')).sort((a, b) => rank(a) - rank(b))[0]
   try { // a figure or equation destination: the picture/formula box at that height owns the jump, not the paragraph above it
     const gap = b => !items.some(it => it.s.trim() && it.y > y && it.y < b.y0 && (lx == null || it.x0 + it.w >= b.x0 - 8)) // nothing printed between the destination and the box
     const vw = (items[0] && items[0].vw) || hPt * 0.7
@@ -2236,14 +2070,9 @@ async function pvSyncDest(dest) { // internal PDF link: the editor cursor follow
       return
     }
   } catch (e) {}
-  const needles = anchor ? pvClickNeedles(items, anchor, 0) : []
-  const doc = docId, epoch = openN
-  let ok = false // the text at the destination beats a page ratio (footnote notes, figures); a bibliography entry lives in its .bib file
-  try { ok = needles.length ? await pvJumpBest(needles, hint, dest.page, anchor, true) : false } catch (e) { ok = false }
-  if (doc !== docId || epoch !== openN) return
-  if (!ok && !activeFile) { const gen = anchor ? pvGenLine(items, anchor, dest.page, hint) : -1; jumpPos(gen >= 0 ? gen : posOfLine(getT(), hint)) } // a generated title (bibliography, outline) belongs to its call
-  syncEdOff = -$('preview').clientHeight * 0.38 // destination sits 12% below the preview top: scroll-follow starts there
-  syncEdX = -1
+  if (!anchor) return
+  const M = smMap(), tk = smTokenAt(M, dest.page, items.indexOf(anchor), 0), res = tk ? smResolve(M, tk.ti, 0) : null // the text at the destination; a bibliography entry lives in its .bib file
+  if (res && await smGo(res)) { syncEdOff = -$('preview').clientHeight * 0.38; syncEdX = -1 } // destination sits 12% below the preview top: scroll-follow starts there
 }
 function pvWordChar(c) { return !!c && /[\p{L}\p{N}]/u.test(c) } // whole words only: "pi" must never match inside "Typst"
 function locateNear(t, s, hint) { // nearest whole-word hit to the hint line (short cell texts too)
@@ -2272,6 +2101,7 @@ function cmGlide(pos) { // same rule as the preview: a real jump glides, a small
 }
 function cmJump(pos, holdPv, forcePv) { // smooth editor jump + brief line flash; holdPv: a preview click keeps the preview where it is; forcePv: explicit navigation
   if (syncT) { clearTimeout(syncT); syncT = 0 } // the jump owns the next sync, no stale cursor target
+  syncEdge = 0
   const line = cm.state.doc.lineAt(Math.max(0, Math.min(cm.state.doc.length, pos)))
   const deco = Decoration.set([Decoration.line({ class: 'cm-syncLine' }).range(line.from)])
   syncSkip = true // this selection is the jump, not a reader cursor move
@@ -2430,94 +2260,7 @@ function pvItemDist(it, x, y, sx, sy) { // CSS distance to the text box, never t
   const dy = y < yc - hh ? yc - hh - y : y > yc + hh ? y - yc - hh : 0
   return dx * dx + dy * dy
 }
-function pvNearItems(items, x, y, sx, sy, skip, max) { // nearest readable text: a drawing without text still lands on its caption
-  return items
-    .filter(it => it !== skip && /\p{L}/u.test(it.s || '')) // single-letter words are text too; numbers stay out
-    .map(it => ({ it, d: pvItemDist(it, x, y, sx, sy) }))
-    .filter(o => !max || o.d <= max * max) // max (CSS px): text that far away is another spot, not this click
-    .sort((a, b) => a.d - b.d)
-    .slice(0, 8)
-}
-function pvGenLine(items, it, pi, hint, col) { // clicked text with no source words: the call that generated it sits between the owned text above and below
-  const txt = getT(), lines = txt.split('\n'), mask = srcMask(txt).split('\n')
-  if (col > 0) { // "The value is 5": the words before the click are in the source, the computed token is the expression right behind them
-    const left = pvNormCaret(String(it.s || '').slice(0, col)).s.split(' ').filter(w => /\p{L}/u.test(w)).join(' ')
-    const p = /\p{L}{3}/u.test(left) ? pvViewPos(txt, left, left.length, hint) : -1
-    if (p >= 0) {
-      const at = txt.lastIndexOf('\n', p - 1) + 1, li = txt.slice(0, at).split('\n').length - 1, m = mask[li] || ''
-      for (let j = p - at; j < m.length; j++) if (m[j] === '#') return at + j
-    }
-  }
-  const block = new Set(pvBlockLines(items, it)) // the generated paragraph itself owns nothing
-  const order = items.filter(o => o === it || (o.s.trim() && !o.rot && /\p{L}{2}/u.test(o.s) && !block.has(o))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
-  const k = order.indexOf(it)
-  if (k < 0) return -1
-  const lineAt = p => txt.slice(0, p).split('\n').length
-  const own = o => { const p = pvHerePos(pvClickNeedles(items, o, 0), hint, pi, null, true); return p >= 0 ? { line: lineAt(p), y: o.y } : null }
-  let a = null, b = null, ia = -1, ib = order.length
-  for (let i = k - 1, n = 0; i >= 0 && n < 16 && !a; i--, n++) { a = own(order[i]); if (a) ia = i }
-  for (let i = k + 1, n = 0; i < order.length && n < 16 && !b; i++, n++) {
-    const o = own(order[i])
-    if (o && (!a || o.line > a.line)) { b = o; ib = i } // a footnote at the page bottom comes from a line above: not the text below
-  }
-  if (!a && !b) return -1
-  const from = a ? a.line + 1 : 1, to = b ? b.line - 1 : lines.length
-  if (to < from) return -1 // the neighbours are adjacent source lines: the text came from inside one of them
-  const calls = []
-  for (let ln = from; ln <= to; ln++) {
-    const s = (mask[ln - 1] || '').trim()
-    if (/^#(?!set\b|show\b|let\b|import\b|include\b)[\p{L}_]/u.test(s) || /^#[({[]/.test(s)) calls.push(ln)
-  }
-  if (!calls.length) return -1
-  const groups = [] // generated blocks between the owned neighbours, in reading order: the n-th block is the n-th call
-  let mine = -1
-  for (let i = ia + 1; i < ib; i++) {
-    const o = order[i], last = groups[groups.length - 1]
-    if (!last || !last.has(o)) groups.push(new Set(o === it ? block : pvBlockLines(items, o)))
-    if (o === it) mine = groups.length - 1
-  }
-  let ln
-  if (groups.length === calls.length && mine >= 0) ln = calls[mine]
-  else if (a && b) { // several generators in the gap and no clean count: the click height picks one
-    const f = Math.max(0, Math.min(0.999, (it.y - a.y) / Math.max(1, b.y - a.y)))
-    ln = calls[Math.floor(f * calls.length)]
-  } else ln = a ? calls[0] : calls[calls.length - 1]
-  return posOfLine(txt, ln) + ((lines[ln - 1] || '').length - (lines[ln - 1] || '').trimStart().length)
-}
-function pvOlEq(pdfText, srcTitle) { // same heading; a numbering prefix on the PDF side is fine
-  const x = syncPlain(pdfText), y = syncPlain(srcTitle)
-  if (!x || !y) return false
-  return x === y || x.replace(/^(?:\d+(?:\s+\d+)*|[a-z]|[ivxlcdm]+)\s+/, '') === y
-}
-function pvOutlineClick(pi, items, x, y, sx, sy) { // blank spot in the rendered #outline(): keep the cursor at the outline, not on a heading below
-  const oi = srcOutlineLine(getT()) // real #outline( only: a fenced code sample is not the outline
-  if (!oi) return 0
-  const heads = []
-  let srcs = [{ key: '', text: getT() }]
-  try { srcs = pvSrcList() } catch (e) {}
-  for (const src of srcs) if (src && src.text && (!src.key || /\.typ$/i.test(src.key))) for (const h of srcHeadings(src.text)) if (h.title) heads.push(h.title) // included chapters have outline entries too
-  const pad = 12 // one blank line around an entry still belongs to the outline
-  let first = null
-  for (const L of pvLinks[pi] || []) {
-    if (!L.dest) continue // external links are not outline entries
-    const mid = (L.y0 + L.y1) / 2, hh = Math.max(6, (L.y1 - L.y0) / 2 + 2)
-    const entry = items.some(it => {
-      if (it.x0 >= L.x1 || it.x0 + it.w <= L.x0 || Math.abs(it.y - mid) > hh) return false
-      return heads.some(h => pvOlEq(it.s, h)) // exact heading, not a loose substring
-    })
-    if (!entry) continue
-    if (!first || L.y0 < first.y0) first = L
-    if (x >= L.x0 * sx - pad && x <= L.x1 * sx + pad && y >= L.y0 * sy - pad && y <= L.y1 * sy + pad) return oi
-  }
-  if (!first) return 0
-  const eh = Math.max(10, first.y1 - first.y0) // the outline title ("Contents") right above the first entry is generated by #outline() too
-  const title = items.filter(it => it.s.trim() && !it.rot && it.y < first.y0 && first.y0 - (it.y + (it.h || 10) / 2) <= eh * 3)
-    .sort((a, b) => b.y - a.y)[0]
-  if (!title || heads.some(h => pvOlEq(title.s, h)) || pvItemDist(title, x, y, sx, sy) > 16) return 0
-  try { if (pvHerePos(pvClickNeedles(items, title, 0), oi, pi, null, true) >= 0) return 0 } catch (e) {} // a title the source spells out (#outline(title: [..])) maps to its own words
-  return oi
-}
-$('preview').addEventListener('click', async e => { // preview -> editor: text anchors first (tables!), then nearest text, else section
+$('preview').addEventListener('click', async e => { // preview -> editor: the word, formula or picture under the click, free space takes the nearest line
   if (e.target.closest && e.target.closest('.pvLinks a')) return // PDF link: native open or internal jump, never source sync
   if (window.Present?.isOn()) return // slides: a preview click must not move the hidden editor
   if (!syncOn || !docId || tplName) return
@@ -2525,99 +2268,19 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
   smoothStop(pv) // an explicit click wins over a jump or follow still in flight
   const cv = e.target.closest ? e.target.closest('canvas') : null
   const pi = cv && pvTexts.length ? pvCanvasList().indexOf(cv) : -1 // canvas only, ignore .empty divs
-  let at = null
-  if (cv && pvTexts.length) {
-    const items = pi >= 0 ? (pvTexts[pi] || []) : []
-    if (!items.length && !pvTextDone[pi]) return // render between reset and swap: the old canvas has no anchors yet
-    const r = cv.getBoundingClientRect()
-    const x = e.clientX - r.left, y = e.clientY - r.top
-    const vw = (items[0] && items[0].vw) || cv.width || 1
-    const vh = (items[0] && items[0].vh) || cv.height || 1
-    const sx = r.width / vw, sy = r.height / vh
-    syncEdOff = Math.max(1 - pv.clientHeight / 2, Math.min(pv.clientHeight / 2 - 1, e.clientY - (pv.getBoundingClientRect().top + pv.clientHeight / 2)))
-    syncEdX = x / (r.width || 1) // the clicked column keeps owning follow on two-column pages
-    if (pi === 0 && items.length && !activeFile) { // above the first heading: the document top (#outline/title), not the first heading (page 1 belongs to main.typ)
-      const first = srcHeadings(getT())[0]
-      let topY = Infinity
-      if (first) {
-        const pre = srcMask(getT()).split('\n').slice(0, first.line - 1).some(l => { // comments/labels/statements are not visible text
-          const s = l.trim()
-          return !!s && !pvCmdLine(s) && !/^#(?:set|show|let|import|include)\b/.test(s) && !!syncShow(s).trim()
-        })
-        if (!pre) {
-          const h = syncAnchor(getT().split('\n'), first.line, pvTexts, pvSecAtLine(first.line))
-          if (h && h.pi === 0) topY = (h.it.y - (h.it.h || 10) / 2) * sy
-          else { // first heading on a later page: page 1 is the generated outline, its first entry is the boundary
-            const links = (pvLinks[0] || []).filter(L => L.dest)
-            if (links.length) topY = Math.min(...links.map(L => L.y0)) * sy
-          }
-        }
-      } else for (const it of items) if (!it.rot && it.s.trim()) topY = Math.min(topY, (it.y - (it.h || 10) / 2) * sy) // no heading: only the margin above all text
-      const onText = items.some(it => it.s.trim() && pvItemDist(it, x, y, sx, sy) <= 4) // a page header is text, not the margin above the heading
-      if (!onText && isFinite(topY) && y < topY) {
-        const lines = getT().split('\n')
-        let ln = 1
-        while (ln < lines.length && !lines[ln - 1].trim()) ln++
-        syncPage = 0
-        jumpPos(posOfLine(getT(), ln))
-        return
-      }
-    }
-    const ol = pvOutlineClick(pi, items, x, y, sx, sy)
-    if (ol) { syncPage = pi; jumpPos(posOfLine(getT(), ol)); return } // beside an outline entry: stay at the outline line
-    const rr = CLICK_PX / 2 // CSS pixels, independent of zoom and render scale
-    let best = null, bd = rr * rr
-    for (const it of items) {
-      if (!it.s.trim()) continue // rotated runs carry their own baseline angle
-      const dd = pvItemDist(it, x, y, sx, sy)
-      if (dd < bd) { bd = dd; best = it }
-    }
-    const yv = best ? best.y : y / (r.height || 1) * vh
-    at = pi >= 0 ? pvSecAtY(pi, yv) : null
-    const total = cm.state.doc.lines || 1
-    const hintAt = y => pvPageHint(pi, total, pvTexts.length, at, y / vh)
-    const file0 = activeFile
-    const mh = pvMathAt(pi, x, y, sx, sy) // display formula: its source line beats glyph needles
-    if (mh && await pvJumpMath(mh)) return
-    const ih = pvImgAt(pi, x, y, sx, sy)
-    const onText = best && bd <= 4 // really on the glyphs, not merely near them (a caption below a figure)
-    if (ih && !onText) { if (await pvJumpSrc(ih.src, 0)) return } // inside the image: the image call owns the click
-    if (best) {
-      const hint = hintAt(yv)
-      const col = pvClickCol(best, x, y, r.width, r.height, cv.width, cv)
-      if (await pvJumpBest(pvClickNeedles(items, best, col), hint, pi, best)) return
-    }
-    if (ih && await pvJumpSrc(ih.src, 0)) return
-    if (!activeFile && !ih && best && bd <= 4 && !/\p{L}/u.test(best.s) && (yv < vh * 0.07 || yv > vh * 0.93)) { // a click on a generated page number in the margin: the page setup owns it, not the last paragraph (text near the margin keeps its own line)
-      const set = srcMask(getT()).split('\n').findIndex(l => /#set\s+page\s*\(/.test(l))
-      if (set >= 0) { syncPage = pi; jumpPos(posOfLine(getT(), set + 1)); return }
-    }
-    if (onText && activeFile === file0 && yv > vh * 0.07 && yv < vh * 0.93 && /\p{L}{3}/u.test(best.s)) { // generated prose (#lorem, a function, a package): the code line between the text above and below that the source owns; a chart label ("A", "40") keeps its caption
-      const gen = pvGenLine(items, best, pi, hintAt(yv), pvClickCol(best, x, y, r.width, r.height, cv.width, cv))
-      if (gen >= 0) { syncPage = pi; jumpPos(gen); return }
-    }
-    if (!best || activeFile === file0) { // no text under the click: nearby readable text still owns the spot
-      const cap = pvImgHit(pi, x, y, sx, sy) ? CLICK_PX * 1.5 : 0 // inside a picture: no far paragraph as stand-in for its missing source
-      for (const { it: near } of pvNearItems(items, x, y, sx, sy, best, cap)) {
-        const col = pvClickCol(near, x, y, r.width, r.height, cv.width, cv) // blank space above/below a line still has a word column
-        if (pvJumpHere(pvClickNeedles(items, near, col), hintAt(near.y), pi, near)) return
-      }
-    }
-    syncPage = pi >= 0 ? pi : syncPage // even without hit: next sync starts on click page
-    if (activeFile !== file0) return // the jump already tried another file: no section guess
-    if (activeFile) return // image/margin click in a file tab: ratio maps main layout onto file text
-  } else if (activeFile) return // no canvas hit in a file tab: nowhere honest to go
-  if (at && at.sec) { // no source text within reach: the section start is the honest anchor
-    jumpPos(posOfLine(getT(), at.sec.line))
-    return
-  }
-  if (pvSrcList().length > 1) return // included files destroy a main-line/layout ratio
-  const r = pv.getBoundingClientRect() // fallback for a single source only
-  const ratio = Math.max(0, Math.min(1, (e.clientY - r.top + pv.scrollTop) / pv.scrollHeight))
-  const lines = getT().split('\n'), total = lines.length || 1
-  let line = Math.max(1, Math.min(total, Math.round(ratio * total) + 1))
-  while (line > 1 && !lines[line - 1].trim()) line-- // snap to paragraph start
-  jumpPos(posOfLine(getT(), line))
+  if (pi < 0) return
+  const items = pvTexts[pi] || []
+  if (!items.length && !pvTextDone[pi]) return // render between reset and swap: the old canvas has no anchors yet
+  const r = cv.getBoundingClientRect()
+  const x = e.clientX - r.left, y = e.clientY - r.top
+  const vw = (items[0] && items[0].vw) || cv.width || 1
+  const vh = (items[0] && items[0].vh) || cv.height || 1
+  syncEdOff = Math.max(1 - pv.clientHeight / 2, Math.min(pv.clientHeight / 2 - 1, e.clientY - (pv.getBoundingClientRect().top + pv.clientHeight / 2)))
+  syncEdX = x / (r.width || 1) // the clicked column keeps owning follow on two-column pages
+  syncPage = pi
+  if (await smClick(pi, items, x, y, r.width / vw, r.height / vh, r.width, r.height, cv) || activeFile) return
+  const at = pvSecAtY(pi, y / (r.height || 1) * vh) // a page without text (pagebreaks, a full-page drawing): the section it belongs to
+  if (at && at.sec) jumpPos(posOfLine(getT(), at.sec.line))
 })
 $('syncBtn').onclick = () => { syncOn = !syncOn; lsSet('typst_follow_all', followAll ? 1 : 0); lsSet('typst_sync', syncOn ? 1 : 0); applySyncBtn(); try { updPos() } catch (e) {} } // eye first: a dropped second write must not re-arm the legacy fallback
 $('followBtn').onclick = () => { followAll = !followAll; lsSet('typst_follow_all', followAll ? 1 : 0); applyFollowBtn() }

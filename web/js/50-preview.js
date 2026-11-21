@@ -587,9 +587,6 @@ function pvImgBoxes() { // stable images in reading order: a logo repeated at th
   out.sort((a, b) => a.page - b.page || a.y0 - b.y0 || a.x0 - b.x0)
   return out
 }
-function pvImgHit(pi, x, y, sx, sy) { // any raw image under the click, with or without a source match
-  return (pvImgs[pi] || []).some(b => x >= b.x0 * sx - 2 && x <= b.x1 * sx + 2 && y >= b.y0 * sy - 2 && y <= b.y1 * sy + 2)
-}
 function pvImgRepeat(pi, b) { // same size and spot on another page: header/footer decoration (ids differ per page)
   for (let k = 0; k < pvImgs.length; k++) {
     if (k === pi) continue
@@ -818,10 +815,6 @@ function srcHeadings(t) { // source headings outside raw blocks/comments (line, 
   }
   return out
 }
-function srcOutlineLine(t) { // line of a real #outline( call outside raw/code (0: none)
-  const i = srcMask(t).split('\n').findIndex(s => /#outline\s*\(/.test(s))
-  return i < 0 ? 0 : i + 1
-}
 function pvOlNorm(s) { return syncPlain(String(s)).replace(/^\d+(?:\s+\d+)*\s+/, '') } // heading text: no labels/markup, no "1.2 "
 function pvOlBare(s) { return pvOlNorm(s).replace(/^(?:\d+(?:\s+\d+)*|[a-z]|[ivxlcdm]+)\s+/, '') } // also letters/roman: template numbering
 function pvOlMatch(text, from, anyGen) { // PDF bookmark index for a source heading, in document order; -1: not in the outline
@@ -869,7 +862,7 @@ function pvSecAtY(pi, y) { // preview point -> section: several headings share a
   for (const s of secs) {
     if (s.page > pi) { next = s; break }
     if (s.page < pi) { sec = s; continue }
-    const hit = syncAnchor(lines, s.line, pvTexts, { ...s, endPage: s.page })
+    const hit = syncAnchor(lines, s.line)
     if (!hit || hit.it.y <= y) sec = s
     else { next = s; break }
   }

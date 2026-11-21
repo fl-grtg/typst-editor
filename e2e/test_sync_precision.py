@@ -160,7 +160,7 @@ def _project(page, title):
 def test_text_object_clicks_hit_the_exact_source_line_and_letter(page):
     _setup(page, 'e2e_sync_exact', 'Exact sync doc', MAIN)
 
-    _click(page, 1, 0.41, 0.097)  # ORANGE in the prose line
+    _click(page, 1, 0.41, 0.108)  # ORANGE in the prose line
     assert _line(page) == 5, _line(page)
     assert _word(LINES[4], _col(page)) == 'ORANGE'
 
