@@ -82,7 +82,7 @@ def test_document_is_its_title_and_typ_suffix_is_accepted(solo):
     c, pid, a = solo
     doc(c, pid, "Intro", "line1\nline2\n")
     r = a("read", path="/Report/Intro.typ")
-    assert r["path"] == "/Report/Intro" and r["content"] == "line1\nline2\n" and r["total_lines"] == 3
+    assert r["path"] == "/Report/Intro" and r["content"] == "line1\nline2\n" and r["total_lines"] == 2
     assert a("read", path="/Report/intro", limit=1)["content"] == "line1"
     assert a.fail("read", path="/Report/Nope")["code"] == "not_found"
 
@@ -282,3 +282,43 @@ def test_conversions_keep_the_folder(solo):
     r = c.post(f"/api/projects/{pid}/convert", json={"doc_id": main, "name": "part.typ", "to": "document"})
     assert r.status_code == 200
     assert a("read", path="/Report/Kapitel/part")["content"] == "= Part\n"  # lands next to its document
+
+
+def test_paths_are_returned_as_stored_and_junk_is_refused(solo):
+    c, pid, a = solo
+    made = a("write", path="/Report/Über uns/Größe", content="x")
+    assert a("read", path=made["path"])["content"] == "x"  # the echoed path is the one that works
+    a("write", path="/Report/Doc", content="d")
+    pic = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    assert a.fail("write", path="/Report/Typo/a.png", content_base64=pic)["code"] == "not_found"  # no junk document
+    assert a("write", path="/Report/Doc/ü bild.png", content_base64=pic)["path"].endswith("/_ bild.png")
+    assert a.fail("delete", path="/Report/Nowhere/")["code"] == "not_found"
+    assert a.fail("read", path="/Report/Doc", limit=-1)["code"] == "bad_request"
+    assert a.fail("write", path="/Report/Doc", content="y")["message"].startswith("base_version is missing")
+
+
+def test_comment_validates_anchors_and_search_finds_modules(solo):
+    c, pid, a = solo
+    doc(c, pid, "Notes", "alpha\nbeta\n")
+    assert a.fail("comment", path="/Report/Notes", text="x", quote="nope")["code"] == "bad_request"
+    assert a.fail("comment", path="/Report/Notes", text="x", line=99)["code"] == "bad_request"
+    cid = a("comment", path="/Report/Notes", text="ok", line=2)["id"]
+    assert a.fail("comment", path="/Report/Notes", text="edit?", id=cid)["code"] == "bad_request"
+    a("write", path="/Report/.library/helper.typ", content="#let h = 1")
+    assert {"path": "/Report/.library/helper.typ", "kind": "module", "count": 0, "line": 0, "snippet": ""} in a("search", query="helper")["hits"]
+    assert a.fail("search", query="helper", kind="bogus")["code"] == "bad_request"
+    assert a.fail("search", query="helper", path="/Nope")["code"] == "not_found"
+
+
+def test_conversions_honour_names_and_refuse_attachment_loss(solo):
+    c, pid, a = solo
+    doc(c, pid, "Main", "= M\n")
+    a("write", path="/Report/Main/part.typ", content="p")
+    assert a("move", path="/Report/Main/part.typ", to="/Report/.library/renamed.typ")["converted"] == "file to module"
+    assert a("read", path="/Report/.library/renamed.typ")["content"] == "p"
+    doc(c, pid, "Solo", "s")
+    a("write", path="/Report/Solo/pic.txt", content="t")
+    assert a.fail("move", path="/Report/Solo", to="/Report/.library/sub/Solo.typ")["code"] == "conflict"  # attachments would be left behind
+    a("delete", path="/Report/Solo/pic.txt")
+    assert a("move", path="/Report/Solo", to="/Report/.library/sub/Teil.typ")["converted"] == "document to module"
+    assert a("read", path="/Report/.library/sub/Teil.typ")["content"] == "s"

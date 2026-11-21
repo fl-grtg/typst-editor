@@ -109,6 +109,8 @@ def _apply_op(con, ctx: Ctx, pid: str, op: dict, files: dict) -> None:
         _modify(con, pid, files, _stub(node), op["new"], False)
         return
     node = resolve(ctx, op["path"], create=kind == "write")
+    if node.get("project_id") != pid:
+        raise err(400, "bad_path", f"{op['path']} is not in this project", hint="every op path starts with the project path")
     if kind == "write":
         _write_op(con, pid, op, node, files)
     elif kind == "edit":
@@ -262,10 +264,16 @@ def comment(ctx: Ctx, path: str, text: str = "", quote: str = "", line: int = 0,
         return rc.resolve_comment(node["doc_id"], id, ResolveSet(resolved=bool(resolved)), req, ctx.user)
     if not text.strip() or len(text) > 2000:
         raise err(400, "bad_request", "Comment text: 1-2000 characters")
+    if id:
+        raise err(400, "bad_request", "id is for resolved=true/false or delete=true; reply with reply_to=<thread id>")
     anchor = line
-    if quote and not line:
-        doc = doc_text(node["doc_id"])
-        anchor = doc[:doc.find(quote)].count("\n") + 1 if quote in doc else 1
+    doc = doc_text(node["doc_id"])
+    if quote:
+        if quote not in doc:
+            raise err(400, "bad_request", "quote is not in the document", hint="copy it from read, or use line")
+        anchor = doc[:doc.find(quote)].count("\n") + 1 if not line else line
+    if line > len(doc.split("\n")):
+        raise err(400, "bad_request", f"line {line} is past the end ({len(doc.splitlines())} lines)")
     cid, ref = db.new_id("c_"), None
     con = db.connect()
     try:

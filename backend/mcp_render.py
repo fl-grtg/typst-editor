@@ -35,7 +35,17 @@ def _compile_error(e: HTTPException, node: dict) -> HTTPException:
     """Diagnostics name the document by its path instead of the compile entry file."""
     d: dict = e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}
     diags = [{**x, "file": _label(x.get("file"), node)} for x in d.get("diagnostics", [])]
-    return err(422, "compile_error", d.get("message", "compile error"), diagnostics=diags)
+    return err(422, "compile_error", _clean(d.get("message", "compile error"), node), diagnostics=diags)
+
+
+def _clean(text: str, node: dict) -> str:
+    """Compiler output without the server's temp directory."""
+    out = []
+    for word in text.split(" "):
+        parts = word.replace("\\", "/").split("/")
+        hit = next((i for i, seg in enumerate(parts) if seg.startswith(("check-doc-", "export-doc-", "mcp-view-"))), None)
+        out.append("/".join(parts[hit + 1:]) if hit is not None else word)
+    return " ".join(out).replace(render.ENTRY, node["path"])
 
 
 def _source(node: dict):
@@ -46,10 +56,12 @@ async def render_doc(ctx: Ctx, path: str, pages: str = "", scale: float = 1.0):
     node = _doc(ctx, path)
     main_text, files, _ = await asyncio.to_thread(_source, node)
     try:
+        info = await asyncio.to_thread(render.check_source, main_text, files)
         if not pages:
-            info = await asyncio.to_thread(render.check_source, main_text, files)
-            return {"path": node["path"], "ok": True, **info}
+            return {"path": node["path"], "ok": True, **info, "warnings": [{**w, "file": _label(w.get("file"), node)} for w in info["warnings"]]}
         wanted = render._expand_pages(pages)
+        if info["pages"] and max(wanted) > info["pages"]:
+            raise err(400, "bad_request", f"The document has {info['pages']} page(s); pages {pages!r} is out of range")
         ppi = render._check_scale(scale)
         arg = ",".join(str(p) for p in wanted)
         key = render._view_key(node["doc_id"], main_text, files, arg, ppi)

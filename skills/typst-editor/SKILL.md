@@ -23,7 +23,8 @@ Connect: `<server>/mcp`, header `Authorization: Bearer tpe_...` (the user create
 - `write` over an existing text needs `base_version` (or `force=true`). Binary files: `content_base64`, or `upload` (one-time curl link) above ~100 KB. `copy_from` copies server-side.
 - `move` renames/moves documents, attachments, modules, folders (paths end with `/`), projects; quoted references are rewritten. A `.typ` attachment moved to a document path becomes a document, moved to `/P/.library/…` a module; a module moved to a document path becomes a document, a document moved to `/P/.library/…` a module (`broken_references` lists texts that still include it).
 - `render` without `pages` is the cheap check; fix every error before looking at images.
-- `export` returns a one-time `url` (curl it) and, when small, `content_base64`.
+- In Typst source, an attachment is referenced relative to its document (`#image("img/a.png")`), a module by its path under `.library` (`#include "helper.typ"`). Documents cannot be included; `outline` shows what each import resolves to.
+- `export` returns a `url` valid for 5 minutes (curl it) and, when small, `content_base64`; `upload` links work once. Roughly 40 calls per 16 s are allowed.
 
 ## Proposals
 

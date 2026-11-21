@@ -62,6 +62,9 @@ def _fail(e: HTTPException) -> ToolError:
     d.setdefault("code", _code(e.status_code))
     if retry := (e.headers or {}).get("Retry-After"):
         d["retry_after"] = int(retry)
+    elif e.status_code == 429:
+        d["retry_after"] = 60
+        d.setdefault("hint", "wait and retry once; the limit is per minute")
     return ToolError(json.dumps(d, ensure_ascii=False))
 
 
@@ -148,7 +151,7 @@ async def edit(path: str, edits: list[Edit], base_version: str = "", package: st
 
 @mcp.tool()
 async def move(path: str, to: str, fix_refs: bool = True, package: str = "") -> dict:
-    """Rename or move inside one project: a document (new title and/or folder), an attachment (inside its document), a module, a folder (end both paths with /), a project (/NewTitle), a template, or restore /.trash/<id> (to="/"). Quoted references to a moved file or module are rewritten when fix_refs is true."""
+    """Rename or move inside one project: a document (new title and/or folder), an attachment (inside its document), a module, a folder (end both paths with /), a project (/NewTitle), a template, or restore /.trash/<id> (to="/"; it returns to its original place). Quoted references to a moved file or module are rewritten when fix_refs is true."""
     return await _run("move", path, lambda c, b: fs.move(c, path, to, fix_refs, package))
 
 
@@ -172,7 +175,7 @@ async def render(path: str, pages: str = "", scale: float = 1.0) -> ToolResult |
 
 @mcp.tool(annotations=READ_ONLY)
 async def export(path: str, format: str = "pdf", pdf_standard: str = "none", pages: str = "", ppi: int = 0) -> dict:
-    """Export a document as pdf, svg, png or zip (sources), or fetch any file/module/template. Returns a one-time download url (curl it) and, when small, content_base64."""
+    """Export a document as pdf, svg, png (several pages arrive as a zip) or zip (sources), or fetch any file/module/template. ppi 72-300 for png. Returns a download url valid for 5 minutes (curl it) and, when small, content_base64."""
     return await _run("export", path, lambda c, b: mcp_render.export(c, path, b, format, pdf_standard, pages, ppi))
 
 

@@ -482,6 +482,7 @@ class ConvertEntry(BaseModel):
     doc_id: str = Field(default='', max_length=100)  # '' = a project module
     name: str = Field(default='', max_length=240)
     document: bool = False  # doc_id is a document itself (name ignored): it becomes a module
+    target: str = Field(default='', max_length=240)  # module name to create (default: the old name)
     to: Literal['document', 'module']
     title: str = Field(default='', max_length=100)
     folder: str = Field(default='', max_length=240)
@@ -491,6 +492,10 @@ class Demote(BaseModel):
     doc_id: str = Field(max_length=100)
     target_doc_id: str = Field(max_length=100)
     name: str = Field(default='', max_length=240)
+
+
+def con_files(doc_id: str) -> bool:
+    return bool(store.list(doc_id))
 
 
 @router.post('/api/projects/{project_id}/convert')
@@ -530,13 +535,15 @@ async def convert_entry(project_id: str, b: ConvertEntry, req: Request, user: st
             raise FileNotFoundError(name)
     except (FileNotFoundError, UnicodeDecodeError):
         raise HTTPException(404, 'Text file not found') from None
-    source_dir = title_row['folder'] if b.document else posixpath.dirname(name) if not b.doc_id else ''
+    source_dir = (title_row['folder'] if title_row else '') if b.document else posixpath.dirname(name) if not b.doc_id else ''
     parts = [x for x in (source_dir or '').split('/') if x]
     with db.tx() as con:  # an emptied folder stays: folders live only through their entries, so give it a row of its own
         for i in range(1, len(parts) + 1):
             con.execute('INSERT OR IGNORE INTO project_folders VALUES (?,?,?)', (project_id, '/'.join(parts[:i]), db.now_iso()))
+    if b.document and con_files(b.doc_id):
+        raise HTTPException(409, 'This document has attachments; move or delete them first')
     if b.to == 'module':
-        made = save_resource(project_id, ResourceSave(name=resource_name(name, new=True), content=text), req, user)
+        made = save_resource(project_id, ResourceSave(name=resource_name(b.target or name, new=True), content=text), req, user)
         if b.document:
             await _delete_doc(b.doc_id, req, user, trash_only=True)
         else:

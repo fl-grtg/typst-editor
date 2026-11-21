@@ -30,7 +30,7 @@ from backend import db, deps, search, sync
 from backend.constants import MAX_TXT, TITLE_MAX, UPLOAD_MAX
 from backend.services import apikeys, projects, quota, resources, trash
 from backend.services import snapshots as snapsvc
-from backend.services.docfiles import store
+from backend.services.docfiles import safe_name, store
 
 TEXT = deps.TEXT_SUFFIX
 IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -159,6 +159,8 @@ def resolve(ctx: Ctx, path: str, create: bool = False) -> dict:
                 if not create:
                     raise err(404, "not_found", f"No module {name!r}", hint=f"ls {_fmt(p, [LIB])}")
                 node["kind"] = "new_module"
+                node["name"] = clean = safe_name(name, new=True)
+                node["path"] = _fmt(p, [LIB, clean])
             return node
         if rest[0] == PROP:
             node = {**base, "kind": "proposals" if len(rest) == 1 else "proposal", "id": "/".join(rest[1:]), "path": _fmt(p, rest)}
@@ -179,20 +181,30 @@ def resolve(ctx: Ctx, path: str, create: bool = False) -> dict:
         if slash or (is_folder and not create):
             if not (create or is_folder):
                 raise err(404, "not_found", f"No folder {folder!r}")
-            return {**base, "kind": "folder" if is_folder else "new_folder", "folder": folder, "path": _fmt(p, rest)}
+            if not is_folder:
+                from backend.routers.project_folders import folder_path
+                folder = folder_path(folder)
+            return {**base, "kind": "folder" if is_folder else "new_folder", "folder": folder, "path": _fmt(p, folder.split("/"))}
         if not create:
             raise err(404, "not_found", f"Nothing at {path!r}", hint=f"ls {_fmt(p, rest[:-1])}")
         for i in range(len(rest) - 1, 0, -1):  # the longest existing document in front of the name owns the file
             parent = _doc_row(con, p["id"], "/".join(rest[:i - 1]), rest[i - 1])
             if parent and not con.execute("SELECT 1 FROM project_folders WHERE project_id=? AND path=?", (p["id"], "/".join(rest[:i]))).fetchone():
                 role = apikeys.cap_min(ctx.cap, db.role_on(con, ctx.user, parent["id"]) or "")
-                name = "/".join(rest[i:])
+                name = safe_name("/".join(rest[i:]), new=True)
                 return {**base, "role": role, "kind": "new_file", "doc_id": parent["id"], "name": name, "title": parent["title"],
                         "path": _fmt(p, [x for x in [parent["folder"], parent["title"]] if x] + [name])}
+        ext = posixpath.splitext(rest[-1])[1].lower()
+        if ext in deps.ALLOWED_IMG and ext != ".typ":
+            raise err(404, "not_found", f"No document {'/'.join(rest[:-1])!r} to attach {rest[-1]!r} to", hint="create the document first, then write the file under it")
         title = rest[-1][:-4] if rest[-1].lower().endswith(".typ") else rest[-1]
         if not title.strip() or len(title) > TITLE_MAX:
             raise err(400, "bad_path", f"Document title: 1-{TITLE_MAX} characters")
-        return {**base, "kind": "new_doc", "title": title.strip(), "folder": "/".join(rest[:-1]), "path": _fmt(p, rest[:-1] + [title.strip()])}
+        folder = "/".join(rest[:-1])
+        if folder:
+            from backend.routers.project_folders import folder_path
+            folder = folder_path(folder)
+        return {**base, "kind": "new_doc", "title": title.strip(), "folder": folder, "path": _fmt(p, [*([folder] if folder else []), title.strip()])}
     finally:
         con.close()
 
@@ -315,10 +327,12 @@ def open_comments(doc_id: str) -> list[dict]:
 def _window(text: str, offset: int, limit: int) -> tuple[str, int]:
     lines = text.split("\n") if text else []
     sel = lines[max(offset, 1) - 1:] if not limit else lines[max(offset, 1) - 1:max(offset, 1) - 1 + limit]
-    return "\n".join(sel), len(lines)
+    return "\n".join(sel), len(lines) - (1 if lines and lines[-1] == "" else 0)  # the newline that ends the last line starts no line
 
 
 def read(ctx: Ctx, path: str, offset: int = 1, limit: int = 0, want_outline: bool = False, snapshot: str = ""):
+    if offset < 1 or limit < 0:
+        raise err(400, "bad_request", "offset starts at 1, limit is 0 (all) or a line count")
     node = resolve(ctx, path)
     kind = node["kind"]
     if kind == "proposal":
@@ -563,7 +577,7 @@ async def propose(ctx: Ctx, node: dict, op: dict, package: str = "") -> dict:
 def source(ctx: Ctx, content: str | None, content_base64: str, from_path: str) -> tuple[bytes | None, bool]:
     """(bytes, came as text) from exactly one of content, content_base64 or an existing path."""
     if sum(x not in (None, "") for x in (content, content_base64, from_path)) > 1:
-        raise err(400, "bad_request", "Give only one of content, content_base64 and from")
+        raise err(400, "bad_request", "Give only one of content, content_base64 and copy_from")
     if content_base64:
         try:
             return base64.b64decode(content_base64, validate=True), False
@@ -600,7 +614,7 @@ async def write(ctx: Ctx, path: str, content: str | None = None, content_base64:
     binary = kind in ("file", "new_file") and not (as_text and is_text(node["name"]))
     def check(current: bytes) -> None:
         if not force and base_version != version(current):
-            raise err(409, "stale_version", "It changed since you read it, or base_version is missing",
+            raise err(409, "stale_version", "It changed since you read it" if base_version else "base_version is missing: overwriting needs the version from read",
                       version=version(current), hint="read it first, or pass force=true")
 
     def replaced(old: str) -> str:
@@ -754,6 +768,8 @@ async def move(ctx: Ctx, path: str, to: str, fix_refs: bool = True, package: str
         need_write(node)
         await asyncio.to_thread(rename_folder, node["project_id"], FolderRename(path=node["folder"], target=dest["folder"]), req, ctx.user)
         return {"path": dest["path"], "note": "References to files inside are not rewritten"}
+    if kind == "file" and dest["kind"] == "new_doc" and not node["name"].lower().endswith(".typ"):
+        raise err(400, "bad_path", "Only .typ files become documents; rename a file with a path inside its own document")
     if _is_convert(node, dest):
         if not _proposing(ctx, node):
             return await _convert(ctx, node, dest)
@@ -782,7 +798,7 @@ async def _convert(ctx: Ctx, node: dict, dest: dict) -> dict:
     need_write(node)
     req = fake_request(ctx.user)
     if node["kind"] == "doc" and dest["kind"] == "new_module":
-        await rp.convert_entry(node["project_id"], rp.ConvertEntry(doc_id=node["doc_id"], document=True, to="module"), req, ctx.user)
+        await rp.convert_entry(node["project_id"], rp.ConvertEntry(doc_id=node["doc_id"], document=True, to="module", target=dest["name"]), req, ctx.user)
         return {"path": dest["path"], "converted": "document to module"}
     if node["kind"] == "doc":
         await rp.demote_doc(node["project_id"], rp.Demote(doc_id=node["doc_id"], target_doc_id=dest["doc_id"], name=dest["name"]), req, ctx.user)
@@ -792,7 +808,7 @@ async def _convert(ctx: Ctx, node: dict, dest: dict) -> dict:
     to: Literal["document", "module"] = "module" if dest["kind"] == "new_module" else "document"
     broken = [] if to == "module" else sorted({_ref_path(r["target"], node) for r in ref_edits(ctx, node, "gone.typ")})
     body = rp.ConvertEntry(doc_id=node.get("doc_id", "") if node["kind"] == "file" else "", name=node["name"], to=to,
-                           title=dest.get("title", ""), folder=dest.get("folder", ""))
+                           title=dest.get("title", ""), folder=dest.get("folder", ""), target=dest.get("name", "") if to == "module" else "")
     r = await rp.convert_entry(node["project_id"], body, req, ctx.user)
     out = {"path": dest["path"], "converted": f"{node['kind']} to {to}", **{k: v for k, v in r.items() if k == "id"}}
     if broken:
@@ -866,8 +882,14 @@ def _restore(ctx: Ctx, node: dict) -> dict:
     if doc:
         from backend.routers.docs import restore_doc
         restore_doc(entry, fake_request(ctx.user), ctx.user)
-        return {"restored": entry}
-    return {"restored": entry, **trash.restore(ctx.user, entry)}
+        con = db.connect()
+        try:
+            r = con.execute("SELECT d.title,d.folder,p.title AS pt FROM docs d JOIN projects p ON p.id=d.project_id WHERE d.id=?", (entry,)).fetchone()
+        finally:
+            con.close()
+        where = "/" + "/".join(x for x in (r["pt"], r["folder"], r["title"]) if x) if r else ""
+        return {"restored": entry, "path": where, "note": "restored to its original place; `to` is ignored"}
+    return {"restored": entry, "note": "restored to its original place; `to` is ignored", **trash.restore(ctx.user, entry)}
 
 
 async def delete(ctx: Ctx, path: str, package: str = "") -> dict:
@@ -882,7 +904,10 @@ async def delete(ctx: Ctx, path: str, package: str = "") -> dict:
     kind, req = node["kind"], fake_request(ctx.user)
     if kind == "proposal":
         delete_package(node["project_id"], node["id"], req, ctx.user)
-    elif kind in ("folder", "new_folder"):
+        return {"deleted": node["path"], "note": "proposals are removed for good"}
+    if kind == "new_folder":
+        raise err(404, "not_found", f"No folder {node['path']!r}")
+    if kind == "folder":
         need_write(node)
         delete_folder(node["project_id"], node["folder"], req, ctx.user)
     elif kind in ("doc", "file", "module") and _proposing(ctx, node):
@@ -891,7 +916,7 @@ async def delete(ctx: Ctx, path: str, package: str = "") -> dict:
         rt.delete_template(node["name"], req, ctx.user)
     elif kind == "project":
         if node["role"] != "owner":
-            raise err(403, "forbidden", "Only the project owner can delete a project")
+            raise err(403, "forbidden", "Deleting a project is for people in the web app, not for keys", hint="delete its documents instead")
         await rp.trash_project_documents(node["project_id"], req, ctx.user)
     elif kind == "doc":
         need_write(node)
@@ -920,6 +945,10 @@ def find(ctx: Ctx, query: str, path: str = "/", kind: str = "") -> dict:
     q = search.normalize_query(query)
     if len(q) < search.MIN_Q:
         raise err(400, "bad_request", "Search needs at least 2 characters")
+    if kind and kind not in ("doc", "file", "module", "template", "trash"):
+        raise err(400, "bad_request", "kind is one of doc, file, module, template, trash")
+    if path.strip("/"):
+        resolve(ctx, path, create=path.endswith("/"))
     con = db.connect()
     try:
         files_dir = deps.get_files_dir()
@@ -957,6 +986,12 @@ def find(ctx: Ctx, query: str, path: str = "/", kind: str = "") -> dict:
             line, snippet = _hit(text, q)
             seen.add(p)
             hits.append({"path": p, "kind": "doc" if k == "trash_doc" else k, "count": e["count"], "line": line, "snippet": snippet})
+        for pid, pname in names.items():
+            for r in con.execute("SELECT name FROM project_resources WHERE project_id=? AND name LIKE ? ESCAPE '\\'", (pid, "%" + q.replace("%", "").replace("_", "") + "%")):
+                p = f"/{pname}/{LIB}/{r['name']}"
+                if p not in seen:
+                    seen.add(p)
+                    hits.append({"path": p, "kind": "module", "count": 0, "line": 0, "snippet": ""})
         for h in named:
             p = doc_path(h["id"])
             if p and p not in seen:
