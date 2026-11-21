@@ -7,6 +7,7 @@
 #cm .cm-editor { height: 100%; }
 #cm .cm-editor.cm-focused { outline: none; }
 #cmWrap .cm-content { font: var(--ed)/var(--lh) var(--mono); color: var(--text); caret-color: var(--acc); }
+#cmWrap .cm-content { padding-top: calc(12px + var(--find-pad, 0px)); } /* open find panel: room to scroll the first lines out from under it */
 #cmWrap .cm-line { padding: 0 10px 0 6px; }
 #cmWrap .cm-cursor { border-left-color: var(--acc); border-left-width: 2px; }
 #cmWrap .cm-selectionBackground, #cmWrap .cm-focused .cm-selectionBackground { background: var(--acc-soft) !important; }

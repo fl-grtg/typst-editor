@@ -90,5 +90,6 @@
   "wholeWord": "Whole word (Alt+W)",
   "inSelection": "Find in selection (Alt+L)",
   "findList": "List all matches",
+  "preserveCase": "Preserve case (Alt+P)",
   "findMatches": "Matches"
 }

@@ -1,1 +1,1 @@
-{"badRegex":"Invalid regex","history":"Search history: Alt+↑ / Alt+↓","line":"Line {n}","more":"{n} more matches not listed","noResults":"No results","replaced":"Replaced {n} occurrences","scope":"Searching in selection"}
+{"badRegex":"Invalid regex","countT":"Match {i} of {n}","history":"Search history: Alt+↑ / Alt+↓","line":"Line {n}","moreLines":"{n} more lines not listed","noResults":"No results","replaced":"Replaced {n} occurrences","scope":"Searching in selection","summary":"{n} matches in {lines} lines","summaryOne":"{n} matches in 1 line","undo":"Undo"}

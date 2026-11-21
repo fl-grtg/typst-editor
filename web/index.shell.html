@@ -210,10 +210,11 @@ document.addEventListener('submit', function (e) { // form is parsed below: capt
               <button id="fX" class="fIc x" title="Close (Esc)" data-i18n-title="shell.closeEsc" aria-label="Close (Esc)" data-i18n-aria="shell.closeEsc"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
             </div>
             <div class="fRow fRepRow" id="fRepRow" hidden>
-              <div class="fField"><label class="sr-only" for="fR" data-i18n="shell.replaceWith">Replace with</label><input id="fR" placeholder="Replace with" data-i18n-ph="shell.replaceWith" aria-label="Replace with" data-i18n-aria="shell.replaceWith" autocomplete="off" spellcheck="false"></div>
+              <div class="fField"><label class="sr-only" for="fR" data-i18n="shell.replaceWith">Replace with</label><input id="fR" placeholder="Replace with" data-i18n-ph="shell.replaceWith" aria-label="Replace with" data-i18n-aria="shell.replaceWith" autocomplete="off" spellcheck="false"><span class="fOpts"><button id="fKeep" class="fOpt" title="Preserve case (Alt+P)" data-i18n-title="shell.preserveCase" aria-label="Preserve case" data-i18n-aria="shell.preserveCase" aria-pressed="false">AB</button></span></div>
               <button id="fRep" class="fTxt" title="Replace this occurrence (Enter)" data-i18n-title="shell.replaceT" aria-label="Replace this occurrence" data-i18n-aria="shell.replaceT" data-i18n="shell.replace">Replace</button><button id="fAll" class="fTxt" title="Replace all occurrences (Ctrl+Alt+Enter)" data-i18n-title="shell.replaceAllT" aria-label="Replace all occurrences" data-i18n-aria="shell.replaceAllT" data-i18n="shell.replaceAll">All</button>
             </div>
             <div id="fMsg" class="fMsg" role="alert" hidden></div>
+            <div id="fSum" class="fSum" aria-live="polite" hidden></div>
             <div id="fRes" class="fRes" role="listbox" aria-label="Matches" data-i18n-aria="shell.findMatches" hidden></div>
           </div>
         </div>

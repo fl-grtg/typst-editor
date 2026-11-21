@@ -71,20 +71,28 @@
 #find.rep .fTog svg { transform: rotate(90deg); }
 #find .fTog[hidden] { display: none; }
 #find .fgroup { display: flex; gap: 0; flex: none; }
-#find .n { flex: none; width: 74px; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; text-align: center; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#find .n { flex: none; min-width: 64px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; text-align: center; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #find .n.none { color: var(--danger); font-weight: 500; }
 #find .fTxt { flex: none; min-height: 30px; padding: 2px 11px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--card); color: var(--text); }
 #find .fTxt:disabled { opacity: .45; }
-#find .fMsg { margin: -2px 0 0 30px; padding: 5px 9px; border-radius: var(--r-sm); font-size: 12px; color: var(--danger); background: var(--danger-soft); overflow-wrap: anywhere; }
+#find .fMsg { display: flex; align-items: center; gap: 8px; margin: -2px 0 0 30px; padding: 5px 9px; border-radius: var(--r-sm); font-size: 12px; color: var(--danger); background: var(--danger-soft); overflow-wrap: anywhere; }
 #find .fMsg.ok { color: var(--sub); background: var(--hover); }
-#find .fMsg[hidden], #find .fRes[hidden] { display: none; }
-#find .fRes { display: flex; flex-direction: column; max-height: min(320px, 45vh); overflow: auto; margin: 0 -6px -6px; padding: 4px; border-top: 1px solid var(--line); }
-#find .fHit { flex: none; display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 0; padding: 5px 8px; border: 0; border-radius: var(--r-xs); background: none; text-align: left; font-weight: 400; cursor: pointer; }
+#find .fUndo { margin-left: auto; min-height: 22px; padding: 0 8px; border: 0; border-radius: var(--r-xs); background: none; color: var(--acc); font-weight: 600; font-size: 12px; }
+#find .fUndo:hover { background: var(--acc-soft); }
+#find .fMsg[hidden], #find .fRes[hidden], #find .fSum[hidden] { display: none; }
+#find .fSum { margin: 0 -6px; padding: 7px 12px 3px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+#find .fRes { display: flex; flex-direction: column; max-height: min(280px, 38vh); overflow: auto; margin: -4px -6px -6px; padding: 2px 4px 4px; overscroll-behavior: contain; }
+#find .fHit { flex: none; display: flex; align-items: baseline; gap: 10px; padding: 4px 8px; border-radius: var(--r-xs); cursor: pointer; }
 #find .fHit:hover { background: var(--hover); }
-#find .fHit.on { background: var(--acc-soft); }
-#find .fHit .ln { flex: none; min-width: 34px; text-align: right; color: var(--faint); font: 500 11px/1.5 var(--mono); font-variant-numeric: tabular-nums; }
-#find .fHit .tx { flex: 1; min-width: 0; overflow: hidden; white-space: pre; text-overflow: ellipsis; color: var(--sub); font: 12px/1.5 var(--mono); }
-#find .fHit mark { background: color-mix(in srgb, var(--editor) 50%, #ffc400); color: var(--text); border-radius: 3px; padding: 0 1px; }
+#find .fHit.on { background: var(--acc-soft); box-shadow: inset 2px 0 0 var(--acc); }
+#find .fHit .ln { flex: none; min-width: 30px; text-align: right; color: var(--faint); font: 500 11px/1.6 var(--mono); font-variant-numeric: tabular-nums; }
+#find .fHit.on .ln { color: var(--acc); }
+#find .fHit .tx { flex: 1; min-width: 0; overflow: hidden; white-space: pre; text-overflow: ellipsis; color: var(--sub); font: 12px/1.6 var(--mono); }
+#find .fHit mark { background: color-mix(in srgb, var(--editor) 55%, #ffc400); color: var(--text); border-radius: 3px; padding: 0 1px; }
+#find .fHit mark:hover { box-shadow: 0 0 0 1px color-mix(in srgb, #f26b00 60%, transparent); }
+#find .fHit mark.cur { background: color-mix(in srgb, var(--editor) 30%, #ff9f1a); box-shadow: 0 0 0 1px color-mix(in srgb, #f26b00 70%, transparent); }
+#find .fHit del { color: var(--danger); text-decoration-thickness: 1px; opacity: .8; }
+#find .fHit ins { margin-left: 1px; padding: 0 1px; border-radius: 2px; text-decoration: none; color: var(--text); background: color-mix(in srgb, var(--editor) 60%, #2fb344); }
 #find .fMore { padding: 6px 8px; color: var(--faint); font-size: 11.5px; }
 #fRail { position: absolute; top: 8px; right: 0; bottom: 0; width: 10px; pointer-events: none; z-index: 3; }
 #fRail i { position: absolute; right: 1px; width: 8px; height: 3px; margin-top: -1px; border-radius: 2px; background: color-mix(in srgb, #e0a800 75%, transparent); }

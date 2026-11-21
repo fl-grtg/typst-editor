@@ -48,6 +48,7 @@
   #find .fTxt { min-height: 40px; }
   #find .n { min-width: 44px; }
   #find .fRepRow, #find .fMsg { padding-left: 0; margin-left: 0; }
+  #find .fRes { max-height: 28vh; }
   #pop { left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); width: auto; }
   #setPop button, #sharePop button, #histPop button, #symPop button, #pop button { min-height: 40px; }
   #menu button, #submenu button { min-height: 40px; }
