@@ -729,9 +729,16 @@ def _is_convert(node: dict, dest: dict) -> bool:
     return (node["kind"], dest["kind"]) in CONVERSIONS and dest.get("project_id") == node["project_id"]
 
 
+def _need_typ(node: dict, dest: dict) -> None:
+    """Only .typ files and modules turn into documents or modules; data files stay what they are."""
+    if node["kind"] in ("file", "module") and dest["kind"] in ("new_doc", "new_module") and not node["name"].lower().endswith(".typ"):
+        raise err(400, "bad_path", "Only .typ files can be converted to a document or module; rename other files with a path inside their document or .library")
+
+
 def move_ops(ctx: Ctx, path: str, to: str, fix_refs: bool = True) -> list[dict]:
     """The move plus the reference rewrites it needs, as proposal operations."""
     node, dest = resolve(ctx, path), resolve(ctx, to, create=True)
+    _need_typ(node, dest)
     if _is_convert(node, dest):  # a conversion is the new text plus the removal of the old one
         return [{"op": "write", "path": to, "data": text_of(ctx, node).encode(), "text": True}, {"op": "delete", "path": path}]
     refs = _check_move(ctx, node, dest, fix_refs)
@@ -768,8 +775,7 @@ async def move(ctx: Ctx, path: str, to: str, fix_refs: bool = True, package: str
         need_write(node)
         await asyncio.to_thread(rename_folder, node["project_id"], FolderRename(path=node["folder"], target=dest["folder"]), req, ctx.user)
         return {"path": dest["path"], "note": "References to files inside are not rewritten"}
-    if kind == "file" and dest["kind"] == "new_doc" and not node["name"].lower().endswith(".typ"):
-        raise err(400, "bad_path", "Only .typ files become documents; rename a file with a path inside its own document")
+    _need_typ(node, dest)
     if _is_convert(node, dest):
         if not _proposing(ctx, node):
             return await _convert(ctx, node, dest)

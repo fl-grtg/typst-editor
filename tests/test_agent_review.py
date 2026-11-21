@@ -197,3 +197,17 @@ def test_converting_between_document_and_file_is_a_proposal_in_shared_projects(s
     assert c.post(f"/api/projects/{pid}/proposals/{back['proposal']}/accept", json={"revision": pk["revision"]}).status_code == 200
     assert a("read", path="/Report/Main/chapter.typ")["content"] == "= Chapter\n"
     assert a.fail("read", path="/Report/Kapitel/Chapter")["code"] == "not_found"
+
+
+def test_only_typ_files_convert_even_as_proposals(shared):
+    c, pid = shared
+    doc(c, pid, "Main", "= M\n")
+    a = make_agent(c, mode="direct", name="setup")
+    a("write", path="/Report/.library/data.csv", content="a,b\n")
+    a("write", path="/Report/Main/notes.csv", content="x\n")
+    p = make_agent(c, mode="propose", name="careful")
+    for src, dst in (("/Report/.library/data.csv", "/Report/Daten"), ("/Report/Main/notes.csv", "/Report/Notes"), ("/Report/Main/notes.csv", "/Report/.library/notes.csv")):
+        assert p.fail("move", path=src, to=dst)["code"] == "bad_path"
+        assert a.fail("move", path=src, to=dst)["code"] == "bad_path"
+    assert p.fail("propose", project="/Report", ops=[{"op": "move", "path": "/Report/.library/data.csv", "to": "/Report/Daten"}])["code"] == "bad_path"
+    assert c.post(f"/api/projects/{pid}/convert", json={"name": "data.csv", "to": "document"}).status_code == 400
