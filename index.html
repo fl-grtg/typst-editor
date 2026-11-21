@@ -2639,6 +2639,7 @@ function fix(v, n) {
   }
   return o
 }
+var queued = [], initFailed = false
 onmessage = function (e) {
   var j = e.data || {}
   if (j.cmd === 'init') {
@@ -2648,9 +2649,15 @@ onmessage = function (e) {
       api.setCompilerInitOptions({ getModule: function () { return j.compiler }, beforeBuild: [fonts] })
       T = api
       postMessage({ kind: 'ready' })
-    }).catch(function (err) { postMessage({ kind: 'ready', fail: String((err && err.message) || err) }) })
+      queued.splice(0).forEach(function (q) { onmessage({ data: q }) }) // work that arrived while the compiler was loading
+    }).catch(function (err) {
+      initFailed = true
+      postMessage({ kind: 'ready', fail: String((err && err.message) || err) })
+      queued.splice(0).forEach(function (q) { postMessage({ kind: 'done', id: q.id, fail: 'init' }) })
+    })
     return
   }
+  if (j.cmd === 'work' && !T && !initFailed) { queued.push(j); return } // first render before the compiler is up: wait for it instead of failing
   if (j.cmd !== 'work' || !T) { // pre-init work: fail the job (bare return would stall the pvTail queue forever)
     if (j.cmd === 'work' && j.id != null) postMessage({ kind: 'done', id: j.id, fail: 'init' })
     return
