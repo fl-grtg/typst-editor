@@ -56,6 +56,17 @@ def test_menubar_groups_actions_into_submenus(page):
     _close(page)
 
 
+def test_sidebar_new_project_opens_dialog_directly(page):
+    register(page, "e2e_newproj_sidebar")
+    page.click("#new")
+
+    expect(page.locator("#modal")).to_be_visible()
+    expect(page.locator("#menu")).to_be_hidden()
+    expect(page.locator("#mHead")).to_have_text("New project")
+    page.locator("#mNo").click()
+    expect(page.locator("#modal")).to_be_hidden()
+
+
 def test_file_new_project_opens_centered_dialog(page):
     register(page, "e2e_newproj_center")
     page.locator('#menubar [data-menu="file"]').click()

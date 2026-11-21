@@ -32,7 +32,6 @@ def login(page: Page, name: str, pw: str = "pass1234pass") -> None:
 
 def create_doc(page: Page, title: str = "New document") -> None:
     page.click("#new")
-    page.locator("#menu button").first.click()  # "Project" entry of the + menu
     expect(page.locator("#mHead")).to_have_text("New project")
     page.fill("#mInp", title)
     page.click("#mYes")

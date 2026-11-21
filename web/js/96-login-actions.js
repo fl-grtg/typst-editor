@@ -161,7 +161,7 @@ async function newProjectFromMenu() {
   catch (e) { toast(e.message) } finally { b.disabled = false }
 }
 window.newProjectFromMenu = newProjectFromMenu // menubar proxy (classic ui-layer): File > New project opens the centered dialog
-$('new').onclick = e => { e.stopPropagation(); openNewMenu($('new')) }
+$('new').onclick = e => { e.stopPropagation(); newProjectFromMenu() }
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
 async function importUpload(f) {
