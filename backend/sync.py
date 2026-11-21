@@ -13,6 +13,7 @@ No synchronous DB access runs on the event loop in the WS hot path (1C):
 from __future__ import annotations
 
 import asyncio
+import difflib
 import logging
 import sqlite3
 import threading
@@ -990,6 +991,67 @@ def room_text(doc_id: str) -> str | None:
     except Exception as e:
         log.warning("room_text %s failed: %s", doc_id, e)
         return None
+
+
+def text_spans(old: str, new: str) -> list[tuple[int, int, str]]:
+    """Minimal (start, end, replacement) character spans turning old into new: line diff, trimmed to the changed characters."""
+    a, b = old.splitlines(True), new.splitlines(True)
+    pos = [0]
+    for line in a:
+        pos.append(pos[-1] + len(line))
+    spans = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        o, n = old[pos[i1]:pos[i2]], "".join(b[j1:j2])
+        pre = 0
+        while pre < min(len(o), len(n)) and o[pre] == n[pre]:
+            pre += 1
+        suf = 0
+        while suf < min(len(o), len(n)) - pre and o[-1 - suf] == n[-1 - suf]:
+            suf += 1
+        spans.append((pos[i1] + pre, pos[i2] - suf, n[pre:len(n) - suf]))
+    return spans
+
+
+def apply_spans(text: Text, old: str, spans: list[tuple[int, int, str]]) -> None:
+    """Apply spans of `old` to a Yjs text. pycrdt indexes UTF-8 bytes, not characters."""
+    for start, end, new in sorted(spans, reverse=True):
+        b0 = len(old[:start].encode())
+        b1 = b0 + len(old[start:end].encode())
+        if b1 > b0:
+            del text[b0:b1]
+        if new:
+            text.insert(b0, new)
+
+
+def edit_text(doc_id: str, fn: Any) -> tuple[str, str]:
+    """fn(live text) -> new text, run under the room lock; only the changed spans enter the CRDT, so concurrent typing and cursors survive."""
+    r = room(doc_id)
+    with _doc_lock(r):
+        text = r["doc"].get("typst", type=Text)
+        old = str(text)
+        new = fn(old)
+        spans = text_spans(old, new)
+        if spans:
+            with r["doc"].transaction():
+                apply_spans(text, old, spans)
+            r["text_len"] = len(new.encode("utf-8"))
+            _mark_dirty(doc_id, r)
+    return old, new
+
+
+async def edit_doc(doc_id: str, fn: Any) -> tuple[str, str]:
+    """edit_text + persist + broadcast to open editors."""
+    old, new = await asyncio.to_thread(edit_text, doc_id, fn)
+    if old == new:
+        return old, new
+    r = room(doc_id)
+    await asyncio.to_thread(persist, doc_id)
+    with _doc_lock(r):
+        update = r["doc"].get_update()
+    await bcast(r["conns"], None, blob(write_var(MSG_SYNC), write_var(UPDATE), write_var(len(update)), update))
+    return old, new
 
 
 async def replace_text(doc_id: str, content: str) -> None:

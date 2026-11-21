@@ -238,7 +238,7 @@ def test_related_rename_leaves_renamed_file_contents_pending_at_new_path(c):
     assert next(f for f in resources if f['name'] == 'new.typ')['content'] == proposed_module
 
 
-def test_structural_document_rename_keeps_content_pending_at_main_path(c):
+def test_structural_document_rename_keeps_content_pending_at_document_path(c):
     project, document = setup(c, 'Original text')
     package = submit(c, project, [{'kind': 'document', 'doc_id': document, 'path': 'main.typ', 'action': 'rename',
                                   'target': 'Renamed', 'original_title': 'Packages', 'base': 'Original text', 'content': 'Proposed text'}])
@@ -247,7 +247,7 @@ def test_structural_document_rename_keeps_content_pending_at_main_path(c):
     doc = c.get(f'/api/docs/{document}').json()
     assert (doc['title'], doc['content']) == ('Renamed', 'Original text')
     pending = response.json()['files'][0]
-    assert pending['path'] == 'main.typ' and pending['action'] == 'modify'
+    assert pending['path'] == '' and pending['action'] == 'modify'
     correction = c.patch(f"/api/projects/{project}/proposals/{package['id']}", json={
         'title': package['title'], 'revision': response.json()['revision'], 'files': [pending]})
     assert correction.status_code == 200, correction.text

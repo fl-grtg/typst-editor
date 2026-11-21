@@ -10,7 +10,7 @@ from pycrdt import Doc, Text
 from ws_helpers import _parse, _step1, _update_msg
 
 from backend import auth, db, deps, sync
-from backend import mcp_tools as t
+from backend import render as t
 
 
 def _db_content(doc_id):

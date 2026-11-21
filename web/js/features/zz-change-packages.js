@@ -5,7 +5,7 @@ const sessionKey = f => [f.kind, f.doc_id || '', f.path].join(':')
 const sessionDocumentTab = file => '@proposal-doc/' + file.doc_id + '.typ'
 function sessionIdentity(name) {
   const added = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === name)
-  return added || { kind: !name ? 'document' : isTplKey(name) ? 'resource' : 'file', doc_id: !name || !isTplKey(name) ? docId : '', path: name ? tabName(name) : 'main.typ' }
+  return added || { kind: !name ? 'document' : isTplKey(name) ? 'resource' : 'file', doc_id: !name || !isTplKey(name) ? docId : '', path: name ? tabName(name) : '' }
 }
 const sessionCurrent = () => sessionIdentity(activeFile)
 const sessionUrl = s => '/api/projects/' + s.project + '/proposals' + (s.package ? '/' + s.package.id : '')
@@ -122,7 +122,7 @@ function sessionBytes(file, original = false) {
   return file.binary ? Uint8Array.from(atob(value), c => c.charCodeAt(0)) : new TextEncoder().encode(value)
 }
 function sessionMainText() {
-  const s = window.changeSession, item = s?.files.get(sessionKey({ kind: 'document', doc_id: docId, path: 'main.typ' }))
+  const s = window.changeSession, item = s?.files.get(sessionKey({ kind: 'document', doc_id: docId, path: '' }))
   return s && !s.original && item ? item.content : activeFile ? shadow : getT()
 }
 function sessionRecord(changes, oldLen) {
@@ -826,7 +826,7 @@ async function stageDocumentDelete(document) {
   const s = window.changeSession
   if (!s) return false
   if (!projects.find(p => p.id === s.project)?.documents?.some(d => d.id === document) && ![...s.files.values()].some(f => f.kind === 'document' && f.doc_id === document && f.action === 'add')) { toast(t('packages.sourceBlocked')); return true }
-  try { await stageSessionDelete({ kind: 'document', doc_id: document, path: 'main.typ' }) } catch (e) { toast(e.message) }
+  try { await stageSessionDelete({ kind: 'document', doc_id: document, path: '' }) } catch (e) { toast(e.message) }
   return true
 }
 const originalDeleteProjectEntry = async (project, name, document, resource) => {
@@ -870,7 +870,7 @@ newProjectDoc = async (project, folder = '') => {
   if (s.original || s.busy) return
   const choice = await askNewDoc()
   if (!choice?.title?.trim() || window.changeSession !== s) return
-  const file = sessionRuntime({ kind: 'document', doc_id: 'd_' + crypto.randomUUID().replaceAll('-', ''), path: 'main.typ', action: 'add', target: choice.title.trim(), content: galleryContent(choice.tpl) })
+  const file = sessionRuntime({ kind: 'document', doc_id: 'd_' + crypto.randomUUID().replaceAll('-', ''), path: '', action: 'add', target: choice.title.trim(), content: galleryContent(choice.tpl) })
   s.files.set(sessionKey(file), file); s.dirty = true; s.previewRevision++; sessionStash()
   await sessionOpenFile(file); paintSessionSidebar(); return file.doc_id
 }
@@ -878,11 +878,11 @@ renameProjectDocument = async (document, host) => {
   const s = window.changeSession
   if (!s) return sessionOriginalRenameDocument(document, host)
   if (s.original || s.busy) return
-  host = sidebarLiveHost(host, ['document', document.id, 'main.typ'].join(':'))
+  host = sidebarLiveHost(host, ['document', document.id, ''].join(':'))
   const label = host?.querySelector('.t')
   const title = label ? await sidebarInlineRename(host, label, document.title, { label: t('docs.renameDoc'), maxLen: 100 }) : await ask(t('docs.renameDoc'), { value: document.title, maxLen: 100 })
   if (!title?.trim() || title.trim() === document.title || window.changeSession !== s) return
-  const file = await sessionEnsure({ kind: 'document', doc_id: document.id, path: 'main.typ' })
+  const file = await sessionEnsure({ kind: 'document', doc_id: document.id, path: '' })
   if (window.changeSession !== s) return
   if (file.action !== 'add') { file.action = 'rename'; file.original_title ||= document.title }
   file.target = title.trim()

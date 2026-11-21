@@ -149,7 +149,7 @@ test('copy and move menu entries follow role and change-session limits', () => {
     { dataset: { menuKey: 'trash', menuLabel: 'trash' }, title: 'trash', disabled: false },
   ]
   const labels = p => Array.from(c.entryMenuItems(p, { kind: 'resource', name: 'm.typ' }, actions), item => item.label)
-  assert.deepEqual(labels({ id: 'p', role: 'owner' }), ['rename', 'menu.duplicateShort', 'menu.copyTo', 'menu.moveTo', 'trash'])
+  assert.deepEqual(labels({ id: 'p', role: 'owner' }), ['rename', 'projects.convertToDocument', 'menu.duplicateShort', 'menu.copyTo', 'menu.moveTo', 'trash'])
   assert.deepEqual(labels({ id: 'p', role: 'reviewer' }), ['rename', 'menu.copyTo', 'trash'])
   c.window.changeSession = {}
   assert.deepEqual(labels({ id: 'p', role: 'owner' }), ['rename', 'trash'])

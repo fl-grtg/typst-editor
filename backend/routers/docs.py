@@ -106,11 +106,19 @@ def create_doc(b: DocCreate, req: Request, user: str = Depends(deps.me)) -> dict
 
 
 @router.post("/api/docs/import-zip")
-def import_zip(req: Request, f: UploadFile, title: str = Form(...), folder: str = Form(""), user: str = Depends(deps.me)) -> dict:
+def import_zip(req: Request, f: UploadFile, title: str = Form(""), folder: str = Form(""), entry: str = Form(""), user: str = Depends(deps.me)) -> dict:
     from backend.services.projectzip import import_project_zip
 
     deps.limited(req, "create")
-    return import_project_zip(user, title, folder, f.file.read(UPLOAD_MAX + 1))
+    return import_project_zip(user, title, folder, f.file.read(UPLOAD_MAX + 1), entry=entry)
+
+
+@router.post("/api/zip-preview")
+def zip_preview(req: Request, f: UploadFile, user: str = Depends(deps.me)) -> dict:
+    from backend.services.projectzip import zip_preview as preview
+
+    deps.limited(req, "create")
+    return preview(f.file.read(UPLOAD_MAX + 1))
 
 
 @router.get("/api/docs/{doc_id}")

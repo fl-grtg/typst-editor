@@ -42,7 +42,7 @@ def test_export_import_preserves_local_files_and_localizes_global_modules(c):
 
 
 @pytest.mark.parametrize("entries", [
-    [("chapter.typ", "No main")],
+    [("a.typ", "One"), ("b.typ", "Two")],
     [("main.typ", "Main"), ("../bad.typ", "Bad")],
     [("main.typ", "Main"), ("/bad.typ", "Bad")],
     [("main.typ", "Main"), ("chapter.typ", "A"), ("CHAPTER.typ", "B")],
@@ -84,7 +84,7 @@ def test_zip_import_rolls_back_when_storage_write_fails(c, monkeypatch):
 
     monkeypatch.setattr(store, "put", fail_second)
     with pytest.raises(OSError):
-        import_zip(c, bundle([("main.typ", "Main"), ("a.typ", "A"), ("b.typ", "B")]))
+        import_zip(c, bundle([("main.typ", '#include "a.typ"\n#include "b.typ"'), ("a.typ", "A"), ("b.typ", "B")]))
     assert c.get("/api/docs").json()["own"] == before
     assert not list(deps.get_files_dir().glob("d_*"))
 
@@ -106,3 +106,18 @@ def test_standalone_import_keeps_a_free_form_folder_name(c):
     assert result.status_code == 200, result.text
     project = c.get(f"/api/docs/{result.json()['id']}").json()["project_id"]
     assert c.get(f"/api/projects/{project}").json()["title"] == "Übung 1"
+
+
+def test_zip_preview_suggests_the_root_and_import_takes_a_chosen_document(c):
+    register_user(c, "zipchoose")
+    data = bundle([("book.typ", '#include "ch1.typ"'), ("ch1.typ", "One"), ("notes.typ", "Notes")])
+    preview = c.post("/api/zip-preview", files={"f": ("s.zip", data, "application/zip")}).json()
+    assert preview["entries"] == ["book.typ", "ch1.typ", "notes.typ"] and preview["suggested"] == ""
+    assert import_zip(c, data).status_code == 400
+    result = import_zip(c, data, title="", folder="Pick")
+    assert result.status_code == 400
+    r = c.post("/api/docs/import-zip", files={"f": ("s.zip", data, "application/zip")}, data={"entry": "notes.typ"})
+    assert r.status_code == 200, r.text
+    assert c.get(f"/api/docs/{r.json()['id']}").json()["title"] == "notes"
+    only = bundle([("main.typ", "x")])
+    assert c.post("/api/zip-preview", files={"f": ("s.zip", only, "application/zip")}).json()["suggested"] == "main.typ"

@@ -51,7 +51,7 @@ async function dlSvgClient() {
   try {
     if (!$typst.svg) throw new Error(t('downloads.svgUnknown'))
     if (!await shadowAll(activeFile ? shadow : getT()) || doc !== docId || epoch !== openN) return
-    const svg = (await $typst.svg({ mainFilePath: '/main.typ' }))
+    const svg = (await $typst.svg({ mainFilePath: '/__doc__.typ' }))
       .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;') // raw & (text/CSV/URL) breaks XML
     if (doc !== docId || epoch !== openN) return
     dlBlob(new Blob([svg], { type: 'image/svg+xml' }), name)
@@ -63,7 +63,7 @@ async function dlPdfClient() {
   const doc = docId, epoch = openN, name = dlName('.pdf')
   try {
     if (!await shadowAll(activeFile ? shadow : getT()) || doc !== docId || epoch !== openN) return
-    const pdf = await $typst.pdf({ mainFilePath: '/main.typ' })
+    const pdf = await $typst.pdf({ mainFilePath: '/__doc__.typ' })
     if (doc !== docId || epoch !== openN) return
     dlBlob(new Blob([pdf], { type: 'application/pdf' }), name)
   } catch (e) { toast(t('downloads.pdfError', { msg: e.message })) }

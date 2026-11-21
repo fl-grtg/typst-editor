@@ -248,7 +248,7 @@ def export_doc(doc_id: str, req: Request, format: str = "pdf", pdf_standard: str
 
     ?format=pdf|svg|png|zip. pdf = full multi-page PDF; svg/png = the single
     page directly, or a ZIP of all pages for multi-page docs; zip = source
-    bundle (main.typ + sources at root paths, directly renderable).
+    bundle (Title.typ + sources at root paths, directly renderable).
     Read-only: any role with access may export (reviewer included). Own
     `export_doc` rate scope (isolated from the full `export.zip` backup);
     per-user `_export_lock` (429 while one runs). Sync endpoint: runs in a
@@ -264,7 +264,7 @@ def export_doc(doc_id: str, req: Request, format: str = "pdf", pdf_standard: str
     --pdf-standard), pages like 1-3,5 (pdf/svg/png, --pages), ppi 72-300
     (png only, --ppi). Bad values -> 400 before any compile.
     """
-    from backend import mcp_tools as _mt
+    from backend import render as _mt
 
     deps.limited(req, "export_doc", user)
     deps.check_doc_id(doc_id)

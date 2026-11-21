@@ -33,6 +33,12 @@ def data_size(value: str | None, binary: bool) -> int:
     return len(base64.b64decode(value)) if binary and value is not None else len((value or "").encode())
 
 
+def normalize(file: dict) -> dict:
+    """A document is addressed by its id alone; older packages stored the file name main.typ."""
+    file["path"] = "" if file.get("kind") == "document" else file.get("path", "")
+    return file
+
+
 def key(file: dict) -> tuple[str, str, str]:
     return file["kind"], file.get("doc_id", ""), file["path"]
 
@@ -60,8 +66,6 @@ def snapshot(con, project: str, file: dict) -> str | None:
             "SELECT content FROM project_resources WHERE project_id=? AND name=?", (project, path)
         ).fetchone()
         return row[0] if row else None
-    if path == "main.typ":
-        raise HTTPException(400, "Use document scope for main.typ")
     if not con.execute("SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (document, project)).fetchone():
         raise HTTPException(404, "Source document gone")
     try:
@@ -96,12 +100,18 @@ def apply_changes(text: str, changes: list[dict]) -> str:
 def validate_file(file: dict) -> None:
     if file["kind"] in ("document", "file"):
         deps.check_doc_id(file.get("doc_id", ""))
-    if file["kind"] == "document" and file["path"] != "main.typ":
-        raise HTTPException(400, "Document scope must use main.typ")
+    if file.get("folder") is not None:
+        if file["kind"] != "document" or file["action"] not in ("add", "rename"):
+            raise HTTPException(400, "Only added or renamed documents have a folder")
+        from backend.routers.project_folders import folder_path
+
+        file["folder"] = folder_path(file["folder"]) if file["folder"].strip("/") else ""
     if file["kind"] == "resource" and file.get("doc_id"):
         raise HTTPException(400, "Project resources have no document scope")
     if file["action"] not in ("modify", "add", "delete", "rename"):
         raise HTTPException(400, "Invalid file action")
+    if file["kind"] != "document" and not file["path"]:
+        raise HTTPException(400, "Missing file path")
     if file["kind"] == "document" and file["action"] in ("add", "rename"):
         title = file.get("target", "")
         if not title.strip() or title != title.strip() or len(title) > TITLE_MAX or "/" in title:
@@ -141,7 +151,7 @@ def get(con, project: str, package: str) -> dict:
     if not row:
         raise HTTPException(404, "Proposal package gone")
     result = dict(row)
-    result["files"] = json.loads(row["files"])
+    result["files"] = [normalize(f) for f in json.loads(row["files"])]
     return result
 
 
@@ -162,6 +172,7 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
             identities = set()
             file_ids = set()
             for file in files:
+                normalize(file)
                 if file["action"] == "add" and file.get("initial_content") is None:
                     file["initial_content"] = file.get("content")
                 if file["kind"] == "document" and file["action"] == "add" and not file.get("doc_id"):
@@ -249,7 +260,7 @@ def dependencies(con, project: str, pending: list[dict], writes: list[tuple[dict
     for row in con.execute("SELECT id,content FROM docs WHERE project_id=? AND trashed=0", (project,)):
         if row['id'] in deleting:
             continue
-        identity = ("document", row["id"], "main.typ")
+        identity = ("document", row["id"], "")
         # room_text() returns "" for an emptied live room (not None) - only
         # a missing room falls back to the DB text, like snapshot().
         live = sync.room_text(row["id"])
@@ -556,7 +567,7 @@ def accept(
                                 "SELECT folder, title FROM docs WHERE id=?", (file["doc_id"],)).fetchone()
                             if file["action"] == "rename" and not current:
                                 raise HTTPException(409, "Document gone; refresh the package")
-                            folder = (current["folder"] or "") if current else ""
+                            folder = file["folder"] if file.get("folder") is not None else (current["folder"] or "") if current else ""
                             if con.execute("SELECT 1 FROM docs WHERE project_id=? AND folder=? AND title=? COLLATE NOCASE AND trashed=0 AND id<>?",
                                            (project, folder, name, file["doc_id"])).fetchone():
                                 raise HTTPException(409, "Document title already exists in this folder")
@@ -564,12 +575,12 @@ def accept(
                                 if con.execute("SELECT COUNT(*) FROM docs WHERE owner=?", (owner,)).fetchone()[0] >= config.load().MAX_DOCS_PER_USER:
                                     raise HTTPException(400, "Too many docs")
                                 now = db.now_iso()
-                                con.execute("INSERT INTO docs(id,owner,title,content,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                                            (file["doc_id"], owner, file["target"], content, project, now, now))
+                                con.execute("INSERT INTO docs(id,owner,title,content,folder,project_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                                            (file["doc_id"], owner, file["target"], content, folder, project, now, now))
                                 continue
                             if not current or current["title"] != file["original_title"]:
                                 raise HTTPException(409, "Original document title changed")
-                            con.execute("UPDATE docs SET title=? WHERE id=?", (name, file["doc_id"]))
+                            con.execute("UPDATE docs SET title=?,folder=? WHERE id=?", (name, folder, file["doc_id"]))
                         if file["action"] == "delete":
                             con.execute("UPDATE docs SET content=?,yjs=?,trashed=1,updated_at=? WHERE id=?",
                                         (original or '', sync.room(file['doc_id'])['doc'].get_update(), db.now_iso(), file['doc_id']))
@@ -583,9 +594,9 @@ def accept(
                         trial: Doc = Doc()
                         trial.apply_update(room["doc"].get_update())
                         text = trial.get("typst", type=Text)
+                        before = str(text)
                         with trial.transaction():
-                            del text[:]
-                            text.insert(0, content or "")
+                            sync.apply_spans(text, before, sync.text_spans(before, content or ""))
                         update = trial.get_update()
                         con.execute(
                             "UPDATE docs SET content=?,yjs=?,updated_at=? WHERE id=?",
@@ -652,4 +663,7 @@ def accept(
             log.warning("proposal accept snap %s: %s", doc_id, e)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
+    from backend.services import notifications
+    notifications.notify_reviewed(project, user, proposal["author"], package, proposal["title"],
+                                  "accepted" if not result["files"] else "partly accepted")
     return result, updates, deleted_documents

@@ -213,7 +213,7 @@ def rename_template(name: str, b: TplRename, req: Request, user: str = Depends(d
     deps.limited(req, "templates")
     old, new = _gone_404(name), res.res_name(b.name)
     if res.is_reserved(new) or res.kind_of(old) != res.kind_of(new):
-        raise HTTPException(400, "Rename keeps the file type and cannot use main.typ")
+        raise HTTPException(400, "Rename keeps the file type and cannot use a reserved name")
     try:
         with db.tx() as con:
             row = con.execute("SELECT updated_at FROM templates WHERE owner=? AND name=?", (user, old)).fetchone()

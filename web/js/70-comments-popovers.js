@@ -11,7 +11,7 @@ let lastPres = ''
 function pushPresence() { // u/sel always (online dot), active only on editor focus (cursor bar)
   if (!prov || !prov.awareness || !ytext) return
   const m = cm.state.selection.main
-  const inMain = !activeFile && !tplName && !window.suggestionDraft && !window.changeSession // file tab: positions would point into main.typ
+  const inMain = !activeFile && !tplName && !window.suggestionDraft && !window.changeSession // file tab: positions would point into the document text
   const active = inMain && cm.hasFocus && document.hasFocus()
   const st = { u: { name: user, color: colOf(user || '?') }, sel: inMain ? { a: relPos(m.anchor), h: relPos(m.head) } : null, active: !!active }
   const key = JSON.stringify(st)

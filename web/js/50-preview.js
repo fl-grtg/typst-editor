@@ -50,7 +50,7 @@ onmessage = function (e) {
     var diags = []
     var mapped = !j.full // incremental: the shadow files are still the ones the client sent last time
     try {
-      if (j.full) { // files/templates changed: full remap once, else only main.typ below (reset would wipe the shadow)
+      if (j.full) { // files/templates changed: full remap once, else only the document text below (reset would wipe the shadow)
         await T.resetShadow()
         var tp = j.tpl || []
         for (var k2 = 0; k2 < tp.length; k2++) await T.mapShadow('/' + tp[k2].name, enc.encode(tp[k2].content))
@@ -58,10 +58,10 @@ onmessage = function (e) {
         for (var k = 0; k < fs.length; k++) await T.mapShadow('/' + fs[k].name, new Uint8Array(fs[k].bytes))
         mapped = true // survived the full block: a content error below must not resend every image
       } // tpl first, files win: doc-local beats global on collision (see .update-review/resource-contract.md)
-      await T.addSource('/main.typ', j.main)
+      await T.addSource('/__doc__.typ', j.main)
       var c = await T.getCompiler()
       if (j.full) await c.reset() // remapped shadow only: resetting every keystroke drops the incremental cache
-      var r = await c.compile({ mainFilePath: '/main.typ', format: 1, diagnostics: 'full' })
+      var r = await c.compile({ mainFilePath: '/__doc__.typ', format: 1, diagnostics: 'full' })
       var pdf = r.result
       try { diags = fix(r.diagnostics || [], 0) } catch (e2) {}
       if (pdf && pdf.length) {
@@ -301,7 +301,7 @@ async function shadowAll(main) { // files + templates as shadow: main-thread fal
   const pf = await pvFiles()
   const current = () => id === docId && epoch === openN
   if (!pf || !current()) return false
-  if (pf.sig !== shadowSig) { // files/templates changed: full remap once, else only main.typ below
+  if (pf.sig !== shadowSig) { // files/templates changed: full remap once, else only the document text below
     shadowSig = '' // half-mapped on throw: force remap next time
     await $typst.resetShadow()
     const comp = await $typst.getCompiler()
@@ -311,7 +311,7 @@ async function shadowAll(main) { // files + templates as shadow: main-thread fal
     for (const [n, c] of fileCache) { await $typst.mapShadow('/' + n, c.bytes); if (!current()) return false }
     shadowSig = pf.sig
   }
-  await $typst.addSource('/main.typ', main)
+  await $typst.addSource('/__doc__.typ', main)
   return current()
 }
 const pvStale = (id, myDoc, myTplName) => id < shownN || myDoc !== docId || myTplName !== tplName // a newer result is on screen: drop older work
@@ -354,7 +354,7 @@ async function render() {
   cmpWait = 0; typstT0 = 0; $('cdnLine').style.display = 'none'
   let wDiags = null, doc = null // worker diags of this render: empty-pdf failures tag along (compile resolves, pdf.js throws)
   try {
-    const main = window.changeSession ? sessionMainText() : activeFile ? shadow : getT() // file tab: preview still compiles main.typ
+    const main = window.changeSession ? sessionMainText() : activeFile ? shadow : getT() // file tab: preview still compiles the document text
     const pf = await pvFiles()
     if (!pf) { if (myEpoch === openN && myDoc === docId) queueRender(); return } // a resource poll superseded the list load: retry, no other render would
     if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted compile
@@ -953,7 +953,7 @@ function saveDocScroll() { // scroll, doc switch and pagehide write the latest s
   const all = scrollMap() // merge with what another tab may have written: only this document changes below
   const prev = all[docId] && typeof all[docId] === 'object' ? all[docId] : {}
   const e = Object.assign({}, prev)
-  if (!activeFile && cm.scrollDOM.clientHeight) { // file tab or hidden editor: keep the document's own main.typ spot
+  if (!activeFile && cm.scrollDOM.clientHeight) { // file tab or hidden editor: keep the document's own the document text spot
     const ed = cm.scrollDOM, block = cm.lineBlockAtHeight(ed.scrollTop)
     e.l = cm.state.doc.lineAt(block.from).number
     e.lo = Math.max(0, Math.round(ed.scrollTop - block.top))
@@ -1020,10 +1020,10 @@ async function renderDirect(id, preview) { // fallback: no worker (exotic browse
     renderDirect.tail = new Promise(r => { release = r })
     await prev
     try {
-      await shadowAll(window.changeSession ? sessionMainText() : activeFile ? shadow : getT()) // file tab: preview still compiles main.typ
+      await shadowAll(window.changeSession ? sessionMainText() : activeFile ? shadow : getT()) // file tab: preview still compiles the document text
       if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted full compile
       const compiler = await $typst.getCompiler()
-      cmp = await compiler.compile({ mainFilePath: '/main.typ', format: 1, diagnostics: 'full' }) // 1 = pdf: bytes + diagnostics in one compile
+      cmp = await compiler.compile({ mainFilePath: '/__doc__.typ', format: 1, diagnostics: 'full' }) // 1 = pdf: bytes + diagnostics in one compile
     } finally { release() }
     if (pvStale(id, myDoc, myTplName)) return // stale: skip wasted pdfjs work
     doc = await pdfjsLib.getDocument({ data: cmp.result }).promise
@@ -1087,7 +1087,7 @@ let lastErrToast = '' // same non-line error: toast once, not per render
 let errKey = '', errLines = [], cmpDiags = [] // compiler errors: lint renders ranges (F1+F20), badge keeps one row per line
 function keyForPath(path) { // compiler path -> tab key (null: package or unknown file, nowhere to jump)
   const n = String(path || '').replace(/^\//, '')
-  if (!n || n === 'main.typ') return n ? '' : null
+  if (!n || n === '__doc__.typ') return n ? '' : null
   if (lastFiles.some(x => x.name === n)) return n
   if (projectResources().some(x => x.name === n)) return TPLK + n
   return null
@@ -1096,7 +1096,7 @@ function clearErr() { errKey = ''; errLines = []; cmpDiags = []; errTipHide(); c
 async function errDiags() { // fallback only: pre-compile failure (render reuses its own compile)
   if (!typstReady()) return []
   try {
-    const r = await (await $typst.getCompiler()).compile({ mainFilePath: '/main.typ', diagnostics: 'full' }) // vector default is fine here, diagnostics is what matters
+    const r = await (await $typst.getCompiler()).compile({ mainFilePath: '/__doc__.typ', diagnostics: 'full' }) // vector default is fine here, diagnostics is what matters
     return (r.diagnostics || []).filter(d => d.severity === 'error')
   } catch (err) { return [{ severity: 'error', message: String((err && err.message) || err || t('preview.compileFailed')) }] }
 }
@@ -1150,12 +1150,12 @@ function paintErr() { // compile errors via lint (F1): every column range render
   const doc = cm.state.doc, diags = [], byLine = new Map(), general = []
   for (const d of cmpDiags) {
     const msg = (d && d.message) || t('preview.typstErrorBare')
-    const r = d && d.path === tabPath(activeFile) ? diagRange(d, doc) : null // marks for the text in the editor (main.typ or the open tab)
+    const r = d && d.path === tabPath(activeFile) ? diagRange(d, doc) : null // marks for the text in the editor (the document text or the open tab)
     if (r) {
       diags.push({ from: r.from, to: r.to, severity: 'error', message: msg + (d.hints && d.hints.length ? '\n' + d.hints.map(h => 'â†’ ' + h).join('\n') : ''), source: 'typst' })
       if (!byLine.has(r.line)) byLine.set(r.line, { line: r.line, col: r.explicit ? r.col : 0, from: r.from, to: r.to, raw: msg, msg: msg + t('preview.lineSuffix', { line: r.line, col: r.explicit ? ':' + r.col : '' }) })
     } else { // foreign file (package) or no position: no mark possible, but never drop it
-      let where = (d && d.package ? d.package + ' ' : '') + (d && d.path && d.path !== '/main.typ' ? d.path : '')
+      let where = (d && d.package ? d.package + ' ' : '') + (d && d.path && d.path !== '/__doc__.typ' ? d.path : '')
       const at = String((d && (d.range || d.span || d.location)) || '').match(/(\d+)/)
       if (where && at) where += ':' + (+at[1] + 1)
       const full = (where ? where + ' Â· ' : '') + msg

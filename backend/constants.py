@@ -1,4 +1,5 @@
 """Central limits: single source for main + sync (no import cycle)."""
+ENTRY = "__doc__.typ"  # compile entry file name in temp dirs; a document is its title, never a file
 MAX_TXT = 200_000
 MAX_FOLDER_DEPTH = 2  # folder levels inside a project (a/b/file.typ); projects themselves do not count
 SNAP_MAX = 50

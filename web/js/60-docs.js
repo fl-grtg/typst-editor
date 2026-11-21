@@ -821,7 +821,7 @@ function queueTplSave() {
 }
 addEventListener('online', () => { if (tplName && tplDirty) flushTpl() })
 let openN = 0, synced = false // sync state ready? Else no empty save to DB (Fix #2)
-function wsLive() { return !!(prov && prov.wsconnected) } // Yjs carries main.typ; REST autosave would only 409
+function wsLive() { return !!(prov && prov.wsconnected) } // Yjs carries the document text; REST autosave would only 409
 let connT = 0 // debounced disconnect paint: brief flaps stay invisible, no flicker
 function paintConn() { // one status: Live / Offline (browser) / Getrennt (WS down); #save stays with queueSave/saveNow
   connT = 0
@@ -981,7 +981,7 @@ function noteSharedRes(id) {
     toast(t('templates.sharedResNote'), null, '', 8000) // paths unchanged: owner's copies compile in
   }).catch(() => {})
 }
-function queueSave() { // main.typ: Yjs carries every keystroke (offline too: syncs on reconnect); REST would 409 or fork the text, so never autosave main
+function queueSave() { // the document text: Yjs carries every keystroke (offline too: syncs on reconnect); REST would 409 or fork the text, so never autosave main
   if (window.suggestionDraft) return // draft: an unsent suggestion is no saved doc — no autosave status while editing one
   clearTimeout(saveT)
   if (!tplName && !activeFile) {
@@ -1004,7 +1004,7 @@ async function saveNow(force, auto) {
     return
   }
   if (!docId || docRole === 'reviewer' || !ytext) return
-  if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns main.typ: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
+  if (!wsLive() || navigator.onLine === false) { $('save').textContent = t('docs.offlineRetry'); return } // Yjs owns the document text: no REST off the sync path (forked text doubled on reconnect), quiet even when explicit
   if (auto) { if (!window.suggestionDraft) $('save').textContent = t('docs.saved'); paintConn(); return } // reconnect won the race: Yjs has it, no REST (2E); draft must not claim 'saved'
   try { await api('POST', `/api/docs/${docId}/save`, { content: ytext.toString(), ...(force ? { force: true } : {}) }); $('save').textContent = t('docs.saved') }
   catch (e) {

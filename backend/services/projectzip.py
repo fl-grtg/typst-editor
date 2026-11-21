@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import posixpath
 import shutil
 import sqlite3
 import stat
@@ -12,12 +13,57 @@ from fastapi import HTTPException
 
 from backend import config, db, deps
 from backend.constants import EXPORT_MAX, MAX_TXT, TITLE_MAX, UPLOAD_MAX
-from backend.services import projects, quota
+from backend.services import projects, quota, resources
 from backend.services.docfiles import file_type, safe_name, store
 from backend.services.sidebar import notify_sidebar
 
 
-def read_project_zip(data: bytes) -> tuple[str, list[tuple[str, bytes]]]:
+def _typ_texts(archive: zipfile.ZipFile) -> dict[str, str]:
+    out = {}
+    for e in archive.infolist():
+        if not e.is_dir() and e.filename.lower().endswith(".typ") and e.file_size <= MAX_TXT:
+            with archive.open(e) as stream:
+                out[e.filename] = stream.read(MAX_TXT + 1).decode("utf-8", errors="replace")
+    return out
+
+
+def zip_typ_entries(data: bytes) -> dict[str, str]:
+    """Typst files of a ZIP with their text: the candidates for the document."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            return _typ_texts(archive)
+    except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError, EOFError) as e:
+        raise HTTPException(400, "Invalid or unsupported ZIP") from e
+
+
+def zip_preview(data: bytes) -> dict:
+    """What the import dialog offers: the .typ files, and the one that is the document unless the user must choose."""
+    texts = zip_typ_entries(data)
+    return {"entries": sorted(texts), "suggested": _pick_entry(texts, "", strict=False)}
+
+
+def _pick_entry(texts: dict[str, str], entry: str, strict: bool = True) -> str:
+    """The chosen file; else the only one nobody includes (or the only .typ file)."""
+    if entry:
+        if entry not in texts:
+            raise HTTPException(400, "The chosen document is not in the ZIP")
+        return entry
+    included = set()
+    for name, text in texts.items():
+        here = PurePosixPath(name).parent
+        for ref in resources.refs_in_text(text):
+            included.add(posixpath.normpath(str(here / ref)))
+            included.add(posixpath.normpath(ref))
+    roots = sorted(n for n in texts if n not in included)
+    if len(roots) == 1:
+        return roots[0]
+    if strict:
+        raise HTTPException(400, {"code": "choose_document", "message": "Choose which Typst file is the document", "entries": sorted(texts)})
+    return ""
+
+
+def read_project_zip(data: bytes, entry: str = "") -> tuple[str, str, list[tuple[str, bytes]]]:
+    """(document file path, its text, the other files relative to the document's folder)."""
     if len(data) > UPLOAD_MAX:
         raise HTTPException(413, "ZIP too large (max 10 MB)")
     limits = config.load()
@@ -28,27 +74,25 @@ def read_project_zip(data: bytes) -> tuple[str, list[tuple[str, bytes]]]:
                 raise HTTPException(400, "Too many files in ZIP")
             if sum(e.file_size for e in entries) > EXPORT_MAX:
                 raise HTTPException(413, "Uncompressed ZIP too large (max 100 MB)")
-            mains = [e for e in entries if PurePosixPath(e.filename).name == "main.typ"]
-            if len(mains) != 1:
-                raise HTTPException(400, "ZIP must contain exactly one main.typ")
-            prefix = mains[0].filename.removesuffix("main.typ")
+            chosen = _pick_entry(_typ_texts(archive), entry)
+            prefix = chosen.removesuffix(PurePosixPath(chosen).name)
             files, seen = [], set()
             actual_total = 0
             main = ""
-            for entry in entries:
-                raw = entry.filename
-                if raw.startswith("/") or "\\" in raw or ".." in PurePosixPath(raw).parts or stat.S_ISLNK(entry.external_attr >> 16):
+            for item in entries:
+                raw = item.filename
+                if raw.startswith("/") or "\\" in raw or ".." in PurePosixPath(raw).parts or stat.S_ISLNK(item.external_attr >> 16):
                     raise HTTPException(400, "Unsafe ZIP path")
                 if prefix and not raw.startswith(prefix):
-                    raise HTTPException(400, "All ZIP files must be in the main.typ folder")
+                    raise HTTPException(400, "All ZIP files must be in the folder of the document")
                 name = raw[len(prefix):]
                 if not name or safe_name(name) != name or name.casefold() in seen:
                     raise HTTPException(400, "Invalid or duplicate ZIP path")
                 seen.add(name.casefold())
                 limit = MAX_TXT if PurePosixPath(name).suffix.lower() in deps.TEXT_SUFFIX else UPLOAD_MAX
-                if entry.file_size > limit:
+                if item.file_size > limit:
                     raise HTTPException(413, "File in ZIP too large")
-                with archive.open(entry) as stream:
+                with archive.open(item) as stream:
                     content = stream.read(limit + 1)
                 actual_total += len(content)
                 if len(content) > limit or actual_total > EXPORT_MAX:
@@ -59,24 +103,24 @@ def read_project_zip(data: bytes) -> tuple[str, list[tuple[str, bytes]]]:
                     except UnicodeDecodeError as e:
                         raise HTTPException(400, "Text files in ZIP must be UTF-8") from e
                     content = text.encode("utf-8")
-                if name == "main.typ":
+                if raw == chosen:
                     main = content.decode("utf-8")
                 else:
                     files.append((name, content))
-            return main, files
+            return chosen, main, files
     except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError, EOFError) as e:
         raise HTTPException(400, "Invalid or unsupported ZIP") from e
 
 
-def import_project_zip(user: str, title: str, folder: str, data: bytes, project_id: str | None = None) -> dict:
+def import_project_zip(user: str, title: str, folder: str, data: bytes, project_id: str | None = None, entry: str = "") -> dict:
     from backend.routers.project_folders import folder_path
 
-    title = title.strip()
-    if not title or len(title) > TITLE_MAX:
-        raise HTTPException(400, f"Title: 1-{TITLE_MAX} chars")
     # Project folders are sanitized paths; a standalone document keeps its free-form folder name.
     folder = (folder_path(folder) if project_id else deps.check_folder_name(folder)) if folder.strip() else ""
-    main, files = read_project_zip(data)
+    chosen, main, files = read_project_zip(data, entry)
+    title = title.strip() or PurePosixPath(chosen).stem
+    if not title or len(title) > TITLE_MAX:
+        raise HTTPException(400, f"Title: 1-{TITLE_MAX} chars")
     did, now = db.new_id("d_"), db.now_iso()
     root = deps.get_files_dir().resolve()
     target = (root / did).resolve()

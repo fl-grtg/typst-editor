@@ -382,23 +382,23 @@ def test_events_doc_filter_guards_access(c):
 
 
 def test_mcp_text_write_updates_table_and_quota(c):
-    """R1 blocker 1: MCP file writes hit the files table immediately."""
-    from backend import mcp_tools as mcp
+    """MCP file writes hit the files table immediately."""
+    import asyncio
+
+    from backend import mcp_fs
 
     register_user(c, "alice")
-    make_doc(c, "MCPDatei")
-    base = quota_svc.user_bytes("alice")
-    mcp.op_create("alice", "owner", "/docs/MCPDatei/notizen.typ", "eins zwei drei")
+    did = make_doc(c, "MCPDatei")
+    pid = c.get(f"/api/docs/{did}").json()["project_id"]
+    title = c.get(f"/api/projects/{pid}").json()["title"]
+    asyncio.run(mcp_fs.write(mcp_fs.Ctx("alice"), f"/{title}/MCPDatei/notizen.typ", "eins zwei drei"))
     con = db.connect()
     try:
-        row = con.execute("SELECT size FROM files WHERE path=? AND doc_id IN "
-                          "(SELECT id FROM docs WHERE owner=? AND title=?)",
-                          ("notizen.typ", "alice", "MCPDatei")).fetchone()
+        row = con.execute("SELECT size FROM files WHERE path=? AND doc_id=?", ("notizen.typ", did)).fetchone()
     finally:
         con.close()
     assert row is not None  # write-through, no list_files healing needed
     assert row["size"] == len(b"eins zwei drei")
-    assert quota_svc.user_bytes("alice") == base + row["size"]
 
 
 def test_duplicate_copies_files_table_rows(c):

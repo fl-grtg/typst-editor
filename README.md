@@ -32,7 +32,7 @@ Typst Editor is a browser-based workspace for Typst documents that several peopl
 - **Projects, not loose files.** A project holds several documents that compile independently, plus shared modules, templates, bibliographies and attachments. Checkpoints let you compare versions and roll back.
 - **Roles and review.** Owners, editors and reviewers. Reviewers read, comment on lines, @-mention people and propose changes; owners and editors decide what gets accepted. Mentions and proposals arrive in an inbox.
 - **Export.** Each document as `.typ`, PDF, SVG or PNG, or a whole project as ZIP.
-- **Agent access.** API keys with their own role and an MCP endpoint for Claude Code, OpenCode and similar clients. A ready-made skill lives in `skills/typst-editor`.
+- **Agent access.** API keys with their own role and mode (direct, proposal or automatic) and an MCP endpoint for Claude Code, OpenCode and similar clients. Agents work on paths like `/Project/Folder/Document`, edit the live text without disturbing people typing, hand in changes as proposal packages that humans accept hunk by hunk, and move big files through one-time curl links. A short skill lives in `skills/typst-editor`.
 - **Built for self-hosting.** Invite-only signup, per-user quotas and per-endpoint rate limits.
 
 ## Installation

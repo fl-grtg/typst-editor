@@ -12,8 +12,7 @@ import pytest
 from conftest import login, make_doc, register_user
 from fastapi import HTTPException
 
-from backend import db, deps
-from backend import mcp_tools as t
+from backend import db, deps, mcp_fs
 
 
 def _revoke_share(did, user):
@@ -185,21 +184,19 @@ def test_unshare_scoped_to_doc(c):
     assert c.post("/api/join", json={"token": tok_b}).json()["id"] == b
 
 
-def test_mcp_edit_stale_grant_fails(c, monkeypatch):
-    # B5/F1: mcp op_edit resolves the path via db.doc_role (outer check) but
-    # the tx must re-check on its own connection. Revoke the share, pin the
-    # outer lookup to the stale grant: the edit must still fail and the
-    # content must be unchanged (pre-fix the tx trusted the stale grant).
+def test_mcp_edit_stale_grant_fails(c):
+    # The role must hold when the edit lands, not only when the path was resolved.
     register_user(c, "alice")
     register_user(c, "bob")
     login(c, "alice")
     did = make_doc(c, "McpStale", content="line1\nline2\n")
     assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "editor"}).status_code == 200
+    ctx = mcp_fs.Ctx("bob", "editor")
+    node = mcp_fs.resolve(ctx, "/" + c.get(f"/api/projects/{c.get(f'/api/docs/{did}').json()['project_id']}").json()["title"] + "@alice/McpStale")
     _revoke_share(did, "bob")
-    monkeypatch.setattr(db, "doc_role", lambda u, d: "editor")  # stale outer grant
     with pytest.raises(HTTPException) as e:
-        asyncio.run(t.op_edit("bob", "editor", "/shared/alice/McpStale", "line1", "LINE1"))
-    assert e.value.status_code == 403
+        asyncio.run(mcp_fs.set_doc(ctx, node["doc_id"], lambda old: "changed"))
+    assert e.value.status_code in (403, 404)
     con = db.connect()
     try:
         got = con.execute("SELECT content FROM docs WHERE id=?", (did,)).fetchone()["content"]

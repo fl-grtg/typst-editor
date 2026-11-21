@@ -29,10 +29,11 @@ class ProposalFile(BaseModel):
     id: str = ""
     kind: Literal["document", "resource", "file"]
     doc_id: str = Field(default="", max_length=100)
-    path: str = Field(min_length=1, max_length=240)
+    path: str = Field(default="", max_length=240)
     action: Literal["modify", "add", "delete", "rename"]
     target: str = Field(default="", max_length=240)
     original_title: str = Field(default="", max_length=100)
+    folder: str | None = Field(default=None, max_length=240)
     base: str | None = Field(default=None, max_length=14000000)
     content: str | None = Field(default=None, max_length=14000000)
     initial_content: str | None = Field(default=None, max_length=14000000)
@@ -167,4 +168,6 @@ def delete_package(project_id: str, package_id: str, req: Request, user: str = D
         con.execute("DELETE FROM suggestion_packages WHERE id=?", (package_id,))
     quota.invalidate_quota_cache(owner)
     projects.notify(project_id)
+    from backend.services import notifications
+    notifications.notify_reviewed(project_id, user, proposal["author"], package_id, proposal["title"], "discarded")
     return {"ok": True}

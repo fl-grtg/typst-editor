@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from backend import db
+from backend.constants import ENTRY
 
 RESOURCE_EXTS = {".typ": "template", ".bib": "library", ".csv": "table", ".tsv": "table", **dict.fromkeys((".json", ".yaml", ".yml", ".toml", ".xml", ".txt", ".csl"), "data")}
 REF_RE = re.compile(r'"([^"\n]{1,240})"')
@@ -27,10 +28,9 @@ REF_MAX_PER_TEXT = 200
 REACHABLE_MAX = 500
 # Backwards-compat alias (old importers): total-closure cap.
 REF_MAX = REACHABLE_MAX
-# `main.typ` is the doc itself: a resource by that name would shadow it in
-# every compile (`/main.typ` twice). New/updated resources reject it;
-# get/read/delete keep working for any pre-existing rows.
-RESERVED_NAMES = frozenset({"main.typ"})
+# The compile entry file is the doc itself: a resource by that name would shadow it in
+# every compile. New/updated resources reject it; get/read/delete keep working for any pre-existing rows.
+RESERVED_NAMES = frozenset({ENTRY})
 
 
 def kind_of(name: str) -> str:
@@ -45,7 +45,7 @@ def res_name(raw: str) -> str:
 
 
 def is_reserved(name: str) -> bool:
-    return (name or "").strip().lower() == "main.typ"
+    return (name or "").strip().lower() == ENTRY
 
 
 def insert_line(name: str) -> str:
@@ -106,7 +106,7 @@ def _resolve_ref(referrer: str | None, ref: str,
                  local: dict[str, str], shelf: dict[str, str]) -> str | None:
     """Resolve one quoted ref to a key in `local` (doc wins) or `shelf`.
 
-    `referrer` is the importing file's path (`"main.typ"` for main text,
+    `referrer` is the importing file's path (`ENTRY` for the document text,
     else the local/resource path). Typst resolves relative to the
     importing file, so `sub/part.typ` importing `"leaf.typ"` means
     `sub/leaf.typ` first, then the doc root, then the owner shelf.
@@ -162,7 +162,7 @@ def reachable_closure(shelf: dict[str, str], local: dict[str, str],
     """
     got: dict[str, str] = {}
     visited: set[str] = set()
-    queue: list[tuple[str | None, str]] = [("main.typ", main_text or "")]
+    queue: list[tuple[str | None, str]] = [(ENTRY, main_text or "")]
     for path, content in local.items():
         if _is_code_path(path):
             queue.append((path, content or ""))

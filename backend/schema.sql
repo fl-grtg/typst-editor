@@ -103,11 +103,23 @@ CREATE TABLE IF NOT EXISTS api_keys (
     prefix TEXT NOT NULL DEFAULT '',
     key_hash TEXT NOT NULL UNIQUE,
     role TEXT NOT NULL DEFAULT 'editor',
+    mode TEXT NOT NULL DEFAULT 'auto', -- auto: propose in shared projects, else direct
     expires_at TEXT NOT NULL DEFAULT '',
     last_used TEXT NOT NULL DEFAULT '',
     revoked INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+
+-- agent_log: what a key did (newest 500 per key), shown next to the key in Settings.
+CREATE TABLE IF NOT EXISTS agent_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    ok INTEGER NOT NULL DEFAULT 1,
+    at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_log_key ON agent_log(key_id, id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(username);
 

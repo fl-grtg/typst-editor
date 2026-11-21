@@ -6,10 +6,10 @@ const packages = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8'
 const tabs = fs.readFileSync('web/js/80-files-images.js', 'utf8')
 
 function context() {
-  const file = { kind: 'document', doc_id: 'd_new', path: 'main.typ', action: 'add', target: 'New chapter', content: 'Draft' }
-  const session = { files: new Map([['document:d_new:main.typ', file]]), project: 'p_test', previewRevision: 0 }
+  const file = { kind: 'document', doc_id: 'd_new', path: '', action: 'add', target: 'New chapter', content: 'Draft' }
+  const session = { files: new Map([['document:d_new:', file]]), project: 'p_test', previewRevision: 0 }
   const c = vm.createContext({ window: { changeSession: session }, docId: 'd_existing', shadow: '', activeFile: '@proposal-doc/d_new.typ',
-    isTplKey: () => false, tabName: k => k || 'main.typ', session, file })
+    isTplKey: () => false, tabName: k => k || '__doc__.typ', session, file })
   vm.runInContext(packages.slice(packages.indexOf('const sessionKey'), packages.indexOf('const sessionUrl')), c)
   return c
 }
@@ -48,7 +48,7 @@ test('discarding an active added document keeps the project draft and returns to
 
 test('sidebar selection follows added document and attachment tabs instead of their source document', () => {
   const c = context()
-  const keys = ['document:d_existing:main.typ', 'document:d_new:main.typ', 'file:d_existing:pixel.png']
+  const keys = ['document:d_existing:', 'document:d_new:', 'file:d_existing:pixel.png']
   const rows = keys.map(key => ({ dataset: { packageKey: key }, current: false,
     closest: () => ({ dataset: { projectId: 'p_test' } }),
     classList: { toggle: (_name, value) => { rows[keys.indexOf(key)].current = value } } }))
@@ -120,7 +120,7 @@ test('accepting a document rename refreshes the current document title immediate
   let endArgs
   c.session.package = { id: 'sp_test', revision: 1 }
   c.session.commentRanges = new Map()
-  c.session.files = new Map([['document:d_existing:main.typ', { id: 'pf_doc', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'rename', target: 'New name' }]])
+  c.session.files = new Map([['document:d_existing:', { id: 'pf_doc', kind: 'document', doc_id: 'd_existing', path: '', action: 'rename', target: 'New name' }]])
   Object.assign(c, { activeFile: '', docTitle: 'Old name', saveSessionCorrections: async () => true,
     cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {}, paintFileExtras: () => {},
     paintSuggestionControls: () => {}, sessionUrl: () => '/proposals/sp_test', loadDocResources: async () => {}, projectResources: () => [],
@@ -165,8 +165,8 @@ test('parallel accepts cannot submit the same revision twice', async () => {
 test('accepted revision survives a failed refresh and a rename with pending content updates the title', async () => {
   const c = context()
   c.session.package = { revision: 1 }
-  c.session.files = new Map([['document:d_existing:main.typ', { id: 'doc', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'rename', target: 'New title' }]])
-  const pending = { id: 'doc', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'modify' }
+  c.session.files = new Map([['document:d_existing:', { id: 'doc', kind: 'document', doc_id: 'd_existing', path: '', action: 'rename', target: 'New title' }]])
+  const pending = { id: 'doc', kind: 'document', doc_id: 'd_existing', path: '', action: 'modify' }
   Object.assign(c, { docTitle: 'Old title', activeFile: '', saveSessionCorrections: async () => true,
     cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {},
     paintFileExtras: () => {}, paintSuggestionControls: () => {}, sessionActivate: async () => {},
@@ -175,7 +175,7 @@ test('accepted revision survives a failed refresh and a rename with pending cont
   vm.runInContext(packages.slice(packages.indexOf('async function acceptSessionSelection'), packages.indexOf('async function deleteSelectedPackage')), c)
   await c.acceptSessionSelection('doc', '@action')
   assert.equal(c.session.package.revision, 2)
-  assert.equal(c.session.files.get('document:d_existing:main.typ').action, 'modify')
+  assert.equal(c.session.files.get('document:d_existing:').action, 'modify')
   assert.equal(c.docTitle, 'New title')
   assert.equal(c.session.accepting, false)
 })
@@ -186,7 +186,7 @@ test('accepting current document deletion closes review without fetching trashed
     const c = context()
     c.session.package = { revision: 1 }
     c.session.commentRanges = new Map()
-    c.session.files = new Map([['document:d_existing:main.typ', { id: 'deleted', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'delete' }]])
+    c.session.files = new Map([['document:d_existing:', { id: 'deleted', kind: 'document', doc_id: 'd_existing', path: '', action: 'delete' }]])
     let closed = 0, ended = 0
     Object.assign(c, { activeFile: tab, projects: [], saveSessionCorrections: async () => true,
       cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {},
@@ -241,7 +241,7 @@ test('last acceptance restores accepted text even before its websocket echo arri
     const c = context()
     c.session.package = { id: 'sp_test', revision: 1 }
     c.session.commentRanges = new Map()
-    c.session.files = new Map([['document:d_existing:main.typ', { id: 'pf_doc', kind: 'document', doc_id: 'd_existing', path: 'main.typ', action: 'modify', base: 'old text', content: 'new text' }]])
+    c.session.files = new Map([['document:d_existing:', { id: 'pf_doc', kind: 'document', doc_id: 'd_existing', path: '', action: 'modify', base: 'old text', content: 'new text' }]])
     let restored
     Object.assign(c, { activeFile: '', shadow, saveSessionCorrections: async () => true, cm: { dispatch() {} },
       editableComp: { reconfigure() {} }, editMode() {}, paintFileExtras() {}, paintSuggestionControls() {},

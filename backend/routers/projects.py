@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from backend import config, db, deps, sync
-from backend.constants import MAX_TXT
+from backend.constants import ENTRY, MAX_TXT
 from backend.schemas import Share
 from backend.services import projects, quota, resources, trash
 from backend.services.docfiles import safe_name, safe_rename_target, store
@@ -347,14 +347,14 @@ def rename_entry_preview(project_id: str, b: EntryRename, req: Request, user: st
             local = projects.local_texts(d['id'])
             local_names = {f.path for f in store.list(d['id'])}
             live = sync.room_text(d['id'])
-            for path, content in {**library, **local, 'main.typ': live if live is not None else d['content']}.items():
+            for path, content in {**library, **local, ENTRY: live if live is not None else d['content']}.items():
                 if not path.lower().endswith('.typ'):
                     continue
                 for match in resources.REF_RE.finditer(content):
                     ref = match.group(1).replace('\\', '/')
                     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), ref)) if not ref.startswith('/') else ref.lstrip('/')
                     if resolved == name and (b.doc_id or name not in local_names):
-                        references.append(f"{d['title']}/{path}: {ref}")
+                        references.append(f"{d['title'] if path == ENTRY else d['title'] + '/' + path}: {ref}")
         return {"name": target, "version": version, "references": sorted(set(references))}
     except OSError as e:
         raise HTTPException(409, "Files changed or could not be read; retry rename preview") from e
@@ -478,14 +478,112 @@ async def transfer_entry(project_id: str, b: TransferEntry, req: Request, user: 
     return result
 
 
+class ConvertEntry(BaseModel):
+    doc_id: str = Field(default='', max_length=100)  # '' = a project module
+    name: str = Field(default='', max_length=240)
+    document: bool = False  # doc_id is a document itself (name ignored): it becomes a module
+    to: Literal['document', 'module']
+    title: str = Field(default='', max_length=100)
+    folder: str = Field(default='', max_length=240)
+
+
+class Demote(BaseModel):
+    doc_id: str = Field(max_length=100)
+    target_doc_id: str = Field(max_length=100)
+    name: str = Field(default='', max_length=240)
+
+
+@router.post('/api/projects/{project_id}/convert')
+async def convert_entry(project_id: str, b: ConvertEntry, req: Request, user: str = Depends(deps.me)) -> dict:
+    """A document or .typ attachment becomes a shared module, a .typ attachment or module a document; the old entry goes to the trash."""
+    from backend.routers.docs import _delete_doc
+    from backend.routers.files import delete_file
+
+    name = safe_name(b.name) if b.name else ''
+    if b.document and (b.to != 'module' or not b.doc_id):
+        raise HTTPException(400, 'A document converts to a module')
+    if not b.document and not name.lower().endswith('.typ'):
+        raise HTTPException(400, 'Only .typ files can be converted')
+    if b.to == 'module' and not b.doc_id:
+        raise HTTPException(400, 'A module is already a module')
+    row = title_row = None
+    with db.tx() as con:
+        projects.require(con, project_id, user, edit=True)
+        if b.doc_id:
+            deps.check_doc_id(b.doc_id)
+            title_row = con.execute('SELECT title,content,folder FROM docs WHERE id=? AND project_id=? AND trashed=0', (b.doc_id, project_id)).fetchone()
+            if not title_row:
+                raise HTTPException(404, 'Document not found')
+        else:
+            row = con.execute('SELECT content,updated_at FROM project_resources WHERE project_id=? AND name=?', (project_id, name)).fetchone()
+    try:
+        if b.document:
+            assert title_row is not None
+            live = sync.room_text(b.doc_id)
+            text = title_row['content'] if live is None else live
+            name = safe_name('/'.join(x for x in (title_row['folder'], title_row['title'] + '.typ') if x), new=True)  # the module stays in the folder
+        elif b.doc_id:
+            text = store.get(b.doc_id, name).decode('utf-8')
+        elif row:
+            text = row['content']
+        else:
+            raise FileNotFoundError(name)
+    except (FileNotFoundError, UnicodeDecodeError):
+        raise HTTPException(404, 'Text file not found') from None
+    source_dir = title_row['folder'] if b.document else posixpath.dirname(name) if not b.doc_id else ''
+    parts = [x for x in (source_dir or '').split('/') if x]
+    with db.tx() as con:  # an emptied folder stays: folders live only through their entries, so give it a row of its own
+        for i in range(1, len(parts) + 1):
+            con.execute('INSERT OR IGNORE INTO project_folders VALUES (?,?,?)', (project_id, '/'.join(parts[:i]), db.now_iso()))
+    if b.to == 'module':
+        made = save_resource(project_id, ResourceSave(name=resource_name(name, new=True), content=text), req, user)
+        if b.document:
+            await _delete_doc(b.doc_id, req, user, trash_only=True)
+        else:
+            delete_file(b.doc_id, name, req, user)
+        return {'name': made['name']}
+    title = b.title.strip() or posixpath.splitext(posixpath.basename(name))[0]
+    folder = b.folder or (title_row['folder'] if b.doc_id and title_row else posixpath.dirname(name))  # the document lands where the file was
+    made = create_document(project_id, ProjectDoc(title=title, folder=folder, content=text), req, user)
+    if b.doc_id:
+        delete_file(b.doc_id, name, req, user)
+    else:
+        assert row is not None
+        delete_resource(project_id, name, row['updated_at'], req, user)
+    return {'id': made['id'], 'title': title}
+
+
+@router.post('/api/projects/{project_id}/demote')
+async def demote_doc(project_id: str, b: Demote, req: Request, user: str = Depends(deps.me)) -> dict:
+    """A document becomes a text attachment (.typ) of another document; the document goes to the trash."""
+    import io
+
+    from backend.routers.docs import _delete_doc
+    from backend.routers.files import upload_file
+
+    deps.check_doc_id(b.doc_id)
+    deps.check_doc_id(b.target_doc_id)
+    with db.tx() as con:
+        projects.require(con, project_id, user, edit=True)
+        row = con.execute('SELECT title,content FROM docs WHERE id=? AND project_id=? AND trashed=0', (b.doc_id, project_id)).fetchone()
+        target = con.execute('SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0', (b.target_doc_id, project_id)).fetchone()
+        if not row or not target or b.doc_id == b.target_doc_id:
+            raise HTTPException(404, 'Document not found')
+    text = sync.room_text(b.doc_id)
+    name = safe_name(b.name or row['title'] + '.typ', new=True)
+    upload_file(b.target_doc_id, UploadFile(file=io.BytesIO((row['content'] if text is None else text).encode()), filename=name), req, user)
+    await _delete_doc(b.doc_id, req, user, trash_only=True)
+    return {'name': name, 'doc_id': b.target_doc_id}
+
+
 @router.post('/api/projects/{project_id}/import-zip')
-def import_project_source(project_id: str, f: UploadFile, req: Request, title: str = Form(...), folder: str = Form(''), user: str = Depends(deps.me)) -> dict:
+def import_project_source(project_id: str, f: UploadFile, req: Request, title: str = Form(''), folder: str = Form(''), entry: str = Form(''), user: str = Depends(deps.me)) -> dict:
     from backend.constants import UPLOAD_MAX
     from backend.services.projectzip import import_project_zip
 
     deps.limited(req, 'create')
     data = f.file.read(UPLOAD_MAX + 1)
-    return import_project_zip(user, title, folder, data, project_id)
+    return import_project_zip(user, title, folder, data, project_id, entry)
 
 
 @router.get('/api/projects/{project_id}/export-zip')
@@ -495,7 +593,7 @@ def export_project_zip(project_id: str, req: Request, user: str = Depends(deps.m
 
     from fastapi.responses import Response
 
-    from backend import mcp_tools
+    from backend import render
     from backend.constants import EXPORT_MAX
 
     deps.limited(req, 'export_doc', user)
@@ -521,9 +619,10 @@ def export_project_zip(project_id: str, req: Request, user: str = Depends(deps.m
             write('modules/' + name, content.encode())
         for doc in project['documents']:
             deps.need_access(user, doc['id'])
-            main, files, skipped = mcp_tools._collect_export_source(doc['id'])
-            prefix = 'documents/' + doc['id'] + '/'
-            write(prefix + 'main.typ', main.encode())
+            main, files, skipped = render._collect_export_source(doc['id'])
+            stem = render._export_stem(doc['title'])
+            prefix = 'documents/' + '/'.join(x for x in (doc['folder'], stem) if x) + '/'
+            write(prefix + stem + '.typ', main.encode())
             for name, content in files:
                 write(prefix + name, content)
             if skipped:

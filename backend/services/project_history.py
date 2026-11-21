@@ -120,7 +120,7 @@ def diff_files(state: dict) -> dict[str, str]:
     files = {}
     for d in state['documents']:
         prefix = f"{d['title']} [{d['id']}]"
-        files[prefix + '/main.typ'] = d['content']
+        files[prefix + '.typ'] = d['content']
         for name, encoded in d['files'].items():
             data = base64.b64decode(encoded)
             try:
@@ -134,7 +134,7 @@ def diff_files(state: dict) -> dict[str, str]:
 
 
 def diff_entries(state: dict) -> dict[str, dict]:
-    """Per entry: display path as shown in the sidebar (no project name, no internal main.typ), text or binary marker."""
+    """Per entry: display path as shown in the sidebar (no project name), text or binary marker."""
     out: dict[str, dict] = {}
 
     def put(key: str, name: str, data: bytes | str) -> None:
