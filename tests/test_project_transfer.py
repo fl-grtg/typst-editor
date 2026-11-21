@@ -187,7 +187,7 @@ def test_private_module_copy_name_remains_usable_in_document_references(c):
 
 def test_project_zip_contains_all_documents_modules_and_binary_files_for_readers(c):
     ids, (source, _) = setup_projects(c)
-    other = c.post(f'/api/projects/{source}/docs', json={'title': 'Second', 'content': 'second'}).json()['id']
+    c.post(f'/api/projects/{source}/docs', json={'title': 'Second', 'content': 'second'})
     c.post(f'/api/projects/{source}/resources', json={'name': 'unused.typ', 'content': 'unused'})
     c.post(f'/api/docs/{ids[0]}/files', files={'f': ('image.png', b'image', 'image/png')})
     register_user(c, 'bob')
@@ -197,8 +197,9 @@ def test_project_zip_contains_all_documents_modules_and_binary_files_for_readers
     result = c.get(f'/api/projects/{source}/export-zip')
     assert result.status_code == 200, result.text
     with zipfile.ZipFile(io.BytesIO(result.content)) as archive:
-        assert archive.read(f'documents/{other}/main.typ') == b'second'
-        assert archive.read(f'documents/{ids[0]}/image.png') == b'image'
+        first = c.get(f'/api/docs/{ids[0]}').json()['title']
+        assert archive.read('documents/Second/Second.typ') == b'second'
+        assert archive.read(f'documents/{first}/image.png') == b'image'
         assert archive.read('modules/unused.typ') == b'unused'
     login(c, 'alice')
     c.delete(f'/api/projects/{source}/members/bob')
@@ -207,7 +208,7 @@ def test_project_zip_contains_all_documents_modules_and_binary_files_for_readers
     result = c.get(f'/api/projects/{source}/export-zip')
     assert result.status_code == 200, result.text
     with zipfile.ZipFile(io.BytesIO(result.content)) as archive:
-        assert f'documents/{other}/main.typ' not in archive.namelist()
+        assert 'documents/Second/Second.typ' not in archive.namelist()
         assert 'modules/unused.typ' not in archive.namelist()
 
 

@@ -12,7 +12,7 @@ const SETTINGS_CATS = [
   ['sessions', 'settings.navSessions'], ['api', 'settings.navApi'], ['storage', 'settings.navStorage']
 ]
 const settingsError = message => toast(message || t('common.requestFailed'), null, null, 5000, 'error')
-const AGENT_PROMPT = 'Install the Typst Editor skill from https://raw.githubusercontent.com/fl-grtg/typst-editor/main/skills/typst-editor/SKILL.md and follow its section 0 to connect to my Typst server. Ask me for server URL and API key if missing.'
+const AGENT_PROMPT = 'Install the Typst Editor skill from https://raw.githubusercontent.com/fl-grtg/typst-editor/main/skills/typst-editor/SKILL.md and connect to my Typst server over MCP at ' + location.origin + '/mcp. Ask me for the API key if missing.'
 // 2D: language without reload (same module as 05-i18n: shadow t, keep ?lang helper)
 const LANG_KEY = 'typst_lang'
 function curLangInit() {
@@ -140,15 +140,17 @@ function showKeySecret() {
   const close = icoBtn('keySecretClose', ICO_X); close.type = 'button'; close.title = t('common.close'); close.setAttribute('aria-label', t('common.close'))
   const value = el('input', 'keySecretValue'); value.readOnly = true; value.value = lastKeySecret; value.setAttribute('aria-label', t('settings.keyOnceAria'))
   const copy = el('button', 'keySecretCopy', t('common.copy')); copy.type = 'button'; copy.onclick = () => copyTxt(lastKeySecret, value)
+  const cmd = `claude mcp add --transport http typst-editor ${location.origin}/mcp --header "Authorization: Bearer ${lastKeySecret}"`
+  const copyCmd = el('button', 'keySecretCopy', t('settings.connectCopy')); copyCmd.type = 'button'; copyCmd.onclick = () => copyTxt(cmd)
   top.append(title, close)
-  card.append(top, el('p', 'keySecretHint', t('settings.keyOnceHint')), value, copy)
+  card.append(top, el('p', 'keySecretHint', t('settings.keyOnceHint')), value, copy, copyCmd)
   overlay.appendChild(card); document.body.appendChild(overlay); modalInert(true)
   const done = () => { lastKeySecret = ''; modalInert(false); overlay.remove(); if (prev && document.contains(prev)) prev.focus() }
   close.onclick = done
   overlay.addEventListener('keydown', e => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return }
     if (e.key !== 'Tab') return
-    const focusable = [close, value, copy], i = focusable.indexOf(document.activeElement)
+    const focusable = [close, value, copy, copyCmd], i = focusable.indexOf(document.activeElement)
     if (e.shiftKey && i <= 0) { e.preventDefault(); focusable[focusable.length - 1].focus() }
     else if (!e.shiftKey && (i < 0 || i === focusable.length - 1)) { e.preventDefault(); focusable[0].focus() }
   })
@@ -333,6 +335,8 @@ function renderSettings() {
   const kn = keepField(el('input'), 'keyName'); kn.placeholder = t('settings.keyName'); kn.maxLength = 40; kn.setAttribute('aria-label', t('settings.keyName'))
   const rs = el('select'); rs.setAttribute('aria-label', t('common.roleAria'))
   ;[['editor', t('common.roleEditor')], ['reviewer', t('settings.roleReviewer')]].forEach(([v, lab]) => { const o = el('option', null, lab); o.value = v; rs.appendChild(o) })
+  const ms = el('select'); ms.setAttribute('aria-label', t('settings.keyMode')); ms.title = t('settings.keyMode')
+  ;[['auto', t('settings.modeAuto')], ['direct', t('settings.modeDirect')], ['propose', t('settings.modePropose')]].forEach(([v, lab]) => { const o = el('option', null, lab); o.value = v; ms.appendChild(o) })
   const es = el('select'); es.setAttribute('aria-label', t('settings.expiry'))
   ;[[t('settings.never'), ''], [t('settings.expDays', { n: 30 }), '30'], [t('settings.expDays', { n: 90 }), '90'], [t('settings.expDays', { n: 365 }), '365']].forEach(([label, v]) => { const o = el('option', null, label); o.value = v; es.appendChild(o) })
   const cb = el('button', null, t('common.create'))
@@ -341,15 +345,15 @@ function renderSettings() {
     if (cb.disabled) return
     if (!kn.value.trim()) { settingsError(t('settings.needKeyName')); return }
     cb.disabled = true
-    api('POST', '/api/keys', { name: kn.value.trim(), role: rs.value, expires_in_days: es.value ? +es.value : null })
+    api('POST', '/api/keys', { name: kn.value.trim(), role: rs.value, mode: ms.value, expires_in_days: es.value ? +es.value : null })
       .then(d => { // no refetch: one POST per create, list updates locally (was POST+GET, 2 keys-bucket hits)
         lastKeySecret = d.key
         kn.value = ''
-        apiKeys = [...(apiKeys || []), { id: d.id, name: d.name, prefix: d.prefix, role: d.role, expires_at: d.expires_at || '', last_used: '', created_at: '' }]
+        apiKeys = [...(apiKeys || []), { id: d.id, name: d.name, prefix: d.prefix, role: d.role, mode: d.mode, expires_at: d.expires_at || '', last_used: '', created_at: '' }]
       })
       .catch(e => settingsError(e.message)).finally(() => { renderSettings(); showKeySecret() })
   }
-  const cr = el('div', 'row keyCreateRow'); cr.append(kn, rs, es, cb)
+  const cr = el('div', 'row keyCreateRow'); cr.append(kn, rs, ms, es, cb)
   const createSec = ksec(cr); createSec.classList.add('keyCreateSec'); keySecs.push(createSec)
   if (apiKeys === null) {
     keySecs.push(ksec(el('div', null, apiKeysLoading ? t('settings.loading') : '')))
@@ -394,9 +398,22 @@ function renderSettings() {
           .catch(e => { rsel.value = k.role; settingsError(e.message) })
           .finally(() => { rsel.disabled = false })
       }
+      const msel = el('select', 'keyModeSel') // mode editable in place like the role
+      ;[['auto', t('settings.modeAuto')], ['direct', t('settings.modeDirect')], ['propose', t('settings.modePropose')]].forEach(([v, lab]) => {
+        const o = el('option', null, lab); o.value = v; if (v === (k.mode || 'auto')) o.selected = true; msel.appendChild(o)
+      })
+      msel.setAttribute('aria-label', t('settings.modeForKey', { name: k.name })); msel.title = t('settings.keyMode')
+      msel.onchange = () => {
+        const mode = msel.value
+        msel.disabled = true
+        api('PATCH', '/api/keys/' + encodeURIComponent(k.id), { mode })
+          .then(d => { k.mode = d.mode || mode; toast(t('settings.modeChanged')) })
+          .catch(e => { msel.value = k.mode || 'auto'; settingsError(e.message) })
+          .finally(() => { msel.disabled = false })
+      }
       const eS = el('span', 'val', t('settings.expires', { date: shortD(k.expires_at) })); eS.title = k.expires_at || t('settings.never')
       eS.style.fontSize = '12px'
-      sub.append(pc, eS, rsel)
+      sub.append(pc, eS, rsel, msel)
       left.append(nm, sub)
       r.append(left, rb)
       return r
@@ -900,7 +917,7 @@ function pvCodeWord(txt, nd, hint) { // the clicked word in code or a string of 
   }
   return best
 }
-function pvMainText() { return activeFile ? shadow : getT() } // main.typ, also while a text tab is open
+function pvMainText() { return activeFile ? shadow : getT() } // the document text, also while a text tab is open
 function pvFileAnchor(key, main) { // main line where a text file enters the page (include first, import as weak hint)
   if (!key) return 0
   const want = tabName(key).replace(/^\.?\//, '').replace(/\.typ$/i, '')
@@ -2536,7 +2553,7 @@ $('preview').addEventListener('click', async e => { // preview -> editor: text a
     const sx = r.width / vw, sy = r.height / vh
     syncEdOff = Math.max(1 - pv.clientHeight / 2, Math.min(pv.clientHeight / 2 - 1, e.clientY - (pv.getBoundingClientRect().top + pv.clientHeight / 2)))
     syncEdX = x / (r.width || 1) // the clicked column keeps owning follow on two-column pages
-    if (pi === 0 && items.length && !activeFile) { // above the first heading: the document top (#outline/title), not the first heading (page 1 belongs to main.typ)
+    if (pi === 0 && items.length && !activeFile) { // above the first heading: the document top (#outline/title), not the first heading (page 1 belongs to the document text)
       const first = srcHeadings(getT())[0]
       let topY = Infinity
       if (first) {

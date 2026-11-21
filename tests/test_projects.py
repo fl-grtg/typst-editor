@@ -118,7 +118,7 @@ def test_project_paths_resolve_relative_dependencies(c):
 
 
 def test_project_export_and_duplicate_use_shared_library(c):
-    from backend.mcp_tools import _collect_export_source
+    from backend.render import _collect_export_source
 
     pid, did = setup_project(c)
     c.post("/api/templates", json={"name": "layout.typ", "content": "Private changed"})

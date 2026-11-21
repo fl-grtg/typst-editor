@@ -174,6 +174,15 @@ window.newProjectFromMenu = newProjectFromMenu // menubar proxy (classic ui-laye
 $('new').onclick = e => { e.stopPropagation(); openNewMenu($('new')) }
 let upBusy = false // double-click: no second doc
 $('upDoc').onclick = () => $('docPick').click()
+async function zipDocumentEntry(f) { // which Typst file of the ZIP is the document: the server knows when it is obvious, else the user picks (null = cancelled)
+  const body = new FormData(); body.append('f', f)
+  const response = await fetch('/api/zip-preview', { method: 'POST', body })
+  if (!response.ok) throw new Error(expMsg(await response.text()))
+  const { entries, suggested } = await response.json()
+  if (suggested || !entries.length) return suggested || ''
+  const i = await askPick(t('docs.zipPickDoc'), entries.map(n => [n, t('docs.zipPickDocSub')]))
+  return i == null ? null : entries[i]
+}
 async function importUpload(f) {
   if (!f || upBusy) return
   if (f.size > (TEXT_EXT.test(f.name) ? 200 * 1024 : 10 * 1024 * 1024)) { toast(t(TEXT_EXT.test(f.name) ? 'docs.maxKb' : 'docs.maxBinary')); return }
@@ -181,9 +190,11 @@ async function importUpload(f) {
   try {
     if (!TEXT_EXT.test(f.name) && !/\.zip$/i.test(f.name)) { await uploadToProject([f]); return }
     if (/\.zip$/i.test(f.name)) {
-      const r = await askNewDoc(f.name.replace(/\.zip$/i, ''))
+      const entry = await zipDocumentEntry(f)
+      if (entry == null) return
+      const r = await askNewDoc((entry || f.name).replace(/\.zip$/i, '').replace(/^.*\//, '').replace(/\.typ$/i, ''))
       if (!r) return
-      const body = new FormData(); body.append('f', f); body.append('title', r.title.trim() || t('projects.new')); body.append('folder', '')
+      const body = new FormData(); body.append('f', f); body.append('title', r.title.trim() || t('projects.new')); body.append('folder', ''); body.append('entry', entry)
       const response = await fetch('/api/docs/import-zip', { method: 'POST', body })
       if (!response.ok) throw new Error(expMsg(await response.text()))
       await openDoc((await response.json()).id); sidebar(); return
@@ -257,7 +268,7 @@ const unsafeState = () => { // edits that may not have reached the server yet
   if (openedTrashed || docRole === 'reviewer') return false
   const dirtyMark = ['…', t('docs.offlineRetry'), t('docs.saveError', { msg: '' })]
   if (!dirtyMark.some(m => m && s.startsWith(m))) return false
-  return !(prov && prov.wsconnected && synced && !activeFile && !tplName) // live main.typ: Yjs already carried it
+  return !(prov && prov.wsconnected && synced && !activeFile && !tplName) // live the document text: Yjs already carried it
 }
 addEventListener('beforeunload', e => { if (unsafeState()) { e.preventDefault(); e.returnValue = '' } }) // offline/failed save: browser asks before closing
 addEventListener('pagehide', () => { // stash latest edits, 2s save may still be pending

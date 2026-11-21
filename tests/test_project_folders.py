@@ -5,7 +5,7 @@ import pytest
 from conftest import register_user
 from fastapi import HTTPException
 
-from backend import db, mcp_tools
+from backend import db, mcp_fs
 
 
 def make(c):
@@ -97,24 +97,8 @@ def test_zip_import_rejects_a_target_folder_above_the_depth_limit(c):
     assert "levels deep" in response.text
 
 
-def test_mcp_project_doc_paths_resolve_folder_qualified_duplicates(c):
-    pid, _ = make(c)
-    a = c.post(f"/api/projects/{pid}/docs", json={"title": "Chapter", "folder": "a"}).json()["id"]
-    b = c.post(f"/api/projects/{pid}/docs", json={"title": "Chapter", "folder": "b"}).json()["id"]
-    with pytest.raises(HTTPException) as ambiguous:
-        mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/Chapter")
-    assert ambiguous.value.status_code == 409
-    assert mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/a/Chapter")["doc_id"] == a
-    resolved = mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/b/Chapter/pic.png")
-    assert (resolved["doc_id"], resolved["filename"]) == (b, "pic.png")
 
 
-def test_mcp_folder_qualified_doc_wins_when_the_legacy_file_is_missing(c):
-    pid, _ = make(c)
-    assert c.post(f"/api/projects/{pid}/folders", json={"path": "A"}).status_code == 200
-    nested = c.post(f"/api/projects/{pid}/docs", json={"title": "A", "folder": "A"}).json()["id"]
-    resolved = mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/A/A/file.typ")
-    assert (resolved["doc_id"], resolved["filename"]) == (nested, "file.typ")
 
 
 def test_rename_keeps_legacy_deep_paths_but_never_adds_a_level(c):
@@ -160,22 +144,6 @@ def test_entry_rename_keeps_legacy_deep_paths_but_never_adds_a_level(c):
                                           "target": "a/b/c/d/photo.png"}).status_code == 400
 
 
-def test_mcp_folder_paths_accept_long_segments_and_missing_trashed_nested(c):
-    pid, did = make(c)
-    long_folder = "x" * 101  # legacy folder segment beyond the document title limit
-    with db.tx() as con:
-        con.execute("UPDATE docs SET title='Doc', folder=? WHERE id=?", (long_folder, did))
-        con.execute("INSERT INTO project_folders VALUES (?,?,?)", (pid, long_folder, db.now_iso()))
-    assert mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/{long_folder}/Doc")["doc_id"] == did
-
-    gone = c.post(f"/api/projects/{pid}/docs", json={"title": "Gone"}).json()["id"]
-    assert c.delete(f"/api/docs/{gone}").status_code == 200
-    with pytest.raises(HTTPException) as nested:
-        mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/Gone/Missing")
-    assert nested.value.status_code == 404
-    with pytest.raises(HTTPException) as bare:
-        mcp_tools.resolve_path("alice", "owner", f"/projects/{pid}/docs/Gone")
-    assert bare.value.status_code == 410
 
 
 def test_delete_folder_only_when_empty_and_document_move(c):
@@ -252,3 +220,37 @@ def test_rename_cannot_push_documents_or_empty_folders_past_the_depth_limit(c):
     payload = c.get(f"/api/projects/{pid}").json()
     assert [d["folder"] for d in payload["documents"] if d["title"] == "Chapter"] == ["a/b"]
     assert "e/f" in payload["folders"]
+
+
+def _title(c, pid):
+    return c.get(f"/api/projects/{pid}").json()["title"]
+
+
+def test_agent_paths_separate_equal_titles_by_folder(c):
+    pid, _ = make(c)
+    a = c.post(f"/api/projects/{pid}/docs", json={"title": "Chapter", "folder": "a"}).json()["id"]
+    b = c.post(f"/api/projects/{pid}/docs", json={"title": "Chapter", "folder": "b"}).json()["id"]
+    assert c.post(f"/api/docs/{b}/files", files={"f": ("pic.png", b"x")}).status_code == 200
+    ctx, name = mcp_fs.Ctx("alice"), _title(c, pid)
+    assert mcp_fs.resolve(ctx, f"/{name}/a/Chapter")["doc_id"] == a
+    assert mcp_fs.resolve(ctx, f"/{name}/b/Chapter.typ")["doc_id"] == b
+    pic = mcp_fs.resolve(ctx, f"/{name}/b/Chapter/pic.png")
+    assert (pic["kind"], pic["doc_id"], pic["name"]) == ("file", b, "pic.png")
+    with pytest.raises(HTTPException) as e:
+        mcp_fs.resolve(ctx, f"/{name}/Chapter")
+    assert e.value.status_code == 404
+
+
+def test_agent_paths_nested_same_name_new_file_and_trashed(c):
+    pid, did = make(c)
+    assert c.post(f"/api/projects/{pid}/folders", json={"path": "A"}).status_code == 200
+    nested = c.post(f"/api/projects/{pid}/docs", json={"title": "A", "folder": "A"}).json()["id"]
+    ctx, name = mcp_fs.Ctx("alice"), _title(c, pid)
+    new = mcp_fs.resolve(ctx, f"/{name}/A/A/file.typ", create=True)
+    assert (new["kind"], new["doc_id"], new["name"]) == ("new_file", nested, "file.typ")
+    gone = c.post(f"/api/projects/{pid}/docs", json={"title": "Gone"}).json()["id"]
+    assert c.delete(f"/api/docs/{gone}").status_code == 200
+    with pytest.raises(HTTPException) as e:
+        mcp_fs.resolve(ctx, f"/{name}/Gone")
+    assert e.value.status_code == 404
+    assert did

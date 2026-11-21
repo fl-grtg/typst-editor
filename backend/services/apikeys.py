@@ -40,7 +40,7 @@ def verify_api_key(key: str) -> dict | None:
         return None
     con = db.connect()
     try:
-        r = con.execute("SELECT id, username, name, role, expires_at, revoked FROM api_keys WHERE key_hash=?",
+        r = con.execute("SELECT id, username, name, role, mode, expires_at, revoked FROM api_keys WHERE key_hash=?",
                         (auth.sha(key),)).fetchone()
         if not r or r["revoked"]:
             return None
@@ -60,7 +60,7 @@ def verify_api_key(key: str) -> dict | None:
             con.commit()
         except Exception as e:
             log.warning("api key last_used failed: %s", e)
-        return {"id": r["id"], "user": r["username"], "role": r["role"], "key_name": r["name"] or ""}
+        return {"id": r["id"], "user": r["username"], "role": r["role"], "mode": r["mode"], "key_name": r["name"] or ""}
     finally:
         con.close()
 

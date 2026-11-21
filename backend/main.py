@@ -37,6 +37,7 @@ from backend.routers import (
     snapshots,
     system,
     templates,
+    transfer,
     ws,
 )
 from backend.routers.auth import _cookie_secure  # noqa: F401
@@ -242,6 +243,7 @@ app.include_router(files.router)
 app.include_router(snapshots.router)
 app.include_router(notifications.router)
 app.include_router(export.router)
+app.include_router(transfer.router)
 app.include_router(events.router)
 app.include_router(readmode.router)
 app.include_router(system.router)

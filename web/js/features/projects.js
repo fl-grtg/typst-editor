@@ -28,6 +28,7 @@ const SIDEBAR_MENU = {
   duplicate: ['menu.duplicateShort', 'menu.duplicateHint'],
   copy: ['menu.copyTo', 'menu.copyToHint'],
   move: ['menu.moveTo', 'menu.moveToHint'],
+  convert: ['menu.convertTo', 'menu.convertToHint'],
   useInProject: ['menu.useInProject', 'menu.useInProjectHint'],
   trash: ['menu.actionTrash', 'menu.trashHint'],
 }
@@ -278,7 +279,7 @@ function paintProjects(box, shared) {
     }
     const documentRow = (d, level, folder) => {
       const row = docRow({ ...d, project_id: p.id, role: d.role || p.role }, shared, true)
-      row.dataset.packageKey = ['document', d.id, 'main.typ'].join(':')
+      row.dataset.packageKey = ['document', d.id, ''].join(':')
       row.classList.add('sub'); row.classList.toggle('cur', d.id === docId && !activeFile); row.style.setProperty('--lv', level)
       const first = row.querySelector('button.mini')
       if (projectEditable(p)) {
@@ -455,9 +456,11 @@ async function uploadProjectFiles(p, files, folder = '') {
   try {
     for (const file of files) {
       if (/\.zip$/i.test(file.name)) {
-        const title = await ask(t('docs.newDocTitle'), { value: file.name.replace(/\.zip$/i, '') })
+        const entry = await zipDocumentEntry(file)
+        if (entry == null) continue
+        const title = await ask(t('docs.newDocTitle'), { value: (entry || file.name).replace(/^.*\//, '').replace(/\.(zip|typ)$/i, '') })
         if (!title?.trim()) continue
-        const body = new FormData(); body.append('f', file); body.append('title', title.trim()); body.append('folder', folder)
+        const body = new FormData(); body.append('f', file); body.append('title', title.trim()); body.append('folder', folder); body.append('entry', entry)
         const response = await fetch(`/api/projects/${p.id}/import-zip`, { method: 'POST', body })
         if (!response.ok) throw new Error(expMsg(await response.text()))
         attachmentDoc ||= (await response.json()).id
@@ -605,13 +608,13 @@ async function deleteProject(p) {
   if (!await ask(t('projects.deleteWarning'), { noInput: true, danger: true })) return
   await api('DELETE', `/api/projects/${p.id}`)
   // The whole project is gone: leave no editable zombie tab behind (saves
-  // would only 410) and keep a local draft for offline main.typ edits.
+  // would only 410) and keep a local draft for offline the document text edits.
   const openModule = activeFile && isTplKey(activeFile) && projectEntries(p).resources.some(r => r.name === tabName(activeFile))
   if (docProject === p.id || openModule) closeView()
   await sidebar()
 }
 async function renameProjectDocument(d, host) {
-  host = sidebarLiveHost(host, ['document', d.id, 'main.typ'].join(':'))
+  host = sidebarLiveHost(host, ['document', d.id, ''].join(':'))
   const label = host?.querySelector('.t')
   const title = label ? await sidebarInlineRename(host, label, d.title, { label: t('docs.renameDoc') }) : await ask(t('docs.renameDoc'), { value: d.title })
   if (!title?.trim()) return
@@ -859,11 +862,38 @@ function entryMenuItems(p, entry, actions) {
   const writable = projectEditable(p) && !session
   return [
     rename && menuButtonItem(rename, what),
+    writable && convertMenuItem(p, entry, what),
     writable && sidebarMenuItem('duplicate', () => transferEntryTo(p, entry, p, entryFolder(entry), false, { askName: false, duplicate: true }), { what }),
     !session && sidebarMenuItem('copy', null, { what, submenu: () => entryDestinationItems(p, entry, false, writable) }),
     writable && sidebarMenuItem('move', null, { what, submenu: () => entryDestinationItems(p, entry, true) }),
     trash && menuButtonItem(trash, what),
   ].filter(Boolean)
+}
+function convertMenuItem(p, entry, what) { // document -> module; .typ module -> document; .typ attachment -> either (submenu)
+  if (entry.kind === 'document') return { label: t('projects.convertToModule'), title: t('projects.convertModuleHint'), run: () => convertEntry(p, entry, 'module') }
+  if (!/\.typ$/i.test(entry.name)) return null
+  if (entry.kind === 'resource') return { label: t('projects.convertToDocument'), title: t('projects.convertDocumentHint'), run: () => convertEntry(p, entry, 'document') }
+  return sidebarMenuItem('convert', null, { what, submenu: () => convertItems(p, entry) })
+}
+function convertItems(p, entry) { // a .typ file can become a document of its own, or (as an attachment) a shared module
+  const items = [{ label: t('projects.convertDocument'), title: t('projects.convertDocumentHint'), run: () => convertEntry(p, entry, 'document') }]
+  if (entry.kind === 'file') items.push({ label: t('projects.convertModule'), title: t('projects.convertModuleHint'), run: () => convertEntry(p, entry, 'module') })
+  return items
+}
+async function convertEntry(p, entry, to) {
+  try {
+    const attachment = entry.kind === 'file', document = entry.kind === 'document'
+    if (to === 'document') { // documents cannot be #included: show who still does
+      const { references } = await api('POST', `/api/projects/${p.id}/rename-entry-preview`, { name: entry.name, target: entry.name, doc_id: attachment ? entry.doc_id : '' })
+      if (references?.length && !await ask([t('projects.convertBreaks'), ...references].join('\n'), { noInput: true })) return
+    }
+    const r = await api('POST', `/api/projects/${p.id}/convert`, { doc_id: attachment || document ? entry.doc_id : '', name: document ? '' : entry.name, document, to })
+    await sidebarFresh() // the new name (with or without .typ) shows at once; the old tab drops out with its entry
+    const shown = document ? docId === entry.doc_id && !activeFile : activeFile === (attachment ? entry.name : TPLK + entry.name) // was the converted thing open?
+    if (r.id) { await openDoc(r.id); return }
+    const target = projects.find(x => x.id === p.id), host = projectEntries(target || p).documents.find(d => d.id !== entry.doc_id || !document)
+    if (shown && host) await openProjectEntry(target || p, attachment ? entry.doc_id : host.id, r.name, true)
+  } catch (e) { toast(e.message) }
 }
 function entryDestinationItems(p, entry, move, within = true) {
   const what = entry.kind === 'document' ? 'document' : entry.kind === 'resource' ? 'module' : 'file'

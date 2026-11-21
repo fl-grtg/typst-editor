@@ -7,7 +7,7 @@ import pytest
 from conftest import login, make_doc, register_user
 from fastapi import HTTPException
 
-from backend import db, mcp_tools, ratelimit, sync
+from backend import db, ratelimit, sync
 from backend.services import project_history, quota
 
 
@@ -62,7 +62,7 @@ def test_rename_preview_and_stale_version(c):
     url = f'/api/projects/{pid}/rename-entry'
     body = {'name': 'layout.typ', 'target': 'renamed.typ'}
     preview = c.post(url + '-preview', json=body).json()
-    assert preview['references'] == ['First/main.typ: layout.typ']
+    assert preview['references'] == ['First: layout.typ']
     c.post(f'/api/projects/{pid}/resources', json={'name': 'layout.typ', 'content': 'new', 'version': preview['version']})
     assert c.post(url, json={**body, 'version': preview['version']}).status_code == 409
     preview = c.post(url + '-preview', json=body).json()
@@ -138,8 +138,10 @@ def test_mcp_shared_listing_uses_project_role_without_per_doc_queries(c, monkeyp
     login(c, 'alice')
     c.post(f'/api/projects/{pid}/members', json={'username': 'bob', 'role': 'reviewer'})
     monkeypatch.setattr(db, 'role_on', lambda *args: pytest.fail('per-document role query'))
-    shared = mcp_tools.op_ls('bob', 'editor')['shared']
-    assert [(d['id'], d['role']) for d in shared] == [(did, 'reviewer')]
+    from backend import mcp_fs
+    ctx = mcp_fs.Ctx('bob', 'editor')
+    assert mcp_fs.ls(ctx, '/')['entries'][0] == {'path': '/First@alice', 'kind': 'project', 'role': 'reviewer'}
+    assert [e['path'] for e in mcp_fs.ls(ctx, '/First@alice')['entries'] if e['kind'] == 'doc']
 
 
 def test_hard_delete_invalidates_quota_cache(c):

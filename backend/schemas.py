@@ -143,8 +143,10 @@ class AvatarSet(BaseModel):
 class KeyCreate(BaseModel):
     name: str = Field(default="", max_length=40, min_length=1)
     role: str = Field(default="editor", max_length=20)
+    mode: str = Field(default="auto", pattern="^(auto|direct|propose)$")
     expires_in_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class KeyUpdate(BaseModel):
-    role: str = Field(max_length=20)
+    role: str | None = Field(default=None, max_length=20)
+    mode: str | None = Field(default=None, pattern="^(auto|direct|propose)$")

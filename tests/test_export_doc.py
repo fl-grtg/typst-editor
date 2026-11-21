@@ -4,7 +4,6 @@ CLI is faked (no typst binary needed): _fake_run answers `typst compile`
 by writing canned page files. One real-CLI test runs when typst exists
 (dev server / Docker), otherwise skipped.
 """
-import base64
 import io
 import shutil
 import zipfile
@@ -13,7 +12,7 @@ import pytest
 from conftest import login, make_doc, register_user
 
 from backend import main as backend_main
-from backend import mcp_tools as t
+from backend import render as t
 
 
 class _FakeProc:
@@ -103,13 +102,13 @@ def test_export_doc_svg_multi_is_zip(c, monkeypatch):
 def test_export_doc_zip_source_bundle(c):
     register_user(c, "alice")
     did = make_doc(c, "Rpt", content="= Hi")
-    t.op_create("alice", "owner", "/docs/Rpt/notes.csv", "a,b")
+    c.post(f"/api/docs/{did}/files", files={"f": ("notes.csv", b"a,b")})
     r = c.post(f"/api/docs/{did}/export", params={"format": "zip"})
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/zip")
     assert "Rpt.zip" in r.headers.get("content-disposition", "")
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    assert z.read("main.typ").decode() == "= Hi"
+    assert z.read("Rpt.typ").decode() == "= Hi"
     assert z.read("notes.csv").decode() == "a,b"
 
 
@@ -143,7 +142,7 @@ def test_export_doc_reviewer_may_export(c):
     login(c, "bob")
     r = c.post(f"/api/docs/{did}/export", params={"format": "zip"})
     assert r.status_code == 200, r.text
-    assert zipfile.ZipFile(io.BytesIO(r.content)).read("main.typ").decode() == "= Hi"
+    assert zipfile.ZipFile(io.BytesIO(r.content)).read("Plan.typ").decode() == "= Hi"
 
 
 def test_export_doc_lock_429(c):
@@ -194,28 +193,6 @@ def test_export_doc_typst_missing_500(c, monkeypatch):
     assert c.post(f"/api/docs/{did}/export", params={"format": "pdf"}).status_code == 500
 
 
-def test_mcp_export_parity(c, monkeypatch):
-    import asyncio
-
-    register_user(c, "alice")
-    make_doc(c, "Rpt", content="= Hi")
-    _patch_typst(monkeypatch)
-    out = asyncio.run(t.op_export("alice", "owner", "/docs/Rpt", "pdf"))
-    assert out["mime"] == "application/pdf"
-    assert out["filename"] == "Rpt.pdf"
-    assert base64.b64decode(out["content_base64"]) == b"%PDF-1.7-fake"
-    out = asyncio.run(t.op_export("alice", "owner", "/docs/Rpt", "zip"))
-    assert out["mime"] == "application/zip"
-    assert zipfile.ZipFile(io.BytesIO(base64.b64decode(out["content_base64"]))).read("main.typ").decode() == "= Hi"
-    with pytest.raises(Exception) as e:
-        asyncio.run(t.op_export("alice", "owner", "/docs/Rpt", "docx"))
-    assert getattr(e.value, "status_code", 0) == 400
-    with pytest.raises(Exception) as e:
-        asyncio.run(t.op_export("alice", "owner", "/docs/Rpt/notes.csv", "pdf"))
-    assert getattr(e.value, "status_code", 0) == 400
-    with pytest.raises(Exception) as e:
-        asyncio.run(t.op_export("alice", "owner", "/docs/Gone", "pdf"))
-    assert getattr(e.value, "status_code", 0) == 404
 
 
 def test_full_export_zip_unbroken(c):
@@ -246,12 +223,12 @@ def test_export_doc_oversize_413(c, monkeypatch):
 def test_export_doc_skipped_txt(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "Rpt", content="= Hi")
-    t.op_create("alice", "owner", "/docs/Rpt/notes.csv", "a,b")
+    c.post(f"/api/docs/{did}/files", files={"f": ("notes.csv", b"a,b")})
     monkeypatch.setattr(t, "UPLOAD_MAX", 1)
     r = c.post(f"/api/docs/{did}/export", params={"format": "zip"})
     assert r.status_code == 200, r.text
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    assert z.read("main.typ").decode() == "= Hi"
+    assert z.read("Rpt.typ").decode() == "= Hi"
     assert "notes.csv" in z.read("SKIPPED.txt").decode()
 
 
@@ -275,35 +252,8 @@ def test_export_doc_filename_sanitized(c):
     assert "\n" not in cd and "\r" not in cd
 
 
-def test_mcp_export_shared_and_trashed(c):
-    import asyncio
-
-    register_user(c, "alice")
-    make_doc(c, "Plan", content="= Hi")
-    register_user(c, "bob")
-    login(c, "alice")
-    assert c.post(f"/api/docs/{_doc_id(c, 'alice', 'Plan')}/share",
-                  json={"username": "bob", "role": "reviewer"}).status_code == 200
-    out = asyncio.run(t.op_export("bob", "reviewer", "/shared/alice/Plan", "zip"))
-    assert out["mime"] == "application/zip"
-    assert zipfile.ZipFile(io.BytesIO(base64.b64decode(out["content_base64"]))).read("main.typ").decode() == "= Hi"
-    login(c, "alice")
-    did = _doc_id(c, "alice", "Plan")
-    assert c.delete(f"/api/docs/{did}").status_code == 200
-    with pytest.raises(Exception) as e:
-        asyncio.run(t.op_export("bob", "reviewer", "/shared/alice/Plan", "zip"))
-    assert getattr(e.value, "status_code", 0) == 410
 
 
-def _doc_id(c, owner, title):
-    from backend import db as _db
-
-    con = _db.connect()
-    try:
-        return con.execute("SELECT id FROM docs WHERE owner=? AND title=?",
-                           (owner, title)).fetchone()["id"]
-    finally:
-        con.close()
 
 
 def test_export_pages_keep_page_order_and_skip_uploaded_page_files(c, monkeypatch):

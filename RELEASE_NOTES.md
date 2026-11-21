@@ -1,3 +1,16 @@
+# Agent v2
+
+Breaking: the MCP server is rebuilt around paths. Tools: `ls`, `read`, `write`, `edit`, `move`, `delete`,
+`search`, `render`, `export`, `upload`, `comment`, `propose`, `inbox`. The old `/docs/...`, `/shared/...`,
+`create`, `suggest`, `suggestions`, `proposals`, `view` and the base64-only `upload` are gone.
+A document is its title everywhere: there is no `main.typ` in paths, proposal packages (documents carry no
+file path; older packages keep working), exports (`Title.typ`) and project ZIPs (`documents/<folder>/<Title>/<Title>.typ`).
+ZIP import asks which Typst file is the document when it is not obvious (`POST /api/zip-preview`, form field `entry`);
+`.typ` attachments and modules convert to documents or modules (`/convert`, sidebar menu: documents "Convert to module", `.typ` modules "Convert to document", `.typ` attachments "Convert to" document or module, with a warning about remaining includes, MCP `move`; in proposal mode the conversion is a package of add plus delete).
+Agent edits go into the live Yjs text as minimal spans (also package acceptance), so concurrent typing survives.
+API keys got a mode (`auto`, `direct`, `propose`) and an audit log (`agent_log`, migration 32); package verdicts
+reach the author's inbox (`reviewed`), `@keyname` in a comment reaches the key owner.
+
 # Release Notes — `0.2.0rc1` (Prerelease candidate DRAFT, not published)
 
 Additional local changes under review: floating comments avoid the entire marked

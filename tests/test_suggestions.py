@@ -1,15 +1,12 @@
 """Suggestion / core API correctness + concurrency (isolated tmp DB only)."""
-import asyncio
 import concurrent.futures
 from types import SimpleNamespace
 
-import pytest
 from conftest import login, make_doc, register_user
 from fastapi import HTTPException
 
 from backend import config as backend_config
 from backend import db, deps, sync
-from backend import mcp_tools as t
 from backend.services import suggestions
 
 
@@ -109,64 +106,12 @@ def test_only_editor_owner_accept_reject(c):
 
 # --- 2. key caps: reviewer key proposes but never edits ---
 
-def test_mcp_key_caps_suggest_vs_edit(c):
-    register_user(c, "alice")
-    register_user(c, "bob")
-    t.op_create("alice", "owner", "/docs/Plan", "line1\nline2\n")
-    login(c, "alice")
-    did = _doc_id("alice", "Plan")
-    assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"}).status_code == 200
-    # reviewer share + reviewer key may still propose
-    out = t.op_suggest("bob", "reviewer", "/shared/alice/Plan", "line1", "LINE1", "nit")
-    assert out["status"] == "pending"
-    # ... but the same cap cannot edit
-    with pytest.raises(HTTPException) as e:
-        asyncio.run(t.op_edit("bob", "reviewer", "/shared/alice/Plan", "line2", "LINE2"))
-    assert e.value.status_code == 403
-    # owner capped to reviewer: suggest ok, edit blocked (min rule)
-    out2 = t.op_suggest("alice", "reviewer", "/docs/Plan", "line2", "LINE2")
-    assert out2["status"] == "pending"
-    with pytest.raises(HTTPException) as e:
-        asyncio.run(t.op_edit("alice", "reviewer", "/docs/Plan", "line2", "LINE2"))
-    assert e.value.status_code == 403
-    # editor key may propose
-    assert t.op_suggest("alice", "editor", "/docs/Plan", "line1", "L1")["status"] == "pending"
-    # stranger with any key cannot propose (no existence oracle)
-    register_user(c, "mallory")
-    with pytest.raises(HTTPException) as e:
-        t.op_suggest("mallory", "editor", "/shared/alice/Plan", "line1", "X")
-    assert e.value.status_code == 404
 
 
-def test_mcp_list_requires_read(c):
-    register_user(c, "alice")
-    register_user(c, "bob")
-    t.op_create("alice", "owner", "/docs/Geheim", "alpha beta")
-    t.op_suggest("alice", "owner", "/docs/Geheim", "beta", "BETA")
-    assert len(t.op_suggestions("alice", "owner", "/docs/Geheim")["suggestions"]) == 1
-    with pytest.raises(HTTPException) as e:
-        t.op_suggestions("bob", "reviewer", "/shared/alice/Geheim")
-    assert e.value.status_code == 404
 
 
 # --- 3. unicode incl. astral + umlauts ---
 
-def test_unicode_umlaut_astral_roundtrip(c):
-    register_user(c, "alice")
-    content = "Gr\xfc\xdfe \U0001F600 \U0001D11E \U00010348 Zeile\nzweite Zeile \xe4\xf6\xfc"
-    login(c, "alice")
-    did = make_doc(c, "Unicode", content=content)
-    old = "\U0001F600 \U0001D11E"
-    new = " Gr\xfc\xdfe \U0001F600 neu "
-    r = c.post(f"/api/docs/{did}/suggestions", json={"old_string": old, "new_string": new})
-    assert r.status_code == 200, r.text
-    cid = r.json()["id"]
-    assert c.post(f"/api/docs/{did}/suggestions/{cid}/accept").status_code == 200
-    expect = content.replace(old, new)
-    db_content, _ = _db_content(did)
-    assert db_content == expect
-    assert sync.room_text(did) == expect
-    assert t.op_read("alice", "owner", "/docs/Unicode")["content"] == expect
 
 
 def test_unicode_deletion_and_multibyte_insert(c):
@@ -254,25 +199,6 @@ def test_create_rejects_gone_ambiguous_identical(c):
     assert c.post(f"/api/docs/{did}/suggestions", json={"old_string": "bbb", "new_string": "bbb"}).status_code == 400
 
 
-def test_accept_stale_gone_and_ambiguous_rollback(c):
-    register_user(c, "alice")
-    login(c, "alice")
-    did = make_doc(c, "Alt", content="alpha beta gamma")
-    cid = c.post(f"/api/docs/{did}/suggestions", json={"old_string": "beta", "new_string": "B"}).json()["id"]
-    # foreign edit removes the anchor: accept must 409 and change nothing
-    asyncio.run(t.op_edit("alice", "owner", "/docs/Alt", "alpha beta gamma", "alpha gamma"))
-    assert sync.room_text(did) is None or "beta" not in (sync.room_text(did) or "")
-    r = c.post(f"/api/docs/{did}/suggestions/{cid}/accept")
-    assert r.status_code == 409, r.text
-    assert _status(cid)[0] == "pending"
-    assert _db_content(did)[0] == "alpha gamma"
-    # ambiguous after edit: two copies -> 409, still pending
-    did2 = make_doc(c, "Alt2", content="one X two")
-    cid2 = c.post(f"/api/docs/{did2}/suggestions", json={"old_string": "X", "new_string": "Y"}).json()["id"]
-    asyncio.run(t.op_edit("alice", "owner", "/docs/Alt2", "one X two", "one X X"))
-    assert c.post(f"/api/docs/{did2}/suggestions/{cid2}/accept").status_code == 409
-    assert _status(cid2)[0] == "pending"
-    assert _db_content(did2)[0] == "one X X"
 
 
 # --- 6. quota + rollback ---
@@ -346,26 +272,6 @@ def test_duplicate_decisions_409(c):
 
 # --- 8. collaboration + listing parity ---
 
-def test_collaboration_flow_and_listing(c):
-    register_user(c, "alice")
-    register_user(c, "bob")
-    login(c, "alice")
-    did = make_doc(c, "Team", content="launch the rocket soon")
-    assert c.post(f"/api/docs/{did}/share", json={"username": "bob", "role": "reviewer"}).status_code == 200
-    login(c, "bob")
-    cid = c.post(
-        f"/api/docs/{did}/suggestions", json={"old_string": "rocket", "new_string": "starship", "text": "nicer"}
-    ).json()["id"]
-    # reviewer sees own pending suggestion via both APIs
-    assert t.op_suggestions("bob", "reviewer", "/shared/alice/Team")["suggestions"][0]["status"] == "pending"
-    login(c, "alice")
-    assert c.post(f"/api/docs/{did}/suggestions/{cid}/accept").status_code == 200
-    assert _db_content(did)[0] == "launch the starship soon"
-    got = t.op_suggestions("alice", "owner", "/docs/Team")["suggestions"]
-    # UI-equivalent projection: quote follows the accepted text, no full anchor history
-    assert [(s["quote"], s["status"]) for s in got] == [("starship", "accepted")]
-    rest = c.get(f"/api/docs/{did}/comments").json()["comments"]
-    assert [x["suggestion_status"] for x in rest if x["id"] == cid] == ["accepted"]
 
 
 def test_multiple_suggestions_independent(c):

@@ -506,10 +506,18 @@ def _migrate_v32(con: sqlite3.Connection) -> None:
     con.execute("CREATE INDEX IF NOT EXISTS idx_login_tokens_user ON login_tokens(username)")
 
 
+def _migrate_v33(con: sqlite3.Connection) -> None:
+    if "mode" not in _cols(con, "api_keys"):
+        con.execute("ALTER TABLE api_keys ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto'")
+    con.execute("CREATE TABLE IF NOT EXISTS agent_log (id INTEGER PRIMARY KEY AUTOINCREMENT, key_id TEXT NOT NULL, "
+                "tool TEXT NOT NULL, path TEXT NOT NULL DEFAULT '', ok INTEGER NOT NULL DEFAULT 1, at TEXT NOT NULL)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_agent_log_key ON agent_log(key_id, id)")
+
+
 _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4,
     _migrate_v5, _migrate_v6, _migrate_v7, _migrate_v8, _migrate_v9, _migrate_v10,
-    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19, _migrate_v20, _migrate_v21, _migrate_v22, _migrate_v23, _migrate_v24, _migrate_v25, _migrate_v26, _migrate_v27, _migrate_v28, _migrate_v29, _migrate_v30, _migrate_v31, _migrate_v32,
+    _migrate_v11, _migrate_v12, _migrate_v13, _migrate_v14, _migrate_v15, _migrate_v16, _migrate_v17, _migrate_v18, _migrate_v19, _migrate_v20, _migrate_v21, _migrate_v22, _migrate_v23, _migrate_v24, _migrate_v25, _migrate_v26, _migrate_v27, _migrate_v28, _migrate_v29, _migrate_v30, _migrate_v31, _migrate_v32, _migrate_v33,
 )
 
 

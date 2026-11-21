@@ -308,14 +308,14 @@ def create_key(b: KeyCreate, req: Request, authn: tuple[str, str] = Depends(me_w
         con = db.connect()
         try:
             try:
-                con.execute("INSERT INTO api_keys (id, username, name, prefix, key_hash, role, expires_at, created_at) "
-                            "VALUES (?,?,?,?,?,?,?,?)",
-                            (kid, user, nm, prefix, auth.sha(full), role, expires_at, db.now_iso()))
+                con.execute("INSERT INTO api_keys (id, username, name, prefix, key_hash, role, mode, expires_at, created_at) "
+                            "VALUES (?,?,?,?,?,?,?,?,?)",
+                            (kid, user, nm, prefix, auth.sha(full), role, b.mode, expires_at, db.now_iso()))
                 con.commit()
             except sqlite3.IntegrityError:
                 continue
             return {"id": kid, "name": nm, "prefix": prefix,
-                    "key": full, "role": role, "expires_at": expires_at}
+                    "key": full, "role": role, "mode": b.mode, "expires_at": expires_at}
         finally:
             con.close()
     raise HTTPException(500, "Key creation failed")
@@ -327,7 +327,7 @@ def list_keys(req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> di
     deps.limited(req, "keys", user)
     con = db.connect()
     try:
-        rows = con.execute("SELECT id, name, prefix, role, expires_at, last_used, created_at FROM api_keys "
+        rows = con.execute("SELECT id, name, prefix, role, mode, expires_at, last_used, created_at FROM api_keys "
                            "WHERE username=? AND revoked=0 ORDER BY created_at", (user,)).fetchall()
         return {"keys": [dict(r) for r in rows]}
     finally:
@@ -337,18 +337,21 @@ def list_keys(req: Request, authn: tuple[str, str] = Depends(me_with_key)) -> di
 @router.patch("/api/keys/{kid}")
 def update_key(kid: str, b: KeyUpdate, req: Request,
                authn: tuple[str, str] = Depends(me_with_key)) -> dict:
-    """Change a key's role in place: the secret stays valid, no reissue."""
+    """Change a key's role or mode in place: the secret stays valid, no reissue."""
     user, cap = authn
     deps.limited(req, "keys", user)
-    role = _key_role(b.role, cap)
+    if b.role is None and b.mode is None:
+        raise HTTPException(400, "Nothing to change")
     con = db.connect()
     try:
-        cur = con.execute("UPDATE api_keys SET role=? WHERE id=? AND username=? AND revoked=0",
-                          (role, kid, user))
-        con.commit()
-        if cur.rowcount == 0:
+        row = con.execute("SELECT role, mode FROM api_keys WHERE id=? AND username=? AND revoked=0", (kid, user)).fetchone()
+        if not row:
             raise HTTPException(404, "Key gone")
-        return {"ok": True, "id": kid, "role": role}
+        role = _key_role(b.role, cap) if b.role is not None else row["role"]
+        mode = b.mode or row["mode"]
+        con.execute("UPDATE api_keys SET role=?, mode=? WHERE id=?", (role, mode, kid))
+        con.commit()
+        return {"ok": True, "id": kid, "role": role, "mode": mode}
     finally:
         con.close()
 

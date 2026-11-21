@@ -201,7 +201,7 @@ def test_export_doc_merges_owner_resources(c):
     r = c.post(f"/api/docs/{did}/export?format=zip")
     assert r.status_code == 200, r.text
     names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
-    assert "main.typ" in names
+    assert "Exp.typ" in names
     assert "part.typ" in names  # owner's resource merged at root, viewer's shelf untouched
     assert c.get("/api/templates").json()["templates"] == []
 
@@ -210,21 +210,21 @@ def test_reserved_main_typ_rejected(c):
     from backend import db as _db
 
     register_user(c, "usr")
-    assert _res(c, "main.typ", "x").status_code == 400
-    assert _res(c, "MAIN.TYP", "x").status_code == 400
+    assert _res(c, "__doc__.typ", "x").status_code == 400
+    assert _res(c, "__DOC__.TYP", "x").status_code == 400
     _res(c, "a.typ", "A")
-    assert c.post("/api/templates/a.typ/duplicate", json={"name": "main.typ"}).status_code == 400
+    assert c.post("/api/templates/a.typ/duplicate", json={"name": "__doc__.typ"}).status_code == 400
     # Pre-existing main.typ rows stay readable/deletable (cleanup path).
     con = _db.connect()
     try:
         con.execute("INSERT INTO templates (owner, name, content, line, folder, updated_at) "
-                    "VALUES (?,?,?,?,?,?)", ("usr", "main.typ", "OLD", "", "", _db.now_iso()))
+                    "VALUES (?,?,?,?,?,?)", ("usr", "__doc__.typ", "OLD", "", "", _db.now_iso()))
         con.commit()
     finally:
         con.close()
-    assert c.get("/api/templates/main.typ").status_code == 200
-    assert _res(c, "main.typ", "new").status_code == 400  # updates rejected too
-    assert c.delete("/api/templates/main.typ").status_code == 200
+    assert c.get("/api/templates/__doc__.typ").status_code == 200
+    assert _res(c, "__doc__.typ", "new").status_code == 400  # updates rejected too
+    assert c.delete("/api/templates/__doc__.typ").status_code == 200
 
 
 def test_insert_line_case_insensitive():

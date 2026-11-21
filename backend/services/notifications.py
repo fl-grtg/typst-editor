@@ -19,7 +19,7 @@ from backend.services.sidebar import emit
 
 log = logging.getLogger("typst.notifications")
 
-NOTIF_TYPES = ("comment", "file", "member", "share", "system", "mention", "proposal", "changes")
+NOTIF_TYPES = ("comment", "file", "member", "share", "system", "mention", "proposal", "changes", "reviewed")
 LEVELS = ("mentions", "proposals", "all")
 DEFAULT_LEVEL = "proposals"
 MENTION = re.compile(r"(?<![\w@])@([\w-]{1,64})")
@@ -169,9 +169,18 @@ def _notify_mentions(doc_id: str, author: str, text: str, ref: str, before: str 
     finally:
         con.close()
     project_id = d["project_id"] if d else ""
-    for user in doc_users(doc_id):
+    audience = doc_users(doc_id)
+    for user in audience:
         if user != author and user.lower() in names:
             _safely("mention", create_notification, user, "mention", doc_id, text.strip()[:140], project_id, ref, author)
+    # @keyname calls an agent: its owner's inbox gets the item, even when the owner wrote it
+    con = db.connect()
+    try:
+        owners = {r[0] for r in con.execute("SELECT username FROM api_keys WHERE revoked=0 AND lower(name) IN (%s)" % ",".join("?" * len(names)), tuple(names))}
+    finally:
+        con.close()
+    for user in owners & set(audience):
+        _safely("mention", create_notification, user, "mention", doc_id, text.strip()[:140], project_id, ref, author)
 
 
 def _notify_proposal(project_id: str, author: str, package_id: str, title: str) -> None:
@@ -184,6 +193,16 @@ def _notify_changes(project_id: str, skip: set[str] | frozenset[str] = frozenset
     editor = last_editor(project_id)
     for user in watchers(project_id, "all", {editor, *skip} - {""}):
         _safely("changes", create_notification, user, "changes", "", "", project_id, "", editor, True)
+
+
+def _notify_reviewed(project_id: str, reviewer: str, author: str, package_id: str, title: str, verdict: str) -> None:
+    """The author hears what became of the package: verdict is "accepted" or "discarded"."""
+    if author != reviewer:
+        create_notification(author, "reviewed", "", f"{verdict}: {title}"[:140], project_id, package_id, reviewer, True)
+
+
+def notify_reviewed(*a, **kw) -> None:
+    _safely("reviewed", _notify_reviewed, *a, **kw)
 
 
 def notify_mentions(*a, **kw) -> None:

@@ -1,6 +1,6 @@
 // --- Images: upload per doc, #image() at cursor, preview knows files ---
 let mediaOpen = false, lastMedia = '', lastFiles = [], mediaNames = []
-let activeFile = '', fileT = 0, bibKeys = [] // '' = main.typ (Yjs sync), else text file (.typ/.bib/.csv) from manager
+let activeFile = '', fileT = 0, bibKeys = [] // '' = the document text (Yjs sync), else text file (.typ/.bib/.csv) from manager
 const refPath = name => activeFile && tabName(activeFile).includes('/') ? '/' + name : name // Typst resolves relative to the file: inside a folder use the project root
 function mediaInsert(name) { // manager chip: loader matches kind (csv is data, never an image)
   name = refPath(name)
@@ -53,10 +53,10 @@ function renderMediaChips(files) {
   })
 }
 $('mediaBtn').onclick = () => { mediaOpen = !mediaOpen; renderMediaChips(lastFiles) }
-// --- Tabs: everything that belongs to the open document in one bar: main.typ, its text files, the templates it uses ---
-const TPLK = '@tpl/' // @ cannot occur in sanitized local file names; '' = main.typ
+// --- Tabs: everything that belongs to the open document in one bar: the document text, its text files, the templates it uses ---
+const TPLK = '@tpl/' // @ cannot occur in sanitized local file names; '' = the document text
 const isTplKey = k => !!k && k.startsWith(TPLK)
-let tabName = k => (isTplKey(k) ? k.slice(TPLK.length) : k) || 'main.typ'
+let tabName = k => (isTplKey(k) ? k.slice(TPLK.length) : k) || '__doc__.typ'
 const tabKind = k => !k ? 'typ' : isTplKey(k) && /\.typ$/i.test(k) ? 'tpl' : ((/\.([a-z]+)$/i.exec(k) || [])[1] || 'typ').toLowerCase()
 const tabPath = k => '/' + tabName(k) // compiler path of the tab's text (diagnostics carry it)
 const TEXT_EXT = /\.(typ|bib|csv|tsv|json|yaml|yml|toml|xml|txt|csl)$/i
@@ -68,13 +68,13 @@ const tabVersions = new Map()
 let tabSaveFlight = null
 let tabPins = new Set(), tabSig = '', tabT = 0, tabDirty = false // pins: templates opened by hand stay even when unreferenced
 const tabState = new Map() // key -> {a, h, top}: cursor + scroll per tab
-function usedTpls(preview = false) { // templates this document reaches: quoted names in main.typ + text files, followed through templates
+function usedTpls(preview = false) { // templates this document reaches: quoted names in the document text + text files, followed through templates
   const src = effTpl()
   if (!src.length) return []
   const byName = new Map(src.map(x => [x.name, x])), out = [], seen = new Set(), dec = new TextDecoder()
   const local = new Map([...fileCache].map(([name, c]) => [name, /\.typ$/i.test(name) && c.bytes ? dec.decode(c.bytes) : '']))
   if (activeFile && !isTplKey(activeFile)) local.set(activeFile, getT())
-  const texts = [{ path: 'main.typ', text: activeFile || (window.suggestionDraft && !preview) ? shadow : getT() }, ...[...local].filter(([n]) => /\.typ$/i.test(n)).map(([path, text]) => ({ path, text }))]
+  const texts = [{ path: '__doc__.typ', text: activeFile || (window.suggestionDraft && !preview) ? shadow : getT() }, ...[...local].filter(([n]) => /\.typ$/i.test(n)).map(([path, text]) => ({ path, text }))]
   const normalize = p => { const parts = []; for (const s of p.split('/')) { if (s === '..') parts.pop(); else if (s && s !== '.') parts.push(s) } return parts.join('/') }
   for (let i = 0; i < texts.length && i < 500; i++) {
     const { path, text } = texts[i], parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
@@ -243,7 +243,7 @@ function tabReq(key, text) { // save request for a tab's text (file of this doc,
     : { url: `/api/docs/${docId}/files/${encodeURIComponent(key)}/text`, body: { content: text, ...guard } }
 }
 function paintTabs() {
-  updateFileView() // main.typ + text files + used templates as tabs, preview stays main
+  updateFileView() // the document text + text files + used templates as tabs, preview stays main
   const bar = $('tabs')
   if (!docId || tplName || openedTrashed) { bar.style.display = 'none'; tabSig = ''; return }
   tabEnsureOpen()
@@ -262,10 +262,10 @@ function paintTabs() {
   for (const k of items) {
     const entry = projectTabEntry(k), main = !entry.name
     const document = typeof projects !== 'undefined' && projects.find(p => p.id === docProject)?.documents?.find(d => d.id === entry.document)
-    const proposed = window.changeSession?.files.get(['document', entry.document, 'main.typ'].join(':'))
+    const proposed = window.changeSession?.files.get(['document', entry.document, ''].join(':'))
     const title = (!window.changeSession?.original && proposed?.target) || document?.title || (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
     const on = k === activeFile, nm = main ? title.replace(/\.typ$/i, '') + '.typ' : entry.name
-    const staged = window.changeSession?.files.get([main ? 'document' : entry.resource ? 'resource' : 'file', entry.resource ? '' : entry.document, main ? 'main.typ' : entry.name].join(':'))
+    const staged = window.changeSession?.files.get([main ? 'document' : entry.resource ? 'resource' : 'file', entry.resource ? '' : entry.document, main ? '' : entry.name].join(':'))
     const deleted = staged?.action === 'delete'
     const w = el('span', 'tabw' + (on ? ' on' : ''))
     w.classList.toggle('package-deleted', deleted)
@@ -337,7 +337,7 @@ async function switchTab(name, nosave, preserveView = false) { // true = switche
   clearTimeout(fileT) // old tab's pending timer must not fire into the new tab
   if (nosave) tabDirty = false // delete path: old text is gone by design
   tabSaveState(activeFile)
-  if (!activeFile) saveDocScroll() // leaving main.typ: keep its spot before the file buffer replaces it
+  if (!activeFile) saveDocScroll() // leaving the document text: keep its spot before the file buffer replaces it
   if (name && !isTplKey(name) && !lastFiles.some(f => f.name === name)) { try { lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files } catch (e) {} } // fresh list: new upload must not be dropped as 'deleted'
   if (my !== tabSeq || dk !== docId) return false
   if (!name) { activeFile = ''; setT(shadow); cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(''))) }); $('cNew').style.display = openedTrashed ? 'none' : ''; $('save').title = ''; paintTabs(); paintOwn(); paintShared(lastShared); gutter(); closePop(); paintOutline(); reanchor(); refreshHl(); tabRestoreState(''); scrollApplyEditor(); paintErr(); queueRender(); return true }
@@ -375,7 +375,7 @@ async function switchTab(name, nosave, preserveView = false) { // true = switche
   queueRender()
   return true
 }
-function offerFileStash(dk, name) { // unsent pagehide copy vs fresh server text: user decides (mirror of the main.typ stash flow)
+function offerFileStash(dk, name) { // unsent pagehide copy vs fresh server text: user decides (mirror of the the document text stash flow)
   let o = null
   try {
     const raw = localStorage.getItem(fileStashKey(dk, name))
@@ -482,10 +482,10 @@ const fileNameOk = (raw, ext) => { // clean name, forced text extension; '' = un
   let n = String(raw || '').trim().replace(/[^A-Za-z0-9._-]+/g, '_')
   if (!n) return ''
   if (!TEXT_EXT.test(n)) n += '.' + ext
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/.test(n) && n.toLowerCase() !== 'main.typ' ? n : ''
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/.test(n) && n.toLowerCase() !== '__doc__.typ' ? n : ''
 }
 async function refreshFiles() { try { lastFiles = (await api('GET', `/api/docs/${docId}/files`)).files; filesAt = Date.now(); filesDirty = false } catch (e) {} }
-function mainAppend(line) { // add a line at the end of main.typ through Yjs (editor, preview and peers follow)
+function mainAppend(line) { // add a line at the end of the document text through Yjs (editor, preview and peers follow)
   if (window.suggestionDraft) {
     const s = getT()
     cm.dispatch({ changes: { from: s.length, insert: (s && !s.endsWith('\n') ? '\n' : '') + line + '\n' } })
@@ -615,7 +615,7 @@ function updateFileView() {
   const pvFor = $('pvFor')
   pvFor.classList.toggle('on', tab); pvFor.setAttribute('aria-hidden', String(!tab))
   if (tab) pvFor.textContent = t('preview.forDoc', { title: (docTitle || $('title').textContent).replace(/\.typ$/i, '') + '.typ' })
-  const filename = tplName || (activeFile ? tabName(activeFile) : 'main.typ')
+  const filename = tplName || (activeFile ? tabName(activeFile) : (docTitle || 'document').replace(/\.typ$/i, '') + '.typ')
   const extension = filename.split('.').pop().toLowerCase()
   paintImageFile(filename)
   $('dlTyp').dataset.extension = extension
