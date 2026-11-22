@@ -52,6 +52,9 @@ aside .qBox { position: relative; flex: 1; min-width: 0; display: flex; align-it
 aside .qBox .qIco { position: absolute; left: 10px; color: var(--faint); pointer-events: none; }
 aside .sideSearch input { padding: 0 30px; min-height: 32px; background: var(--hover); border-color: transparent; }
 aside .sideSearch input:focus { background: var(--field); border-color: var(--acc); }
+aside .sideSearch input:not(:placeholder-shown) { background: var(--acc-soft); border-color: var(--acc); }
+aside .qBox:has(input:not(:placeholder-shown)) .qIco,
+aside .qBox:has(input:not(:placeholder-shown)) .qClear { color: var(--acc); }
 aside .qClear { position: absolute; right: 4px; width: 24px; height: 24px; min-width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--faint); border-radius: 6px; cursor: pointer; }
 aside .qClear:hover { background: var(--press); color: var(--text); }
 aside .qClear[hidden] { display: none; }
@@ -82,6 +85,12 @@ aside .hitN:hover { border-color: var(--faint); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) aside .hitN { box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
 }
+aside .searchBanner { display: flex; align-items: center; gap: 7px; margin: -2px 0 0; padding: 4px 4px 4px 10px; border-radius: var(--r-sm); background: var(--acc-soft); color: var(--text); font-size: 12px; }
+aside .searchBanner[hidden] { display: none; }
+aside .searchBanner .funnel { flex: none; color: var(--acc); }
+aside .searchBanner .sbq { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+aside .searchBanner button { flex: none; min-height: 22px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--acc); font: inherit; font-weight: 600; cursor: pointer; }
+aside .searchBanner button:hover { background: var(--acc-soft); }
 aside .sideActions { display: flex; gap: 6px; margin: 8px 0 10px; }
 aside #new, aside #upDoc { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; }
 aside #new { flex: 1; }
