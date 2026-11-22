@@ -98,11 +98,8 @@ function announceSearch() {
   if (se) se.hidden = !empty
   const nav = $('nav')
   if (nav) nav.classList.toggle('search-empty', empty)
-  const banner = $('searchBanner')
-  if (banner) banner.hidden = !searching
   if (!searching) { qc.textContent = ''; return }
   qc.textContent = t('docs.results', { n: rows })
-  $('searchBannerQuery').textContent = '“' + findQ + '”'
 }
 function paintSidebarSearch() {
   paintOwn(); paintShared(lastShared); paintTrash(lastTrash); paintTpls(); paintSecs(); paintOutline()
@@ -472,7 +469,6 @@ $('q').onkeydown = e => {
   e.preventDefault(); clearTimeout(findT); runSearch()
 }
 $('qClear').onclick = () => clearSearch(true)
-$('searchBannerClear').onclick = () => clearSearch(true)
 $('qFilter').onclick = e => {
   e.stopPropagation()
   document.getElementById('searchFilters') ? closeSearchFilters() : openSearchFilters()
