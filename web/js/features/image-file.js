@@ -2,7 +2,8 @@ async function paintImageFile(name) {
   let imageFile = $('imageFile')
   if (!imageFile) { imageFile = el('div', 'imageFile'); imageFile.id = 'imageFile'; $('editWrap').appendChild(imageFile) }
   const pdf = /\.pdf$/i.test(name)
-  const on = !!docId && !!activeFile && !tplName && (pdf || /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i.test(name))
+  const font = /\.(ttf|otf|ttc|otc|woff2?)$/i.test(name)
+  const on = !!docId && !!activeFile && !tplName && (pdf || font || /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i.test(name))
   imageFile.hidden = !on
   const clear = () => { if (imageFile.dataset.url) URL.revokeObjectURL(imageFile.dataset.url); delete imageFile.dataset.url; imageFile.replaceChildren() }
   if (!on) {
@@ -22,6 +23,7 @@ async function paintImageFile(name) {
   delete imageFile.dataset.failed
   clear()
   imageFile.dataset.key = key
+  if (font) { imageFile.replaceChildren(el('p', 'fileEmpty', t('files.notOpenable'))); return }
   const view = el(pdf ? 'embed' : 'img')
   if (pdf) view.type = 'application/pdf'
   else view.alt = name

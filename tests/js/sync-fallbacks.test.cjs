@@ -63,3 +63,14 @@ test('an undrawn page loads its fonts before math detection reads their names', 
   assert.match(meta, /pvFontsMissing\(tc, page\)\) \{ try \{ await page\.getOperatorList\(\)/)
   assert.ok(meta.indexOf('pvPageImgs(page, v)') < meta.indexOf('pvBoxes(tc, v, page)'), 'the operator list must run before the boxes read the font names')
 })
+
+test('only font files in the project change the compiler font signature', () => {
+  const fileCache = new Map([['a.png', { version: 'v1' }], ['f/My.TTF', { version: 'v2' }], ['b.otf', { version: 'v3' }]])
+  const c = vm.createContext({ fileCache })
+  vm.runInContext(slice(preview, 'const FONT_FILE', 'let typstMod') + 'this.fontSig = fontSig', c)
+  assert.equal(c.fontSig(), 'f/My.TTF:v2|b.otf:v3')
+  fileCache.delete('a.png')
+  assert.equal(c.fontSig(), 'f/My.TTF:v2|b.otf:v3')
+  fileCache.set('f/My.TTF', { version: 'v9' })
+  assert.equal(c.fontSig(), 'f/My.TTF:v9|b.otf:v3')
+})

@@ -163,6 +163,10 @@ def test_compile_env_whitelist_no_invite_leak(c, monkeypatch):
     assert env.get("XDG_CACHE_HOME")
 
 
+def test_compile_env_reads_project_fonts(c, tmp_path):
+    assert t._typst_env(tmp_path)["TYPST_FONT_PATHS"] == str(tmp_path)
+
+
 def test_rehash_on_login_upgrades_old_hash(c):
     register_user(c, "alice")
     # Simulate a pre-1C account with 300k rounds.

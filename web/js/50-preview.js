@@ -84,6 +84,7 @@ onmessage = function (e) {
 }
 `
 let pvWorker = null, pvWorkerOk = false, pvWorkerFail = false, pvJobN = 0 // compile worker: null until first render, Fail sticks (fallback takes over)
+let pvFontSig = '' // project fonts the worker was started with
 let pvMapped = false, pvSentSig = '', pvBibSig = '' // worker shadow state: remap only on change (same rule as main-thread shadowSig)
 let pvTextDone = [] // per-page text index state: raster fills it early, pvTextAll fills the rest
 const PV_HASH_MAX = 262144 // hash files up to 256KB: live same-length edits change the sig, big binaries use mtime+length only
@@ -108,14 +109,29 @@ const typstFonts = [ // self-hosted default text set (see vendor/manifest.json):
   '/vendor/font-NewCM10-Italic-70c9c811bb0e.otf', '/vendor/font-NewCM10-Regular-2f751e3082ce.otf',
   '/vendor/font-NewCMMath-Bold-8956f7ef6c21.otf', '/vendor/font-NewCMMath-Book-b2e655d5cae5.otf',
   '/vendor/font-NewCMMath-Regular-bfd2f9b22caa.otf']
+const FONT_FILE = /\.(ttf|otf|ttc|otc)$/i // project files the compiler also takes as fonts
+const projectFonts = () => [...fileCache].filter(([n]) => FONT_FILE.test(n))
+const fontSig = () => projectFonts().map(([n, c]) => n + ':' + c.version).join('|')
+let typstMod = null, typstFontSig = '' // bundle module + the project fonts the main-thread compiler was built with
+function typstSetup(m) { // fonts are fixed once a compiler is built: a changed font set needs a fresh instance
+  const fontLoader = (m.preloadRemoteFonts || m.loadFonts)([...typstFonts, ...projectFonts().map(([, c]) => c.bytes)], { assets: false }) // local fonts, no remote fetch
+  window.$typst.setCompilerInitOptions({ getModule: () => '/vendor/typst-compiler-0.8.0-rc3-85a071522388.wasm', beforeBuild: [fontLoader] })
+  window.$typst.setRendererInitOptions({ getModule: () => '/vendor/typst-renderer-0.8.0-rc3-b6947e0293db.wasm', beforeBuild: [fontLoader] })
+  typstFontSig = fontSig()
+}
+function typstFontsSync() { // main-thread compiler follows the project's font files
+  if (!typstMod || fontSig() === typstFontSig) return
+  window.$typst = new typstMod.TypstSnippet()
+  typstSetup(typstMod)
+  shadowSig = '' // the new compiler has no shadow files yet
+}
 function ensureTypst() {
   if (typstPm) return typstPm
   typstPm = import(PV_WORKER_URL).then(m => { // pinned, self-hosted (see vendor/); bundles Typst 0.15.1 (= CLI 0.15.1), RC chosen deliberately for compiler parity
     if (!window.$typst) window.$typst = m.$typst || m.default || m // ESM bundle sets no global: adopt it
+    typstMod = m
     // bundle default points to missing WASM (404): pin explicitly (see docs example)
-    const fontLoader = (m.preloadRemoteFonts || m.loadFonts)(typstFonts, { assets: false }) // local fonts, no remote fetch
-    window.$typst.setCompilerInitOptions({ getModule: () => '/vendor/typst-compiler-0.8.0-rc3-85a071522388.wasm', beforeBuild: [fontLoader] })
-    window.$typst.setRendererInitOptions({ getModule: () => '/vendor/typst-renderer-0.8.0-rc3-b6947e0293db.wasm', beforeBuild: [fontLoader] })
+    typstSetup(m)
   }).catch(e => {
     typstPm = null // allow retry: watchdog retries instead of stalling
     if (!typstWarned) { typstWarned = true; console.warn('Compiler still loading - network/adblock issue.', e) }
@@ -139,6 +155,7 @@ function pvEnsureWorker() { // compile worker (Blob URL: no shell/backend change
     w = new Worker(URL.createObjectURL(new Blob([PV_WORKER_SRC], { type: 'text/javascript' })), { type: 'module' })
   } catch (e) { pvWorkerFail = true; return null } // no Worker (exotic browser): main-thread fallback below
   pvWorker = w
+  pvFontSig = fontSig()
   w.onmessage = e => {
     const m = e.data || {}
     if (m.kind === 'ready') {
@@ -168,7 +185,7 @@ function pvEnsureWorker() { // compile worker (Blob URL: no shell/backend change
     pvJobs.clear()
     if (docId) render()
   }
-  try { w.postMessage({ cmd: 'init', bundle: location.origin + PV_WORKER_URL, compiler: location.origin + PV_WORKER_WASM, fonts: typstFonts.map(f => location.origin + f) }) } // blob workers resolve no relative/absolute paths: fully qualified or it 404s in the worker
+  try { w.postMessage({ cmd: 'init', bundle: location.origin + PV_WORKER_URL, compiler: location.origin + PV_WORKER_WASM, fonts: [...typstFonts.map(f => location.origin + f), ...projectFonts().map(([, c]) => c.bytes)] }) } // blob workers resolve no relative/absolute paths: fully qualified or it 404s in the worker
   catch (e) { pvWorkerFail = true; try { w.terminate() } catch (_) {} pvWorker = null; return null }
   return pvWorker
 }
@@ -177,6 +194,11 @@ function pvCall(job, id) { // one compile round-trip (rejects into the render er
   return new Promise((ok, bad) => {
     pvTail = pvTail.then(() => new Promise(done => {
       if (id !== renderN) { done(); ok({ skip: true }); return } // stale: newer render queued, spare the worker
+      if (pvWorker && pvFontSig !== fontSig()) { // fonts load at compiler start: a changed font set needs a fresh worker, its ready-handler renders again
+        try { pvWorker.terminate() } catch (_) {}
+        pvWorker = null; pvWorkerOk = false; pvMapped = false
+        pvEnsureWorker(); done(); ok({ skip: true }); return
+      }
       const w = pvEnsureWorker()
       if (!w || pvWorkerFail || !pvWorkerOk) { done(); bad(new Error(t('preview.compileFailed'))); return }
       const message = { ...job, full: job.sig !== pvSentSig || !pvMapped }
@@ -297,6 +319,7 @@ async function shadowAll(main) { // project files as shadow, the document at doc
   const pf = await pvFiles()
   const current = () => id === docId && epoch === openN
   if (!pf || !current()) return false
+  typstFontsSync()
   if (pf.sig !== shadowSig) { // files changed: full remap once, else only the document text below
     shadowSig = '' // half-mapped on throw: force remap next time
     await $typst.resetShadow()

@@ -6,7 +6,7 @@ const vm = require('node:vm')
 test('queued preview jobs remap after a superseded compile changed the worker resources', async () => {
   const source = fs.readFileSync('web/js/50-preview.js', 'utf8'), sent = []
   const context = vm.createContext({
-    setTimeout, clearTimeout, renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true,
+    setTimeout, clearTimeout, renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true, pvWorker: null, fontSig: () => '', pvFontSig: '',
     pvJobs: new Map(), pvEnsureWorker: () => ({ postMessage: message => sent.push(message) }), t: key => key
   })
   vm.runInContext(source.slice(source.indexOf('let pvTail ='), source.indexOf('let typstT0 =')), context)
@@ -124,7 +124,7 @@ test('a deleted file refreshes the list once instead of blocking the preview', a
 test('a content error after the worker mapped the files does not resend them', async () => {
   const source = fs.readFileSync('web/js/50-preview.js', 'utf8'), sent = []
   const context = vm.createContext({
-    setTimeout, clearTimeout, renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true,
+    setTimeout, clearTimeout, renderN: 1, pvMapped: true, pvSentSig: 'original', pvWorkerFail: false, pvWorkerOk: true, pvWorker: null, fontSig: () => '', pvFontSig: '',
     pvJobs: new Map(), pvEnsureWorker: () => ({ postMessage: message => sent.push(message) }), t: key => key
   })
   vm.runInContext(source.slice(source.indexOf('let pvTail ='), source.indexOf('let typstT0 =')), context)

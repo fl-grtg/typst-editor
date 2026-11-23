@@ -355,6 +355,7 @@ def _typst_env(root: Path) -> dict:
         env["PATH"] = "/usr/local/bin:/usr/bin:/bin"
     env["TYPST_PACKAGE_CACHE_PATH"] = cache_home
     env["XDG_CACHE_HOME"] = cache_home
+    env["TYPST_FONT_PATHS"] = str(root)  # uploaded .ttf/.otf files in the project tree
     return env
 
 

@@ -234,3 +234,4 @@ aside .fhd.folder.drop-target b, aside .fhd.project.drop-target b { color: var(-
 #searchFilters .ck { flex: none; width: 12px; font-style: normal; font-weight: 700; font-size: 11px; }
 #searchFilters .ln { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #searchFilters hr { border: 0; border-top: 1px solid var(--line); margin: 5px 4px; }
+.imageFile .fileEmpty { max-width: 420px; margin: 24px auto 0; color: var(--sub); font-size: 13.5px; line-height: 1.55; }
