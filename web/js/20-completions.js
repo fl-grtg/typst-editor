@@ -486,6 +486,7 @@ function threadHighlights() {
   const rs = []
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
+    if (!th.suggestion_status && th.resolved) continue // resolved comments stay reachable via gutter without leaving pale smudges in the text
     if (th.a == null || th.b == null) continue
     const pending = th.suggestion_status === 'pending'
     if (pending && th.conflict) { // conflicted suggestion: mark anchor line cleanly without slicing unrelated text
@@ -523,10 +524,15 @@ function tokenCut(text, cut, from) { // snap a char cut out of the strict inside
     return best
   } catch (e) { return cut } // no parser in scope (tests): plain char trim
 }
-function tokenSafeSpan(old, { a, b }) { // tokenCut both trim ends so a pending mark stays visually continuous over whole tokens
+function tokenSafeSpan(old, { a, b }) { // tokenCut + word-boundary snap so a pending mark never slices mid-word or mid-formula
   if (a + b > old.length || a < 0 || b < 0) return { a, b }
-  const na = a ? tokenCut(old, a, true) : a
-  const nb = b ? old.length - tokenCut(old, old.length - b, false) : b
+  let na = a ? tokenCut(old, a, true) : a
+  let nb = b ? old.length - tokenCut(old, old.length - b, false) : b
+  const isW = ch => /[\p{L}\p{N}_]/u.test(ch)
+  while (na > 0 && na < old.length && isW(old[na - 1]) && isW(old[na])) na--
+  let end = old.length - nb
+  while (end > na && end < old.length && isW(old[end - 1]) && isW(old[end])) end++
+  nb = old.length - end
   return { a: na, b: nb }
 }
 function refreshHl() {

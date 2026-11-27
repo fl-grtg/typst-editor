@@ -605,14 +605,14 @@ function threadCard(th) {
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
   else meta.appendChild(el('span', 'thTag', t('comments.newAria')))
-  if (th.text) d.appendChild(richText(th.text))
-  if (th.quote && !pendingSug) { // show context, click jumps there (pending suggestions show the diff above)
+  if (th.quote && !pendingSug) { // quoted passage first so comment + replies read as one continuous thread
     const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
     if (!th.suggestion_status && th.a == null) q.classList?.add('is-detached')
     q.title = t('comments.jumpPos')
     q.onclick = () => jumpThread(th)
     d.appendChild(q)
   }
+  if (th.text) d.appendChild(richText(th.text))
   th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
     const rAuthor = r.author || r.username || '?'
