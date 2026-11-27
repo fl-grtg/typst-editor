@@ -377,13 +377,15 @@
       else {
         var stay = !d.close && (d.keepOpen || (d.checked !== undefined && openFor && openFor.closest('#menubar')))
         b.onclick = function () {
+          var br = b.getBoundingClientRect()
+          window.__menuPopOrigin = { left: br.right + 3, top: br.top - 4, anchorLeft: br.left, at: Date.now() }
           if (!stay) { close(false); runMenuItem(d); return }
           runMenuItem(d)
           if (d.checked !== undefined) setTimeout(function () { refreshOpen(panel, b) }, 0) // plain keep-open rows (sidebar) do not need a repaint
         }
       }
       b.addEventListener('pointerenter', function (e) { // hover another row: collapse the old submenu right away instead of leaving it over the list for 400 ms
-        if (panel === menu && e.pointerType === 'mouse' && subFor) closeSub(false)
+        if (panel === menu && e.pointerType === 'mouse' && subFor && !document.getElementById('pickPop')) closeSub(false)
       })
     }
     b._menuItem = d
@@ -391,7 +393,7 @@
   }
   ;[menu, submenu].forEach(function (panel) { // grace period when the pointer crosses the gap between the panels
     panel.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') cancelSubClose() })
-    panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor) scheduleSubClose() })
+    panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor && !document.getElementById('pickPop')) scheduleSubClose() })
   })
   var MENUBAR = { file: 1, edit: 1, view: 1, help: 1 }
   function sharedMenubarWidth() { // all four menus take the natural width of the longest one
@@ -428,7 +430,7 @@
     }
     menu.style.left = left + 'px'; menu.style.top = top + 'px'
   }
-  function show(anchor, list, name, align) {
+  function show(anchor, list, name, align, opts) {
     var r = anchor.getBoundingClientRect() // before closing a parent popover: its child would otherwise measure 0x0
     close(false)
     if (window.closeFloatPanels) window.closeFloatPanels(null, anchor) // one floating panel at a time (popovers, watch menu, comment card); the popover holding the anchor stays
@@ -442,6 +444,7 @@
     menu.hidden = false
     menu.dataset.name = name
     if (width) menu.style.width = width + 'px'
+    else if (opts && opts.matchWidth && r.width) menu.style.width = Math.round(r.width) + 'px'
     else menu.style.removeProperty('width')
     place(anchor, align, r)
     anchor.setAttribute('aria-expanded', 'true')
@@ -452,8 +455,8 @@
   function open(anchor, name) {
     show(anchor, DEF[name] ? DEF[name]() : [], name, name === 'export' ? 'right' : name === 'font' ? 'center' : 'left')
   }
-  window.showMenuAt = function (anchor, list, align) { // anchored menu for tabs and other row-level actions
-    show(anchor, list, 'anchored', align || 'left')
+  window.showMenuAt = function (anchor, list, align, opts) { // anchored menu for tabs and other row-level actions
+    show(anchor, list, 'anchored', align || 'left', opts)
     focusItem(0)
   }
 
@@ -475,7 +478,7 @@
       if (openFor === a) close(false); else open(a, a.dataset.menu)
       return
     }
-    if (openFor && !menu.contains(e.target) && !submenu.contains(e.target)) close(false)
+    if (openFor && !menu.contains(e.target) && !submenu.contains(e.target) && !e.target.closest('#pickPop')) close(false)
   })
   // hover-switch between top-level menus while one is open (desktop menubar behaviour)
   document.querySelectorAll('#menubar [data-menu]').forEach(function (b) {

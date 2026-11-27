@@ -109,13 +109,15 @@ aside .fhd .renameInput { font-size: 12.5px; font-weight: 400; letter-spacing: 0
 aside .doc.sub, #ol .doc { margin-left: 12px; }
 aside .fhd { margin-left: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); }
 aside .fhd b { flex: 1; min-width: 0; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-aside h3:hover, aside .fhd:hover, aside .doc:hover { background: var(--hover); }
+aside h3:hover, aside .fhd:not(.renaming):hover, aside .doc:not(.renaming):hover { background: var(--hover); }
 aside .doc.menu-open, aside .fhd.menu-open, aside h3.menu-open { background: var(--hover); } /* open menu keeps the row hover */
 aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }
 aside .doc.cur.menu-open { background: var(--hover); }
 aside .doc.dragging.cur { background: transparent; } /* the card under the cursor is the only lifted thing */
-aside .doc.sel, aside .fhd.sel { background: var(--acc-soft); }
+aside .doc.sel, aside .fhd.sel, aside .folderEmpty.sel { --sel-bg: var(--acc-soft); background: var(--sel-bg); }
+aside .doc.sel:not(.renaming):hover, aside .fhd.sel:not(.renaming):hover, aside .doc.sel.menu-open, aside .fhd.sel.menu-open { --sel-bg: color-mix(in srgb, var(--acc) 26%, transparent); background: var(--sel-bg); }
+aside:has(.sel) .doc:focus-visible, aside:has(.sel) .fhd:focus-visible, aside:has(.sel) .fhd > b:focus-visible { outline: none; }
 aside .empty { min-height: 30px; padding: 6px 8px; font-size: 12.5px; color: var(--faint); }
 #searchEmpty { padding: 18px 8px; text-align: center; }
 #nav.search-empty > h3,

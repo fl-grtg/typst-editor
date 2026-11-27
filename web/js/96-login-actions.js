@@ -155,7 +155,7 @@ function openNewMenu(anchor) {
   window.showMenuAt(anchor, [
     { label: t('docs.newProject'), title: t('docs.pickDocSub'), run: newProjectFromMenu },
     { label: t('docs.pickUp'), title: t('docs.pickUpSub'), run: () => $('docPick').click() },
-  ], 'left')
+  ], 'left', { matchWidth: true })
 }
 function openNewResourceMenu(anchor) {
   if (!window.showMenuAt) { newResource('resource'); return }

@@ -11,8 +11,11 @@ function sidebarSelectable(row, p, entry) {
 const sideSelRows = () => [...document.querySelectorAll('aside [data-sel-key]')].filter(row => row.getClientRects().length)
 const sideSelHolds = row => sideSel.size > 1 && sideSel.has(row?.dataset.selKey)
 function paintSideSel() {
-  const rows = [...document.querySelectorAll('aside [data-sel-key]')], marked = n => !!n?.classList.contains('sel')
-  rows.forEach(row => { row.classList.toggle('sel', sideSel.has(row.dataset.selKey)); row.style.borderRadius = row.style.boxShadow = '' })
+  const rows = [...document.querySelectorAll('aside [data-sel-key], aside .folderEmpty')], marked = n => !!n?.classList.contains('sel')
+  rows.forEach(row => {
+    row.classList.toggle('sel', row.classList.contains('folderEmpty') ? marked(row.previousElementSibling) : sideSel.has(row.dataset.selKey))
+    row.style.borderRadius = row.style.boxShadow = ''
+  })
   const corner = join => join ? '0' : 'var(--r-sm)'
   rows.forEach(row => { // a run of selected rows reads as one block: shared edges lose their rounding
     if (!marked(row)) return
@@ -25,7 +28,7 @@ function paintSideSel() {
     const boxes = run.map(r => r.getBoundingClientRect()), left = Math.min(...boxes.map(b => b.left)), right = Math.max(...boxes.map(b => b.right))
     run.forEach((r, i) => { // deeper rows keep their text indent; the fill reaches out to the run's outer edges
       const l = boxes[i].left - left, x = right - boxes[i].right
-      r.style.boxShadow = [l && `-${l}px 0 0 0 var(--acc-soft)`, x && `${x}px 0 0 0 var(--acc-soft)`].filter(Boolean).join(', ')
+      r.style.boxShadow = [l && `-${l}px 0 0 0 var(--sel-bg, var(--acc-soft))`, x && `${x}px 0 0 0 var(--sel-bg, var(--acc-soft))`].filter(Boolean).join(', ')
     })
   })
 }
@@ -79,8 +82,8 @@ function sideSelMenuItems() {
   return [
     { head: t('menu.selCount', { n: items.length }) },
     writable && sidebarMenuItem('duplicate', () => sideSelDuplicate(items), { what }),
-    !session && sidebarMenuItem('copy', () => sideSelTransfer(items, false), { what }),
-    writable && sidebarMenuItem('move', () => sideSelTransfer(items, true), { what }),
+    !session && sidebarMenuItem('copy', () => sideSelTransfer(items, false), { what, keepOpen: true }),
+    writable && sidebarMenuItem('move', () => sideSelTransfer(items, true), { what, keepOpen: true }),
     writable && sidebarMenuItem('trash', () => sideSelTrash(items), { what }),
     { sep: true },
     { label: t('menu.selClear'), run: sideSelClear },
@@ -97,7 +100,7 @@ async function sideSelDuplicate(items) {
 }
 async function sideSelTransfer(items, move) {
   const targets = projects.filter(projectEditable).sort((a, b) => Number(b.id === docProject) - Number(a.id === docProject))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const anchor = document.querySelector('aside .sel') || $('own')
   const picked = await pickProjectAndFolder(targets, t(move ? 'menu.moveTo' : 'menu.copyTo'), items.some(item => item.entry.kind === 'folder') ? 1 : 0, anchor)
   if (picked) await sideSelDrop(items, picked.target, picked.folder, move)

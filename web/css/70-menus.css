@@ -3,7 +3,7 @@
    ========================================================================== */
 #menu, #submenu {
   position: fixed; z-index: var(--z-menu); width: max-content; max-width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 24px); overflow: auto; padding: 4px;
-  background: var(--card); border-radius: var(--r-md); box-shadow: var(--sh-pop);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--sh-pop);
 }
 /* Menubar menus share the width of their longest sibling (measured in ui-layer.js); submenus size to their content. */
 #menu button, #submenu button, #menu a, #submenu a { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 27px; padding: 3px 6px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); text-decoration: none; }
