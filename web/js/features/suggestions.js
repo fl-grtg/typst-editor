@@ -1,18 +1,23 @@
 function suggestionCard(th, fresh, doc, epoch) {
   const card = el('div', 'suggestionCard')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
-  card.appendChild(el('b', null, status[th.suggestion_status]))
+  card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
   if (th.suggestion_status === 'pending') {
     const span = diffSpan(th.suggestion_old, th.replacement)
     const old = th.suggestion_old.slice(span.a, th.suggestion_old.length - span.b)
     const next = th.replacement.slice(span.a, th.replacement.length - span.b)
-    if (old) card.append(el('div', 'qt suggestionDeleted', old))
-    if (next) card.append(el('div', 'tx', next))
-    if (th.a == null || th.conflict) card.append(el('p', null, t('comments.suggestionConflict')))
+    if (old || next) {
+      const diff = el('div', 'sugDiff')
+      if (old) diff.append(el('div', 'sugDel suggestionDeleted', old))
+      if (next) diff.append(el('div', 'sugAdd', next))
+      card.append(diff)
+    }
+    if (th.a == null || th.conflict) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   }
   if (th.suggestion_status === 'pending' && !openedTrashed && ['owner', 'editor'].includes(docRole)) {
-    const actions = el('div', 'rr')
-    const button = el('button', null, t('comments.accept'))
+    const actions = el('div', 'rr sugActs')
+    const button = el('button', 'sugAccept', t('comments.accept'))
+    button.disabled = th.a == null || !!th.conflict
     button.onclick = () => decideSuggestion(th, 'accept', doc, epoch)
     actions.appendChild(button)
     card.appendChild(actions)
@@ -136,25 +141,32 @@ function openLinePop(line) {
 }
 function draftSuggestionCard(range) {
   const card = el('div', 'th'), header = el('div', 'hd')
-  const name = el('b', 'nm', user); name.style.color = colOf(user)
-  header.append(name, el('span', 'tm', t('comments.suggestionpending')))
-  const discard = icoBtn('ib', ICO_TRASH)
-  discard.title = t('comments.draftDiscard'); discard.setAttribute('aria-label', discard.title); discard.style.marginLeft = 'auto'
+  const author = user || '?'
+  const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(author); av.setAttribute('aria-hidden', 'true')
+  const name = el('b', 'nm', author); name.style.color = colOf(author)
+  const acts = el('span', 'acts')
+  header.append(av, name, el('span', 'tm', t('comments.suggestionpending')), acts)
+  if (!openedTrashed && ['owner', 'editor'].includes(docRole)) {
+    const accept = icoBtn('ib', ICO_CHECK)
+    accept.title = t('comments.accept'); accept.setAttribute('aria-label', accept.title)
+    accept.onclick = () => acceptDraftSuggestion(range)
+    acts.append(accept)
+  }
+  const discard = icoBtn('ib', ICO_TRASH); discard.classList?.add('danger')
+  discard.title = t('comments.draftDiscard'); discard.setAttribute('aria-label', discard.title)
   discard.onclick = () => {
     const draft = window.suggestionDraft
     const current = draft && draftRanges(draft).find(r => r.key === range.key)
     if (!current || draft.busy) return
     closePop(true); cm.dispatch({ changes: { from: current.a, to: current.b, insert: current.old } }); cm.focus()
   }
-  if (!openedTrashed && ['owner', 'editor'].includes(docRole)) {
-    const accept = icoBtn('ib', ICO_CHECK)
-    accept.title = t('comments.accept'); accept.setAttribute('aria-label', accept.title)
-    accept.onclick = () => acceptDraftSuggestion(range)
-    header.append(accept)
+  acts.append(discard); card.append(header)
+  if (range.old || range.next) {
+    const diff = el('div', 'sugDiff')
+    if (range.old) diff.append(el('div', 'sugDel suggestionDeleted', range.old))
+    if (range.next) diff.append(el('div', 'sugAdd', range.next))
+    card.append(diff)
   }
-  header.append(discard); card.append(header)
-  if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
-  if (range.next) card.append(el('div', 'tx', range.next))
   return card
 }
 function renderSuggestionBox(box) {
@@ -307,6 +319,18 @@ function paintSuggestionControls() {
   toggle.classList.toggle('on', !!draft); toggle.setAttribute('aria-pressed', String(!!draft))
   toggle.disabled = !!draft?.busy || !!docId && !synced && !draft
   toggle.onclick = () => window.suggestionDraft ? leaveSuggestionDraft() : startSuggestionDraft()
+  const bar = $('sugBar')
+  if (bar) {
+    bar.hidden = !draft
+    if (draft) {
+      const n = draftRanges(draft).length
+      const cnt = $('sugCount')
+      if (cnt) cnt.textContent = n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : ''
+      const send = $('sugSend'), disc = $('sugDiscard')
+      if (send) { send.disabled = !draft.changed || !!draft.busy; send.onclick = () => sendSuggestionDraft() }
+      if (disc) { disc.disabled = !!draft.busy; disc.onclick = () => draft.changed ? leaveSuggestionDraft() : stopSuggestionDraft() }
+    }
+  }
   if (docId && !activeFile && !tplName && !openedTrashed) {
     const editable = !!draft || docRole !== 'reviewer'
     for (const id of ['tplBtn', 'symBtn']) $(id).style.display = editable ? '' : 'none'

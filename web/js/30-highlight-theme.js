@@ -66,7 +66,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
     spellCode, markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
-      if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
+      if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? -1 : 1), u.changes, u.startState.doc.length) // start sticks right, end sticks left: typing before/after stays out, edits inside grow
       if (u.docChanged && window.__booted) { paintCsv(); window.paintFileExtras?.() }
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
       if (u.docChanged && findOpen) markFind(false) // recount only: typing beside an open find must not yank the cursor back to a hit
@@ -244,16 +244,29 @@ function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not 
     anchorDirty.clear()
   }, SAVE_MS)
 }
-function mapThreads(mapPos, paint = true, fromLen) { // start left, end right: typing before stays out, inside/after grows
+function mapThreads(mapPos, paint = true, fromLen) { // start right, end left: typing before/after stays out, edits inside grow; deleted quoted text unmarks instead of resurrecting
   const t = activeFile || window.suggestionDraft ? shadow : getT() // file tab: anchors live in main, not in file text
   const len = fromLen == null ? t.length : Math.max(0, Math.min(fromLen, t.length)) // stale anchors beyond the changeset must not reach mapPos (RangeError on empty/short changesets)
   for (const th of threads) {
     if (th.a == null || th.b == null) continue
     const collapsed = th.a === th.b
-    let a = Math.max(0, Math.min(t.length, mapPos(Math.min(th.a, len), false)))
-    let b = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
-    if (collapsed && a === 0 && b === t.length && t.length) b = a // full-text insert delta: a collapsed range must not balloon to the whole doc
-    th.a = Math.min(a, b); th.b = Math.max(a, b)
+    const ra = Math.max(0, Math.min(t.length, mapPos(Math.min(th.a, len), false)))
+    const rb = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
+    const quoted = !th.suggestion_status && !!th.quote
+    if (collapsed) {
+      if (quoted) { th.a = th.b = null; continue }
+      th.a = th.b = ra // collapsed range never balloons onto newly typed text
+    } else if (rb <= ra) {
+      if (quoted) {
+        th.a = th.b = null // commented text deleted: drop highlight so later typing at that spot never resurrects it
+        const line = t.slice(0, ra).split('\n').length
+        if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+        continue
+      }
+      th.a = th.b = ra
+    } else {
+      th.a = ra; th.b = rb
+    }
     if (th.b > th.a || (!th.quote && th.suggestion_status !== 'pending')) { // collapsed away: never persist a sanitized anchor from stale offsets — except quoteless comments, whose whole data IS the anchor line
       const line = t.slice(0, th.a).split('\n').length
       if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
@@ -265,17 +278,20 @@ function mapThreads(mapPos, paint = true, fromLen) { // start left, end right: t
 }
 function initRanges() { // ranges from quote (once; then mapping keeps them alive)
   const t = window.suggestionDraft || window.changeSession ? shadow : getT()
-  if (!t) return // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
+  if (!t) return false // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
+  let changed = false
   for (const th of threads) {
     if (th.a != null) continue
     const pending = th.suggestion_status === 'pending'
     const quote = pending ? th.suggestion_old : th.quote
     const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1 // non-overlap count like the backend
-    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + quote.length) }
-    else { // empty pending old (legacy) or quoteless comment: anchor line, same fallback as reanchor
+    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + quote.length); changed = true }
+    else if (!quote || pending) { // empty pending old (legacy) or quoteless comment: anchor line, same fallback as reanchor
       th.a = posOfLine(t, th.anchor)
       th.b = th.a + t.slice(th.a).split('\n')[0].length
       if (pending) th.conflict = true
+      changed = true
     }
   }
+  return changed
 }

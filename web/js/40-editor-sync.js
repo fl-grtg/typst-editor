@@ -8,12 +8,12 @@ const diffMap = (old, v) => { // position mapper for the diff fallback
   const { a, b } = diffSpan(old, v), d = v.length - old.length
   return (p, end) => p <= a ? p : p >= old.length - b ? p + d : end ? v.length - b : a
 }
-const deltaMap = delta => (p, end) => { // position mapper from a Y delta (start sticks left, end grows right)
+const deltaMap = delta => (p, end) => { // position mapper from a Y delta (start sticks right, end sticks left: inserts before/after stay out)
   let o = 0, n = 0
   for (const d of delta) {
     if (d.retain) { if (p < o + d.retain) return n + (p - o); o += d.retain; n += d.retain }
     else if (d.delete) { if (p < o + d.delete) return n; o += d.delete }
-    else if (d.insert != null) { if (p === o && !end) return n; n += typeof d.insert === 'string' ? d.insert.length : 1 }
+    else if (d.insert != null) { if (p === o && end) return n; n += typeof d.insert === 'string' ? d.insert.length : 1 }
   }
   return n + (p - o)
 }

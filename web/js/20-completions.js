@@ -294,16 +294,31 @@ function docNear(view, pos, a, b) { // command docs for nearest word (also at br
   return null
 }
 function commentHover(view, pos) { // full comment view + command docs below, click opens card
-  const list = threads.filter(t => t.a != null && t.b != null && pos >= t.a && pos <= t.b)
+  const list = threads.filter(th => {
+    if (th.a == null || th.b == null) return false
+    const r = threadEditorRange(th)
+    return r.to > r.from && pos >= r.from && pos <= r.to
+  })
   if (!list.length) return null
-  const a = Math.min(...list.map(t => t.a)), b = Math.max(...list.map(t => t.b))
+  const rs = list.map(threadEditorRange)
+  const a = Math.min(...rs.map(r => r.from)), b = Math.max(...rs.map(r => r.to))
   return { pos: a, end: b, above: true, create: () => {
     const div = document.createElement('div'); div.className = 'typ-hover full'
     for (const th of list.slice(0, 3)) {
       const h = document.createElement('div'); h.style.marginBottom = '6px'
       const nm = document.createElement('b'); nm.textContent = th.author || th.username; nm.style.color = colOf(th.username)
       h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(th.created_at)))
-      const p = document.createElement('div'); p.textContent = th.text; h.appendChild(p)
+      if (th.suggestion_status === 'pending') {
+        const span = diffSpan(th.suggestion_old, th.replacement)
+        const old = th.suggestion_old.slice(span.a, th.suggestion_old.length - span.b)
+        const next = th.replacement.slice(span.a, th.replacement.length - span.b)
+        const d = document.createElement('div'); d.className = 'hvSug'
+        if (old) { const s = document.createElement('span'); s.className = 'suggestionDeleted'; s.textContent = old.slice(0, 60); d.appendChild(s) }
+        if (old && next) d.appendChild(document.createTextNode(' → '))
+        if (next) { const s = document.createElement('span'); s.className = 'hvAdd'; s.textContent = next.slice(0, 60); d.appendChild(s) }
+        h.appendChild(d)
+      }
+      if (th.text) { const p = document.createElement('div'); p.textContent = th.text; h.appendChild(p) }
       if (th.replies && th.replies.length) {
         const r = document.createElement('div'); r.style.color = 'var(--sub)'; r.style.fontSize = '12px'
         r.textContent = th.replies.length === 1 ? t('comments.repliesOne', { n: th.replies.length }) : t('comments.repliesMany', { n: th.replies.length }); h.appendChild(r)
@@ -320,7 +335,7 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
       s.style.borderTop = '1px solid var(--line)'; s.style.marginTop = '6px'; s.style.paddingTop = '6px'; s.style.color = 'var(--sub)'
       s.textContent = d; div.appendChild(s)
     }
-    div.style.cursor = 'pointer'; div.onclick = () => openPop(list[0].anchor, false)
+    div.style.cursor = 'pointer'; div.onclick = () => openPop(view.state.doc.lineAt(a).number, false)
     return { dom: div } } }
 }
 let errTipEl = null // full-line error tooltip: manual div (no aim needed, works on empty line area too)
@@ -436,20 +451,29 @@ const posOfLine = (t, line) => { // char pos of 1-based line
   for (let l = 1; l < line; l++) { p = t.indexOf('\n', p) + 1; if (!p) return t.length }
   return p
 }
-function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = keep, never delete
+function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine, else -1
   if (!q) return -1
   const hint = posOfLine(t, hintLine)
+  let p = -1, best = -1, dist = Infinity, n = 0
+  while ((p = t.indexOf(q, p + 1)) >= 0 && n++ < 20) {
+    const d = Math.abs(p - hint)
+    if (d < dist) { dist = d; best = p }
+  }
+  return best
+}
+function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = not found
+  if (!q) return -1
+  const exact = exactQuotePos(t, q, hintLine)
+  if (exact >= 0) return exact // same text twice: keep the one at the cursor, not the first
+  const hint = posOfLine(t, hintLine)
   const near = arr => arr.sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint))[0]
-  let p = -1; const exact = []
-  while ((p = t.indexOf(q, p + 1)) >= 0 && exact.length < 20) exact.push(p)
-  if (exact.length) return near(exact) // same text twice: keep the one at the cursor, not the first
   const cands = []
-  const pushAll = sub => {
+  const pushAll = (sub, shift = 0) => {
     if (sub.length < 10) return
     let p = -1, n = 0
-    while ((p = t.indexOf(sub, p + 1)) >= 0 && n++ < 20) cands.push(p)
+    while ((p = t.indexOf(sub, p + 1)) >= 0 && n++ < 20) cands.push(Math.max(0, p - shift))
   }
-  if (q.length >= 16) { const h = q.length >> 1; pushAll(q.slice(0, h)); pushAll(q.slice(h)) }
+  if (q.length >= 16) { const h = q.length >> 1; pushAll(q.slice(0, h)); pushAll(q.slice(h), h) }
   else pushAll(q.slice(0, Math.min(10, q.length)))
   if (!cands.length && q.length > 10) pushAll(q.slice(0, 10))
   if (!cands.length) return -1
@@ -468,7 +492,7 @@ function threadHighlights() {
     }
     const { from: a, to: b } = threadEditorRange(source)
     if (b > a) rs.push(Decoration.mark({
-      class: th.suggestion_status === 'pending' ? 'cm-hl cm-suggestion suggestionDeleted' : 'cm-hl',
+      class: th.suggestion_status === 'pending' ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
       attributes: th.suggestion_status === 'pending' ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
     }).range(a, b))
     if (th.suggestion_status === 'pending') {

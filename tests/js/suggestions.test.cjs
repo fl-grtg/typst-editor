@@ -321,3 +321,29 @@ test('cards label comments and keep dismissal in the trash action for editors', 
   const comment = c.threadCard({ ...th, suggestion_status: null })
   assert.ok(walk(comment).some(n => n.textContent === 'comments.newAria'))
 })
+
+test('owner dismisses pending suggestions via reject, reviewer gets no broken delete, conflict disables accept', async () => {
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, children: [],
+    append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
+  const calls = []
+  const mkCtx = (docRole, user) => {
+    const c = vm.createContext({ docId: 'doc', openN: 1, docRole, openedTrashed: false, user,
+      el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', ICO_EDIT: 'edit', t: value => value,
+      ago: () => 'now', colOf: () => 'blue', wireMentions() {}, refresh() {}, api: () => { throw Error('must not call DELETE') },
+      decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
+    const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+    vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
+    vm.runInContext(code.slice(0, code.indexOf('async function decideSuggestion')), c)
+    const comments = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
+    vm.runInContext(comments.slice(comments.indexOf('function threadCard'), comments.indexOf('async function loadComments')), c)
+    return c
+  }
+  const walk = root => [root, ...root.children.flatMap(walk)]
+  const th = { id: 's1', username: 'alice', created_at: '', replies: [], text: '', quote: 'abc', suggestion_status: 'pending', suggestion_old: 'abc', replacement: 'axc', a: 0, conflict: true }
+  const ownerCard = mkCtx('owner', 'alice').threadCard(th)
+  assert.equal(walk(ownerCard).find(n => n.textContent === 'comments.accept').disabled, true)
+  await walk(ownerCard).find(n => n.title === 'comments.delThread').onclick()
+  assert.equal(calls[0][1], 'reject')
+  const reviewerCard = mkCtx('reviewer', 'alice').threadCard(th)
+  assert.equal(walk(reviewerCard).find(n => n.title === 'comments.delThread'), undefined)
+})

@@ -365,15 +365,26 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
 const lineOf = pos => getT().slice(0, pos).split('\n').length
 function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), only new marks need refresh
   let m = new Set()
+  const suggestions = new Set()
   if (docId && !tplName && !activeFile) {
-    m = new Set(threads.map(th => (window.suggestionDraft || window.changeSession) ? cm.state.doc.lineAt(threadEditorRange(th).from).number : th.anchor))
-    if (window.suggestionDraft) for (const range of draftRanges(window.suggestionDraft)) m.add(cm.state.doc.lineAt(range.a).number)
+    const mapped = !!(window.suggestionDraft || window.changeSession)
+    for (const th of threads) {
+      const line = mapped ? cm.state.doc.lineAt(threadEditorRange(th).from).number : th.anchor
+      m.add(line)
+      if (th.suggestion_status === 'pending') suggestions.add(line)
+    }
+    if (window.suggestionDraft) for (const range of draftRanges(window.suggestionDraft)) {
+      const line = cm.state.doc.lineAt(range.a).number
+      m.add(line); suggestions.add(line)
+    }
   } // file tab/template: no main markers
   if (window.changeSession && !window.changeSession.original) {
     const f = window.changeSession.files.get(sessionKey(sessionCurrent()))
-    if (f && getT() === (f.content || '')) for (const range of sessionChangeRanges(f)) m.add(cm.state.doc.lineAt(range.a).number)
+    if (f && getT() === (f.content || '')) for (const range of sessionChangeRanges(f)) {
+      const line = cm.state.doc.lineAt(range.a).number
+      m.add(line); suggestions.add(line)
+    }
   }
-  const suggestions = new Set(threads.filter(x => x.suggestion_status === 'pending').map(x => x.anchor))
   const style = [...suggestions].sort().join(',')
   let same = m.size === marks.size && style === markStyle
   if (same) for (const x of m) if (!marks.has(x)) { same = false; break }
@@ -505,10 +516,11 @@ function renderPop() {
   requestAnimationFrame(movePop)
   if (window.suggestionPopup) { if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
   const line = cm.state.doc.line(popAnchor)
-  const hit = th => threadEditorRange(th)
-  const covering = threads.filter(th => { const r = hit(th); return r.from <= line.from && r.to >= line.to }) // the clicked line inside the range
-  const overlapping = threads.filter(th => { const r = hit(th); return r.from <= line.to && r.to >= line.from })
-  const list = covering.length ? covering : overlapping // exact first: adjacent/newline-bleed ranges stay out of the card
+  const list = threads.filter(th => {
+    if (th.a == null || th.b == null) return th.anchor === popAnchor
+    const r = threadEditorRange(th)
+    return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
+  })
   const roC = openedTrashed
   if ((popFresh || !list.length) && !roC) {
     pop.appendChild(newBox())
@@ -525,6 +537,7 @@ function newBox() {
   const anchor = draft ? source.slice(0, a).split('\n').length : popAnchor
   const quote = draft ? source.slice(a, b).slice(0, 500) : popQuote
   const box = el('div', 'nw'), row = el('div', 'rr')
+  if (quote && quote.trim()) box.appendChild(el('div', 'qt nwQt', '"' + (quote.length > 90 ? quote.slice(0, 90) + '…' : quote) + '"'))
   const inp = el('input'); inp.id = 'popNew'; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
   wireMentions(inp)
   const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
@@ -546,15 +559,18 @@ function threadCard(th) {
   const doc = docId, epoch = openN
   const fresh = () => { if (doc === docId && epoch === openN) return refresh(''); return Promise.resolve() }
   const d = el('div', 'th')
-  if (th.resolved) d.style.opacity = '.55' // done: faded, stays readable
+  if (th.resolved) d.classList?.add('is-resolved')
   const hd = el('div', 'hd')
-  const nm = el('b', 'nm', th.author || th.username); nm.style.color = colOf(th.username)
-  hd.append(nm, el('span', 'tm', ago(th.created_at)))
+  const author = th.author || th.username || '?'
+  const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(th.username || author); av.setAttribute('aria-hidden', 'true')
+  const nm = el('b', 'nm', author); nm.style.color = colOf(th.username || author)
+  const acts = el('span', 'acts')
+  hd.append(av, nm, el('span', 'tm', ago(th.created_at)), acts)
   const roC = openedTrashed
   if (!roC && !th.suggestion_status && (docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
     fin.onclick = () => api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved }).then(fresh).catch(e => toast(e.message))
-    hd.appendChild(fin)
+    acts.appendChild(fin)
   }
   if (th.username === user && !openedTrashed) { // only author edits (owner deletes)
     const ed = icoBtn('ib', ICO_EDIT); ed.title = t('comments.edit'); ed.setAttribute('aria-label', ed.title)
@@ -562,19 +578,23 @@ function threadCard(th) {
       const v = await ask(t('comments.editHead'), { value: th.text })
       if (doc === docId && epoch === openN && v !== null && v.trim()) api('POST', `/api/docs/${doc}/comments/${th.id}/edit`, { text: v }).then(fresh).catch(e => toast(e.message))
     }
-    hd.appendChild(ed)
+    acts.appendChild(ed)
   }
-  const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
-  const editorDismiss = docRole === 'editor' && th.suggestion_status === 'pending'
-  del.onclick = () => editorDismiss && th.username !== user ? decideSuggestion(th, 'reject', doc, epoch) : api('DELETE', `/api/docs/${doc}/comments/${th.id}`).then(() => fresh().then(() => {
-    if (doc === docId && epoch === openN && !threads.some(x => x.anchor === popAnchor)) closePop()
-  })).catch(e => toast(e.message))
-  if (!roC && (docRole === 'owner' || th.username === user || editorDismiss)) hd.appendChild(del)
+  const pendingSug = th.suggestion_status === 'pending'
+  const canDecide = pendingSug && ['owner', 'editor'].includes(docRole)
+  const canDel = !roC && (pendingSug ? canDecide : (docRole === 'owner' || th.username === user))
+  if (canDel) {
+    const del = icoBtn('ib', ICO_TRASH); del.classList?.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
+    del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : api('DELETE', `/api/docs/${doc}/comments/${th.id}`).then(() => fresh().then(() => {
+      if (doc === docId && epoch === openN && !threads.some(x => x.anchor === popAnchor)) closePop()
+    })).catch(e => toast(e.message))
+    acts.appendChild(del)
+  }
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
-  else d.appendChild(el('b', null, t('comments.newAria')))
+  else d.appendChild(el('span', 'thTag', t('comments.newAria')))
   if (th.text) d.appendChild(richText(th.text))
-  if (th.quote) { // show context, click jumps there
+  if (th.quote && !pendingSug) { // show context, click jumps there (pending suggestions show the diff above)
     const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
     q.title = t('comments.jumpPos')
     q.onclick = () => jumpThread(th)
@@ -632,26 +652,44 @@ $('cBadge').onclick = () => {
   jumpThread(open[(open.findIndex(t => t.anchor === popAnchor) + 1) % open.length])
 }
 $('eBadge').onclick = showErrList
-function reanchor() { // find quote: moves along; not found = anchor line (or nothing), never a stale ghost range
+function reanchor() { // keep live ranges on edits; suggestions track exact unique match; deleted quotes never resurrect onto unrelated text
   const t = getT()
   if (!docId || !ytext || activeFile || window.suggestionDraft || window.changeSession) return // file tab: anchors belong to main
-  initRanges() // after sync: add ranges missing text at load
-  let moved = false
+  let moved = !!initRanges() // capture whether first sync just derived ranges so highlights always paint after reload
   for (const th of threads) {
     const before = th.a + '|' + th.b
     const pending = th.suggestion_status === 'pending'
     const quote = pending ? th.suggestion_old : th.quote
-    const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1
-    if (i >= 0) {
-      th.conflict = false // unique again: hint only while the fallback holds
-      if (th.a == null || th.a >= th.b) { th.a = i; th.b = Math.min(t.length, i + quote.length) } // collapsed: refit
-      const line = t.slice(0, i).split('\n').length
-      if (line !== th.anchor) {
-        th.anchor = line; th.a = i; th.b = Math.min(t.length, i + quote.length); moved = true
-        dirtyAnchor(th)
+    if (pending) {
+      const i = quote && t.split(quote).length === 2 ? t.indexOf(quote) : -1
+      if (i >= 0) {
+        th.conflict = false
+        th.a = i; th.b = Math.min(t.length, i + quote.length)
+        const line = t.slice(0, i).split('\n').length
+        if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
+      } else {
+        th.conflict = true
+        th.a = th.b = null
+        if (t && th.anchor <= t.split('\n').length) {
+          const a = posOfLine(t, th.anchor)
+          th.a = a; th.b = a + t.slice(a).split('\n')[0].length
+        }
       }
-    } else { // quote gone (edited away / non-unique pending / legacy empty old): hold the anchor line, or unmark a dead one
-      if (pending) th.conflict = true
+    } else if (quote) {
+      if (th.a != null && th.b != null && th.b > th.a) { // live mapped range: keep it across edits instead of exploding to the whole line
+        const line = t.slice(0, Math.min(th.a, t.length)).split('\n').length
+        if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
+      } else { // deleted or unfound: only re-attach if the exact quote reappears (e.g. Undo)
+        const i = exactQuotePos(t, quote, th.anchor)
+        if (i >= 0) {
+          th.a = i; th.b = Math.min(t.length, i + quote.length)
+          const line = t.slice(0, i).split('\n').length
+          if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
+        } else {
+          th.a = th.b = null
+        }
+      }
+    } else { // quoteless comment: anchored to its line
       th.a = th.b = null
       if (t && th.anchor <= t.split('\n').length) {
         const a = posOfLine(t, th.anchor)

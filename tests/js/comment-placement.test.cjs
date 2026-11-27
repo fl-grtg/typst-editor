@@ -77,3 +77,72 @@ test('hover previews never stack with an open inline card', () => {
   assert.equal(run('', 'comment', 'typst'), null) // open card: no hover preview at all
   assert.equal(run('block', 'comment', 'typst'), null) // the error list card counts as an open card too
 })
+
+test('reanchor repaints highlights when first sync arrives after comments loaded on empty buffer', () => {
+  const hlx = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  let text = '', gutters = 0, hls = 0
+  const threads = [{ id: 'c1', anchor: 1, quote: 'hello world', text: 'note', resolved: false }]
+  const c = vm.createContext({
+    window: {}, docId: 'd1', ytext: {}, activeFile: '', popAnchor: null, shadow: '', threads,
+    getT: () => text, gutter: () => { gutters++ }, refreshHl: () => { hls++ }, movePop: () => {}, dirtyAnchor: () => {},
+  })
+  vm.runInContext(comp.slice(comp.indexOf('const posOfLine'), comp.indexOf('function threadHighlights')), c)
+  vm.runInContext(hlx.slice(hlx.indexOf('function initRanges')), c)
+  vm.runInContext(source.slice(source.indexOf('function reanchor()'), source.indexOf('async function jumpThread')), c)
+  // Step 1: comments arrive before WS text
+  c.initRanges(); c.reanchor()
+  assert.equal(threads[0].a, null)
+  const beforeGutters = gutters, beforeHls = hls
+  // Step 2: WS delivers text -> reanchor must derive ranges AND repaint highlights
+  text = 'hello world\nsecond line'
+  c.reanchor()
+  assert.equal(threads[0].a, 0)
+  assert.equal(threads[0].b, 11)
+  assert.equal(gutters, beforeGutters + 1)
+  assert.equal(hls, beforeHls + 1)
+})
+
+test('editing inside commented text keeps tight range, typing outside stays out, deleting never resurrects on new text', async () => {
+  const { EditorState } = await import(pathToFileURL(path.resolve('vendor-cm.js')).href)
+  const hlx = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  let state = EditorState.create({ doc: 'start word end' })
+  const threads = [{ id: 'c1', anchor: 1, quote: 'word', text: 'fix', resolved: false }]
+  const c = vm.createContext({
+    window: {}, docId: 'd1', ytext: {}, activeFile: '', popAnchor: null, shadow: '', threads,
+    getT: () => state.doc.toString(), gutter: () => {}, refreshHl: () => {}, movePop: () => {}, dirtyAnchor: () => {},
+  })
+  vm.runInContext(comp.slice(comp.indexOf('const posOfLine'), comp.indexOf('function threadHighlights')), c)
+  vm.runInContext(hlx.slice(hlx.indexOf('function mapThreads')), c)
+  vm.runInContext(source.slice(source.indexOf('function reanchor()'), source.indexOf('async function jumpThread')), c)
+  const applyEdit = spec => {
+    const oldLen = state.doc.length
+    const tr = state.update({ changes: spec })
+    state = tr.state
+    c.mapThreads((p, end) => tr.changes.mapPos(p, end ? -1 : 1), false, oldLen)
+    c.reanchor()
+  }
+  c.initRanges()
+  assert.equal(state.doc.sliceString(threads[0].a, threads[0].b), 'word')
+  // Edit inside commented short word -> stays tightly on edited word (never explodes to whole line)
+  applyEdit({ from: 8, insert: 'X' })
+  assert.equal(state.doc.sliceString(threads[0].a, threads[0].b), 'woXrd')
+  // Type right before and right after -> stays outside the highlight
+  applyEdit({ from: threads[0].a, insert: 'pre ' })
+  assert.equal(state.doc.sliceString(threads[0].a, threads[0].b), 'woXrd')
+  applyEdit({ from: threads[0].b, insert: ' post' })
+  assert.equal(state.doc.sliceString(threads[0].a, threads[0].b), 'woXrd')
+  // Delete the entire commented word -> highlight drops cleanly
+  const delAt = threads[0].a
+  applyEdit({ from: threads[0].a, to: threads[0].b })
+  assert.equal(threads[0].a, null)
+  assert.equal(threads[0].b, null)
+  // Later type completely unrelated text at that spot -> highlight does NOT resurrect
+  applyEdit({ from: delAt, insert: 'totally different content' })
+  assert.equal(threads[0].a, null)
+  assert.equal(threads[0].b, null)
+  // Undo / restore the exact original quote -> highlight re-attaches
+  applyEdit({ from: delAt, to: delAt + 'totally different content'.length, insert: 'word' })
+  assert.equal(state.doc.sliceString(threads[0].a, threads[0].b), 'word')
+})
