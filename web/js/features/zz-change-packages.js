@@ -568,10 +568,6 @@ function sessionBibPatch(file, selector, accept) {
 function sessionRangeOnLine(range, line) {
   return range.a === range.b ? range.a >= line.from && range.a <= line.to : range.a <= line.to && range.b >= line.from
 }
-function sessionChangeHasThread(range, r) {
-  if (range.a === range.b) return r.from <= range.a && r.to >= range.a
-  return r.to > r.from ? r.from < range.b && r.to > range.a : r.from >= range.a && r.from <= range.b
-}
 function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), ranges = file ? sessionChangeRanges(file) : []
   const lineNumber = Math.min(cm.state.doc.lines, box.line || cm.state.doc.lineAt(ranges[box.index]?.a ?? 0).number)
@@ -582,11 +578,6 @@ function sessionCard(box) {
     const r = threadEditorRange(th)
     return r.from <= line.to && r.to >= line.from
   })
-  const attached = new Map(indexes.map(i => [i, []])), shown = new Set()
-  for (const th of lineThreads) if (!th.suggestion_status) {
-    const index = indexes.find(i => sessionChangeHasThread(ranges[i], threadEditorRange(th)))
-    if (index != null) { attached.get(index).push(th); shown.add(th) }
-  }
   if (!indexes.length && !lineThreads.length) { closePop(true); return }
   const renderMain = index => {
     const range = ranges[index]
@@ -630,8 +621,8 @@ function sessionCard(box) {
       if (diff.children.length) sugWrap.append(diff)
     } else if (range.old || range.next) {
       const diff = el('div', 'sugDiff')
-      if (range.old) diff.append(el('div', 'sugDel', range.old))
-      if (range.next) diff.append(el('div', 'sugAdd', range.next))
+      if (range.old) diff.append(el('div', 'sugDel', visibleChange(range.old)))
+      if (range.next) diff.append(el('div', 'sugAdd', visibleChange(range.next)))
       sugWrap.append(diff)
     }
     if (s.package && ['owner', 'editor'].includes(docRole)) {
@@ -659,11 +650,6 @@ function sessionCard(box) {
       sugWrap.append(actions)
     }
     card.append(sugWrap)
-    for (const th of attached.get(index)) {
-      const thread = threadCard(th)
-      thread.classList.add('changeThread')
-      card.append(thread)
-    }
     if (!openedTrashed && !activeFile) {
       const row = el('div', 'rr')
       const inp = el('input'); inp.id = 'popPackageComment-' + index; inp.maxLength = 2000; inp.dataset.commentDraft = ''; inp.value = popDrafts.get(inp.id) || ''; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
@@ -680,6 +666,7 @@ function sessionCard(box) {
           const res = await postReviewComment(s, doc, { anchor, text, quote, anchor_quote: range.next.slice(0, 500), package_id: pkgId }, { from: range.a, to: range.b })
           if (doc === docId && epoch === openN && window.changeSession === s) {
             s.commentRanges.set(res.id, { doc, from: range.a, to: range.b })
+            popThreadId = 't:' + res.id
             await loadComments(true)
           }
         } catch (e) { inp.value = text; toast(e.message) } finally { ok.disabled = false }
@@ -692,7 +679,7 @@ function sessionCard(box) {
   popThreadId ||= box.focus || 's:' + box.index
   paintPopItems([
     ...indexes.map(i => ({ id: 's:' + i, render: () => renderMain(i) })),
-    ...lineThreads.filter(th => !shown.has(th)).map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
+    ...lineThreads.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
   ])
 }
 function paintSessionSelection() {

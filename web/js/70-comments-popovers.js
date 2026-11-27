@@ -681,8 +681,8 @@ function threadCard(th) {
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
   else {
-    const tag = el('span', 'thTag', t(th.resolved ? 'comments.done' : 'comments.newAria'))
-    if (th.resolved) tag.classList.add('resolvedTag')
+    const tag = el('span', 'thTag', t(th._proposedEdit ? 'comments.proposedEdit' : th.resolved ? 'comments.done' : 'comments.newAria'))
+    if (th.resolved || th._proposedEdit) tag.classList.add('resolvedTag')
     meta.appendChild(tag)
     if (th.quote) { // quoted passage first so comment + replies read as one continuous thread
       const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
@@ -746,7 +746,7 @@ function proposalComments(live, items) {
   for (const item of items) if (item.replaces_id && byId.has(item.replaces_id)) {
     const target = byId.get(item.replaces_id)
     if (item.deleted) target._removed = true
-    else target.text = item.text
+    else { target.text = item.text; target._proposedEdit = true }
   }
   for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
   return [...tops.filter(th => !th._removed).map(th => ({ ...th, replies: th.replies.filter(r => !r._removed) })), ...items.filter(item => !item.parent_id && !item.replaces_id)]
@@ -769,7 +769,7 @@ async function loadComments(force) {
       : pkg ? api('GET', `${url}?package_id=${encodeURIComponent(pkg)}`).then(data => [...data.comments, ...(data.changes || [])]) : [],
   ])
   if (doc !== docId || epoch !== openN || session !== window.changeSession || pkg !== commentPackage()) return
-  const combined = proposalComments(live.comments, proposed)
+  const combined = proposalComments(live.comments, proposed).filter(th => !th.suggestion_status || th.suggestion_status === 'pending')
   const s = (pkg ? pkg + ':' : '') + JSON.stringify(combined)
   if (s === lastC) { repaintCommentRanges(); return } // poll: nothing new, keep inputs untouched - but re-derive ranges the first sync skipped
   const prevById = new Map(threads.map(th => [th.id, th]))

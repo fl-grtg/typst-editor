@@ -1,3 +1,6 @@
+function visibleChange(text) { // whitespace-only changes would render as an empty line
+  return text.trim() ? text : text.replace(/ /g, '·').replace(/\t/g, '→').replace(/\n/g, '↵\n')
+}
 function suggestionCard(th, fresh, doc, epoch) {
   const card = el('div', 'suggestionCard')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
@@ -11,8 +14,8 @@ function suggestionCard(th, fresh, doc, epoch) {
     if (old || next) {
       const diff = el('div', 'sugDiff')
       if (th.suggestion_status !== 'pending') diff.classList?.add('is-decided')
-      if (old) diff.append(el('div', 'sugDel', old))
-      if (next) diff.append(el('div', 'sugAdd', next))
+      if (old) diff.append(el('div', 'sugDel', visibleChange(old)))
+      if (next) diff.append(el('div', 'sugAdd', visibleChange(next)))
       card.append(diff)
     }
   }
@@ -173,8 +176,8 @@ function draftSuggestionCard(range) {
   acts.append(discard); card.append(header)
   if (range.old || range.next) {
     const diff = el('div', 'sugDiff')
-    if (range.old) diff.append(el('div', 'sugDel', range.old))
-    if (range.next) diff.append(el('div', 'sugAdd', range.next))
+    if (range.old) diff.append(el('div', 'sugDel', visibleChange(range.old)))
+    if (range.next) diff.append(el('div', 'sugAdd', visibleChange(range.next)))
     card.append(diff)
   }
   return card

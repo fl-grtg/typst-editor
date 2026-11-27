@@ -607,6 +607,16 @@ def accept(
                     "UPDATE suggestion_packages SET files=?,revision=revision+1,accepted=accepted+?,updated_at=? WHERE id=?",
                     (encode(remaining), accepted, db.now_iso(), package),
                 )
+                # Proposed edits/deletions of live comments land with their document; the package's own discussion stays.
+                open_docs = {f.get("doc_id") for f in remaining if f["kind"] == "document"}
+                for doc_id in {f["doc_id"] for f in proposal["files"] if f["kind"] == "document"} - open_docs:
+                    for row in con.execute("SELECT id, replaces_id, text, deleted FROM comments "
+                                           "WHERE package_id=? AND doc_id=? AND replaces_id IS NOT NULL", (package, doc_id)).fetchall():
+                        if row["deleted"]:
+                            con.execute("DELETE FROM comments WHERE (id=? OR parent_id=?) AND package_id=''", (row["replaces_id"], row["replaces_id"]))
+                        else:
+                            con.execute("UPDATE comments SET text=? WHERE id=? AND package_id=''", (row["text"], row["replaces_id"]))
+                        con.execute("DELETE FROM comments WHERE id=?", (row["id"],))
                 quota.check_quota(owner, 0, con)
                 result = get(con, project, package)
         except Exception:

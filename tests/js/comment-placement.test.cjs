@@ -245,6 +245,7 @@ test('proposal comment edits, deletions and replies overlay live threads without
     { id: 'p5', text: 'package thread', replies: [] },
   ])
   assert.equal(JSON.stringify(result.map(th => [th.id, th.text, th.replies.map(r => r.id).join(',')])), JSON.stringify([['edit-me', 'new', 'p4'], ['p5', 'package thread', '']]))
+  assert.equal(result[0]._proposedEdit, true)
   assert.equal(live[0].text, 'old')
   assert.equal(live[0].replies[0]._removed, undefined)
 })
@@ -368,7 +369,7 @@ test('proposal mode keeps live suggestion decisions available', () => {
   assert.doesNotMatch(suggestion, /!openedTrashed && !window\.changeSession/)
 })
 
-test('a proposal line shows every change and comment, with change comments inside the change card', () => {
+test('a proposal line lists every change and comment as its own item', () => {
   const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
   const ranges = [{ a: 3, b: 5, old: 'x', next: 'yy' }, { a: 8, b: 8, old: 'gone', next: '' }]
   const card = (cls, text = '') => ({ className: cls, textContent: text, children: [], dataset: {}, style: {}, classList: { add() {} },
@@ -379,14 +380,13 @@ test('a proposal line shows every change and comment, with change comments insid
     threads: [{ id: 'on-change', a: 3, b: 4 }, { id: 'on-delete', a: 8, b: 8 }, { id: 'live-suggestion', suggestion_status: 'pending', a: 10, b: 12 }, { id: 'line-comment', a: 13, b: 14 }],
     threadEditorRange: th => ({ from: th.a, to: th.b }), cm: { state: { doc: { lines: 1, line: () => ({ from: 0, to: 20 }), lineAt: () => ({ number: 1 }) } } },
     popThreadId: null, paintPopItems: list => { items = list }, el: card, icoBtn: card, colOf: () => '', t: key => key, ICO_TRASH: '',
-    threadCard: th => card('th', th.id) })
+    threadCard: th => card('th', th.id), visibleChange: text => text })
   vm.runInContext(pkg.slice(pkg.indexOf('function sessionRangeOnLine'), pkg.indexOf('function paintSessionSelection')), c)
   c.sessionCard({ index: 1 })
-  assert.equal(JSON.stringify(items.map(item => item.id)), JSON.stringify(['s:0', 's:1', 't:live-suggestion', 't:line-comment']))
+  assert.equal(JSON.stringify(items.map(item => item.id)), JSON.stringify(['s:0', 's:1', 't:on-change', 't:on-delete', 't:live-suggestion', 't:line-comment']))
   assert.equal(c.popThreadId, 's:1')
   const walk = node => [node, ...(node.children || []).flatMap(walk)]
-  assert.ok(walk(items[0].render()).some(node => node.textContent === 'on-change'))
-  assert.ok(walk(items[1].render()).some(node => node.textContent === 'on-delete'))
+  assert.ok(!walk(items[0].render()).some(node => node.textContent === 'on-change'))
 })
 
 test('a draft keeps its base when live text changed the same passage', async () => {
@@ -401,4 +401,19 @@ test('a draft keeps its base when live text changed the same passage', async () 
   c.sessionRemote(base, 'alpha replaced gamma', [{ retain: 6 }, { delete: 4 }, { insert: 'replaced' }])
   assert.equal(file.base, base)
   assert.equal(file.content, 'alpha BETA gamma')
+})
+
+test('decided suggestions leave the comment list and whitespace changes stay readable', async () => {
+  const sug = fs.readFileSync('web/js/features/suggestions.js', 'utf8')
+  const c = vm.createContext({ window: {}, docId: 'd', openN: 1, activeFile: 'x', shadow: '', getT: () => '', threads: [], lastC: '', paintBadge() {}, popAnchor: null,
+    $: () => ({ querySelectorAll: () => [] }), api: async () => ({ comments: [
+      { id: 'open', replies: [] }, { id: 'pending', suggestion_status: 'pending', replies: [] },
+      { id: 'accepted', suggestion_status: 'accepted', replies: [] }, { id: 'rejected', suggestion_status: 'rejected', replies: [] },
+    ] }) })
+  vm.runInContext(source.slice(source.indexOf('function repaintCommentRanges'), source.indexOf('function paintBadge()')), c)
+  vm.runInContext(sug.slice(sug.indexOf('function visibleChange'), sug.indexOf('function suggestionCard')), c)
+  await c.loadComments()
+  assert.equal(c.threads.map(th => th.id).join(','), 'open,pending')
+  assert.equal(c.visibleChange(' \n'), '·↵\n')
+  assert.equal(c.visibleChange('word '), 'word ')
 })

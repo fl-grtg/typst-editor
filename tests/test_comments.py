@@ -200,3 +200,27 @@ def test_proposal_comment_changes_stay_in_the_package(c):
     assert c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": live, "text": "second edit"}).status_code == 200
     assert c.get(url).json()["comments"][0]["text"] == "live"
     assert [x["text"] for x in c.get(url, params={"package_id": pkg}).json()["changes"] if x["replaces_id"] == live] == ["second edit"]
+
+
+def test_accepting_a_package_applies_proposed_comment_changes_and_keeps_its_discussion(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    edited = c.post(url, json={"anchor": 1, "quote": "alpha", "text": "old wording"}).json()["id"]
+    removed = c.post(url, json={"anchor": 1, "quote": "beta", "text": "remove me"}).json()["id"]
+    file = {"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha BETA",
+            "changes": [{"old_string": "beta", "new_string": "BETA"}]}
+    project = project_of(c, did)
+    package = c.post(f"/api/projects/{project}/proposals", json={"title": "Review", "files": [file], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": edited, "text": "new wording"},
+        {"doc_id": did, "anchor": 1, "replaces_id": removed, "deleted": True},
+        {"doc_id": did, "anchor": 1, "text": "Is BETA right?", "quote": "BETA", "anchor_quote": "BETA"},
+    ]}).json()
+    assert [t["text"] for t in c.get(url).json()["comments"]] == ["old wording", "remove me"]
+    assert c.post(f"/api/projects/{project}/proposals/{package['id']}/accept", json={"revision": package["revision"]}).status_code == 200
+    assert [t["text"] for t in c.get(url).json()["comments"]] == ["new wording"]
+    scoped = c.get(url, params={"package_id": package["id"]}).json()
+    assert [t["text"] for t in scoped["comments"]] == ["Is BETA right?"]
+    assert scoped["changes"] == []
