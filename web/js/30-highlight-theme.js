@@ -110,7 +110,7 @@ $('cm').addEventListener('mousedown', e => { // click on line number or yellow h
       const r = threadEditorRange(th)
       return th.a != null && p >= r.from && p <= r.to
     })
-    if (th) openPop(cm.state.doc.lineAt(p != null ? p : threadEditorRange(th).from).number, false)
+    if (th) openPop(cm.state.doc.lineAt(p != null ? p : threadEditorRange(th).from).number, false, '', null, th.id)
   }
 })
 // #3 hover-claim: hovering any fragment of a comment thread / suggestion / package patch also lights up all its other fragments

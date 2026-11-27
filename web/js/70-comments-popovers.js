@@ -311,6 +311,8 @@ const ICO_RESET = svgI('<path d="M2.8 6.2a5.4 5.4 0 1 1 .3 4.1"/><path d="M2.8 2
 const ICO_PLUS = svgI('<path d="M8 3v10M3 8h10"/>')
 const ICO_CHECK = svgI('<path d="M3.5 8.5l3 3 6-7"/>')
 const ICO_SEND = svgI('<path d="M8 13V3"/><path d="M4 7l4-4 4 4"/>')
+const ICO_PREV = svgI('<path d="M10 3.5L5.5 8 10 12.5"/>')
+const ICO_NEXT = svgI('<path d="M6 3.5L10.5 8 6 12.5"/>')
 const icoBtn = (cls, svg) => { const b = el('button', cls); b.innerHTML = svg; return b }
 const ICO_TRASH = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg>'
 function paintOutline() { // collect = lines, click jumps to line; page badge from the PDF outline
@@ -398,12 +400,13 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
     cm.dispatch({ effects: setMarks.of(RangeSet.of(rs, true)) })
   }
 }
-let popFresh = false, popQuote = '', popT = 0, popLayoutTries = 0
+let popFresh = false, popQuote = '', popT = 0, popLayoutTries = 0, popThreadId = null
 function paintCardView() { $('cmWrap').classList.toggle('cardOpen', $('pop').style.display !== 'none') } // open card suppresses hover previews (CSS hides .cm-tooltip-hover)
-function openPop(anchor, fresh, quote = '', suggestion = null) {
+function openPop(anchor, fresh, quote = '', suggestion = null, focusId = null) {
   closePop(true)
   window.suggestionPopup = suggestion
   popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, +anchor || 1)); popFresh = !!fresh; popQuote = (quote || '').slice(0, 500)
+  popThreadId = focusId ? String(focusId) : null
   popLayoutTries = 0
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
@@ -413,7 +416,7 @@ function openPop(anchor, fresh, quote = '', suggestion = null) {
   movePop()
 }
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
-  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
+  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; popThreadId = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
 const popTriggers = id => document.querySelectorAll(`[aria-controls="${id}"]`)
 function closeHeaderPops(inside = null) { // inside: keep the popover holding this element (a row menu opened from it)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop', 'exportPop']) { const b = $(p); if (b && b.style.display !== 'none' && !(inside && b.contains(inside))) { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
@@ -523,19 +526,26 @@ function renderPop() {
     const r = threadEditorRange(th)
     return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
   })
-  if (list.length > 1) title.appendChild(el('span', 'popCnt', String(list.length)))
   const roC = openedTrashed
-  if (!roC && !popFresh && list.length) {
-    const add = icoBtn('ib', ICO_PLUS); add.title = t('comments.newAria'); add.setAttribute('aria-label', add.title)
-    add.onclick = () => { popFresh = true; renderPop() }
-    barActs.appendChild(add)
-  }
-  barActs.appendChild(x)
   if ((popFresh || !list.length) && !roC) {
+    barActs.appendChild(x)
     pop.appendChild(newBox())
     document.getElementById('popNew')?.focus()
+    return
   }
-  list.forEach(t => pop.appendChild(threadCard(t)))
+  let idx = popThreadId ? list.findIndex(th => String(th.id) === popThreadId) : 0
+  if (idx < 0) idx = 0
+  popThreadId = list[idx] ? String(list[idx].id) : null
+  if (list.length > 1) {
+    const nav = el('span', 'popNav')
+    const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
+    prev.onclick = () => { popThreadId = String(list[(idx - 1 + list.length) % list.length].id); renderPop() }
+    next.onclick = () => { popThreadId = String(list[(idx + 1) % list.length].id); renderPop() }
+    nav.append(prev, el('span', 'popStep', `${idx + 1} / ${list.length}`), next)
+    barActs.appendChild(nav)
+  }
+  barActs.appendChild(x)
+  if (list[idx]) pop.appendChild(threadCard(list[idx]))
 }
 function newBox() {
   const doc = docId, epoch = openN, draft = window.suggestionDraft || window.changeSession
@@ -759,7 +769,7 @@ async function jumpThread(t) {
   cm.dispatch({ selection: { anchor: a, head: b },
     effects: EditorView.scrollIntoView(b, { y: 'center' }) })
   cm.focus()
-  openPop(cm.state.doc.lineAt(a).number, false)
+  openPop(cm.state.doc.lineAt(a).number, false, '', null, t.id)
 }
 async function refresh(focusId) {
   const doc = docId, epoch = openN
