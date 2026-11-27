@@ -259,8 +259,8 @@ async function choosePackage() {
     const response = await api('GET', '/api/projects/' + project + '/proposals')
     if (project !== docProject || epoch !== packageLoad) return
     packageList = response.packages
-    const choice = await askPick(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
-      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])])
+    const choice = await pickPop(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
+      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])], reviewButton)
     if (choice == null || project !== docProject || window.changeSession !== previous) return
     if (choice === 0) {
       if (previous?.package) { previous.original = true; await sessionActivate() }
@@ -670,7 +670,7 @@ packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
   const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
-  const choice = await askPick(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']))
+  const choice = await pickPop(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']), packageActions)
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }
 $('tools').insertBefore(reviewTools, $('tools').querySelector('.tsp'))

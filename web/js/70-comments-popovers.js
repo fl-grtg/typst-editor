@@ -228,6 +228,73 @@ function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title
     setTimeout(() => box.querySelector('button')?.focus(), 30) // initial focus like ask(); Esc closes globally via mNo
   })
 }
+let pickPopClose = null
+function closePickPop() { if (pickPopClose) pickPopClose(-1) }
+function pickPop(head, opts, anchor = null, o = {}) { // compact anchored picker popover (index|-1|'back'), no fullscreen blur
+  closePickPop()
+  return new Promise(res => {
+    const prev = document.activeElement
+    const pop = el('div'); pop.id = 'pickPop'
+    pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', head)
+    const top = el('div', 'sTop')
+    if (o.back) {
+      const bk = el('button', null, '←'); bk.type = 'button'; bk.title = t('common.back') || 'Back'; bk.setAttribute('aria-label', bk.title)
+      bk.onclick = () => done('back')
+      top.appendChild(bk)
+    }
+    top.appendChild(el('b', null, head))
+    const cx = icoBtn(null, ICO_X); cx.type = 'button'; cx.title = t('common.cancel'); cx.setAttribute('aria-label', t('common.cancel'))
+    top.appendChild(cx)
+    const list = el('div', 'pkList')
+    opts.forEach((opt, i) => {
+      const b = el('button', 'pkRow'); b.type = 'button'
+      b.appendChild(el('b', null, opt[0]))
+      if (opt[1]) b.appendChild(el('span', null, opt[1]))
+      b.onclick = () => done(i)
+      list.appendChild(b)
+    })
+    pop.append(top, list)
+    document.body.appendChild(pop)
+    const ref = anchor && anchor.getClientRects?.().length ? anchor : null
+    const w = pop.offsetWidth || 280, h = pop.offsetHeight || 200
+    let left = Math.round((innerWidth - w) / 2), topY = Math.min(88, Math.max(12, Math.round((innerHeight - h) / 3)))
+    if (ref) {
+      const r = ref.getBoundingClientRect()
+      if (ref.closest?.('aside')) {
+        left = r.right + 8 + w <= innerWidth - 8 ? r.right + 8 : Math.max(8, innerWidth - w - 8)
+        topY = Math.max(8, Math.min(r.top, innerHeight - h - 8))
+      } else {
+        left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
+        topY = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)
+      }
+    }
+    pop.style.left = left + 'px'; pop.style.top = topY + 'px'
+    const onDown = e => { if (!pop.contains(e.target)) done(-1) }
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(-1); return }
+      const btns = [...list.querySelectorAll('button')]
+      if (!btns.length) return
+      const cur = btns.indexOf(document.activeElement)
+      if (e.key === 'ArrowDown') { e.preventDefault(); btns[(cur + 1 + btns.length) % btns.length].focus() }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(cur - 1 + btns.length) % btns.length].focus() }
+    }
+    let closed = false
+    const done = v => {
+      if (closed) return; closed = true
+      pickPopClose = null
+      document.removeEventListener('mousedown', onDown, true)
+      document.removeEventListener('keydown', onKey, true)
+      pop.remove()
+      if (v === -1 && prev && document.contains(prev)) try { prev.focus() } catch (e) {}
+      res(v)
+    }
+    pickPopClose = done
+    cx.onclick = () => done(-1)
+    document.addEventListener('mousedown', onDown, true)
+    document.addEventListener('keydown', onKey, true)
+    setTimeout(() => list.querySelector('button')?.focus(), 20)
+  })
+}
 $('modal').onclick = e => { if (e.target === $('modal')) $('mNo').click() } // click outside = cancel
 $('modal').addEventListener('keydown', e => { // minimal focus trap: Tab cycles in card
   if (e.key !== 'Tab') return
@@ -341,10 +408,11 @@ function closePop(force) { if (!force && $('pop').classList.contains('errs') && 
   if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
 const popTriggers = id => document.querySelectorAll(`[aria-controls="${id}"]`)
 function closeHeaderPops(inside = null) { // inside: keep the popover holding this element (a row menu opened from it)
-  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop']) { const b = $(p); if (b && b.style.display !== 'none' && !(inside && b.contains(inside))) { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
+  for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop', 'exportPop']) { const b = $(p); if (b && b.style.display !== 'none' && !(inside && b.contains(inside))) { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
 }
 function hidePops() { // close all header popups (share/tpl/history/symbols/settings + export menu)
   if (window.closeMenu) window.closeMenu(false)
+  closePickPop()
   closeHeaderPops()
   if (typeof closeWatchBox === 'function') closeWatchBox()
 }
@@ -352,9 +420,10 @@ window.closeFloatPanels = function (keep, inside) { // one floating panel at a t
   if (keep !== 'watch' && typeof closeWatchBox === 'function') closeWatchBox()
   if (keep !== 'pop') closePop(true)
   if (keep !== 'menu' && window.closeMenu) window.closeMenu(false)
+  closePickPop()
   closeHeaderPops(inside)
 }
-const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain', inboxPop: 'inboxBtn' }
+const POP_BTN = { sharePop: 'shareBtn', tplPop: 'insertMore', histPop: 'histBtn', symPop: 'insertMore', setPop: 'userMain', inboxPop: 'inboxBtn', exportPop: 'exportBtn' }
 function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   const p = $(id), open = p.style.display === 'none'
   hidePops(); closePop(true) // only one popover at a time (header or comment card)
@@ -364,7 +433,7 @@ function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   popTriggers(id).forEach(t => t.setAttribute('aria-expanded', String(open)))
   if (open) {
     p.setAttribute('role', 'dialog')
-    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', { sharePop: t('share.title'), tplPop: t('templates.title'), histPop: t('history.title'), symPop: t('symbols.title'), setPop: t('settings.title'), inboxPop: t('inbox.title') }[id] || id)
+    if (!p.getAttribute('aria-label')) p.setAttribute('aria-label', { sharePop: t('share.title'), tplPop: t('templates.title'), histPop: t('history.title'), symPop: t('symbols.title'), setPop: t('settings.title'), inboxPop: t('inbox.title'), exportPop: t('downloads.expTitle') }[id] || id)
     anchorPop(p, id === 'setPop' ? $('who') : btn) // settings stays anchored to the name; userMain is the trigger
     const f = p.querySelector('input,select,textarea') || p.querySelector('button') // input first, never ✕
     if (f) setTimeout(() => { try { f.focus() } catch (e) {} }, 30)

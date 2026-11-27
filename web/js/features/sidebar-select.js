@@ -98,12 +98,9 @@ async function sideSelDuplicate(items) {
 async function sideSelTransfer(items, move) {
   const targets = projects.filter(projectEditable).sort((a, b) => Number(b.id === docProject) - Number(a.id === docProject))
   if (!targets.length) { toast(t('projects.noOtherProject')); return }
-  const i = await askPick(t(move ? 'menu.moveTo' : 'menu.copyTo'), targets.map(x => [x.title, '']))
-  if (i == null || !targets[i]) return
-  let target
-  try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return }
-  const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', items.some(item => item.entry.kind === 'folder') ? 1 : 0)
-  if (folder != null) await sideSelDrop(items, target, folder, move)
+  const anchor = document.querySelector('aside .sel') || $('own')
+  const picked = await pickProjectAndFolder(targets, t(move ? 'menu.moveTo' : 'menu.copyTo'), items.some(item => item.entry.kind === 'folder') ? 1 : 0, anchor)
+  if (picked) await sideSelDrop(items, picked.target, picked.folder, move)
 }
 async function sideSelDrop(items, target, folder, move) { // read-only sources are copied, never moved
   if (!await flushTab() || !await flushTpl()) return

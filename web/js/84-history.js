@@ -15,7 +15,32 @@ async function renderHist() {
   const p = $('histPop'); p.replaceChildren(); hideVerCard()
   p.onscroll = hideVerCard
   const top = el('div', 'histTop'), save = el('button', 'save primary', t('history.saveSnap'))
-  save.onclick = async () => { if (doc !== docId || epoch !== openN) return; let label = ''; if (historyUrl(doc).includes('/projects/')) { const v = await ask(t('history.saveSnap'), { ph: t('history.namePh'), ok: t('common.save') }); if (v == null || doc !== docId || epoch !== openN) return; label = String(v).trim() } save.disabled = true; const old = save.textContent; save.textContent = t('history.saving'); try { if (!await flushTab() || !await flushTpl()) { save.disabled = false; return }; await api('POST', historyUrl(doc), label ? { label } : {}); if (doc === docId && epoch === openN) renderHist() } catch (e) { toast(e.message); save.disabled = false; save.textContent = old } }
+  const doSave = async label => {
+    if (doc !== docId || epoch !== openN) return
+    save.disabled = true; const old = save.textContent; save.textContent = t('history.saving')
+    try { if (!await flushTab() || !await flushTpl()) { save.disabled = false; save.textContent = old; return }; await api('POST', historyUrl(doc), label ? { label } : {}); if (doc === docId && epoch === openN) renderHist() }
+    catch (e) { toast(e.message); save.disabled = false; save.textContent = old }
+  }
+  save.onclick = () => {
+    if (doc !== docId || epoch !== openN) return
+    if (!historyUrl(doc).includes('/projects/')) { doSave(''); return }
+    const existing = p.querySelector('.histSaveRow')
+    if (existing) { existing.querySelector('input')?.focus(); return }
+    const bar = el('div', 'histSaveRow')
+    const inp = el('input'); inp.placeholder = t('history.namePh'); inp.setAttribute('aria-label', t('history.saveSnap')); inp.maxLength = 100
+    const go = el('button', 'primary', t('common.save')); go.type = 'button'
+    const cx = icoBtn(null, ICO_X); cx.type = 'button'; cx.title = t('common.cancel'); cx.setAttribute('aria-label', t('common.cancel'))
+    const submit = () => { const v = inp.value.trim(); bar.remove(); doSave(v) }
+    go.onclick = submit
+    cx.onclick = () => { bar.remove(); save.focus() }
+    inp.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); submit() }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); bar.remove(); save.focus() }
+    }
+    bar.append(inp, go, cx)
+    top.after(bar)
+    setTimeout(() => inp.focus(), 0)
+  }
   save.hidden = !canEdit; top.appendChild(save)
   if (historyUrl(doc).includes('/projects/') && isOwner) {
     const set = icoBtn('histSet', ICO_SLIDERS); set.classList.add('btn'); set.title = t('history.settings'); set.setAttribute('aria-label', set.title)
@@ -58,10 +83,30 @@ async function renderHist() {
       }
       doRestore()
     }
-    const rename = async () => {
-      const v = await ask(t('history.renameSnap'), { value: s.label === 'Before restore' ? '' : s.label || '', ph: t('history.namePh') })
-      if (v == null || doc !== docId || epoch !== openN) return
-      try { await api('PATCH', `${historyUrl(doc)}/${s.id}`, { label: String(v).trim() }); if (doc === docId && epoch === openN) renderHist() } catch (err) { toast(err.message) }
+    const rename = () => {
+      hideVerCard()
+      const nm = tx.querySelector('.nm')
+      if (!nm) return
+      const cur = s.label === 'Before restore' ? '' : s.label || ''
+      const inp = el('input', 'renameInput')
+      inp.value = cur; inp.placeholder = t('history.namePh'); inp.maxLength = 100
+      inp.setAttribute('aria-label', t('history.renameSnap'))
+      nm.replaceWith(inp)
+      let done = false
+      const finish = async apply => {
+        if (done) return; done = true
+        const next = inp.value.trim()
+        inp.replaceWith(nm)
+        if (!apply || next === cur || doc !== docId || epoch !== openN) return
+        try { await api('PATCH', `${historyUrl(doc)}/${s.id}`, { label: next }); if (doc === docId && epoch === openN) renderHist() } catch (err) { toast(err.message) }
+      }
+      inp.onclick = e => e.stopPropagation()
+      inp.onkeydown = e => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true) }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
+      }
+      inp.onblur = () => finish(true)
+      setTimeout(() => { inp.focus(); inp.select() }, 0)
     }
     const del = async () => {
       if (!await ask(t('history.delSnapConfirm'), { noInput: true, ok: t('common.delete'), danger: true })) return

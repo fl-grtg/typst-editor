@@ -92,6 +92,30 @@ $('out').onclick = () => { try { clearTimeout(sideESTimer); sideES?.close(); sid
   } catch (e) {}
   location.reload()
 }) }
+function headerInlineRename(value, label, opts = {}) { // edit #title in place: Enter/blur saves, Esc cancels
+  const titleEl = $('title'), btn = $('renBtn')
+  const input = el('input', 'titleRenameInput')
+  input.value = value; input.maxLength = opts.maxLen || 100
+  input.setAttribute('aria-label', label || t('docs.renameDoc'))
+  input.spellcheck = false
+  titleEl.hidden = true; btn.hidden = true
+  titleEl.after(input)
+  return new Promise(resolve => {
+    let done = false
+    const finish = save => {
+      if (done) return; done = true
+      const next = input.value.trim()
+      input.remove(); titleEl.hidden = false; btn.hidden = false
+      resolve(save && next && next !== value ? next : null)
+    }
+    input.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true) }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
+    }
+    input.onblur = () => finish(true)
+    setTimeout(() => { input.focus(); input.setSelectionRange(opts.stem ? nameStemStart(value) : 0, opts.stem ? nameStemEnd(value) : value.length) }, 0)
+  })
+}
 let renBusy = false // double-click: no second dialog/POST while one rename flies
 $('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
   if (renBusy) return; renBusy = true
@@ -100,7 +124,8 @@ $('renBtn').onclick = async () => { // pencil behind title (owner only, template
   if (tplName) { await renamePersonalResource(tplName); return }
   if (!docId || docRole !== 'owner') return
   if (window.changeSession) { await renameProjectDocument({ id: docId, title: docTitle }); return }
-  const nt = await ask(t('docs.renameDoc'), { value: (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent })
+  const cur = (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
+  const nt = await headerInlineRename(cur, t('docs.renameDoc'))
   if (nt === null || !nt.trim()) return
   if (doc !== docId || epoch !== openN) return
   api('POST', `/api/docs/${doc}/rename`, { title: nt.trim() })
@@ -228,7 +253,7 @@ async function importUpload(f) {
     if (isTyp) targets.push(['doc', t('docs.pickDoc'), t('docs.pickDocSub')])
     targets.push(['resource', t('files.uploadResource'), t('files.uploadResourceD')])
     if (docProject && !docResReadonly && !openedTrashed) targets.push(['file', t('files.uploadLocal'), t('files.uploadLocalD')])
-    const i = await askPick(t('files.uploadTarget'), targets.map(x => [x[1], x[2]]))
+    const i = await pickPop(t('files.uploadTarget'), targets.map(x => [x[1], x[2]]), $('upDoc'))
     if (i == null || !targets[i]) return
     const target = targets[i][0]
     if (target === 'file') { if (doc === docId && epoch === openN) { const path = await upText(f); if (path) await switchTab(path) } return }
@@ -273,9 +298,14 @@ $('del').onclick = async () => {
   }
   if (openedTrashed) {
     if (!await ask(t('docs.delGone'), { noInput: true, ok: t('common.delete'), danger: true })) return
-  } else if (!await ask(t('docs.moveTrashQ'), { noInput: true, ok: t('common.ok') })) return
+  }
   if (!doc || doc !== docId || epoch !== openN) return
-  api('DELETE', `/api/docs/${doc}`).then(() => { if (doc === docId) closeView(); sidebar() }).catch(e => toast(e.message))
+  const wasTrashed = openedTrashed
+  api('DELETE', `/api/docs/${doc}`).then(() => {
+    if (doc === docId) closeView()
+    sidebar()
+    if (!wasTrashed) toast(t('docs.moveTrash'), () => api('POST', `/api/docs/${doc}/restore`, {}).then(() => { sidebar(); openDoc(doc) }).catch(e => toast(e.message)), t('docs.restore'), 8000)
+  }).catch(e => toast(e.message))
 }
 setInterval(() => {
   if (!docId) return

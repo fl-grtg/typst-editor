@@ -295,12 +295,12 @@ function updNavFade() { // bottom fade only while more content below
   const n = $('nav')
   n.classList.toggle('at-end', n.scrollHeight - n.scrollTop - n.clientHeight < 8)
 }
-async function moveDocToTrash(x) { // one path for sidebar rows and tab menus: stage in review, else trash
+async function moveDocToTrash(x) { // one path for sidebar rows and tab menus: stage in review, else trash with undo
   if (await stageDocumentDelete(x.id)) return
-  if (!await ask(t('docs.moveTrashConfirm', { title: x.title }), { noInput: true, ok: t('docs.moveTrash') })) return
   try { await api('DELETE', `/api/docs/${x.id}`) } catch (err) { toast(err.message); return }
   if (x.id === docId) closeView()
   sidebar()
+  toast(t('docs.moveTrash'), () => api('POST', `/api/docs/${x.id}/restore`, {}).then(() => { sidebar(); openDoc(x.id) }).catch(e => toast(e.message)), t('docs.restore'), 8000)
 }
 function docRow(x, shared, bare) { // row: click opens, duplicate, trash (own), drag into folder
   const div = el('div', 'doc' + (x.id === docId && !activeFile ? ' cur' : ''))
