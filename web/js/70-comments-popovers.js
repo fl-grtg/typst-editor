@@ -574,7 +574,7 @@ function threadCard(th) {
   const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(th.username || author); av.setAttribute('aria-hidden', 'true')
   if (typeof paintAvatar === 'function' && th.username) paintAvatar(av, th.username, colOf(th.username))
   const meta = el('span', 'hdMeta')
-  const nm = el('b', 'nm', author); nm.style.color = colOf(th.username || author)
+  const nm = el('b', 'nm', author)
   meta.append(nm, el('span', 'tm', ago(th.created_at)))
   const acts = el('span', 'acts')
   hd.append(av, meta, acts)
@@ -618,7 +618,7 @@ function threadCard(th) {
     const rAuthor = r.author || r.username || '?'
     const rav = el('span', 'av', rAuthor.slice(0, 1).toUpperCase()); rav.style.background = colOf(r.username || rAuthor); rav.setAttribute('aria-hidden', 'true')
     if (typeof paintAvatar === 'function' && r.username) paintAvatar(rav, r.username, colOf(r.username))
-    const rn = el('b', 'nm', rAuthor); rn.style.color = colOf(r.username || rAuthor)
+    const rn = el('b', 'nm', rAuthor)
     rh.append(rav, rn, el('span', 'tm', ago(r.created_at)))
     rd.append(rh, richText(r.text)); d.appendChild(rd)
   })
