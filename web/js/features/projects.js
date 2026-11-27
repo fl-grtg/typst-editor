@@ -803,17 +803,19 @@ async function pickTargetFolder(p, head, exclude = '', reserve = 0, anchor = nul
   const max = FOLDER_LEVELS - reserve
   const paths = projectFolderPaths(p).filter(f => f.split('/').length <= max && (!exclude || !insideFolder(f, exclude)))
   const values = ['', ...paths]
-  const i = await pickPop(head, values.map(f => [f || t('menu.projectRoot'), '']), anchor, o)
+  const i = await pickPop(head, values.map(f => [f ? '/' + f : t('menu.projectRoot'), '']), anchor, o)
   if (i === 'back') return 'back'
   return i == null || i < 0 ? null : values[i]
 }
 async function pickProjectAndFolder(targets, head, reserve = 0, anchor = null) { // project -> folder inside one anchored popover with back navigation
+  const pos = typeof window !== 'undefined' && window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250
+    ? { left: window.__menuPopOrigin.left, top: window.__menuPopOrigin.top } : null
   while (true) {
-    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor)
+    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor, pos ? { pos } : {})
     if (i == null || i < 0 || !targets[i]) return null
     let target
     try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return null }
-    const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', reserve, anchor, { back: true })
+    const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', reserve, anchor, pos ? { back: true, pos } : { back: true })
     if (folder === 'back') continue
     if (folder == null) return null
     return { target, folder }

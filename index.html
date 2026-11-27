@@ -322,7 +322,7 @@ aside .fhd .renameInput { font-size: 12.5px; font-weight: 400; letter-spacing: 0
 aside .doc.sub, #ol .doc { margin-left: 12px; }
 aside .fhd { margin-left: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); }
 aside .fhd b { flex: 1; min-width: 0; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-aside h3:hover, aside .fhd:hover, aside .doc:hover { background: var(--hover); }
+aside h3:hover, aside .fhd:not(.renaming):hover, aside .doc:not(.renaming):hover { background: var(--hover); }
 aside .doc.menu-open, aside .fhd.menu-open, aside h3.menu-open { background: var(--hover); } /* open menu keeps the row hover */
 aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }
@@ -911,9 +911,6 @@ body.present-switch .pvPage { transition: none !important; }
 }
 /* Menubar menus share the width of their longest sibling (measured in ui-layer.js); submenus size to their content. */
 #menu button, #submenu button, #menu a, #submenu a { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 27px; padding: 3px 6px; background: none; border: 0; border-radius: var(--r-xs); text-align: left; font-size: 13px; color: var(--text); text-decoration: none; }
-#menu button.rich, #submenu button.rich { flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; }
-#menu button.rich .lb, #submenu button.rich .lb { font-weight: 500; }
-#menu .mSub, #submenu .mSub { font-size: 11.5px; color: var(--sub); line-height: 1.3; white-space: normal; }
 #menu button:hover:not(:disabled), #menu button:focus-visible, #menu button.sub-open, #menu a:hover, #menu a:focus-visible, #submenu button:hover:not(:disabled), #submenu button:focus-visible, #submenu button.sub-open, #submenu a:hover, #submenu a:focus-visible { background: var(--hover); color: var(--text); outline: none; }
 #menu button:focus-visible, #submenu button:focus-visible, #menu a:focus-visible, #submenu a:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #menu button:disabled, #submenu button:disabled { opacity: .4; }
@@ -5562,10 +5559,15 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
     })
     pop.append(top, list)
     document.body.appendChild(pop)
+    const origin = o.pos || (window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250 ? window.__menuPopOrigin : null)
+    window.__menuPopOrigin = null
     const ref = anchor && anchor.getClientRects?.().length ? anchor : null
     const w = pop.offsetWidth || 200, h = pop.offsetHeight || 160
     let left = Math.round((innerWidth - w) / 2), topY = Math.min(88, Math.max(12, Math.round((innerHeight - h) / 3)))
-    if (ref) {
+    if (origin) {
+      left = Math.max(8, Math.min(origin.left, innerWidth - w - 8))
+      topY = Math.max(8, Math.min(origin.top, innerHeight - h - 8))
+    } else if (ref) {
       const r = ref.getBoundingClientRect()
       left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
       topY = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)
@@ -10407,7 +10409,6 @@ function openExportDlg(fmt) { // compact popover under Export: server compile, c
   pg.type = 'text'; pg.placeholder = t('downloads.expPagesPh'); pg.setAttribute('aria-label', t('downloads.expPages')); pg.maxLength = 40
   pg.oninput = () => { pages = pg.value.trim() }
   p.appendChild(pg)
-  p.appendChild(el('p', 'sub', t('downloads.expServerNote')))
   const act = el('div', 'expAct')
   const yes = el('button', 'primary', t('downloads.expGo')); yes.type = 'button'
   const fallback = { pdf: dlPdfClient, png: dlPngClient, svg: dlSvgClient }[fmt]
@@ -10722,8 +10723,8 @@ function askNewTpl(uploadName, headTitle) { // one dialog: name + folder radio (
 function openNewMenu(anchor) {
   if (!window.showMenuAt) { $('docPick').click(); return }
   window.showMenuAt(anchor, [
-    { label: t('docs.newProject'), sub: t('docs.pickDocSub'), run: newProjectFromMenu },
-    { label: t('docs.pickUp'), sub: t('docs.pickUpSub'), run: () => $('docPick').click() },
+    { label: t('docs.newProject'), title: t('docs.pickDocSub'), run: newProjectFromMenu },
+    { label: t('docs.pickUp'), title: t('docs.pickUpSub'), run: () => $('docPick').click() },
   ], 'left', { matchWidth: true })
 }
 function openNewResourceMenu(anchor) {
@@ -13249,17 +13250,19 @@ async function pickTargetFolder(p, head, exclude = '', reserve = 0, anchor = nul
   const max = FOLDER_LEVELS - reserve
   const paths = projectFolderPaths(p).filter(f => f.split('/').length <= max && (!exclude || !insideFolder(f, exclude)))
   const values = ['', ...paths]
-  const i = await pickPop(head, values.map(f => [f || t('menu.projectRoot'), '']), anchor, o)
+  const i = await pickPop(head, values.map(f => [f ? '/' + f : t('menu.projectRoot'), '']), anchor, o)
   if (i === 'back') return 'back'
   return i == null || i < 0 ? null : values[i]
 }
 async function pickProjectAndFolder(targets, head, reserve = 0, anchor = null) { // project -> folder inside one anchored popover with back navigation
+  const pos = typeof window !== 'undefined' && window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250
+    ? { left: window.__menuPopOrigin.left, top: window.__menuPopOrigin.top } : null
   while (true) {
-    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor)
+    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor, pos ? { pos } : {})
     if (i == null || i < 0 || !targets[i]) return null
     let target
     try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return null }
-    const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', reserve, anchor, { back: true })
+    const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', reserve, anchor, pos ? { back: true, pos } : { back: true })
     if (folder === 'back') continue
     if (folder == null) return null
     return { target, folder }
@@ -16534,7 +16537,6 @@ openLinePop = line => {
     var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
     if (d.checked !== undefined) b.appendChild(c)
     b.appendChild(l)
-    if (d.sub) { b.classList.add('rich'); var subEl = document.createElement('span'); subEl.className = 'mSub'; subEl.textContent = d.sub; b.appendChild(subEl) }
     if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
     if (d.ext) { var x = document.createElement('span'); x.className = 'ext'; x.innerHTML = EXT_ICON; b.appendChild(x) } // link leaves Typst
     var hasSub = !!(d.submenu && (typeof d.submenu === 'function' || d.submenu.length))
@@ -16552,7 +16554,11 @@ openLinePop = line => {
       else {
         var stay = !d.close && (d.keepOpen || (d.checked !== undefined && openFor && openFor.closest('#menubar')))
         b.onclick = function () {
-          if (!stay) { close(false); runMenuItem(d); return }
+          if (!stay) {
+            var rect = panel.getBoundingClientRect()
+            window.__menuPopOrigin = { left: rect.left, top: rect.top, at: Date.now() }
+            close(false); runMenuItem(d); return
+          }
           runMenuItem(d)
           if (d.checked !== undefined) setTimeout(function () { refreshOpen(panel, b) }, 0) // plain keep-open rows (sidebar) do not need a repaint
         }

@@ -253,10 +253,15 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
     })
     pop.append(top, list)
     document.body.appendChild(pop)
+    const origin = o.pos || (window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250 ? window.__menuPopOrigin : null)
+    window.__menuPopOrigin = null
     const ref = anchor && anchor.getClientRects?.().length ? anchor : null
     const w = pop.offsetWidth || 200, h = pop.offsetHeight || 160
     let left = Math.round((innerWidth - w) / 2), topY = Math.min(88, Math.max(12, Math.round((innerHeight - h) / 3)))
-    if (ref) {
+    if (origin) {
+      left = Math.max(8, Math.min(origin.left, innerWidth - w - 8))
+      topY = Math.max(8, Math.min(origin.top, innerHeight - h - 8))
+    } else if (ref) {
       const r = ref.getBoundingClientRect()
       left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
       topY = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)

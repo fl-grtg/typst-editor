@@ -109,7 +109,7 @@ aside .fhd .renameInput { font-size: 12.5px; font-weight: 400; letter-spacing: 0
 aside .doc.sub, #ol .doc { margin-left: 12px; }
 aside .fhd { margin-left: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--sub); }
 aside .fhd b { flex: 1; min-width: 0; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-aside h3:hover, aside .fhd:hover, aside .doc:hover { background: var(--hover); }
+aside h3:hover, aside .fhd:not(.renaming):hover, aside .doc:not(.renaming):hover { background: var(--hover); }
 aside .doc.menu-open, aside .fhd.menu-open, aside h3.menu-open { background: var(--hover); } /* open menu keeps the row hover */
 aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }

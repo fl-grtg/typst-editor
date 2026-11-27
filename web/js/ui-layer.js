@@ -360,7 +360,6 @@
     var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
     if (d.checked !== undefined) b.appendChild(c)
     b.appendChild(l)
-    if (d.sub) { b.classList.add('rich'); var subEl = document.createElement('span'); subEl.className = 'mSub'; subEl.textContent = d.sub; b.appendChild(subEl) }
     if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
     if (d.ext) { var x = document.createElement('span'); x.className = 'ext'; x.innerHTML = EXT_ICON; b.appendChild(x) } // link leaves Typst
     var hasSub = !!(d.submenu && (typeof d.submenu === 'function' || d.submenu.length))
@@ -378,7 +377,11 @@
       else {
         var stay = !d.close && (d.keepOpen || (d.checked !== undefined && openFor && openFor.closest('#menubar')))
         b.onclick = function () {
-          if (!stay) { close(false); runMenuItem(d); return }
+          if (!stay) {
+            var rect = panel.getBoundingClientRect()
+            window.__menuPopOrigin = { left: rect.left, top: rect.top, at: Date.now() }
+            close(false); runMenuItem(d); return
+          }
           runMenuItem(d)
           if (d.checked !== undefined) setTimeout(function () { refreshOpen(panel, b) }, 0) // plain keep-open rows (sidebar) do not need a repaint
         }
