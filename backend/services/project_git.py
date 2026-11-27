@@ -74,8 +74,14 @@ def unseal(stored: str) -> str:
         return ""
 
 
+def _internal(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip.is_reserved
+
+
 def check_remote(url: str) -> str:
-    """An https URL without credentials whose host resolves to public addresses only."""
+    """An https URL without credentials whose host resolves to routable addresses (private networks are fine, loopback and link-local such as cloud metadata are not)."""
     url = url.strip()
     if not url:
         return ""
@@ -86,8 +92,8 @@ def check_remote(url: str) -> str:
         infos = socket.getaddrinfo(parts.hostname, parts.port or 443, type=socket.SOCK_STREAM)
     except (OSError, UnicodeError, ValueError) as e:
         raise HTTPException(400, "Remote host not found") from e
-    if any(not ipaddress.ip_address(str(info[4][0]).split("%")[0]).is_global for info in infos):
-        raise HTTPException(400, "Remote host must be a public address")
+    if any(_internal(ipaddress.ip_address(str(info[4][0]).split("%")[0])) for info in infos):
+        raise HTTPException(400, "Remote host must not be a loopback or link-local address")
     return url
 
 
