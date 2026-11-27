@@ -458,7 +458,7 @@ function fileTypeMenuItems(run) {
 function fileStart(ext) { return ({ json: '{}\n', yaml: '{}\n', yml: '{}\n', toml: '', xml: '<data/>\n', csl: '<?xml version="1.0" encoding="utf-8"?>\n<style xmlns="http://purl.org/net/xbiblio/csl" version="1.0">\n  <info><title>Style</title><id>https://example.com/style</id></info>\n  <citation><layout><text variable="title"/></layout></citation>\n</style>\n' })[ext] || '' }
 async function chooseFileType() {
   const labels = [t('files.type_typ'), t('files.type_bib'), t('files.type_csv'), t('files.type_tsv'), t('files.type_json'), t('files.type_yaml'), t('files.type_toml'), t('files.type_xml'), t('files.type_txt'), t('files.type_csl')]
-  const i = await askPick(t('files.chooseType'), FILE_TYPES.map((ext, i) => ['.' + ext, labels[i]]))
+  const i = await pickPop(t('files.chooseType'), FILE_TYPES.map((ext, i) => ['.' + ext, labels[i]]), document.activeElement)
   return Number.isInteger(i) && i >= 0 && i < FILE_TYPES.length ? '.' + FILE_TYPES[i] : null
 }
 async function deleteFile(name) { // manager chip: same trash path as the sidebar row

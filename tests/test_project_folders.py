@@ -137,7 +137,8 @@ def test_delete_folder_trashes_its_contents_and_document_move(c):
     pid, did = make(c)
     put_file(c, pid, "keep/m.typ", b"")
     assert c.post(f"/api/projects/{pid}/docs/{did}/folder", json={"folder": "chapters"}).json() == {"folder": "chapters", "updated_references": 0}
-    assert c.delete(f"/api/projects/{pid}/folders", params={"path": "keep"}).json() == {"ok": True, "documents": []}
+    deleted = c.delete(f"/api/projects/{pid}/folders", params={"path": "keep"}).json()
+    assert deleted["ok"] is True and deleted["documents"] == [] and len(deleted["trash_ids"]) == 1
     assert paths(c, pid) == []
     assert c.delete(f"/api/projects/{pid}/folders", params={"path": "chapters"}).json()["documents"] == [did]
     assert c.get(f"/api/docs/{did}").status_code == 410

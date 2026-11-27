@@ -46,8 +46,12 @@ function renderTpl() {
 async function newResource(kind, chosenExt) {
   const ext = chosenExt || (kind === 'resource' ? await chooseFileType() : RES_EXT[kind])
   if (!ext) return
-  const selected = await askNewTpl('file' + ext, t('templates.newTitle'))
-  const raw = selected?.name
+  const list = $('tpls')
+  if (list && list.classList.contains('shut')) { $('tplH').click() }
+  const inline = list && list.offsetParent && typeof sidebarInlineCreate === 'function'
+  const raw = inline
+    ? await sidebarInlineCreate(list, 'file' + ext, { ph: t('templates.namePh'), label: t('templates.newTitle'), maxLen: 100, stem: true })
+    : (await askNewTpl('file' + ext, t('templates.newTitle')))?.name
   if (!raw?.trim()) return
   let name = uploadName(raw.trim())
   if (!TEXT_EXT.test(name)) name += ext
@@ -55,7 +59,7 @@ async function newResource(kind, chosenExt) {
   if (myTpl.some(x => x.name === name)) { toast(t('common.nameExists')); return }
   const content = fileStart(name.split('.').pop().toLowerCase())
   try {
-    const r = await api('POST', '/api/templates', { name, content, folder: selected.folder })
+    const r = await api('POST', '/api/templates', { name, content, folder: '' })
     await loadTpl(); await openTpl(r.name)
   } catch (e) { toast(e.message) }
 }
@@ -108,7 +112,7 @@ $('tplBtn').onclick = e => {
       return []
     })
     if (!options.length) { $('tplBtn').click(); return }
-    const choice = await askPick(t('editor.citeLibrary'), options.map(x => [x.key, x.lib.name]))
+    const choice = await pickPop(t('editor.citeLibrary'), options.map(x => [x.key, x.lib.name]), button)
     if (choice == null || !options[choice] || doc !== docId || resource !== tplName || file !== activeFile || epoch !== openN || !cm.state.facet(EditorView.editable)) return
     const { key, lib } = options[choice]
     const ref = refTo(lib.name, docFolder)

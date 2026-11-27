@@ -93,19 +93,16 @@ $('out').onclick = () => { try { clearTimeout(sideESTimer); sideES?.close(); sid
   location.reload()
 }) }
 let renBusy = false // double-click: no second dialog/POST while one rename flies
-$('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
+$('renBtn').onclick = async () => { // pencil behind title (owner only, template too) -> renames inline in sidebar
   if (renBusy) return; renBusy = true
   try {
-  const doc = docId, epoch = openN
+  if (document.body.classList.contains('noside')) $('navToggle')?.click()
   if (tplName) { await renamePersonalResource(tplName); return }
   if (!docId || docRole !== 'owner') return
-  if (window.changeSession) { await renameProjectDocument({ id: docId, title: docTitle }); return }
-  const nt = await ask(t('docs.renameDoc'), { value: (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent })
-  if (nt === null || !nt.trim()) return
-  if (doc !== docId || epoch !== openN) return
-  api('POST', `/api/docs/${doc}/rename`, { title: nt.trim() })
-    .then(() => { if (doc === docId && epoch === openN) { $('title').textContent = nt.trim(); docTitle = nt.trim(); tabSig = ''; paintTabs() } sidebar() })
-    .catch(e => toast(e.message))
+  const cur = (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
+  const row = document.querySelector(`aside [data-doc-id="${CSS.escape(docId)}"]`)
+  row?.scrollIntoView({ block: 'nearest' })
+  await renameProjectDocument({ id: docId, title: cur }, row)
   } finally { renBusy = false }
 }
 function askNewDoc(uploadTitle, headTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
@@ -228,7 +225,7 @@ async function importUpload(f) {
     if (isTyp) targets.push(['doc', t('docs.pickDoc'), t('docs.pickDocSub')])
     targets.push(['resource', t('files.uploadResource'), t('files.uploadResourceD')])
     if (docProject && !docResReadonly && !openedTrashed) targets.push(['file', t('files.uploadLocal'), t('files.uploadLocalD')])
-    const i = await askPick(t('files.uploadTarget'), targets.map(x => [x[1], x[2]]))
+    const i = await pickPop(t('files.uploadTarget'), targets.map(x => [x[1], x[2]]), $('upDoc'))
     if (i == null || !targets[i]) return
     const target = targets[i][0]
     if (target === 'file') { if (doc === docId && epoch === openN) { const path = await upText(f); if (path) await switchTab(path) } return }
@@ -260,22 +257,27 @@ $('del').onclick = async () => {
     else await stageDocumentDelete(doc)
     return
   }
-  if (tplName) { // delete open template
-    if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
-    if (resource !== tplName || epoch !== openN) return
-    try { await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
+  if (tplName) { // delete open template (reversible in trash)
+    let res
+    try { res = await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
     catch (e) { toast(e.message); return }
     if (resource !== tplName || epoch !== openN) { loadTpl(); return }
     tplName = ''; tplDirty = false; clearTimeout(tplT)
     closeView(); $('viewSeg').style.display = '' // segment back: no doc, but view selectable
     await loadTpl(); sidebar()
+    toast(t('docs.moveTrash'), res?.trash_id ? () => api('POST', `/api/trash/${res.trash_id}/restore`, {}).then(() => { loadTpl(); sidebar() }).catch(e => toast(e.message)) : null, t('docs.restore'), 8000)
     return
   }
   if (openedTrashed) {
     if (!await ask(t('docs.delGone'), { noInput: true, ok: t('common.delete'), danger: true })) return
-  } else if (!await ask(t('docs.moveTrashQ'), { noInput: true, ok: t('common.ok') })) return
+  }
   if (!doc || doc !== docId || epoch !== openN) return
-  api('DELETE', `/api/docs/${doc}`).then(() => { if (doc === docId) closeView(); sidebar() }).catch(e => toast(e.message))
+  const wasTrashed = openedTrashed
+  api('DELETE', `/api/docs/${doc}`).then(() => {
+    if (doc === docId) closeView()
+    sidebar()
+    if (!wasTrashed) toast(t('docs.moveTrash'), () => api('POST', `/api/docs/${doc}/restore`, {}).then(() => { sidebar(); openDoc(doc) }).catch(e => toast(e.message)), t('docs.restore'), 8000)
+  }).catch(e => toast(e.message))
 }
 setInterval(() => {
   if (!docId) return

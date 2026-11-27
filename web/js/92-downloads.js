@@ -68,18 +68,21 @@ async function dlPdfClient() {
     dlBlob(new Blob([pdf], { type: 'application/pdf' }), name)
   } catch (e) { toast(t('downloads.pdfError', { msg: e.message })) }
 }
-function openExportDlg(fmt) { // options dialog: server compile, client fallback on plain settings
+function openExportDlg(fmt) { // compact popover under Export: server compile, client fallback on plain settings
   if (!docId) return
-  if (askRes) askRes(null)
-  const prev = document.activeElement
-  const ov = $('modal'); ov.style.display = 'flex'; modalInert(true)
-  $('mHead').textContent = t('downloads.expTitle')
-  const inp = $('mInp'); inp.style.display = 'none'
-  const row = document.querySelector('#mCard .mRow'); row.style.display = ''
-  const yes = $('mYes'); yes.textContent = t('downloads.expGo'); yes.style.background = ''; yes.style.color = ''; yes.disabled = false
-  const box = document.createElement('div'); box.id = 'mExtra'
+  const p = $('exportPop')
+  if (!p) return
+  hidePops(); closePop(true)
+  p.replaceChildren()
+  const top = el('div', 'sTop')
+  top.appendChild(el('b', null, t('downloads.expTitle') + ' · ' + fmt.toUpperCase()))
+  const close = icoBtn(null, ICO_X); close.type = 'button'; close.title = t('common.close'); close.setAttribute('aria-label', t('common.close'))
+  const done = () => { p.style.display = 'none'; popTriggers('exportPop').forEach(x => x.setAttribute('aria-expanded', 'false')) }
+  close.onclick = done
+  top.appendChild(close)
+  p.appendChild(top)
   let std = 'none', ppi = 0, pages = ''
-  const lbFor = (key, id) => { const lb = el('label', null, t(key)); lb.htmlFor = id; box.appendChild(lb) }
+  const lbFor = (key, id) => { const lb = el('label', null, t(key)); lb.htmlFor = id; p.appendChild(lb) }
   if (fmt === 'pdf') {
     lbFor('downloads.expStandard', 'expStd')
     const sel = document.createElement('select')
@@ -91,7 +94,7 @@ function openExportDlg(fmt) { // options dialog: server compile, client fallback
       sel.appendChild(o)
     }
     sel.onchange = () => { std = sel.value }
-    box.appendChild(sel)
+    p.appendChild(sel)
   }
   if (fmt === 'png') {
     lbFor('downloads.expPpi', 'expPpi')
@@ -104,19 +107,17 @@ function openExportDlg(fmt) { // options dialog: server compile, client fallback
       sel.appendChild(o)
     }
     sel.onchange = () => { ppi = +sel.value || 0 }
-    box.appendChild(sel)
+    p.appendChild(sel)
   }
   lbFor('downloads.expPages', 'expPages')
   const pg = document.createElement('input')
   pg.id = 'expPages'
   pg.type = 'text'; pg.placeholder = t('downloads.expPagesPh'); pg.setAttribute('aria-label', t('downloads.expPages')); pg.maxLength = 40
   pg.oninput = () => { pages = pg.value.trim() }
-  box.appendChild(pg)
-  box.appendChild(el('p', 'sub', t('downloads.expServerNote')))
-  $('mCard').insertBefore(box, row)
-  const done = () => { ov.style.display = 'none'; modalInert(false); box.remove(); askRes = null; prev?.focus?.() }
-  askRes = done
-  $('mNo').onclick = done
+  p.appendChild(pg)
+  p.appendChild(el('p', 'sub', t('downloads.expServerNote')))
+  const act = el('div', 'expAct')
+  const yes = el('button', 'primary', t('downloads.expGo')); yes.type = 'button'
   const fallback = { pdf: dlPdfClient, png: dlPngClient, svg: dlSvgClient }[fmt]
   yes.onclick = async () => {
     if ((fmt !== 'pdf' || std === 'none') && !ppi && !pages) { done(); fallback(); return } // plain: instant client path, no server round-trip
@@ -131,10 +132,16 @@ function openExportDlg(fmt) { // options dialog: server compile, client fallback
       yes.disabled = false
     }
   }
-  setTimeout(() => yes.focus(), 30)
+  pg.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
+  act.append(yes)
+  p.appendChild(act)
+  p.style.display = ''
+  anchorPop(p, $('exportBtn'))
+  p.tabIndex = -1
+  setTimeout(() => p.focus({ preventScroll: true }), 10)
 }
-$('dlPng').onclick = () => openExportDlg('png')
-$('dlSvg').onclick = () => openExportDlg('svg')
+$('dlPng').onclick = e => { e?.stopPropagation?.(); openExportDlg('png') }
+$('dlSvg').onclick = e => { e?.stopPropagation?.(); openExportDlg('svg') }
 $('dlTyp').onclick = () => {
   if (!docId && !tplName) return
   if (docId && activeFile && !TEXT_EXT.test(activeFile)) {
@@ -148,7 +155,7 @@ $('dlTyp').onclick = () => {
   }
   dlBlob(new Blob([getT()], { type: 'text/plain;charset=utf-8' }), (tplName || (activeFile ? tabName(activeFile) : dlName('.typ'))))
 }
-$('dlPdf').onclick = () => openExportDlg('pdf')
+$('dlPdf').onclick = e => { e?.stopPropagation?.(); openExportDlg('pdf') }
 setInterval(() => { // heals sets without input event (extensions, autofill): textarea -> Y.Text
   if (docId && ytext && docRole !== 'reviewer' && !activeFile && !window.suggestionDraft && !window.changeSession && getT() !== shadow) {
   pushLocal(); queueRender(); queueSave()

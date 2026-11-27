@@ -202,7 +202,7 @@ def delete(project_id: str, path: str, user: str, *, version_: str | None = None
                 projects.require(con, project_id, user, edit=True)
                 _current(con, project_id, path, version_, force)
                 owner = owner_of(con, project_id)
-                trash.archive(con, owner, "file", path, remove(con, project_id, path, backups), project_id=project_id)
+                trash_id = trash.archive(con, owner, "file", path, remove(con, project_id, path, backups), project_id=project_id)
         except Exception:
             undo(backups)
             raise
@@ -210,7 +210,7 @@ def delete(project_id: str, path: str, user: str, *, version_: str | None = None
     projects.notify(project_id)
     for u in {user, owner}:
         notify_sidebar(u)
-    return {"ok": True}
+    return {"ok": True, "trash_id": trash_id}
 
 
 def relocate_refs(text: str, old_base: str, new_base: str, moves: dict[str, str], paths: set[str]) -> str:

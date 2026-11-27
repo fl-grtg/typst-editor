@@ -116,7 +116,7 @@ test('path dialogs select only the file name, not the folder path', () => {
 
 test('copy/move target pickers keep both levels for files and one for folders', async () => {
   let options
-  const c = projectCtx({ askPick: async (head, opts) => { options = opts; return -1 } })
+  const c = projectCtx({ pickPop: async (head, opts) => { options = opts; return -1 } })
   const p = { id: 'p', folders: ['a', 'a/b'], documents: [], files: [] }
   assert.equal(await c.pickTargetFolder(p, 'copy', '', 0), null)
   assert.deepEqual(Array.from(options, o => o[0]), ['menu.projectRoot', 'a', 'a/b'])

@@ -113,10 +113,10 @@ test('bundled data parsers reject invalid JSON, YAML and TOML', async () => {
 test('file type cancellation stays closed', async () => {
   const files = fs.readFileSync(path.join(root, 'web/js/80-files-images.js'), 'utf8')
   const funcs = files.slice(files.indexOf('async function chooseFileType'), files.indexOf('async function deleteFile'))
-  const ctx = vm.createContext({ FILE_TYPES: ['typ', 'bib'], t: k => k, askPick: async () => null })
+  const ctx = vm.createContext({ FILE_TYPES: ['typ', 'bib'], t: k => k, pickPop: async () => null, document: { activeElement: null } })
   vm.runInContext(funcs, ctx)
-  for (const value of [-1, null, undefined, 99]) { ctx.askPick = async () => value; assert.equal(await ctx.chooseFileType(), null) }
-  ctx.askPick = async () => 0
+  for (const value of [-1, null, undefined, 99]) { ctx.pickPop = async () => value; assert.equal(await ctx.chooseFileType(), null) }
+  ctx.pickPop = async () => 0
   assert.equal(await ctx.chooseFileType(), '.typ')
 })
 

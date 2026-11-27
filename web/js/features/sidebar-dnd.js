@@ -135,7 +135,7 @@ async function uploadModuleFiles(files) {
       if (!TEXT_EXT.test(file.name)) { await uploadToProject([file]); continue }
       if (file.size > 200 * 1024) { toast(t('files.maxText')); continue }
       if (/\.typ$/i.test(file.name)) {
-        const choice = await askPick(file.name, [[t('docs.pickDoc'), ''], [t('projects.newResource'), t('projects.newResourceHint')]])
+        const choice = await pickPop(file.name, [[t('docs.pickDoc'), ''], [t('projects.newResource'), t('projects.newResourceHint')]], $('tplH'))
         if (choice !== 0 && choice !== 1) continue
         if (choice === 0) {
           const result = await api('POST', '/api/docs/create', { title: file.name.replace(/\.typ$/i, '').slice(0, 100), content: await file.text(), folder: '' })

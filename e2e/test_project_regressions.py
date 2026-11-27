@@ -11,8 +11,10 @@ def test_file_server_name_and_rename_preview(page):
     head.locator('button.mini').first.click()
     page.locator('#menu button').filter(has_text='New file').click()
     page.locator('#submenu button').filter(has_text='.typ').first.click()
-    page.fill('#mInp', 'Änderungen')
-    page.click('#mYes')
+    inp = page.locator('aside input.renameInput')
+    expect(inp).to_be_visible()
+    inp.fill('Änderungen')
+    inp.press('Enter')
     # The UI opens the name the server returns (NFC-normalized, umlauts kept).
     tab = page.locator('#tabs button.tab').filter(has_text='Änderungen.typ')
     expect(tab).to_have_attribute('aria-selected', 'true')

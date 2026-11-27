@@ -74,8 +74,8 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     head.hover()
     head.locator("button.mini").first.click()
     page.locator("#menu button").filter(has_text="New folder").click()
-    page.fill("#mInp", "chapters")
-    page.click("#mYes")
+    page.locator("aside input.renameInput").fill("chapters")
+    page.keyboard.press("Enter")
     folder = page.locator("aside .fhd.folder", has_text="chapters")
     expect(folder).to_have_count(1)
     # new file inside the folder
@@ -83,8 +83,8 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     folder.locator("button.mini").first.click()
     page.locator("#menu button").filter(has_text="New file").click()
     page.locator("#submenu button").filter(has_text=".typ").first.click()
-    page.fill("#mInp", "intro")
-    page.click("#mYes")
+    page.locator("aside input.renameInput").fill("intro")
+    page.keyboard.press("Enter")
     expect(page.locator("#tabs button.tab", has_text="intro.typ")).to_have_count(1)
     assert file_paths(page.request, pid) == ["chapters/intro.typ"]
     expect(page.locator("#pvFor")).to_have_text("Preview: Main.typ")

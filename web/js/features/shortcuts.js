@@ -710,10 +710,12 @@ const SC_ICON_KEYS = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none
 const SC_ICON_AGENT = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.2" y="4.8" width="11.6" height="8" rx="2.2"/><path d="M8 2.4v2.4"/><circle cx="8" cy="1.6" r=".8" fill="currentColor" stroke="none"/><path d="M5.4 8h.01M8 8h.01M10.6 8h.01M5.8 10.5h4.4"/></svg>'
 const SC_ICON_EXTERNAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>'
 const SC_ICON_SEARCH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>'
-function openHelp() {
+let scHelpOutside = null
+function openHelp(anchor) {
   if ($('keySecret')) return // the one-time key dialog owns the modal layer
   const existing = $('helpOverlay')
   const wasOpen = !!existing && existing.style.display !== 'none'
+  if (wasOpen && anchor) { closeHelp(); return }
   closePop(true)
   hidePops()
   if (window.closeMenu) window.closeMenu(false)
@@ -721,8 +723,7 @@ function openHelp() {
   let ov = existing
   if (!ov) {
     ov = el('div'); ov.id = 'helpOverlay'
-    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', t('menu.helpH'))
-    ov.onmousedown = e => { if (e.target === ov) closeHelp() }
+    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', t('menu.helpH'))
     ov.addEventListener('keydown', e => {
       if (e.key !== 'Tab') return
       const f = [...ov.querySelectorAll('a,button')].filter(x => !x.disabled && x.getClientRects().length)
@@ -737,7 +738,7 @@ function openHelp() {
   const head = el('div', 'helpHead')
   const title = el('b', null, t('menu.helpH'))
   const close = el('button', null, '✕')
-  close.type = 'button'; close.title = t('common.close'); close.setAttribute('aria-label', t('common.close')); close.onclick = closeHelp
+  close.type = 'button'; close.title = t('common.close'); close.setAttribute('aria-label', t('common.close')); close.onclick = () => closeHelp()
   head.append(title, close)
   const list = el('div', 'helpMenu')
   const icon = (svg, cls = 'helpIco') => { const s = el('span', cls); s.innerHTML = svg; return s }
@@ -762,8 +763,19 @@ function openHelp() {
   list.appendChild(agent)
   card.append(head, list)
   ov.replaceChildren(card)
-  ov.style.display = 'flex'
-  modalInert(true)
+  ov.style.display = 'block'
+  const ref = (anchor && anchor.getClientRects?.().length ? anchor : null) || [...document.querySelectorAll('[data-rail="help"], #menubar [data-menu="help"]')].find(x => x.getClientRects().length)
+  const w = card.offsetWidth || 260, h = card.offsetHeight || 190
+  let left = innerWidth - w - 12, top = 52
+  if (ref) {
+    const r = ref.getBoundingClientRect()
+    left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
+    top = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)
+  }
+  ov.style.left = left + 'px'; ov.style.top = top + 'px'
+  if (scHelpOutside) document.removeEventListener('mousedown', scHelpOutside, true)
+  scHelpOutside = e => { if (!ov.contains(e.target) && !e.target.closest('[data-rail="help"]')) closeHelp(false) }
+  document.addEventListener('mousedown', scHelpOutside, true)
   document.querySelectorAll('[data-rail="help"]').forEach(b => b.setAttribute('aria-expanded', 'true'))
   setTimeout(() => { if (ov.style.display !== 'none') { try { list.querySelector('a,button')?.focus() } catch (e) {} } }, 20)
 }
@@ -771,7 +783,7 @@ function closeHelp(focus = true) {
   const ov = $('helpOverlay')
   if (!ov || ov.style.display === 'none') return
   ov.style.display = 'none'
-  if (!$('keySecret') && $('modal').style.display === 'none') modalInert(false) // another modal still owns the background
+  if (scHelpOutside) { document.removeEventListener('mousedown', scHelpOutside, true); scHelpOutside = null }
   document.querySelectorAll('[data-rail="help"]').forEach(b => b.setAttribute('aria-expanded', 'false'))
   if (focus && scHelpPrev && document.contains(scHelpPrev)) { try { scHelpPrev.focus() } catch (e) {} }
   scHelpPrev = null

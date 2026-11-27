@@ -79,16 +79,16 @@
 #cmWrap .peerEdge button:active { background: var(--press); }
 #cmWrap .peerEdge button:focus-visible { outline: 2px solid var(--acc); outline-offset: -4px; }
 #cmWrap .peerEdge .av { width: 18px; height: 18px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font: 700 7.5px/1 var(--ui); letter-spacing: -.02em; box-shadow: 0 0 0 2px var(--card); }
-/* Help: rounded menu card with GitHub, issues and the shortcut settings link */
-#helpOverlay { position: fixed; inset: 0; z-index: var(--z-modal); display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 12, 16, .32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-#helpCard { width: min(360px, 94vw); padding: 12px; background: var(--card); border-radius: var(--r-xl); box-shadow: var(--sh-modal); }
-#helpCard .helpHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 10px 10px; }
-#helpCard .helpHead b { font-size: 16px; font-weight: 650; }
-#helpCard .helpHead button { min-width: 30px; min-height: 30px; border: 0; border-radius: var(--r-sm); background: none; box-shadow: none; color: var(--sub); }
+/* Help: compact anchored popover with GitHub, issues and shortcut/agent links */
+#helpOverlay { position: fixed; z-index: var(--z-menu); display: none; }
+#helpCard { width: min(260px, calc(100vw - 24px)); padding: 8px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--sh-pop); }
+#helpCard .helpHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 6px 8px; }
+#helpCard .helpHead b { font-size: 13.5px; font-weight: 650; }
+#helpCard .helpHead button { min-width: 26px; min-height: 26px; border: 0; border-radius: var(--r-sm); background: none; box-shadow: none; color: var(--sub); }
 #helpCard .helpHead button:not(:disabled):hover { background: var(--hover); color: var(--text); }
 #helpCard .helpHead button:not(:disabled):active { background: var(--press); color: var(--text); }
 #helpCard .helpMenu { display: flex; flex-direction: column; gap: 2px; }
-#helpCard .helpItem { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; margin: 0; padding: 8px 10px; border: 0; border-radius: var(--r-md); background: transparent; box-shadow: none; color: var(--text); font: 500 13px/1.4 var(--ui); text-align: left; text-decoration: none; cursor: pointer; }
+#helpCard .helpItem { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; margin: 0; padding: 6px 8px; border: 0; border-radius: var(--r-sm); background: transparent; box-shadow: none; color: var(--text); font: 500 13px/1.35 var(--ui); text-align: left; text-decoration: none; cursor: pointer; }
 #helpCard .helpItem:hover { background: var(--hover); }
 #helpCard .helpItem:active { background: var(--press); }
 #helpCard .helpItem:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
@@ -107,6 +107,10 @@
 .csvEditor th.csvRowHead { min-width: 42px; width: 42px; }
 .csvEditor input[type=text] { display: block; width: 140px; height: 29px; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 4px 8px; }
 .csvEditor input:focus { outline: 2px solid var(--acc); outline-offset: -2px; }
+.bibInlineAdd { width: 100%; margin-top: 6px; }
+.bibInlineAdd input { width: 100%; min-height: 30px; padding: 4px 10px; font-size: 12.5px; border-radius: var(--r-sm); }
+#tools .bibInlineAdd { display: inline-flex; width: auto; margin: 0 0 0 6px; }
+#tools .bibInlineAdd input { width: 140px; min-height: 26px; }
 
 .bibEditor { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--editor); }
 .bibEditor.sourceMode { position: absolute; top: 0; left: 0; right: 0; z-index: 20; height: 50px; }
