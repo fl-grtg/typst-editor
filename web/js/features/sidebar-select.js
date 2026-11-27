@@ -11,8 +11,11 @@ function sidebarSelectable(row, p, entry) {
 const sideSelRows = () => [...document.querySelectorAll('aside [data-sel-key]')].filter(row => row.getClientRects().length)
 const sideSelHolds = row => sideSel.size > 1 && sideSel.has(row?.dataset.selKey)
 function paintSideSel() {
-  const rows = [...document.querySelectorAll('aside [data-sel-key]')], marked = n => !!n?.classList.contains('sel')
-  rows.forEach(row => { row.classList.toggle('sel', sideSel.has(row.dataset.selKey)); row.style.borderRadius = row.style.boxShadow = '' })
+  const rows = [...document.querySelectorAll('aside [data-sel-key], aside .folderEmpty')], marked = n => !!n?.classList.contains('sel')
+  rows.forEach(row => {
+    row.classList.toggle('sel', row.classList.contains('folderEmpty') ? marked(row.previousElementSibling) : sideSel.has(row.dataset.selKey))
+    row.style.borderRadius = row.style.boxShadow = ''
+  })
   const corner = join => join ? '0' : 'var(--r-sm)'
   rows.forEach(row => { // a run of selected rows reads as one block: shared edges lose their rounding
     if (!marked(row)) return

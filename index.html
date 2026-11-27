@@ -328,7 +328,8 @@ aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }
 aside .doc.cur.menu-open { background: var(--hover); }
 aside .doc.dragging.cur { background: transparent; } /* the card under the cursor is the only lifted thing */
-aside .doc.sel, aside .fhd.sel { background: var(--acc-soft); }
+aside .doc.sel, aside .fhd.sel, aside .folderEmpty.sel { background: var(--acc-soft); }
+aside:has(.sel) .doc:focus-visible, aside:has(.sel) .fhd:focus-visible, aside:has(.sel) .fhd > b:focus-visible { outline: none; }
 aside .empty { min-height: 30px; padding: 6px 8px; font-size: 12.5px; color: var(--faint); }
 #searchEmpty { padding: 18px 8px; text-align: center; }
 #nav.search-empty > h3,
@@ -14552,8 +14553,11 @@ function sidebarSelectable(row, p, entry) {
 const sideSelRows = () => [...document.querySelectorAll('aside [data-sel-key]')].filter(row => row.getClientRects().length)
 const sideSelHolds = row => sideSel.size > 1 && sideSel.has(row?.dataset.selKey)
 function paintSideSel() {
-  const rows = [...document.querySelectorAll('aside [data-sel-key]')], marked = n => !!n?.classList.contains('sel')
-  rows.forEach(row => { row.classList.toggle('sel', sideSel.has(row.dataset.selKey)); row.style.borderRadius = row.style.boxShadow = '' })
+  const rows = [...document.querySelectorAll('aside [data-sel-key], aside .folderEmpty')], marked = n => !!n?.classList.contains('sel')
+  rows.forEach(row => {
+    row.classList.toggle('sel', row.classList.contains('folderEmpty') ? marked(row.previousElementSibling) : sideSel.has(row.dataset.selKey))
+    row.style.borderRadius = row.style.boxShadow = ''
+  })
   const corner = join => join ? '0' : 'var(--r-sm)'
   rows.forEach(row => { // a run of selected rows reads as one block: shared edges lose their rounding
     if (!marked(row)) return
