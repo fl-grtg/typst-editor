@@ -28,7 +28,7 @@ function paintSideSel() {
     const boxes = run.map(r => r.getBoundingClientRect()), left = Math.min(...boxes.map(b => b.left)), right = Math.max(...boxes.map(b => b.right))
     run.forEach((r, i) => { // deeper rows keep their text indent; the fill reaches out to the run's outer edges
       const l = boxes[i].left - left, x = right - boxes[i].right
-      r.style.boxShadow = [l && `-${l}px 0 0 0 var(--acc-soft)`, x && `${x}px 0 0 0 var(--acc-soft)`].filter(Boolean).join(', ')
+      r.style.boxShadow = [l && `-${l}px 0 0 0 var(--sel-bg, var(--acc-soft))`, x && `${x}px 0 0 0 var(--sel-bg, var(--acc-soft))`].filter(Boolean).join(', ')
     })
   })
 }

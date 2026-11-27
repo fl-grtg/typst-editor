@@ -328,7 +328,8 @@ aside .doc.dragging, aside .fhd.dragging { opacity: .45; }
 aside .doc.cur { background: var(--sel); font-weight: 600; }
 aside .doc.cur.menu-open { background: var(--hover); }
 aside .doc.dragging.cur { background: transparent; } /* the card under the cursor is the only lifted thing */
-aside .doc.sel, aside .fhd.sel, aside .folderEmpty.sel { background: var(--acc-soft); }
+aside .doc.sel, aside .fhd.sel, aside .folderEmpty.sel { --sel-bg: var(--acc-soft); background: var(--sel-bg); }
+aside .doc.sel:not(.renaming):hover, aside .fhd.sel:not(.renaming):hover, aside .doc.sel.menu-open, aside .fhd.sel.menu-open { --sel-bg: color-mix(in srgb, var(--acc) 26%, transparent); background: var(--sel-bg); }
 aside:has(.sel) .doc:focus-visible, aside:has(.sel) .fhd:focus-visible, aside:has(.sel) .fhd > b:focus-visible { outline: none; }
 aside .empty { min-height: 30px; padding: 6px 8px; font-size: 12.5px; color: var(--faint); }
 #searchEmpty { padding: 18px 8px; text-align: center; }
@@ -14570,7 +14571,7 @@ function paintSideSel() {
     const boxes = run.map(r => r.getBoundingClientRect()), left = Math.min(...boxes.map(b => b.left)), right = Math.max(...boxes.map(b => b.right))
     run.forEach((r, i) => { // deeper rows keep their text indent; the fill reaches out to the run's outer edges
       const l = boxes[i].left - left, x = right - boxes[i].right
-      r.style.boxShadow = [l && `-${l}px 0 0 0 var(--acc-soft)`, x && `${x}px 0 0 0 var(--acc-soft)`].filter(Boolean).join(', ')
+      r.style.boxShadow = [l && `-${l}px 0 0 0 var(--sel-bg, var(--acc-soft))`, x && `${x}px 0 0 0 var(--sel-bg, var(--acc-soft))`].filter(Boolean).join(', ')
     })
   })
 }
