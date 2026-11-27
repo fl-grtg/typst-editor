@@ -230,24 +230,22 @@ function askPick(head, opts) { // choice cards in modal (index|-1), opts: [title
 }
 let pickPopClose = null
 function closePickPop() { if (pickPopClose) pickPopClose(-1) }
-function pickPop(head, opts, anchor = null, o = {}) { // compact anchored picker popover (index|-1|'back'), no fullscreen blur
+function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anchored picker (index|-1|'back'), no fullscreen blur
   closePickPop()
   return new Promise(res => {
     const prev = document.activeElement
-    const pop = el('div'); pop.id = 'pickPop'
-    pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', head)
-    const top = el('div', 'sTop')
+    const pop = el('div'); pop.id = 'pickPop'; pop.tabIndex = -1
+    pop.setAttribute('role', 'menu'); pop.setAttribute('aria-label', head)
+    const top = el('div', 'pkHead')
     if (o.back) {
-      const bk = el('button', null, '←'); bk.type = 'button'; bk.title = t('common.back') || 'Back'; bk.setAttribute('aria-label', bk.title)
+      const bk = el('button', 'pkBack', '←'); bk.type = 'button'; bk.title = t('common.back'); bk.setAttribute('aria-label', bk.title)
       bk.onclick = () => done('back')
       top.appendChild(bk)
     }
     top.appendChild(el('b', null, head))
-    const cx = icoBtn(null, ICO_X); cx.type = 'button'; cx.title = t('common.cancel'); cx.setAttribute('aria-label', t('common.cancel'))
-    top.appendChild(cx)
     const list = el('div', 'pkList')
     opts.forEach((opt, i) => {
-      const b = el('button', 'pkRow'); b.type = 'button'
+      const b = el('button', 'pkRow'); b.type = 'button'; b.setAttribute('role', 'menuitem')
       b.appendChild(el('b', null, opt[0]))
       if (opt[1]) b.appendChild(el('span', null, opt[1]))
       b.onclick = () => done(i)
@@ -256,16 +254,16 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact anchored picker
     pop.append(top, list)
     document.body.appendChild(pop)
     const ref = anchor && anchor.getClientRects?.().length ? anchor : null
-    const w = pop.offsetWidth || 280, h = pop.offsetHeight || 200
+    const w = pop.offsetWidth || 200, h = pop.offsetHeight || 160
     let left = Math.round((innerWidth - w) / 2), topY = Math.min(88, Math.max(12, Math.round((innerHeight - h) / 3)))
     if (ref) {
       const r = ref.getBoundingClientRect()
       if (ref.closest?.('aside')) {
-        left = r.right + 8 + w <= innerWidth - 8 ? r.right + 8 : Math.max(8, innerWidth - w - 8)
+        left = r.right + 6 + w <= innerWidth - 8 ? r.right + 6 : Math.max(8, innerWidth - w - 8)
         topY = Math.max(8, Math.min(r.top, innerHeight - h - 8))
       } else {
         left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
-        topY = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)
+        topY = r.bottom + 4 + h <= innerHeight - 8 ? r.bottom + 4 : Math.max(8, r.top - h - 4)
       }
     }
     pop.style.left = left + 'px'; pop.style.top = topY + 'px'
@@ -276,7 +274,7 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact anchored picker
       if (!btns.length) return
       const cur = btns.indexOf(document.activeElement)
       if (e.key === 'ArrowDown') { e.preventDefault(); btns[(cur + 1 + btns.length) % btns.length].focus() }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(cur - 1 + btns.length) % btns.length].focus() }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(cur < 0 ? btns.length - 1 : (cur - 1 + btns.length) % btns.length)].focus() }
     }
     let closed = false
     const done = v => {
@@ -289,10 +287,9 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact anchored picker
       res(v)
     }
     pickPopClose = done
-    cx.onclick = () => done(-1)
     document.addEventListener('mousedown', onDown, true)
     document.addEventListener('keydown', onKey, true)
-    setTimeout(() => list.querySelector('button')?.focus(), 20)
+    setTimeout(() => pop.focus({ preventScroll: true }), 10)
   })
 }
 $('modal').onclick = e => { if (e.target === $('modal')) $('mNo').click() } // click outside = cancel

@@ -655,10 +655,10 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   del.dataset.menuLabel = t('menu.actionTrash'); del.dataset.menuHint = 'menu.trashHint'
   del.onclick = async e => {
     e.stopPropagation()
-    if (!await ask(t('templates.delResConfirm', { name: tpl.name }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)) } catch (err) { toast(err.message); return }
     if (tpl.name === tplName) { clearTimeout(tplT); tplDirty = false; closeView(); $('viewSeg').style.display = '' } // open resource gone: no zombie save, back to empty
     await loadTpl(); sidebar()
+    toast(t('docs.moveTrash'))
   }
   div.appendChild(del)
   compactSidebarActions(div, 0, personalModuleMenu)

@@ -117,7 +117,6 @@ function openExportDlg(fmt) { // compact popover under Export: server compile, c
   p.appendChild(pg)
   p.appendChild(el('p', 'sub', t('downloads.expServerNote')))
   const act = el('div', 'expAct')
-  const no = el('button', null, t('common.cancel')); no.type = 'button'; no.onclick = done
   const yes = el('button', 'primary', t('downloads.expGo')); yes.type = 'button'
   const fallback = { pdf: dlPdfClient, png: dlPngClient, svg: dlSvgClient }[fmt]
   yes.onclick = async () => {
@@ -134,11 +133,12 @@ function openExportDlg(fmt) { // compact popover under Export: server compile, c
     }
   }
   pg.onkeydown = e => { if (e.key === 'Enter') yes.onclick() }
-  act.append(no, yes)
+  act.append(yes)
   p.appendChild(act)
   p.style.display = ''
   anchorPop(p, $('exportBtn'))
-  setTimeout(() => yes.focus(), 20)
+  p.tabIndex = -1
+  setTimeout(() => p.focus({ preventScroll: true }), 10)
 }
 $('dlPng').onclick = e => { e?.stopPropagation?.(); openExportDlg('png') }
 $('dlSvg').onclick = e => { e?.stopPropagation?.(); openExportDlg('svg') }

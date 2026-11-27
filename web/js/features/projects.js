@@ -415,9 +415,7 @@ async function pullLibrary(source, target, targetFolder = '') {
   // keep the source path so dependencies stay in the same relative place.
   const folder = target.scope === 'project' ? (targetFolder || source.folder || '') : ''
   const initial = target.scope === 'personal' ? base : (folder ? folder + '/' + base : source.source)
-  const name = await ask(t('projects.copyName'), { value: initial, maxLen: 240, stem: true })
-  if (!name?.trim() || !current()) return null
-  const body = { ...source, ...target, name: name.trim(), renames: {} }
+  const body = { ...source, ...target, name: initial, renames: {} }
   while (current()) {
     const preview = await api('POST', '/api/library/pull-preview', body)
     if (!current()) return null
@@ -541,7 +539,6 @@ async function newProjectFolder(p, parent = '') {
 async function deleteFolder(p, path) {
   if (window.changeSession || window.suggestionDraft) { toast(t('packages.sourceBlocked')); return }
   if (!await flushTab() || !await flushTpl()) return
-  if (!await ask(t('projects.folderTrashConfirm', { name: path }), { noInput: true, danger: true })) return
   let result
   try { result = await api('DELETE', `/api/projects/${p.id}/folders?path=${encodeURIComponent(path)}`) } // documents and files below it go to the trash
   catch (e) { toast(e.message); await sidebar(); return }
@@ -549,6 +546,7 @@ async function deleteFolder(p, path) {
   else if (activeFile && insideFolder(activeFile, path)) await switchTab('', true)
   if (docId) { filesDirty = true; await loadProjectFiles(true); tabSig = ''; queueRender() }
   await sidebar()
+  toast(t('docs.moveTrash'))
 }
 async function afterFolderRename(p, path, target) {
   const doc = docId, epoch = openN, was = activeFile
@@ -704,13 +702,13 @@ async function trashFile(project, path) { // a delete names the version it remov
 async function deleteProjectEntry(p, name) {
   if (!p) { toast(t('projects.contextGone')); return }
   const doc = docId, epoch = openN
-  if (!await ask(t('files.delConfirm', { name }), { noInput: true, danger: true })) return
   try { await trashFile(p.id, name) } catch (e) { toast(e.message); await sidebar(); return }
   if (docId === doc && openN === epoch && docProject === p.id) {
     if (activeFile === name && !tabDirty) await switchTab('', true)
     filesDirty = true; await loadProjectFiles(true); queueRender()
   }
   await sidebar()
+  toast(t('docs.moveTrash'))
 }
 
 function projectFolderPaths(p) { return projectTree(p, projectEntries(p)).all }

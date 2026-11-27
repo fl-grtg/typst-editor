@@ -7,33 +7,37 @@
   padding: 14px; font-size: 13px; line-height: 1.5;
   background: var(--card); border-radius: var(--r-lg); box-shadow: var(--sh-pop); color: var(--text);
 }
-#exportPop { width: 300px; padding: 12px 14px 14px; }
-#exportPop label { display: block; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--sub); }
-#exportPop select, #exportPop input[type=text] { width: 100%; margin-top: 4px; min-height: 34px; padding: 6px 10px; font-size: 13px; color: var(--text); background: var(--field); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-#exportPop .sub { margin: 10px 0 0; font-size: 11.5px; color: var(--faint); line-height: 1.4; }
-#exportPop .expAct { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
-#exportPop .expAct button { min-height: 32px; padding: 5px 14px; font-size: 13px; border-radius: var(--r-sm); }
+#exportPop { width: 240px; padding: 10px 12px 12px; border: 1px solid var(--line); border-radius: var(--r-md); }
+#exportPop .sTop { margin-bottom: 2px; }
+#exportPop .sTop b { font-size: 12.5px; }
+#exportPop .sTop button { min-width: 24px; height: 24px; }
+#exportPop label { display: block; margin-top: 8px; font-size: 11.5px; font-weight: 600; color: var(--sub); }
+#exportPop select, #exportPop input[type=text] { width: 100%; margin-top: 3px; min-height: 30px; padding: 4px 8px; font-size: 12.5px; color: var(--text); background: var(--field); border: 1px solid var(--line-2); border-radius: var(--r-xs); }
+#exportPop .sub { margin: 8px 0 0; font-size: 11px; color: var(--faint); line-height: 1.35; }
+#exportPop .expAct { margin-top: 10px; }
+#exportPop .expAct button { width: 100%; min-height: 30px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; border: 0; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); box-shadow: none; }
+#exportPop .expAct button:hover:not(:disabled) { filter: opacity(.86); }
 #pickPop {
-  position: fixed; z-index: var(--z-menu); width: min(300px, calc(100vw - 24px)); max-height: min(65vh, 420px);
-  display: flex; flex-direction: column; overflow: hidden; padding: 8px;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--sh-pop); color: var(--text); font-size: 13px;
+  position: fixed; z-index: var(--z-menu); width: max-content; min-width: 176px; max-width: min(276px, calc(100vw - 16px)); max-height: min(60vh, 380px);
+  display: flex; flex-direction: column; overflow: hidden; padding: 4px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--sh-pop); color: var(--text); font-size: 13px;
 }
-#pickPop .sTop { padding: 2px 4px 6px; gap: 6px; margin-bottom: 2px; }
-#pickPop .sTop b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#pickPop .pkList { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+#pickPop:focus { outline: none; }
+#pickPop .pkHead { display: flex; align-items: center; gap: 4px; padding: 4px 6px 3px; }
+#pickPop .pkHead b { flex: 1; min-width: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pickPop .pkHead .pkBack { flex: none; min-width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-xs); background: none; box-shadow: none; color: var(--sub); font-size: 12px; line-height: 1; }
+#pickPop .pkHead .pkBack:hover { background: var(--hover); color: var(--text); }
+#pickPop .pkList { overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 #pickPop .pkRow {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-height: 32px;
-  padding: 6px 9px; border: 0; border-radius: var(--r-sm); background: transparent; box-shadow: none;
-  color: var(--text); text-align: left; font: 500 13px/1.35 var(--ui); cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-height: 28px;
+  padding: 4px 8px; border: 0; border-radius: var(--r-xs); background: transparent; box-shadow: none;
+  color: var(--text); text-align: left; font: 450 13px/1.35 var(--ui); cursor: pointer;
 }
-#pickPop .pkRow:hover, #pickPop .pkRow:focus-visible { background: var(--hover); }
+#pickPop .pkRow:hover, #pickPop .pkRow:focus-visible { background: var(--hover); outline: none; }
+#pickPop .pkRow:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #pickPop .pkRow:active { background: var(--press); }
-#pickPop .pkRow b { font-weight: 550; font-size: 13px; }
-#pickPop .pkRow span { font-size: 11.5px; color: var(--sub); font-weight: 400; line-height: 1.35; }
-#docHead .titleRenameInput {
-  min-width: 140px; max-width: min(360px, 42vw); height: 28px; min-height: 28px; padding: 0 8px;
-  font-size: 14px; font-weight: 600; border-radius: var(--r-sm);
-}
+#pickPop .pkRow b { font-weight: 500; font-size: 13px; }
+#pickPop .pkRow span { font-size: 11.5px; color: var(--sub); font-weight: 400; line-height: 1.3; }
 #histPop .histSaveRow { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 #histPop .histSaveRow input { flex: 1; min-width: 0; min-height: 30px; padding: 4px 8px; font-size: 12.5px; border-radius: var(--r-sm); }
 #histPop .histSaveRow button { flex: none; min-height: 30px; padding: 4px 10px; font-size: 12px; border-radius: var(--r-sm); }

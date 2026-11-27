@@ -92,45 +92,17 @@ $('out').onclick = () => { try { clearTimeout(sideESTimer); sideES?.close(); sid
   } catch (e) {}
   location.reload()
 }) }
-function headerInlineRename(value, label, opts = {}) { // edit #title in place: Enter/blur saves, Esc cancels
-  const titleEl = $('title'), btn = $('renBtn')
-  const input = el('input', 'titleRenameInput')
-  input.value = value; input.maxLength = opts.maxLen || 100
-  input.setAttribute('aria-label', label || t('docs.renameDoc'))
-  input.spellcheck = false
-  titleEl.hidden = true; btn.hidden = true
-  titleEl.after(input)
-  return new Promise(resolve => {
-    let done = false
-    const finish = save => {
-      if (done) return; done = true
-      const next = input.value.trim()
-      input.remove(); titleEl.hidden = false; btn.hidden = false
-      resolve(save && next && next !== value ? next : null)
-    }
-    input.onkeydown = e => {
-      if (e.key === 'Enter') { e.preventDefault(); finish(true) }
-      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
-    }
-    input.onblur = () => finish(true)
-    setTimeout(() => { input.focus(); input.setSelectionRange(opts.stem ? nameStemStart(value) : 0, opts.stem ? nameStemEnd(value) : value.length) }, 0)
-  })
-}
 let renBusy = false // double-click: no second dialog/POST while one rename flies
-$('renBtn').onclick = async () => { // pencil behind title (owner only, template too)
+$('renBtn').onclick = async () => { // pencil behind title (owner only, template too) -> renames inline in sidebar
   if (renBusy) return; renBusy = true
   try {
-  const doc = docId, epoch = openN
+  if (document.body.classList.contains('noside')) $('navToggle')?.click()
   if (tplName) { await renamePersonalResource(tplName); return }
   if (!docId || docRole !== 'owner') return
-  if (window.changeSession) { await renameProjectDocument({ id: docId, title: docTitle }); return }
   const cur = (typeof docTitle !== 'undefined' && docTitle) || $('title').textContent
-  const nt = await headerInlineRename(cur, t('docs.renameDoc'))
-  if (nt === null || !nt.trim()) return
-  if (doc !== docId || epoch !== openN) return
-  api('POST', `/api/docs/${doc}/rename`, { title: nt.trim() })
-    .then(() => { if (doc === docId && epoch === openN) { $('title').textContent = nt.trim(); docTitle = nt.trim(); tabSig = ''; paintTabs() } sidebar() })
-    .catch(e => toast(e.message))
+  const row = document.querySelector(`aside [data-doc-id="${CSS.escape(docId)}"]`)
+  row?.scrollIntoView({ block: 'nearest' })
+  await renameProjectDocument({ id: docId, title: cur }, row)
   } finally { renBusy = false }
 }
 function askNewDoc(uploadTitle, headTitle) { // one dialog: title + folder radio + gallery grid (not 3 cascades)
@@ -285,15 +257,14 @@ $('del').onclick = async () => {
     else await stageDocumentDelete(doc)
     return
   }
-  if (tplName) { // delete open template
-    if (!await ask(t('templates.delTplConfirm', { name: tplName }), { noInput: true, ok: t('docs.moveTrash'), danger: true })) return
-    if (resource !== tplName || epoch !== openN) return
+  if (tplName) { // delete open template (reversible in trash)
     try { await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
     catch (e) { toast(e.message); return }
     if (resource !== tplName || epoch !== openN) { loadTpl(); return }
     tplName = ''; tplDirty = false; clearTimeout(tplT)
     closeView(); $('viewSeg').style.display = '' // segment back: no doc, but view selectable
     await loadTpl(); sidebar()
+    toast(t('docs.moveTrash'))
     return
   }
   if (openedTrashed) {
