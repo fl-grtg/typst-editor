@@ -618,8 +618,24 @@ function threadCard(th) {
     const rAuthor = r.author || r.username || '?'
     const rav = el('span', 'av', rAuthor.slice(0, 1).toUpperCase()); rav.style.background = colOf(r.username || rAuthor); rav.setAttribute('aria-hidden', 'true')
     if (typeof paintAvatar === 'function' && r.username) paintAvatar(rav, r.username, colOf(r.username))
+    const rMeta = el('span', 'hdMeta')
     const rn = el('b', 'nm', rAuthor)
-    rh.append(rav, rn, el('span', 'tm', ago(r.created_at)))
+    rMeta.append(rn, el('span', 'tm', ago(r.created_at)))
+    const rActs = el('span', 'acts')
+    if (!roC && r.username === user) {
+      const red = icoBtn('ib', ICO_EDIT); red.title = t('comments.edit'); red.setAttribute('aria-label', red.title)
+      red.onclick = async () => {
+        const v = await ask(t('comments.editHead'), { value: r.text })
+        if (doc === docId && epoch === openN && v !== null && v.trim()) api('POST', `/api/docs/${doc}/comments/${r.id}/edit`, { text: v }).then(fresh).catch(e => toast(e.message))
+      }
+      rActs.appendChild(red)
+    }
+    if (!roC && (docRole === 'owner' || r.username === user)) {
+      const rdel = icoBtn('ib', ICO_TRASH); rdel.classList?.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
+      rdel.onclick = () => api('DELETE', `/api/docs/${doc}/comments/${r.id}`).then(fresh).catch(e => toast(e.message))
+      rActs.appendChild(rdel)
+    }
+    rh.append(rav, rMeta, rActs)
     rd.append(rh, richText(r.text)); d.appendChild(rd)
   })
   const row = el('div', 'rr')

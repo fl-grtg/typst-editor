@@ -486,7 +486,6 @@ function threadHighlights() {
   const rs = []
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
-    if (!th.suggestion_status && th.resolved) continue // resolved comments stay reachable via gutter without leaving pale smudges in the text
     if (th.a == null || th.b == null) continue
     const pending = th.suggestion_status === 'pending'
     if (pending && th.conflict) { // conflicted suggestion: mark anchor line cleanly without slicing unrelated text
