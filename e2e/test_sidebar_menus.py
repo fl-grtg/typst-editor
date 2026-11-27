@@ -152,7 +152,7 @@ def test_project_and_folder_plus_open_the_same_compact_menu(page):
     group = page.locator(".project-group").filter(has=page.locator(".fhd.project b", has_text="Plus menu doc")).first
     head = group.locator(".fhd.project")
     menu = page.locator("#menu")
-    entries = ("New document", "New file", "New folder", "Upload file", "Import from my modules")
+    entries = ("New document", "New module", "New folder", "Upload file", "Import from my modules")
 
     head.hover()
     head.locator("button.mini").first.click()
@@ -237,7 +237,7 @@ def test_folder_module_submenu_skips_the_type_picker(page):
     folder = page.locator("aside .fhd.folder").filter(has=page.locator("b", has_text="sub")).first
     folder.hover()
     folder.locator("button.mini").first.click()
-    page.locator("#menu button").filter(has_text="New file").first.hover()
+    page.locator("#menu button").filter(has_text="New module").first.hover()
     sub = page.locator("#submenu")
     expect(sub).to_be_visible()
     sub.locator("button").filter(has_text=".typ").first.click()

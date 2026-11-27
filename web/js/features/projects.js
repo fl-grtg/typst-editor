@@ -503,7 +503,7 @@ function projectMenu(p, folder = '', anchor) { // the + on a project/folder open
   const run = fn => () => Promise.resolve().then(fn).catch(e => toast(e.message))
   const items = [
     { label: t('docs.newDocTitle'), title: t('docs.pickDocSub'), run: run(() => newProjectDoc(p.id, folder)) },
-    { label: t('projects.newFile'), title: t('projects.newResourceHint'), submenu: () => fileTypeMenuItems(ext => run(() => newProjectResource(p.id, folder, ext))()) },
+    { label: t('projects.newResource'), title: t('projects.newResourceHint'), submenu: () => fileTypeMenuItems(ext => run(() => newProjectResource(p.id, folder, ext))()) },
   ]
   if ((folder ? folder.split('/').length : 0) < FOLDER_LEVELS) { // no deeper level below this one
     items.push({ label: t('projects.newFolder'), title: t('projects.newFolderHint'), run: run(() => newProjectFolder(p, folder)) })
@@ -514,7 +514,7 @@ function projectMenu(p, folder = '', anchor) { // the + on a project/folder open
       picker.onchange = () => uploadProjectFiles(p, [...picker.files], folder).catch(e => toast(e.message))
       picker.click()
     } },
-    { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), run: run(async () => {
+    { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), keepOpen: true, run: run(async () => {
       await loadTpl()
       const j = await pickPop(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']), anchor)
       if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id }, folder)
@@ -808,13 +808,13 @@ async function pickTargetFolder(p, head, exclude = '', reserve = 0, anchor = nul
   return i == null || i < 0 ? null : values[i]
 }
 async function pickProjectAndFolder(targets, head, reserve = 0, anchor = null) { // project -> folder inside one anchored popover with back navigation
-  const pos = typeof window !== 'undefined' && window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250
-    ? { left: window.__menuPopOrigin.left, top: window.__menuPopOrigin.top } : null
+  const pos = typeof window !== 'undefined' && window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 2000
+    ? { left: window.__menuPopOrigin.left, top: window.__menuPopOrigin.top, anchorLeft: window.__menuPopOrigin.anchorLeft } : null
   while (true) {
-    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor, pos ? { pos } : {})
+    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor, pos ? { pos, keepMenu: true } : { keepMenu: true })
     if (i == null || i < 0 || !targets[i]) return null
     let target
-    try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return null }
+    try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); if (window.closeMenu) window.closeMenu(false); return null }
     const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', reserve, anchor, pos ? { back: true, pos } : { back: true })
     if (folder === 'back') continue
     if (folder == null) return null
@@ -901,8 +901,8 @@ async function convertEntry(p, entry) {
 function entryDestinationItems(p, entry, move, within = true) {
   const what = entry.kind
   const items = []
-  if (within) items.push(sidebarMenuItem('copy', () => transferEntryWithin(p, entry, move), { what, label: t('menu.copyHere'), title: t('menu.copyHereHint') }))
-  items.push(sidebarMenuItem('copy', () => transferEntryOther(p, entry, move), { what, label: t('menu.copyOther'), title: t('menu.copyOtherHint') }))
+  if (within) items.push(sidebarMenuItem('copy', () => transferEntryWithin(p, entry, move), { what, label: t('menu.copyHere'), title: t('menu.copyHereHint'), keepOpen: true }))
+  items.push(sidebarMenuItem('copy', () => transferEntryOther(p, entry, move), { what, label: t('menu.copyOther'), title: t('menu.copyOtherHint'), keepOpen: true }))
   if (!move && entry.kind === 'file' && TEXT_EXT.test(entry.name)) {
     items.push(sidebarMenuItem('copy', () => copyFileToPersonal(p.id, entry.name), { what, label: t('menu.copyGlobal'), title: t('menu.copyGlobalHint') }))
   }
@@ -917,7 +917,7 @@ async function transferEntryWithin(p, entry, move) {
 }
 async function transferEntryOther(p, entry, move) {
   const targets = projects.filter(x => x.id !== p.id && projectEditable(x))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const picked = await pickProjectAndFolder(targets, t('menu.copyOther'), 0, entryAnchor(p, entry))
   if (!picked) return
   return transferEntryTo(p, entry, picked.target, picked.folder, move)
@@ -964,7 +964,7 @@ async function transferFolderWithin(p, path, move) {
 }
 async function transferFolderOther(p, path, move) {
   const targets = projects.filter(x => x.id !== p.id && projectEditable(x))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const picked = await pickProjectAndFolder(targets, t('menu.copyOther'), 1, entryAnchor(p, { kind: 'folder', name: path }))
   if (!picked) return
   const name = await targetFolderName(picked.target, picked.folder, folderBase(path), !move)
@@ -1052,8 +1052,8 @@ function folderMenuItems(p, path, actions) {
 }
 function folderDestinationItems(p, path, move, within = true) {
   const items = []
-  if (within) items.push(sidebarMenuItem('copy', () => transferFolderWithin(p, path, move), { what: 'folder', label: t('menu.copyHere'), title: t('menu.copyHereHint') }))
-  items.push(sidebarMenuItem('copy', () => transferFolderOther(p, path, move), { what: 'folder', label: t('menu.copyOther'), title: t('menu.copyOtherHint') }))
+  if (within) items.push(sidebarMenuItem('copy', () => transferFolderWithin(p, path, move), { what: 'folder', label: t('menu.copyHere'), title: t('menu.copyHereHint'), keepOpen: true }))
+  items.push(sidebarMenuItem('copy', () => transferFolderOther(p, path, move), { what: 'folder', label: t('menu.copyOther'), title: t('menu.copyOtherHint'), keepOpen: true }))
   return items
 }
 async function transferProjectEntry(p, entry, move, selectedTarget, direct = false, folder = '') {

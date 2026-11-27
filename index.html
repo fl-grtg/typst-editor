@@ -5559,13 +5559,15 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
     })
     pop.append(top, list)
     document.body.appendChild(pop)
-    const origin = o.pos || (window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250 ? window.__menuPopOrigin : null)
+    const origin = o.pos || (window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 2000 ? window.__menuPopOrigin : null)
     window.__menuPopOrigin = null
     const ref = anchor && anchor.getClientRects?.().length ? anchor : null
     const w = pop.offsetWidth || 200, h = pop.offsetHeight || 160
     let left = Math.round((innerWidth - w) / 2), topY = Math.min(88, Math.max(12, Math.round((innerHeight - h) / 3)))
     if (origin) {
-      left = Math.max(8, Math.min(origin.left, innerWidth - w - 8))
+      let l = origin.left
+      if (origin.anchorLeft != null && l + w > innerWidth - 8) l = origin.anchorLeft - w - 3
+      left = Math.max(8, Math.min(l, innerWidth - w - 8))
       topY = Math.max(8, Math.min(origin.top, innerHeight - h - 8))
     } else if (ref) {
       const r = ref.getBoundingClientRect()
@@ -5573,7 +5575,7 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
       topY = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)
     }
     pop.style.left = left + 'px'; pop.style.top = topY + 'px'
-    const onDown = e => { if (!pop.contains(e.target)) done(-1) }
+    const onDown = e => { if (!pop.contains(e.target)) done(-1, !e.target.closest?.('#menu, #submenu')) }
     const onKey = e => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(-1); return }
       const btns = [...list.querySelectorAll('button')]
@@ -5583,12 +5585,13 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
       else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(cur < 0 ? btns.length - 1 : (cur - 1 + btns.length) % btns.length)].focus() }
     }
     let closed = false
-    const done = v => {
+    const done = (v, dropMenu = false) => {
       if (closed) return; closed = true
       pickPopClose = null
       document.removeEventListener('mousedown', onDown, true)
       document.removeEventListener('keydown', onKey, true)
       pop.remove()
+      if (((v !== -1 && v !== 'back' && !o.keepMenu) || dropMenu) && window.closeMenu) window.closeMenu(false)
       if (v === -1 && prev && document.contains(prev)) try { prev.focus() } catch (e) {}
       res(v)
     }
@@ -12950,7 +12953,7 @@ function projectMenu(p, folder = '', anchor) { // the + on a project/folder open
   const run = fn => () => Promise.resolve().then(fn).catch(e => toast(e.message))
   const items = [
     { label: t('docs.newDocTitle'), title: t('docs.pickDocSub'), run: run(() => newProjectDoc(p.id, folder)) },
-    { label: t('projects.newFile'), title: t('projects.newResourceHint'), submenu: () => fileTypeMenuItems(ext => run(() => newProjectResource(p.id, folder, ext))()) },
+    { label: t('projects.newResource'), title: t('projects.newResourceHint'), submenu: () => fileTypeMenuItems(ext => run(() => newProjectResource(p.id, folder, ext))()) },
   ]
   if ((folder ? folder.split('/').length : 0) < FOLDER_LEVELS) { // no deeper level below this one
     items.push({ label: t('projects.newFolder'), title: t('projects.newFolderHint'), run: run(() => newProjectFolder(p, folder)) })
@@ -12961,7 +12964,7 @@ function projectMenu(p, folder = '', anchor) { // the + on a project/folder open
       picker.onchange = () => uploadProjectFiles(p, [...picker.files], folder).catch(e => toast(e.message))
       picker.click()
     } },
-    { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), run: run(async () => {
+    { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), keepOpen: true, run: run(async () => {
       await loadTpl()
       const j = await pickPop(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']), anchor)
       if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id }, folder)
@@ -13255,13 +13258,13 @@ async function pickTargetFolder(p, head, exclude = '', reserve = 0, anchor = nul
   return i == null || i < 0 ? null : values[i]
 }
 async function pickProjectAndFolder(targets, head, reserve = 0, anchor = null) { // project -> folder inside one anchored popover with back navigation
-  const pos = typeof window !== 'undefined' && window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 250
-    ? { left: window.__menuPopOrigin.left, top: window.__menuPopOrigin.top } : null
+  const pos = typeof window !== 'undefined' && window.__menuPopOrigin && Date.now() - window.__menuPopOrigin.at < 2000
+    ? { left: window.__menuPopOrigin.left, top: window.__menuPopOrigin.top, anchorLeft: window.__menuPopOrigin.anchorLeft } : null
   while (true) {
-    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor, pos ? { pos } : {})
+    const i = await pickPop(head, targets.map(x => [x.title, '']), anchor, pos ? { pos, keepMenu: true } : { keepMenu: true })
     if (i == null || i < 0 || !targets[i]) return null
     let target
-    try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); return null }
+    try { target = await api('GET', `/api/projects/${targets[i].id}`) } catch (e) { toast(e.message); if (window.closeMenu) window.closeMenu(false); return null }
     const folder = await pickTargetFolder(target, t('menu.targetFolder', { project: target.title }), '', reserve, anchor, pos ? { back: true, pos } : { back: true })
     if (folder === 'back') continue
     if (folder == null) return null
@@ -13348,8 +13351,8 @@ async function convertEntry(p, entry) {
 function entryDestinationItems(p, entry, move, within = true) {
   const what = entry.kind
   const items = []
-  if (within) items.push(sidebarMenuItem('copy', () => transferEntryWithin(p, entry, move), { what, label: t('menu.copyHere'), title: t('menu.copyHereHint') }))
-  items.push(sidebarMenuItem('copy', () => transferEntryOther(p, entry, move), { what, label: t('menu.copyOther'), title: t('menu.copyOtherHint') }))
+  if (within) items.push(sidebarMenuItem('copy', () => transferEntryWithin(p, entry, move), { what, label: t('menu.copyHere'), title: t('menu.copyHereHint'), keepOpen: true }))
+  items.push(sidebarMenuItem('copy', () => transferEntryOther(p, entry, move), { what, label: t('menu.copyOther'), title: t('menu.copyOtherHint'), keepOpen: true }))
   if (!move && entry.kind === 'file' && TEXT_EXT.test(entry.name)) {
     items.push(sidebarMenuItem('copy', () => copyFileToPersonal(p.id, entry.name), { what, label: t('menu.copyGlobal'), title: t('menu.copyGlobalHint') }))
   }
@@ -13364,7 +13367,7 @@ async function transferEntryWithin(p, entry, move) {
 }
 async function transferEntryOther(p, entry, move) {
   const targets = projects.filter(x => x.id !== p.id && projectEditable(x))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const picked = await pickProjectAndFolder(targets, t('menu.copyOther'), 0, entryAnchor(p, entry))
   if (!picked) return
   return transferEntryTo(p, entry, picked.target, picked.folder, move)
@@ -13411,7 +13414,7 @@ async function transferFolderWithin(p, path, move) {
 }
 async function transferFolderOther(p, path, move) {
   const targets = projects.filter(x => x.id !== p.id && projectEditable(x))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const picked = await pickProjectAndFolder(targets, t('menu.copyOther'), 1, entryAnchor(p, { kind: 'folder', name: path }))
   if (!picked) return
   const name = await targetFolderName(picked.target, picked.folder, folderBase(path), !move)
@@ -13499,8 +13502,8 @@ function folderMenuItems(p, path, actions) {
 }
 function folderDestinationItems(p, path, move, within = true) {
   const items = []
-  if (within) items.push(sidebarMenuItem('copy', () => transferFolderWithin(p, path, move), { what: 'folder', label: t('menu.copyHere'), title: t('menu.copyHereHint') }))
-  items.push(sidebarMenuItem('copy', () => transferFolderOther(p, path, move), { what: 'folder', label: t('menu.copyOther'), title: t('menu.copyOtherHint') }))
+  if (within) items.push(sidebarMenuItem('copy', () => transferFolderWithin(p, path, move), { what: 'folder', label: t('menu.copyHere'), title: t('menu.copyHereHint'), keepOpen: true }))
+  items.push(sidebarMenuItem('copy', () => transferFolderOther(p, path, move), { what: 'folder', label: t('menu.copyOther'), title: t('menu.copyOtherHint'), keepOpen: true }))
   return items
 }
 async function transferProjectEntry(p, entry, move, selectedTarget, direct = false, folder = '') {
@@ -16554,17 +16557,15 @@ openLinePop = line => {
       else {
         var stay = !d.close && (d.keepOpen || (d.checked !== undefined && openFor && openFor.closest('#menubar')))
         b.onclick = function () {
-          if (!stay) {
-            var rect = panel.getBoundingClientRect()
-            window.__menuPopOrigin = { left: rect.left, top: rect.top, at: Date.now() }
-            close(false); runMenuItem(d); return
-          }
+          var br = b.getBoundingClientRect()
+          window.__menuPopOrigin = { left: br.right + 3, top: br.top - 4, anchorLeft: br.left, at: Date.now() }
+          if (!stay) { close(false); runMenuItem(d); return }
           runMenuItem(d)
           if (d.checked !== undefined) setTimeout(function () { refreshOpen(panel, b) }, 0) // plain keep-open rows (sidebar) do not need a repaint
         }
       }
       b.addEventListener('pointerenter', function (e) { // hover another row: collapse the old submenu right away instead of leaving it over the list for 400 ms
-        if (panel === menu && e.pointerType === 'mouse' && subFor) closeSub(false)
+        if (panel === menu && e.pointerType === 'mouse' && subFor && !document.getElementById('pickPop')) closeSub(false)
       })
     }
     b._menuItem = d
@@ -16572,7 +16573,7 @@ openLinePop = line => {
   }
   ;[menu, submenu].forEach(function (panel) { // grace period when the pointer crosses the gap between the panels
     panel.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') cancelSubClose() })
-    panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor) scheduleSubClose() })
+    panel.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && subFor && !document.getElementById('pickPop')) scheduleSubClose() })
   })
   var MENUBAR = { file: 1, edit: 1, view: 1, help: 1 }
   function sharedMenubarWidth() { // all four menus take the natural width of the longest one
@@ -16657,7 +16658,7 @@ openLinePop = line => {
       if (openFor === a) close(false); else open(a, a.dataset.menu)
       return
     }
-    if (openFor && !menu.contains(e.target) && !submenu.contains(e.target)) close(false)
+    if (openFor && !menu.contains(e.target) && !submenu.contains(e.target) && !e.target.closest('#pickPop')) close(false)
   })
   // hover-switch between top-level menus while one is open (desktop menubar behaviour)
   document.querySelectorAll('#menubar [data-menu]').forEach(function (b) {

@@ -81,7 +81,7 @@ def test_create_folder_module_in_folder_and_rename_folder_through_the_ui(page):
     # new file inside the folder
     folder.hover()
     folder.locator("button.mini").first.click()
-    page.locator("#menu button").filter(has_text="New file").click()
+    page.locator("#menu button").filter(has_text="New module").click()
     page.locator("#submenu button").filter(has_text=".typ").first.click()
     page.locator("aside input.renameInput").fill("intro")
     page.keyboard.press("Enter")
