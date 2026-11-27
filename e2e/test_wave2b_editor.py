@@ -35,7 +35,7 @@ def test_9_format_shortcut_preview_shortcuts_spell(page):
     page.locator('.sbHead [data-rail="help"]').click()  # Help = rounded link menu
     help = page.locator("#helpOverlay")
     expect(help).to_be_visible()
-    assert "blur(6px)" in help.evaluate("n => getComputedStyle(n).backdropFilter")  # the page behind the dialog stays softly blurred
+    assert help.evaluate("n => getComputedStyle(n).backdropFilter") == "none"  # compact anchored popover without fullscreen blur
     expect(page.locator("#helpCard")).to_contain_text("Report an issue")
     expect(page.locator("#helpCard")).to_contain_text("Keyboard shortcuts")
     expect(page.locator("#helpCard")).to_contain_text("Connect your agent")

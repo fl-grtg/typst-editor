@@ -166,8 +166,8 @@ def test_project_and_folder_plus_open_the_same_compact_menu(page):
     head.hover()
     head.locator("button.mini").first.click()
     menu.locator("button").filter(has_text="New folder").click()
-    page.fill("#mInp", "ordner")
-    page.click("#mYes")
+    page.locator("aside input.renameInput").fill("ordner")
+    page.keyboard.press("Enter")
     folder = page.locator("aside .fhd.folder").filter(has=page.locator("b", has_text="ordner")).first
     folder.hover()
     folder.locator("button.mini").first.click()
@@ -198,10 +198,10 @@ def test_copy_submenu_can_be_reached_with_the_mouse(page):
     expect(sub).to_be_visible()
 
     sub.locator("button").first.click()
-    expect(page.locator("#modal")).to_be_visible()
-    expect(page.locator("#mHead")).to_have_text("In this project")
-    page.locator("#mCard .mTop button").click()
-    expect(page.locator("#modal")).to_be_hidden()
+    expect(page.locator("#pickPop")).to_be_visible()
+    expect(page.locator("#pickPop .pkHead")).to_have_text("In this project")
+    page.keyboard.press("Escape")
+    expect(page.locator("#pickPop")).to_have_count(0)
 
 
 def test_copy_to_another_folder_keeps_the_document_title(page):
@@ -217,9 +217,9 @@ def test_copy_to_another_folder_keeps_the_document_title(page):
     row.locator("button[data-side-menu]").click()
     page.locator("#menu button").filter(has_text="Copy to").first.hover()
     page.locator("#submenu button").filter(has_text="In this project").click()
-    expect(page.locator("#mHead")).to_have_text("In this project")
-    page.locator("#modal button").filter(has_text="target").first.click()
-    expect(page.locator("#modal")).to_be_hidden()
+    expect(page.locator("#pickPop .pkHead")).to_have_text("In this project")
+    page.locator("#pickPop button.pkRow").filter(has_text="target").first.click()
+    expect(page.locator("#pickPop")).to_have_count(0)
 
     expect(page.locator("#own .doc .t", has_text="Keep title")).to_have_count(2)
     docs = page.request.get(f"/api/projects/{pid}").json()["documents"]
@@ -242,12 +242,12 @@ def test_folder_module_submenu_skips_the_type_picker(page):
     expect(sub).to_be_visible()
     sub.locator("button").filter(has_text=".typ").first.click()
 
-    expect(page.locator("#mHead")).to_have_text("New file")  # name prompt, not the type picker again
-    inp = page.locator("#mInp")
+    inp = page.locator("aside input.renameInput")
     expect(inp).to_have_value("file.typ")  # suggested name with the chosen extension
+    page.wait_for_timeout(50)
     assert inp.evaluate("el => [el.selectionStart, el.selectionEnd]") == [0, 4]  # only "file" is selected
-    page.fill("#mInp", "mod")
-    page.click("#mYes")
+    inp.fill("mod")
+    inp.press("Enter")
     expect(page.locator("#modal")).to_be_hidden()
     expect(page.locator("#tabs button.tab", has_text="mod.typ")).to_be_visible()
     assert "sub/mod.typ" in file_paths(page.request, pid)
@@ -260,13 +260,12 @@ def test_module_suggestion_selects_only_the_name(page):
     head.locator("button.mini").click()
     page.locator("#menu button").filter(has_text="Typst").first.click()
 
-    expect(page.locator("#mHead")).to_have_text("New module")
-    inp = page.locator("#mInp")
+    inp = page.locator("#tpls input.renameInput")
     expect(inp).to_have_value("file.typ")
     page.wait_for_timeout(50)
     assert inp.evaluate("el => [el.selectionStart, el.selectionEnd]") == [0, 4]
-    page.fill("#mInp", "quick")
-    page.click("#mYes")
+    inp.fill("quick")
+    inp.press("Enter")
     expect(page.locator("#tpls .doc .t", has_text="quick.typ")).to_be_visible()
 
 
@@ -416,20 +415,20 @@ def test_move_into_a_subfolder_and_copy_to_another_project(page):
     menu = row()
     menu.locator("button").filter(has_text="Move to").first.hover()
     page.locator("#submenu button").filter(has_text="In this project").click()
-    expect(page.locator("#mHead")).to_have_text("In this project")
+    expect(page.locator("#pickPop .pkHead")).to_have_text("In this project")
     with page.expect_response(lambda r: r.url.endswith("/folder") and r.request.method == "POST" and r.ok):
-        page.locator("#modal button").filter(has_text="ziel").first.click()
-    expect(page.locator("#modal")).to_be_hidden()
+        page.locator("#pickPop button.pkRow").filter(has_text="ziel").first.click()
+    expect(page.locator("#pickPop")).to_have_count(0)
     docs = page.request.get(f"/api/projects/{pid}").json()["documents"]
     assert [(d["title"], d["folder"]) for d in docs if d["title"] == "Transfer source"] == [("Transfer source", "ziel")]
 
     menu = row()
     menu.locator("button").filter(has_text="Copy to").first.hover()
     page.locator("#submenu button").filter(has_text="To another project").click()
-    expect(page.locator("#mHead")).to_have_text("To another project")
-    page.locator("#modal button").filter(has_text="Transfer target").first.click()
-    expect(page.locator("#mHead")).to_have_text("Target folder in Transfer target")
-    page.locator("#modal button").filter(has_text="ablage").first.click()
+    expect(page.locator("#pickPop .pkHead")).to_have_text("To another project")
+    page.locator("#pickPop button.pkRow").filter(has_text="Transfer target").first.click()
+    expect(page.locator("#pickPop .pkHead b")).to_have_text("Target folder in Transfer target")
+    page.locator("#pickPop button.pkRow").filter(has_text="ablage").first.click()
     expect(page.locator("#mHead")).to_contain_text("Target path")  # copy keeps the title until a conflict needs a new one
     with page.expect_response(lambda r: r.url.endswith("/transfer") and r.request.method == "POST" and r.ok):
         page.click("#mYes")
@@ -481,9 +480,9 @@ def test_folder_copy_to_another_project_is_rolled_back_when_an_entry_conflicts(p
     row.locator("button[data-side-menu]").click()
     page.locator("#menu button").filter(has_text="Copy to").first.hover()
     page.locator("#submenu button").filter(has_text="To another project").click()
-    page.locator("#modal button").filter(has_text="Rollback target").first.click()
-    expect(page.locator("#mHead")).to_contain_text("Target folder")
-    page.locator("#modal button.pk").first.click()  # project root
+    page.locator("#pickPop button.pkRow").filter(has_text="Rollback target").first.click()
+    expect(page.locator("#pickPop .pkHead b")).to_contain_text("Target folder")
+    page.locator("#pickPop button.pkRow").first.click()  # project root
     expect(page.locator("#toast")).to_contain_text("was not transferred")
     payload = page.request.get(f"/api/projects/{target}").json()
     assert [d["title"] for d in payload["documents"]] == []  # the finished first copy was undone

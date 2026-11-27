@@ -23,14 +23,14 @@ def test_name_checkpoint_rename_compare_and_delete(page):
     assert page.request.post(f"/api/projects/{pid}/snapshots", data={}).ok
     page.click("#histBtn")
     page.click("#histPop .save")
-    page.fill("#mInp", "Draft one")
-    page.click("#mYes")
+    page.fill("#histPop .histSaveRow input", "Draft one")
+    page.keyboard.press("Enter")
     expect(page.locator("#histPop .srow", has_text="Draft one")).to_have_count(1)
     row = page.locator("#histPop .srow", has_text="Draft one")
     row.locator(".histMore").click()
     page.get_by_role("menuitem", name="Rename version").click()
-    page.fill("#mInp", "Release")
-    page.click("#mYes")
+    page.fill("#histPop .srow input.renameInput", "Release")
+    page.keyboard.press("Enter")
     expect(page.locator("#histPop .srow", has_text="Release")).to_have_count(1)
     if not page.locator("#histPop").is_visible():
         page.click("#histBtn")
