@@ -508,7 +508,7 @@ function threadHighlights() {
     }
     if (!conflict && !sug && !open && !resolved) continue
     const cls = conflict ? 'cm-hl cm-suggestion cm-suggestion-conflict'
-      : sug ? (open ? 'cm-hl cm-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion suggestionDeleted')
+      : sug ? (open ? 'cm-hl cm-suggestion cm-live-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion cm-live-suggestion suggestionDeleted')
       : open > 1 ? 'cm-hl cm-hl-multi'
       : open && resolved ? 'cm-hl cm-hl-mix-res'
       : open ? 'cm-hl'

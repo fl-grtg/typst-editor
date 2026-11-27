@@ -809,24 +809,24 @@ async function sessionReplaceFile(name, file) { // swap an existing file's conte
 const reviewTools = el('span', 'fmt package-tools')
 const reviewButton = icoBtn('ib', svgI('<path d="M3 3h10v10H3zM5 6h6M5 9h3"/>'))
 const originalButton = icoBtn('ib', svgI('<path d="M1 8s2-4 7-4 7 4 7 4-2 4-7 4-7-4-7-4z"/><circle cx="8" cy="8" r="2"/>'))
-const acceptPackageButton = icoBtn('ib', ICO_CHECK), acceptFileButton = icoBtn('ib', svgI('<path d="M3 1h7l3 3v10H3zM5 9l2 2 4-4"/>'))
-const exitPackageButton = icoBtn('ib', ICO_X), deletePackageButton = icoBtn('ib', ICO_TRASH)
-const packageActions = icoBtn('ib', ICO_CHECK)
+const acceptFileButton = icoBtn('ib', svgI('<path d="M3 1h7l3 3v10H3zM5 9l2 2 4-4"/>'))
+const deletePackageButton = icoBtn('ib', ICO_TRASH)
+const packageActions = icoBtn('ib', ICO_MORE)
+packageActions.classList.add('sugMore')
 const discardFileButton = icoBtn('ib', ICO_TRASH)
-reviewTools.append(reviewButton, originalButton, packageActions, exitPackageButton)
+reviewTools.append(reviewButton, originalButton)
+$('sugBar').insertBefore(packageActions, $('sugSend')) // mode actions live in one place: the bar above the text
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
-  const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
+  const actions = [acceptFileButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
   const choice = await pickPop(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']), packageActions)
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }
 $('tools').insertBefore(reviewTools, $('tools').querySelector('.tsp'))
 reviewButton.onclick = choosePackage
 originalButton.onclick = async () => { const s = window.changeSession; if (s && !s.busy) { closePop(true); s.original = !s.original; await sessionActivate() } }
-acceptPackageButton.onclick = () => acceptSessionSelection()
 acceptFileButton.onclick = () => { const f = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (f) acceptSessionSelection(f.id) }
-exitPackageButton.onclick = () => endChangeSession()
 deletePackageButton.onclick = deleteSelectedPackage
 discardFileButton.onclick = () => { const file = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (file) discardSessionFile(file) }
 const oldSuggestionControls = paintSuggestionControls
@@ -835,21 +835,20 @@ paintSuggestionControls = () => {
   const s = window.changeSession, member = docRole === 'owner' || projects.some(p => p.id === docProject && p.role !== 'guest')
   const available = !!docProject && member && !window.suggestionDraft && !openedTrashed && !tplName
   reviewTools.hidden = !available
-  const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptPackage'), t('packages.acceptFile'), t('packages.delete'), t('packages.exit')]
-  ;[reviewButton, originalButton, acceptPackageButton, acceptFileButton, deletePackageButton, exitPackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
+  const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptFile'), t('packages.delete')]
+  ;[reviewButton, originalButton, acceptFileButton, deletePackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
   packageActions.title = t('packages.actions'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
   reviewButton.hidden = !!s && !s.package
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
   originalButton.hidden = !s; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
-  acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
+  acceptFileButton.hidden = !s?.package || s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
   const currentFile = s?.files.get(sessionKey(sessionCurrent()))
   acceptFileButton.disabled = !!s?.busy || !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id)
   deletePackageButton.hidden = !s?.package || s.package.author !== user && docRole !== 'owner'
   discardFileButton.title = t('packages.discardFile'); discardFileButton.setAttribute('aria-label', discardFileButton.title)
   discardFileButton.hidden = !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id) || !!s?.package && s.package.author !== user && !['owner', 'editor'].includes(docRole)
   discardFileButton.disabled = !!s?.busy || !!s?.original
-  packageActions.hidden = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
-  exitPackageButton.hidden = !s
+  packageActions.hidden = [acceptFileButton, discardFileButton, deletePackageButton].every(button => button.hidden)
   const bar = $('sugBar')
   if (bar && s) {
     bar.hidden = false

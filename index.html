@@ -632,6 +632,8 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #sugBar .sugCount { font-size: 11.5px; color: var(--sub); }
 #sugBar .sugCount:not(:empty)::before { content: '·'; margin-right: 6px; color: var(--faint); }
 #sugBar .sugSp { flex: 1; }
+#sugBar .sugMore { width: 24px; min-width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; background: transparent; color: var(--sub); }
+#sugBar .sugMore:hover { background: var(--hover); color: var(--text); }
 #sugBar button { min-height: 24px; padding: 2px 10px; border-radius: var(--r-xs); font-size: 11.5px; font-weight: 600; box-shadow: none; }
 #sugBar .sugSend { border: 1px solid transparent; background: var(--ink); color: var(--on-ink); }
 #sugBar .sugSend:not(:disabled):hover { filter: opacity(.86); }
@@ -838,6 +840,12 @@ aside .doc .package-accept-action { visibility: visible; }
 #cmWrap .cm-hl.cm-hl-multi.cm-hl-claim { background: rgba(255, 184, 0, .50); cursor: pointer; }
 #cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: rgba(149, 90, 225, .28); cursor: pointer; }
 #cmWrap .cm-suggestion.cm-hl-mix.cm-hl-claim { background: rgba(188, 134, 152, .38); cursor: pointer; }
+/* live inline suggestions are teal: purple stays reserved for the open draft or package */
+#cmWrap .cm-live-suggestion { background: rgba(14, 148, 136, .14); box-shadow: inset 0 -1.5px 0 rgba(14, 148, 136, .55); }
+#cmWrap .cm-live-suggestion.suggestionDeleted { text-decoration-color: rgba(14, 148, 136, .85); }
+#cmWrap .cm-live-suggestion:hover, #cmWrap .cm-live-suggestion.cm-hl-claim { background: rgba(14, 148, 136, .24); }
+#cmWrap .cm-live-suggestion.cm-hl-mix { background: rgba(130, 160, 80, .24); box-shadow: inset 0 -2px 0 rgba(150, 140, 60, .7); }
+#cmWrap .cm-live-suggestion.cm-hl-mix:hover, #cmWrap .cm-live-suggestion.cm-hl-mix.cm-hl-claim { background: rgba(130, 160, 80, .36); }
 
 .bibList button.bibEntryPending { color: #9560d5; box-shadow: inset 3px 0 #9560d5; }
 /* Drop into the editor: an accent caret (images) or insertion line glides to the drop spot, a chip names the text it writes, and that text glows once it is in */
@@ -1139,6 +1147,8 @@ body.present-switch .pvPage { transition: none !important; }
 #pop .sugDel:last-child { border-bottom: 0; }
 #pop .sugAdd { background: rgba(145, 90, 225, .12); color: var(--text); }
 #pop .sugAdd::before { content: '+'; color: #9560d5; }
+#pop .liveSuggestion .sugAdd { background: rgba(14, 148, 136, .12); }
+#pop .liveSuggestion .sugAdd::before { color: #0e9488; }
 #pop .sugConflict { margin: 7px 0 0; padding: 7px 10px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.45; }
 #pop .sugActs { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 #pop .sugAccept { min-height: 27px; padding: 4px 11px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); font-size: 12px; font-weight: 600; box-shadow: none; }
@@ -1832,8 +1842,9 @@ document.addEventListener('submit', function (e) { // form is parsed below: capt
         </div>
         <div id="media" style="display:none"></div>
         <div id="tabs" style="display:none"></div>
+        <div id="sugBar" hidden><span class="sugDot" aria-hidden="true"></span><b data-i18n="comments.suggestMode">Suggest</b><span id="sugCount" class="sugCount"></span><span class="sugSp"></span><button id="sugSend" type="button" class="sugSend" data-i18n="comments.draftSend">Send suggestions</button><button id="sugDiscard" type="button" class="sugDiscard" data-i18n="comments.draftDiscard">Discard</button></div>
         <div id="editWrap">
-          <div id="cmWrap"><div id="sugBar" hidden><span class="sugDot" aria-hidden="true"></span><b data-i18n="comments.suggestMode">Suggest</b><span id="sugCount" class="sugCount"></span><span class="sugSp"></span><button id="sugSend" type="button" class="sugSend" data-i18n="comments.draftSend">Send suggestions</button><button id="sugDiscard" type="button" class="sugDiscard" data-i18n="comments.draftDiscard">Discard</button></div><div id="cm" tabindex="-1"></div><div id="peerTop" class="peerEdge top" role="group" style="display:none"></div><div id="peerBottom" class="peerEdge bottom" role="group" style="display:none"></div></div>
+          <div id="cmWrap"><div id="cm" tabindex="-1"></div><div id="peerTop" class="peerEdge top" role="group" style="display:none"></div><div id="peerBottom" class="peerEdge bottom" role="group" style="display:none"></div></div>
           <div id="pop" style="display:none" role="dialog" aria-label="Comments" data-i18n-aria="shell.commentsPop"></div>
         </div>
         <div id="find" style="display:none"><label class="sr-only" for="fQ" data-i18n="shell.find">Find</label><input id="fQ" placeholder="Find" data-i18n-ph="shell.find" aria-label="Find" data-i18n-aria="shell.find"><label class="sr-only" for="fR" data-i18n="shell.replaceWith">Replace with</label><input id="fR" placeholder="Replace with" data-i18n-ph="shell.replaceWith" aria-label="Replace with" data-i18n-aria="shell.replaceWith"><span class="n" id="fN" role="status" aria-live="polite"></span><span class="fgroup"><button id="fPrev" aria-label="Previous (Shift+Enter)" data-i18n-aria="shell.findPrev" title="Previous (Shift+Enter)" data-i18n-title="shell.findPrev">↑</button><button id="fNext" aria-label="Next (Enter)" data-i18n-aria="shell.findNext" title="Next (Enter)" data-i18n-title="shell.findNext">↓</button></span><button id="fRep" title="Replace this occurrence" data-i18n-title="shell.replaceT" aria-label="Replace this occurrence" data-i18n-aria="shell.replaceT" data-i18n="shell.replace">Replace</button><button id="fAll" title="Replace all occurrences" data-i18n-title="shell.replaceAllT" aria-label="Replace all occurrences" data-i18n-aria="shell.replaceAllT" data-i18n="shell.replaceAll">All</button><button id="fCase" title="Match case" data-i18n-title="shell.matchCase" aria-label="Match case" data-i18n-aria="shell.matchCase" aria-pressed="false">Aa</button><button id="fRe" title="Regular expression" data-i18n-title="shell.regex" aria-label="Regular expression" data-i18n-aria="shell.regex" aria-pressed="false">.*</button><button id="fX" class="x" title="Close (Esc)" data-i18n-title="shell.closeEsc" aria-label="Close (Esc)" data-i18n-aria="shell.closeEsc">✕</button></div>
@@ -2542,7 +2553,7 @@ function threadHighlights() {
     }
     if (!conflict && !sug && !open && !resolved) continue
     const cls = conflict ? 'cm-hl cm-suggestion cm-suggestion-conflict'
-      : sug ? (open ? 'cm-hl cm-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion suggestionDeleted')
+      : sug ? (open ? 'cm-hl cm-suggestion cm-live-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion cm-live-suggestion suggestionDeleted')
       : open > 1 ? 'cm-hl cm-hl-multi'
       : open && resolved ? 'cm-hl cm-hl-mix-res'
       : open ? 'cm-hl'
@@ -15210,7 +15221,7 @@ function visibleChange(text) { // whitespace-only changes would render as an emp
   return text.trim() ? text : text.replace(/ /g, '·').replace(/\t/g, '→').replace(/\n/g, '↵\n')
 }
 function suggestionCard(th, fresh, doc, epoch) {
-  const card = el('div', 'suggestionCard')
+  const card = el('div', 'suggestionCard liveSuggestion')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
   if (th.suggestion_status !== 'pending') card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
   const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
@@ -15255,7 +15266,7 @@ class SuggestionReplacement extends WidgetType {
   get lineBreaks() { return this.text.split('\n').length - 1 }
   eq(other) { return other instanceof SuggestionReplacement && other.th.id === this.th.id && other.text === this.text }
   toDOM() {
-    const node = el('span', 'cm-hl cm-draft-change', this.text)
+    const node = el('span', 'cm-hl cm-live-suggestion', this.text)
     node.dataset.suggestionId = this.th.id; node.contentEditable = 'false'
     node.tabIndex = 0; node.setAttribute('role', 'button'); node.setAttribute('aria-label', t('comments.suggestMode'))
     node.onmousedown = e => { e.preventDefault(); e.stopPropagation(); openSuggestionBox(node) }
@@ -16474,24 +16485,24 @@ async function sessionReplaceFile(name, file) { // swap an existing file's conte
 const reviewTools = el('span', 'fmt package-tools')
 const reviewButton = icoBtn('ib', svgI('<path d="M3 3h10v10H3zM5 6h6M5 9h3"/>'))
 const originalButton = icoBtn('ib', svgI('<path d="M1 8s2-4 7-4 7 4 7 4-2 4-7 4-7-4-7-4z"/><circle cx="8" cy="8" r="2"/>'))
-const acceptPackageButton = icoBtn('ib', ICO_CHECK), acceptFileButton = icoBtn('ib', svgI('<path d="M3 1h7l3 3v10H3zM5 9l2 2 4-4"/>'))
-const exitPackageButton = icoBtn('ib', ICO_X), deletePackageButton = icoBtn('ib', ICO_TRASH)
-const packageActions = icoBtn('ib', ICO_CHECK)
+const acceptFileButton = icoBtn('ib', svgI('<path d="M3 1h7l3 3v10H3zM5 9l2 2 4-4"/>'))
+const deletePackageButton = icoBtn('ib', ICO_TRASH)
+const packageActions = icoBtn('ib', ICO_MORE)
+packageActions.classList.add('sugMore')
 const discardFileButton = icoBtn('ib', ICO_TRASH)
-reviewTools.append(reviewButton, originalButton, packageActions, exitPackageButton)
+reviewTools.append(reviewButton, originalButton)
+$('sugBar').insertBefore(packageActions, $('sugSend')) // mode actions live in one place: the bar above the text
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
-  const actions = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
+  const actions = [acceptFileButton, discardFileButton, deletePackageButton].filter(button => !button.hidden && !button.disabled)
   const choice = await pickPop(s.package?.title || t('packages.draft'), actions.map(button => [button.title, '']), packageActions)
   if (choice != null && window.changeSession === s && !s.busy) actions[choice]?.click()
 }
 $('tools').insertBefore(reviewTools, $('tools').querySelector('.tsp'))
 reviewButton.onclick = choosePackage
 originalButton.onclick = async () => { const s = window.changeSession; if (s && !s.busy) { closePop(true); s.original = !s.original; await sessionActivate() } }
-acceptPackageButton.onclick = () => acceptSessionSelection()
 acceptFileButton.onclick = () => { const f = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (f) acceptSessionSelection(f.id) }
-exitPackageButton.onclick = () => endChangeSession()
 deletePackageButton.onclick = deleteSelectedPackage
 discardFileButton.onclick = () => { const file = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (file) discardSessionFile(file) }
 const oldSuggestionControls = paintSuggestionControls
@@ -16500,21 +16511,20 @@ paintSuggestionControls = () => {
   const s = window.changeSession, member = docRole === 'owner' || projects.some(p => p.id === docProject && p.role !== 'guest')
   const available = !!docProject && member && !window.suggestionDraft && !openedTrashed && !tplName
   reviewTools.hidden = !available
-  const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptPackage'), t('packages.acceptFile'), t('packages.delete'), t('packages.exit')]
-  ;[reviewButton, originalButton, acceptPackageButton, acceptFileButton, deletePackageButton, exitPackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
+  const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptFile'), t('packages.delete')]
+  ;[reviewButton, originalButton, acceptFileButton, deletePackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
   packageActions.title = t('packages.actions'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
   reviewButton.hidden = !!s && !s.package
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
   originalButton.hidden = !s; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
-  acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
+  acceptFileButton.hidden = !s?.package || s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
   const currentFile = s?.files.get(sessionKey(sessionCurrent()))
   acceptFileButton.disabled = !!s?.busy || !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id)
   deletePackageButton.hidden = !s?.package || s.package.author !== user && docRole !== 'owner'
   discardFileButton.title = t('packages.discardFile'); discardFileButton.setAttribute('aria-label', discardFileButton.title)
   discardFileButton.hidden = !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id) || !!s?.package && s.package.author !== user && !['owner', 'editor'].includes(docRole)
   discardFileButton.disabled = !!s?.busy || !!s?.original
-  packageActions.hidden = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
-  exitPackageButton.hidden = !s
+  packageActions.hidden = [acceptFileButton, discardFileButton, deletePackageButton].every(button => button.hidden)
   const bar = $('sugBar')
   if (bar && s) {
     bar.hidden = false

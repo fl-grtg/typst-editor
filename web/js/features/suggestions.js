@@ -2,7 +2,7 @@ function visibleChange(text) { // whitespace-only changes would render as an emp
   return text.trim() ? text : text.replace(/ /g, '·').replace(/\t/g, '→').replace(/\n/g, '↵\n')
 }
 function suggestionCard(th, fresh, doc, epoch) {
-  const card = el('div', 'suggestionCard')
+  const card = el('div', 'suggestionCard liveSuggestion')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
   if (th.suggestion_status !== 'pending') card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
   const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
@@ -47,7 +47,7 @@ class SuggestionReplacement extends WidgetType {
   get lineBreaks() { return this.text.split('\n').length - 1 }
   eq(other) { return other instanceof SuggestionReplacement && other.th.id === this.th.id && other.text === this.text }
   toDOM() {
-    const node = el('span', 'cm-hl cm-draft-change', this.text)
+    const node = el('span', 'cm-hl cm-live-suggestion', this.text)
     node.dataset.suggestionId = this.th.id; node.contentEditable = 'false'
     node.tabIndex = 0; node.setAttribute('role', 'button'); node.setAttribute('aria-label', t('comments.suggestMode'))
     node.onmousedown = e => { e.preventDefault(); e.stopPropagation(); openSuggestionBox(node) }

@@ -168,6 +168,8 @@
 #pop .sugDel:last-child { border-bottom: 0; }
 #pop .sugAdd { background: rgba(145, 90, 225, .12); color: var(--text); }
 #pop .sugAdd::before { content: '+'; color: #9560d5; }
+#pop .liveSuggestion .sugAdd { background: rgba(14, 148, 136, .12); }
+#pop .liveSuggestion .sugAdd::before { color: #0e9488; }
 #pop .sugConflict { margin: 7px 0 0; padding: 7px 10px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.45; }
 #pop .sugActs { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 #pop .sugAccept { min-height: 27px; padding: 4px 11px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); font-size: 12px; font-weight: 600; box-shadow: none; }
