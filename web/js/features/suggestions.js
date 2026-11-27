@@ -84,6 +84,10 @@ function threadEditorRange(th) {
   const length = cm.state.doc.length
   const clamp = r => ({ from: Math.max(0, Math.min(length, r.from)), to: Math.max(0, Math.min(length, r.to)) })
   if (local) return clamp(local) // stored popover targets can trail an edit - clamp them like the derived path below
+  if (th.package_id) { // package-scoped comment: already anchored in the package editor buffer
+    const fallback = posOfLine(getT(), th.anchor)
+    return clamp({ from: th.a ?? fallback, to: th.b ?? th.a ?? fallback })
+  }
   return clamp({ from: sourceToEditor(th.a ?? posOfLine(shadow, th.anchor)),
     to: sourceToEditor(th.b ?? th.a ?? posOfLine(shadow, th.anchor), true) })
 }

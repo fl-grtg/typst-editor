@@ -279,18 +279,21 @@ function mapThreads(mapPos, paint = true, fromLen) { // start right, end left: t
   if (popAnchor != null) movePop()
 }
 function initRanges() { // ranges from quote (once; then mapping keeps them alive)
-  const t = window.suggestionDraft || window.changeSession ? shadow : getT()
+  const pkgOpen = !!(window.changeSession?.package && !window.changeSession.original)
+  const t = !pkgOpen && (window.suggestionDraft || window.changeSession) ? shadow : getT()
   if (!t) return false // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
   let changed = false
   for (const th of threads) {
     if (th.a != null || th._deleted) continue
+    const src = th.package_id ? getT() : t
+    if (!src) continue
     const pending = th.suggestion_status === 'pending'
     const quote = pending ? th.suggestion_old : th.quote
-    const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1 // non-overlap count like the backend
-    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + quote.length); changed = true }
+    const i = quote ? (pending ? (src.split(quote).length === 2 ? src.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(src, quote, th.anchor)) : -1 // non-overlap count like the backend
+    if (i >= 0) { th.a = i; th.b = Math.min(src.length, i + quote.length); changed = true }
     else if (!quote || pending) { // empty pending old (legacy) or quoteless comment: anchor line, same fallback as reanchor
-      th.a = posOfLine(t, th.anchor)
-      th.b = th.a + t.slice(th.a).split('\n')[0].length
+      th.a = posOfLine(src, th.anchor)
+      th.b = th.a + src.slice(th.a).split('\n')[0].length
       if (pending) th.conflict = true
       changed = true
     }

@@ -89,3 +89,31 @@ def test_suggestion_delete_resolve_guards(c):
     assert got["anchor"] == 9
     assert c.delete(f"/api/docs/{did}/comments/{sid}").status_code == 200
     assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []
+
+
+def test_package_scoped_comments_isolated_and_cleaned(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "PaketDoc", content="alpha beta")
+    pid = project_of(c, did)
+    pkg = c.post(f"/api/projects/{pid}/proposals", json={
+        "title": "Aenderung",
+        "files": [{"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha GAMMA",
+                   "changes": [{"old_string": "alpha beta", "new_string": "alpha GAMMA"}]}],
+    }).json()["id"]
+    live_id = c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "live"}).json()["id"]
+    pkg_cid = c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "quote": "GAMMA", "text": "im paket", "package_id": pkg}).json()["id"]
+    # replies inherit package_id automatically
+    c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "antwort im paket", "parent_id": pkg_cid})
+    # unknown package rejected
+    assert c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "x", "package_id": "bogus"}).status_code == 404
+    # live comments never include package comments, and vice versa
+    assert [t["id"] for t in c.get(f"/api/docs/{did}/comments").json()["comments"]] == [live_id]
+    pkg_list = c.get(f"/api/docs/{did}/comments", params={"package_id": pkg}).json()["comments"]
+    assert [t["id"] for t in pkg_list] == [pkg_cid]
+    assert len(pkg_list[0]["replies"]) == 1
+    # deleting the package cleans up its package-scoped comments, leaving live comments untouched
+    assert c.delete(f"/api/projects/{pid}/proposals/{pkg}").status_code == 200
+    assert c.get(f"/api/docs/{did}/comments", params={"package_id": pkg}).json()["comments"] == []
+    assert [t["id"] for t in c.get(f"/api/docs/{did}/comments").json()["comments"]] == [live_id]

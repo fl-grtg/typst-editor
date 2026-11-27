@@ -155,6 +155,7 @@ async function sessionActivate(preserveView = false) {
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
   tabDirty = false; marks = new Set(); markStyle = ''
   paintFileExtras(); paintCsv(); fmtSync(); sessionPaint(); paintSuggestionControls(); paintSessionSidebar(); queueRender()
+  if (s.package && !activeFile) { invalidateCommentCache(); loadComments().catch(() => {}) }
 }
 async function startChangeSession(proposal = null) {
   if (!docProject || openedTrashed || window.changeSession || sessionStarting) return
@@ -249,7 +250,7 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
     }
     else setT(mainText ?? shadow, preserveView && !addedTab)
     cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
-    paintTabs(); paintFileExtras(); paintOutline(); reanchor(); refreshHl(); queueRender()
+    paintTabs(); paintFileExtras(); paintOutline(); invalidateCommentCache(); loadComments().catch(() => {}); reanchor(); refreshHl(); queueRender()
   }
   paintSuggestionControls(); await sidebar(); return true
 }
@@ -544,6 +545,30 @@ function sessionCard(box) {
       sugWrap.append(actions)
     }
     card.append(sugWrap)
+    if (s.package && !openedTrashed && !activeFile) { // comment directly on this proposed change (scoped to this package)
+      const row = el('div', 'rr')
+      const inp = el('input'); inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
+      wireMentions(inp)
+      const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
+      const doc = docId, epoch = openN, pkgId = s.package.id
+      const post = async () => {
+        if (doc !== docId || epoch !== openN || !inp.value.trim() || ok.disabled) return
+        ok.disabled = true
+        const text = inp.value; inp.value = ''
+        try {
+          const anchor = cm.state.doc.lineAt(Math.min(range.a, cm.state.doc.length)).number
+          const quote = (range.next || range.old || '').slice(0, 500)
+          const res = await api('POST', `/api/docs/${doc}/comments`, { anchor, text, quote, package_id: pkgId })
+          if (doc === docId && epoch === openN && window.changeSession === s) {
+            s.commentRanges.set(res.id, { from: range.a, to: range.b })
+            popThreadId = 't:' + res.id
+            await loadComments(true)
+          }
+        } catch (e) { inp.value = text; toast(e.message) } finally { ok.disabled = false }
+      }
+      ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post(); else if (e.key === 'Escape') closePop() }
+      row.append(inp, ok); card.append(row)
+    }
     return card
   }
   const overlaps = !activeFile ? threads.filter(th => { const r = threadEditorRange(th); return th.a != null && r.from <= range.b && r.to >= range.a }) : []

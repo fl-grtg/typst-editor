@@ -549,10 +549,11 @@ function renderPop() {
 }
 function newBox() {
   const doc = docId, epoch = openN, draft = window.suggestionDraft || window.changeSession
+  const pkg = window.changeSession?.package?.id || ''
   const selection = cm.state.selection.main
   const target = { from: selection.from, to: selection.to }
-  const source = draft ? shadow : getT()
-  const a = editorToSource(target.from), b = editorToSource(target.to, true)
+  const source = !pkg && draft ? shadow : getT()
+  const a = pkg ? target.from : editorToSource(target.from), b = pkg ? target.to : editorToSource(target.to, true)
   const anchor = draft ? source.slice(0, a).split('\n').length : popAnchor
   const quote = draft ? source.slice(a, b).slice(0, 500) : popQuote
   const box = el('div', 'nw'), row = el('div', 'rr')
@@ -565,7 +566,8 @@ function newBox() {
     ok.disabled = true
     try {
       if (draft) draft.commentRanges.set(target, target)
-      const result = await api('POST', `/api/docs/${doc}/comments`, { anchor, text: inp.value, quote })
+      const body = pkg ? { anchor, text: inp.value, quote, package_id: pkg } : { anchor, text: inp.value, quote }
+      const result = await api('POST', `/api/docs/${doc}/comments`, body)
       if (draft) { draft.commentRanges.delete(target); draft.commentRanges.set(result.id, target) }
       if (doc === docId && epoch === openN) { popFresh = false; popQuote = ''; await refresh(''); closePop() }
     } catch (e) { if (draft) draft.commentRanges.delete(target); toast(e.message) } finally { ok.disabled = false }
@@ -673,12 +675,14 @@ function repaintCommentRanges() { // self-healing: threads beat the first sync t
 async function loadComments(force) {
   const doc = docId, epoch = openN
   if (!doc) return
-  const d = await api('GET', `/api/docs/${doc}/comments`)
-  if (doc !== docId || epoch !== openN) return
-  const s = JSON.stringify(d.comments)
+  const pkg = (typeof window !== 'undefined' && window.changeSession?.package?.id) || ''
+  const url = pkg ? `/api/docs/${doc}/comments?package_id=${encodeURIComponent(pkg)}` : `/api/docs/${doc}/comments`
+  const d = await api('GET', url)
+  if (doc !== docId || epoch !== openN || pkg !== ((typeof window !== 'undefined' && window.changeSession?.package?.id) || '')) return
+  const s = pkg ? pkg + ':' + JSON.stringify(d.comments) : JSON.stringify(d.comments)
   if (s === lastC) { repaintCommentRanges(); return } // poll: nothing new, keep inputs untouched - but re-derive ranges the first sync skipped
   const prevById = new Map(threads.map(th => [th.id, th]))
-  const docLen = (window.suggestionDraft || window.changeSession ? shadow : getT()).length
+  const docLen = (!pkg && (window.suggestionDraft || window.changeSession) ? shadow : getT()).length
   lastC = s; threads = d.comments
   for (const th of threads) {
     th.anchor = Math.max(1, +th.anchor || 1) // heal legacy anchor 0 -> 1

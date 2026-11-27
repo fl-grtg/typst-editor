@@ -73,15 +73,16 @@ def reject_suggestion(doc_id: str, cid: str, req: Request, user: str = Depends(d
 
 
 @router.get("/api/docs/{doc_id}/comments")
-def list_comments(doc_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
+def list_comments(doc_id: str, req: Request, package_id: str = "", user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "files_list")
     deps.check_doc_id(doc_id)
     deps.need_access(user, doc_id)
+    pkg = package_id.strip()
     con = db.connect()
     try:
         rows = con.execute("SELECT id, username, author, anchor, quote, text, parent_id, resolved, created_at, "
-                           "suggestion_old, replacement, suggestion_status FROM comments "
-                           "WHERE doc_id=? ORDER BY created_at", (doc_id,)).fetchall()
+                           "suggestion_old, replacement, suggestion_status, package_id FROM comments "
+                           "WHERE doc_id=? AND package_id=? ORDER BY created_at", (doc_id, pkg)).fetchall()
         tops = []
         reps: dict[str, list] = {}
         for r in rows:
@@ -108,10 +109,11 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
         raise HTTPException(400, "Anchor < 0")
     cid = db.new_id("c_")
     ref = cid
+    pkg = b.package_id.strip()
     con = db.connect()
     try:
         if b.parent_id:
-            p = con.execute("SELECT parent_id FROM comments WHERE id=? AND doc_id=?",
+            p = con.execute("SELECT parent_id, package_id FROM comments WHERE id=? AND doc_id=?",
                             (b.parent_id, doc_id)).fetchone()
             if not p:
                 raise HTTPException(404, "Thread gone")
@@ -120,11 +122,19 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
             # The inbox renders whole threads: point a reply mention at the
             # thread root, otherwise the reply id is not in `threads`.
             ref = b.parent_id
+            pkg = p["package_id"] or ""
+        elif pkg:
+            doc_row = con.execute("SELECT project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
+            proj_id = doc_row["project_id"] if doc_row else ""
+            if not proj_id or not con.execute(
+                "SELECT 1 FROM suggestion_packages WHERE id=? AND project_id=?", (pkg, proj_id)
+            ).fetchone():
+                raise HTTPException(404, "Package not found")
         q = b.quote[:500]
         anchor = max(1, b.anchor)  # 1-based (UI); 0 = top alias -> line 1
-        con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, created_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (cid, doc_id, user, "", anchor, q if q.strip() else "", b.text.strip(), b.parent_id, db.now_iso()))
+        con.execute("INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, package_id, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (cid, doc_id, user, "", anchor, q if q.strip() else "", b.text.strip(), b.parent_id, pkg, db.now_iso()))
         con.commit()
     finally:
         con.close()

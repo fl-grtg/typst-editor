@@ -61,6 +61,7 @@ class CommentNew(BaseModel):
     text: str = Field(max_length=2001)
     parent_id: str | None = Field(default=None, max_length=100)
     quote: str = Field(default="", max_length=2000)
+    package_id: str = Field(default="", max_length=80)
 
 
 class AnchorSet(BaseModel):

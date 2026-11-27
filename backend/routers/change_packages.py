@@ -165,6 +165,7 @@ def delete_package(project_id: str, package_id: str, req: Request, user: str = D
         if proposal["author"] != user and role != "owner":
             raise HTTPException(403, "Only the author or owner may delete the package")
         owner = con.execute("SELECT owner FROM projects WHERE id=?", (project_id,)).fetchone()[0]
+        con.execute("DELETE FROM comments WHERE package_id=?", (package_id,))
         con.execute("DELETE FROM suggestion_packages WHERE id=?", (package_id,))
     quota.invalidate_quota_cache(owner)
     projects.notify(project_id)
