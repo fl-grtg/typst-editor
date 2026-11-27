@@ -163,8 +163,10 @@ async def delete_folder(project_id: str, path: str, req: Request, user: str = De
     deps.limited(req, "delete")
     folder = folder_path(path, new=False)
 
-    def run() -> tuple[list[str], str]:
+    def run() -> tuple[list[str], list[str], list[str], str]:
         backups: project_files.Backups = {}
+        trash_ids: list[str] = []
+        folders: list[str] = []
         with project_files.lock(project_id):
             try:
                 with db.tx() as con:
@@ -175,23 +177,24 @@ async def delete_folder(project_id: str, path: str, req: Request, user: str = De
                         con.execute("UPDATE docs SET trashed=1,updated_at=? WHERE id=?", (db.now_iso(), did))
                     for (p,) in con.execute("SELECT path FROM project_files WHERE project_id=?", (project_id,)).fetchall():
                         if _within(p, folder):
-                            trash.archive(con, owner, "file", p, project_files.remove(con, project_id, p, backups), project_id=project_id)
+                            trash_ids.append(trash.archive(con, owner, "file", p, project_files.remove(con, project_id, p, backups), project_id=project_id))
                     for r in con.execute("SELECT path FROM project_folders WHERE project_id=?", (project_id,)).fetchall():
                         if _within(r[0], folder):
+                            folders.append(r[0])
                             con.execute("DELETE FROM project_folders WHERE project_id=? AND path=?", (project_id, r[0]))
             except Exception:
                 project_files.undo(backups)
                 raise
-        return docs, owner
+        return docs, trash_ids, folders, owner
 
-    docs, owner = await asyncio.to_thread(run)
+    docs, trash_ids, folders, owner = await asyncio.to_thread(run)
     for did in docs:
         await sync.drop(did)
     quota.invalidate_quota_cache(owner)
     await asyncio.to_thread(projects.notify, project_id)
     for u in {user, owner}:
         notify_sidebar(u)
-    return {"ok": True, "documents": docs}
+    return {"ok": True, "documents": docs, "trash_ids": trash_ids, "folders": folders}
 
 
 @router.post("/api/projects/{project_id}/docs/{doc_id}/folder-preview")

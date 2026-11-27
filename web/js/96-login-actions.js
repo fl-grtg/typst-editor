@@ -258,13 +258,14 @@ $('del').onclick = async () => {
     return
   }
   if (tplName) { // delete open template (reversible in trash)
-    try { await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
+    let res
+    try { res = await api('DELETE', '/api/templates/' + encodeURIComponent(resource)) }
     catch (e) { toast(e.message); return }
     if (resource !== tplName || epoch !== openN) { loadTpl(); return }
     tplName = ''; tplDirty = false; clearTimeout(tplT)
     closeView(); $('viewSeg').style.display = '' // segment back: no doc, but view selectable
     await loadTpl(); sidebar()
-    toast(t('docs.moveTrash'))
+    toast(t('docs.moveTrash'), res?.trash_id ? () => api('POST', `/api/trash/${res.trash_id}/restore`, {}).then(() => { loadTpl(); sidebar() }).catch(e => toast(e.message)) : null, t('docs.restore'), 8000)
     return
   }
   if (openedTrashed) {

@@ -232,14 +232,14 @@ def delete_template(name: str, req: Request, user: str = Depends(deps.me)) -> di
             row = con.execute("SELECT * FROM templates WHERE owner=? AND name=?", (user, n)).fetchone()
             if not row:
                 raise HTTPException(404, "Template gone")
-            trash.archive(con, user, "personal", n, (row["content"] or "").encode(),
+            trash_id = trash.archive(con, user, "personal", n, (row["content"] or "").encode(),
                           line=row["line"] or "", folder=row["folder"] or "")
             con.execute("DELETE FROM templates WHERE owner=? AND name=?", (user, n))
     except sqlite3.OperationalError as e:
         raise deps.busy_503("delete_template", e) from e
     quota_svc.invalidate_quota_cache(user)
     notify_sidebar(user)
-    return {"ok": True}
+    return {"ok": True, "trash_id": trash_id}
 
 
 @router.post("/api/templates/{name}/folder")

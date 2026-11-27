@@ -546,7 +546,16 @@ async function deleteFolder(p, path) {
   else if (activeFile && insideFolder(activeFile, path)) await switchTab('', true)
   if (docId) { filesDirty = true; await loadProjectFiles(true); tabSig = ''; queueRender() }
   await sidebar()
-  toast(t('docs.moveTrash'))
+  const undo = async () => {
+    try {
+      for (const f of (result?.folders || [path])) await api('POST', `/api/projects/${p.id}/folders`, { path: f })
+      for (const did of (result?.documents || [])) await api('POST', `/api/docs/${did}/restore`, {})
+      for (const tid of (result?.trash_ids || [])) await api('POST', `/api/trash/${tid}/restore`, {})
+      if (docId) { filesDirty = true; await loadProjectFiles(true); queueRender() }
+      await sidebar()
+    } catch (e) { toast(e.message) }
+  }
+  toast(t('docs.moveTrash'), undo, t('docs.restore'), 8000)
 }
 async function afterFolderRename(p, path, target) {
   const doc = docId, epoch = openN, was = activeFile
@@ -697,18 +706,26 @@ async function folderTransferTo(source, path, target, parent, move) { // drag a 
 async function trashFile(project, path) { // a delete names the version it removes: take it from a fresh list
   const file = (await api('GET', `/api/projects/${project}/files`)).files.find(f => f.path === path)
   if (!file) throw new Error(t('files.tplGone'))
-  await api('DELETE', fileUrl(path, project) + '?version=' + encodeURIComponent(file.version))
+  return api('DELETE', fileUrl(path, project) + '?version=' + encodeURIComponent(file.version))
 }
 async function deleteProjectEntry(p, name) {
   if (!p) { toast(t('projects.contextGone')); return }
   const doc = docId, epoch = openN
-  try { await trashFile(p.id, name) } catch (e) { toast(e.message); await sidebar(); return }
+  let res
+  try { res = await trashFile(p.id, name) } catch (e) { toast(e.message); await sidebar(); return }
   if (docId === doc && openN === epoch && docProject === p.id) {
     if (activeFile === name && !tabDirty) await switchTab('', true)
     filesDirty = true; await loadProjectFiles(true); queueRender()
   }
   await sidebar()
-  toast(t('docs.moveTrash'))
+  const undo = res?.trash_id ? async () => {
+    try {
+      await api('POST', `/api/trash/${res.trash_id}/restore`, {})
+      if (docId && docProject === p.id) { filesDirty = true; await loadProjectFiles(true); queueRender() }
+      await sidebar()
+    } catch (e) { toast(e.message) }
+  } : null
+  toast(t('docs.moveTrash'), undo, t('docs.restore'), 8000)
 }
 
 function projectFolderPaths(p) { return projectTree(p, projectEntries(p)).all }

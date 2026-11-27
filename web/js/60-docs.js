@@ -655,10 +655,11 @@ function resRow(tpl) { // click opens in editor, drag sorts into folder (all thr
   del.dataset.menuLabel = t('menu.actionTrash'); del.dataset.menuHint = 'menu.trashHint'
   del.onclick = async e => {
     e.stopPropagation()
-    try { await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)) } catch (err) { toast(err.message); return }
+    let res
+    try { res = await api('DELETE', '/api/templates/' + encodeURIComponent(tpl.name)) } catch (err) { toast(err.message); return }
     if (tpl.name === tplName) { clearTimeout(tplT); tplDirty = false; closeView(); $('viewSeg').style.display = '' } // open resource gone: no zombie save, back to empty
     await loadTpl(); sidebar()
-    toast(t('docs.moveTrash'))
+    toast(t('docs.moveTrash'), res?.trash_id ? () => api('POST', `/api/trash/${res.trash_id}/restore`, {}).then(() => { loadTpl(); sidebar() }).catch(e => toast(e.message)) : null, t('docs.restore'), 8000)
   }
   div.appendChild(del)
   compactSidebarActions(div, 0, personalModuleMenu)
