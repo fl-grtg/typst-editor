@@ -146,3 +146,34 @@ test('editing inside commented text keeps tight range, typing outside stays out,
   applyEdit({ from: delAt, to: delAt + 'totally different content'.length, insert: 'word' })
   assert.equal(state.doc.sliceString(threads[0].a, threads[0].b), 'word')
 })
+
+test('exactQuotePos prefers a match on the anchored line over a closer-in-chars match on another line', () => {
+  const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const c = vm.createContext({})
+  vm.runInContext(comp.slice(comp.indexOf('const posOfLine'), comp.indexOf('function threadHighlights')), c)
+  const text = 'prefix '.repeat(2) + 'same\n' + 'x'.repeat(80) + ' same\n'
+  const line2Pos = text.lastIndexOf('same')
+  assert.equal(c.exactQuotePos(text, 'same', 2), line2Pos)
+})
+
+test('loadComments preserves live edited ranges and deleted state across replies/polls', async () => {
+  const liveThreads = [
+    { id: 'c1', anchor: 1, quote: 'orig', text: 'note', a: 0, b: 6 },
+    { id: 'c2', anchor: 2, quote: 'gone', text: 'note2', a: null, b: null, _deleted: true },
+  ]
+  const c = vm.createContext({
+    window: {}, docId: 'd1', openN: 1, activeFile: '', synced: true, ytext: {}, lastC: 'old', shadow: 'edited\ngone',
+    threads: liveThreads, getT: () => 'edited\ngone',
+    api: async () => ({ comments: [
+      { id: 'c1', anchor: 1, quote: 'orig', text: 'note', replies: [{ id: 'r1', text: 'reply' }] },
+      { id: 'c2', anchor: 2, quote: 'gone', text: 'note2', replies: [] },
+    ] }),
+    initRanges: () => false, reanchor: () => {}, gutter: () => {}, refreshHl: () => {},
+    paintBadge: () => {}, popAnchor: null, renderPop: () => {}, $: () => ({ querySelectorAll: () => [] }),
+  })
+  vm.runInContext(source.slice(source.indexOf('function repaintCommentRanges'), source.indexOf('function paintBadge()')), c)
+  await c.loadComments()
+  assert.deepEqual([c.threads[0].a, c.threads[0].b], [0, 6])
+  assert.equal(c.threads[1]._deleted, true)
+  assert.equal(c.threads[1].a, null)
+})

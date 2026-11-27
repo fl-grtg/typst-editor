@@ -104,12 +104,13 @@ $('cm').addEventListener('mousedown', e => { // click on line number or yellow h
   if (g && marks.has(+g.textContent)) { openLinePop(+g.textContent); return }
   const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
   if (hl) {
+    const cid = hl.getAttribute('data-comment-id')
     const p = cm.posAtCoords({ x: e.clientX, y: e.clientY }) ?? cm.posAtDOM(hl)
-    const th = threads.find(th => {
+    const th = (cid && threads.find(t => String(t.id) === cid)) || threads.find(th => {
       const r = threadEditorRange(th)
       return th.a != null && p >= r.from && p <= r.to
     })
-    if (th) openPop(cm.state.doc.lineAt(p).number, false)
+    if (th) openPop(cm.state.doc.lineAt(p != null ? p : threadEditorRange(th).from).number, false)
   }
 })
 // #3 hover-claim: hovering any fragment of a comment thread / suggestion / package patch also lights up all its other fragments
@@ -234,6 +235,7 @@ function onEdit(mapPos, changes, oldLen) {
 let anchorT = 0
 const anchorDirty = new Map()
 function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not many
+  if (th.suggestion_status === 'pending' || (typeof user !== 'undefined' && th.username && th.username !== user)) return
   anchorDirty.set(th.id, { doc: docId, anchor: th.anchor })
   clearTimeout(anchorT)
   anchorT = setTimeout(() => {
@@ -254,18 +256,18 @@ function mapThreads(mapPos, paint = true, fromLen) { // start right, end left: t
     const rb = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
     const quoted = !th.suggestion_status && !!th.quote
     if (collapsed) {
-      if (quoted) { th.a = th.b = null; continue }
+      if (quoted) { th.a = th.b = null; th._deleted = true; continue }
       th.a = th.b = ra // collapsed range never balloons onto newly typed text
     } else if (rb <= ra) {
       if (quoted) {
-        th.a = th.b = null // commented text deleted: drop highlight so later typing at that spot never resurrects it
+        th.a = th.b = null; th._deleted = true // commented text deleted: drop highlight so later typing at that spot never resurrects it
         const line = t.slice(0, ra).split('\n').length
         if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
         continue
       }
       th.a = th.b = ra
     } else {
-      th.a = ra; th.b = rb
+      th.a = ra; th.b = rb; th._deleted = false
     }
     if (th.b > th.a || (!th.quote && th.suggestion_status !== 'pending')) { // collapsed away: never persist a sanitized anchor from stale offsets — except quoteless comments, whose whole data IS the anchor line
       const line = t.slice(0, th.a).split('\n').length
@@ -281,7 +283,7 @@ function initRanges() { // ranges from quote (once; then mapping keeps them aliv
   if (!t) return false // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
   let changed = false
   for (const th of threads) {
-    if (th.a != null) continue
+    if (th.a != null || th._deleted) continue
     const pending = th.suggestion_status === 'pending'
     const quote = pending ? th.suggestion_old : th.quote
     const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1 // non-overlap count like the backend

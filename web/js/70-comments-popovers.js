@@ -510,18 +510,27 @@ function renderPop() {
   const pop = $('pop'); pop.replaceChildren()
   if (popAnchor != null) popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, popAnchor)) // doc shrank while open: never address a dead line
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
-  bar.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
+  const title = el('span', 'barTitle')
+  title.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
+  const barActs = el('span', 'barActs')
   const x = icoBtn('ib', ICO_X); x.title = t('common.close'); x.setAttribute('aria-label', x.title); x.onclick = closePop
-  bar.appendChild(x); pop.appendChild(bar)
+  bar.append(title, barActs); pop.appendChild(bar)
   requestAnimationFrame(movePop)
-  if (window.suggestionPopup) { if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
+  if (window.suggestionPopup) { barActs.appendChild(x); if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
   const line = cm.state.doc.line(popAnchor)
   const list = threads.filter(th => {
     if (th.a == null || th.b == null) return th.anchor === popAnchor
     const r = threadEditorRange(th)
     return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
   })
+  if (list.length > 1) title.appendChild(el('span', 'popCnt', String(list.length)))
   const roC = openedTrashed
+  if (!roC && !popFresh && list.length) {
+    const add = icoBtn('ib', ICO_PLUS); add.title = t('comments.newAria'); add.setAttribute('aria-label', add.title)
+    add.onclick = () => { popFresh = true; renderPop() }
+    barActs.appendChild(add)
+  }
+  barActs.appendChild(x)
   if ((popFresh || !list.length) && !roC) {
     pop.appendChild(newBox())
     document.getElementById('popNew')?.focus()
@@ -551,7 +560,7 @@ function newBox() {
       if (doc === docId && epoch === openN) { popFresh = false; popQuote = ''; await refresh(''); closePop() }
     } catch (e) { if (draft) draft.commentRanges.delete(target); toast(e.message) } finally { ok.disabled = false }
   }
-  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post() }
+  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post(); else if (e.key === 'Escape') closePop() }
   row.append(inp, ok); box.append(row)
   return box
 }
@@ -563,9 +572,12 @@ function threadCard(th) {
   const hd = el('div', 'hd')
   const author = th.author || th.username || '?'
   const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(th.username || author); av.setAttribute('aria-hidden', 'true')
+  if (typeof paintAvatar === 'function' && th.username) paintAvatar(av, th.username, colOf(th.username))
+  const meta = el('span', 'hdMeta')
   const nm = el('b', 'nm', author); nm.style.color = colOf(th.username || author)
+  meta.append(nm, el('span', 'tm', ago(th.created_at)))
   const acts = el('span', 'acts')
-  hd.append(av, nm, el('span', 'tm', ago(th.created_at)), acts)
+  hd.append(av, meta, acts)
   const roC = openedTrashed
   if (!roC && !th.suggestion_status && (docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
@@ -592,18 +604,22 @@ function threadCard(th) {
   }
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
-  else d.appendChild(el('span', 'thTag', t('comments.newAria')))
+  else meta.appendChild(el('span', 'thTag', t('comments.newAria')))
   if (th.text) d.appendChild(richText(th.text))
   if (th.quote && !pendingSug) { // show context, click jumps there (pending suggestions show the diff above)
     const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
+    if (!th.suggestion_status && th.a == null) q.classList?.add('is-detached')
     q.title = t('comments.jumpPos')
     q.onclick = () => jumpThread(th)
     d.appendChild(q)
   }
   th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
-    const rn = el('b', 'nm', r.author || r.username); rn.style.color = colOf(r.username)
-    rh.append(rn, el('span', 'tm', ago(r.created_at)))
+    const rAuthor = r.author || r.username || '?'
+    const rav = el('span', 'av', rAuthor.slice(0, 1).toUpperCase()); rav.style.background = colOf(r.username || rAuthor); rav.setAttribute('aria-hidden', 'true')
+    if (typeof paintAvatar === 'function' && r.username) paintAvatar(rav, r.username, colOf(r.username))
+    const rn = el('b', 'nm', rAuthor); rn.style.color = colOf(r.username || rAuthor)
+    rh.append(rav, rn, el('span', 'tm', ago(r.created_at)))
     rd.append(rh, richText(r.text)); d.appendChild(rd)
   })
   const row = el('div', 'rr')
@@ -615,7 +631,7 @@ function threadCard(th) {
       const text = inp.value; inp.value = '' // clear first: else loadComments keeps it as draft and skips renderPop
       api('POST', `/api/docs/${doc}/comments`,
       { anchor: th.anchor, text, parent_id: th.id }).then(() => { if (doc === docId && epoch === openN) return refresh('r_' + th.id) }).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
-    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
+    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send(); else if (e.key === 'Escape') closePop() }
     row.append(inp, ok)
   }
   d.appendChild(row)
@@ -633,8 +649,17 @@ async function loadComments(force) {
   if (doc !== docId || epoch !== openN) return
   const s = JSON.stringify(d.comments)
   if (s === lastC) { repaintCommentRanges(); return } // poll: nothing new, keep inputs untouched - but re-derive ranges the first sync skipped
+  const prevById = new Map(threads.map(th => [th.id, th]))
+  const docLen = (window.suggestionDraft || window.changeSession ? shadow : getT()).length
   lastC = s; threads = d.comments
-  for (const t of threads) t.anchor = Math.max(1, +t.anchor || 1) // heal legacy anchor 0 -> 1
+  for (const th of threads) {
+    th.anchor = Math.max(1, +th.anchor || 1) // heal legacy anchor 0 -> 1
+    const prev = prevById.get(th.id)
+    if (prev && !th.suggestion_status && th.quote === prev.quote) { // preserve live tracked range across replies/polls so edited highlights never vanish
+      if (prev._deleted) { th._deleted = true; th.a = th.b = null }
+      else if (prev.a != null && prev.b != null && prev.b > prev.a && prev.b <= docLen) { th.a = prev.a; th.b = prev.b }
+    }
+  }
   if (!activeFile) { initRanges(); reanchor(); gutter(); refreshHl() } // file tab: do not touch main anchors
   paintBadge()
   const draft = [...$('pop').querySelectorAll('input,textarea')].some(i => i.value.trim())
@@ -682,7 +707,7 @@ function reanchor() { // keep live ranges on edits; suggestions track exact uniq
       } else { // deleted or unfound: only re-attach if the exact quote reappears (e.g. Undo)
         const i = exactQuotePos(t, quote, th.anchor)
         if (i >= 0) {
-          th.a = i; th.b = Math.min(t.length, i + quote.length)
+          th.a = i; th.b = Math.min(t.length, i + quote.length); th._deleted = false
           const line = t.slice(0, i).split('\n').length
           if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
         } else {
@@ -733,8 +758,8 @@ function updCNewTip() {
 }
 $('cNew').onclick = () => {
   if (!docId || activeFile || openedTrashed) return
-  const m = cm.state.selection.main // save selected spot along
-  openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, 20000))
+  const m = cm.state.selection.main // anchor at selection start so multi-line comments sit on their opening line
+  openPop(lineOf(m.from), true, getT().slice(m.from, m.to).slice(0, 20000))
 }
 
 const ICO_MORE = svgI('<circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/>')

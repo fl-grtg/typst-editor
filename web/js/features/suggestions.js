@@ -2,20 +2,22 @@ function suggestionCard(th, fresh, doc, epoch) {
   const card = el('div', 'suggestionCard')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
   card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
-  if (th.suggestion_status === 'pending') {
-    const span = diffSpan(th.suggestion_old, th.replacement)
-    const old = th.suggestion_old.slice(span.a, th.suggestion_old.length - span.b)
-    const next = th.replacement.slice(span.a, th.replacement.length - span.b)
+  const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
+  if (oldFull || nextFull) {
+    const span = diffSpan(oldFull, nextFull)
+    const old = oldFull.slice(span.a, oldFull.length - span.b)
+    const next = nextFull.slice(span.a, nextFull.length - span.b)
     if (old || next) {
       const diff = el('div', 'sugDiff')
+      if (th.suggestion_status !== 'pending') diff.classList?.add('is-decided')
       if (old) diff.append(el('div', 'sugDel suggestionDeleted', old))
       if (next) diff.append(el('div', 'sugAdd', next))
       card.append(diff)
     }
-    if (th.a == null || th.conflict) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   }
+  if (th.suggestion_status === 'pending' && (th.a == null || th.conflict)) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   if (th.suggestion_status === 'pending' && !openedTrashed && ['owner', 'editor'].includes(docRole)) {
-    const actions = el('div', 'rr sugActs')
+    const actions = el('div', 'sugActs')
     const button = el('button', 'sugAccept', t('comments.accept'))
     button.disabled = th.a == null || !!th.conflict
     button.onclick = () => decideSuggestion(th, 'accept', doc, epoch)
@@ -32,10 +34,10 @@ async function decideSuggestion(th, action, doc = docId, epoch = openN) {
   } catch (e) { toast(e.status === 409 ? t('comments.suggestionConflict') : e.message) }
 }
 class SuggestionReplacement extends WidgetType {
-  constructor(th) {
+  constructor(th, span = null) {
     super(); this.th = th
-    const span = diffSpan(th.suggestion_old, th.replacement)
-    this.text = th.replacement.slice(span.a, th.replacement.length - span.b)
+    const s = span || diffSpan(th.suggestion_old, th.replacement)
+    this.text = th.replacement.slice(s.a, th.replacement.length - s.b)
   }
   get lineBreaks() { return this.text.split('\n').length - 1 }
   eq(other) { return other instanceof SuggestionReplacement && other.th.id === this.th.id && other.text === this.text }

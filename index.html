@@ -688,11 +688,11 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #cmWrap .cm-scroller { overflow-x: clip; } /* wrapping on: carrier extension must never cause a horizontal scrollbar */
 #cmWrap.wrapOff .cm-scroller { overflow-x: auto; } /* wrapping off: long lines scroll horizontally */
 #cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
-#cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
+#cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
 #cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
-#cmWrap .cm-hl.cm-hl-resolved { background: color-mix(in srgb, var(--editor) 90%, #ffc400); }
-#cmWrap .cm-hl.cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 78%, #ffc400); }
-.typ-hover .hvSug { margin-top: 3px; font: 12px/1.45 var(--mono); }
+#cmWrap .cm-hl.cm-hl-resolved { background: color-mix(in srgb, var(--editor) 91%, #ffc400); box-shadow: none; }
+#cmWrap .cm-hl.cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 80%, #ffc400); }
+.typ-hover .hvSug { margin-top: 4px; font: 12px/1.45 var(--mono); }
 .typ-hover .hvAdd { color: #9560d5; font-weight: 600; }
 #cmWrap .cm-syncLine { animation: syncFlash .8s ease-out; } /* preview -> editor: the target line lights up (dark mode) or darkens (light mode) */
 @keyframes syncFlash { 0%, 55% { background-color: var(--sync-flash); } 100% { background-color: transparent; } }
@@ -795,8 +795,9 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 .bibField textarea { min-height: 38px; height: 38px; resize: none; }
 .bibField input:invalid { border-color: var(--danger); }
 
-#cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); }
+#cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .55); }
 #cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: color-mix(in srgb, var(--editor) 68%, #955ae1); }
+#cmWrap .cm-suggestion.cm-suggestion-conflict { background: color-mix(in srgb, var(--editor) 88%, #d92d20); box-shadow: none; text-decoration: underline dashed var(--danger); text-underline-offset: 3px; }
 #suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
 #tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }
 #tools #suggestionToggle.on:active { color: #9560d5; background: rgba(145, 90, 225, .36); }
@@ -1066,46 +1067,59 @@ body.present-switch .pvPage { transition: none !important; }
 .mbox button:hover { background: var(--hover); color: var(--text); }
 
 /* Comments */
-#pop { position: absolute; left: 56px; z-index: var(--z-pop); width: 344px; max-width: calc(100vw - 32px); max-height: 80vh; overflow: auto; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--sh-pop); font-size: 13px; }
-#pop .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 7px 8px 7px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--sub); }
-#pop .bar .ib { border-radius: 50%; width: 26px; height: 26px; padding: 0; }
-#pop .th { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+#pop { position: absolute; left: 56px; z-index: var(--z-pop); width: 356px; max-width: calc(100vw - 32px); max-height: 80vh; overflow: auto; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--sh-pop); font-size: 13px; }
+#pop .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px 7px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--sub); }
+#pop .barTitle { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+#pop .barTitle .popCnt { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--hover); color: var(--sub); font-size: 11px; font-weight: 650; }
+#pop .barActs { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+#pop .bar .ib { border-radius: 50%; width: 26px; height: 26px; min-width: 26px; min-height: 26px; padding: 0; }
+#pop .th { padding: 12px 14px 13px; border-bottom: 1px solid var(--line); }
 #pop .th:last-child { border-bottom: 0; }
-#pop .th.is-resolved { opacity: .6; }
-#pop .hd { display: flex; align-items: center; gap: 6px; }
-#pop .hd .av { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 10.5px; font-weight: 700; }
+#pop .th.is-resolved { opacity: .62; }
+#pop .hd { display: flex; align-items: center; gap: 8px; }
+#pop .hd .av { width: 22px; height: 22px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 10.5px; font-weight: 700; }
+#pop .hdMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; flex: 1; }
 #pop .hd .acts { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
 #pop .hd .acts .ib { width: 26px; height: 26px; min-width: 26px; min-height: 26px; padding: 0; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--sub); box-shadow: none; }
 #pop .hd .acts .ib:hover { background: var(--hover); color: var(--text); }
 #pop .hd .acts .ib.danger:hover { background: var(--danger-soft); color: var(--danger); }
 #pop .nm { font-weight: 650; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #pop .tm { font-size: 11.5px; color: var(--faint); flex: none; }
-#pop .thTag { display: inline-block; margin-top: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--sub); background: var(--hover); }
+#pop .thTag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--sub); background: var(--hover); line-height: 1.5; }
+#pop .suggestionCard .thTag { margin-top: 7px; }
 #pop .thTag.sug-pending { color: #9560d5; background: rgba(145, 90, 225, .14); }
 #pop .thTag.sug-accepted { color: #1a7f37; background: rgba(46, 160, 67, .14); }
 #pop .thTag.sug-rejected { color: var(--danger); background: var(--danger-soft); }
-#pop .tx { margin: 6px 0 0; line-height: 1.48; overflow-wrap: anywhere; }
+#pop .tx { margin: 7px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
 #pop .qt { display: block; width: 100%; margin: 8px 0 0; padding: 6px 10px; text-align: left; font-size: 12px; line-height: 1.45; color: var(--sub); background: var(--hover); border: 0; border-left: 2.5px solid #d4a017; border-radius: 0 var(--r-sm) var(--r-sm) 0; overflow-wrap: anywhere; cursor: pointer; box-shadow: none; }
 #pop .qt:hover { background: var(--press); color: var(--text); }
+#pop .qt.is-detached { border-left-color: var(--line-2); text-decoration: line-through; opacity: .7; }
 #pop .qt.nwQt { margin: 0 0 8px; cursor: default; font-style: italic; }
 #pop .qt.nwQt:hover { background: var(--hover); color: var(--sub); }
-#pop .rp { margin: 8px 0 0; padding: 8px 10px; background: var(--hover); border-left: 2px solid var(--line-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
-#pop .rr { display: flex; gap: 6px; margin-top: 8px; }
-#pop .rr input { flex: 1; min-width: 0; width: auto; min-height: 30px; font-size: 13px; }
-#pop .rr .ib { padding: 0 10px; min-width: 32px; min-height: 30px; border-radius: var(--r-sm); }
+#pop .rp { margin: 8px 0 0 8px; padding: 7px 10px; background: var(--hover); border-left: 2px solid var(--line-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+#pop .rp .hd .av { width: 18px; height: 18px; font-size: 9.5px; }
+#pop .rr { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding: 3px 4px 3px 10px; background: var(--field); border: 1px solid var(--line-2); border-radius: var(--r-md); transition: border-color .14s; }
+#pop .rr:focus-within { border-color: var(--acc); }
+#pop .rr input { flex: 1; min-width: 0; width: auto; min-height: 26px; padding: 2px 0; border: 0; background: transparent; box-shadow: none; font-size: 13px; }
+#pop .rr input:focus { outline: none; }
+#pop .rr .ib { padding: 0; width: 28px; min-width: 28px; height: 28px; min-height: 28px; border-radius: var(--r-sm); color: var(--sub); background: transparent; }
+#pop .rr .ib:hover { background: var(--hover); color: var(--text); }
 #pop .ib { color: var(--sub); background: transparent; border: 0; box-shadow: none; }
 #pop .ib:hover { background: var(--hover); color: var(--text); }
-#pop .rr .ib { color: var(--text); background: var(--hover); }
-#pop .rr .ib:hover { background: var(--press); }
-#pop .nw { padding: 10px 12px; }
+#pop .nw { padding: 10px 14px 12px; }
+#pop .nw .rr { margin-top: 0; }
 #pop .sugDiff { margin-top: 7px; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; font: 12px/1.5 var(--mono); }
-#pop .sugDel, #pop .sugAdd { padding: 5px 9px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 130px; overflow: auto; }
+#pop .sugDiff.is-decided { opacity: .72; }
+#pop .sugDel, #pop .sugAdd { position: relative; padding: 5px 9px 5px 22px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 130px; overflow: auto; }
+#pop .sugDel::before, #pop .sugAdd::before { position: absolute; left: 8px; top: 5px; font-weight: 700; user-select: none; }
 #pop .sugDel { background: var(--danger-soft); color: var(--text); border-bottom: 1px solid var(--line); }
+#pop .sugDel::before { content: '−'; color: var(--danger); }
 #pop .sugDel:last-child { border-bottom: 0; }
 #pop .sugAdd { background: rgba(145, 90, 225, .14); color: var(--text); }
-#pop .sugConflict { margin: 7px 0 0; padding: 6px 9px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.45; }
-#pop .sugActs { margin-top: 8px; }
-#pop .sugAccept { min-height: 28px; padding: 4px 12px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); font-size: 12px; font-weight: 600; box-shadow: none; }
+#pop .sugAdd::before { content: '+'; color: #9560d5; }
+#pop .sugConflict { margin: 7px 0 0; padding: 7px 10px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.45; }
+#pop .sugActs { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+#pop .sugAccept { min-height: 29px; padding: 4px 13px; border: 1px solid transparent; border-radius: var(--r-sm); background: var(--ink); color: var(--on-ink); font-size: 12px; font-weight: 600; box-shadow: none; }
 #pop .sugAccept:not(:disabled):hover { filter: opacity(.86); }
 #pop .sugAccept:disabled { opacity: .4; cursor: default; }
 #pop.errs { position: fixed !important; top: var(--eTop, 60px) !important; left: var(--eLeft, 12px) !important; right: auto !important; width: 380px; max-height: min(60vh, 420px); padding: 0; }
@@ -2449,22 +2463,25 @@ const posOfLine = (t, line) => { // char pos of 1-based line
   for (let l = 1; l < line; l++) { p = t.indexOf('\n', p) + 1; if (!p) return t.length }
   return p
 }
-function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine, else -1
+function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine (line distance first, then char distance), else -1
   if (!q) return -1
   const hint = posOfLine(t, hintLine)
-  let p = -1, best = -1, dist = Infinity, n = 0
+  let p = -1, best = -1, bestL = Infinity, bestC = Infinity, n = 0
   while ((p = t.indexOf(q, p + 1)) >= 0 && n++ < 20) {
-    const d = Math.abs(p - hint)
-    if (d < dist) { dist = d; best = p }
+    const ld = Math.abs(t.slice(0, p).split('\n').length - hintLine), cd = Math.abs(p - hint)
+    if (ld < bestL || (ld === bestL && cd < bestC)) { bestL = ld; bestC = cd; best = p }
   }
   return best
 }
 function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = not found
   if (!q) return -1
   const exact = exactQuotePos(t, q, hintLine)
-  if (exact >= 0) return exact // same text twice: keep the one at the cursor, not the first
+  if (exact >= 0) return exact // same text twice: keep the one on the anchored line, not the first
   const hint = posOfLine(t, hintLine)
-  const near = arr => arr.sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint))[0]
+  const near = arr => arr.sort((a, b) => {
+    const ld = Math.abs(t.slice(0, a).split('\n').length - hintLine) - Math.abs(t.slice(0, b).split('\n').length - hintLine)
+    return ld || Math.abs(a - hint) - Math.abs(b - hint)
+  })[0]
   const cands = []
   const pushAll = (sub, shift = 0) => {
     if (sub.length < 10) return
@@ -2482,19 +2499,28 @@ function threadHighlights() {
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
     if (th.a == null || th.b == null) continue
-    let source = th
-    if (th.suggestion_status === 'pending') {
-      const span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
+    const pending = th.suggestion_status === 'pending'
+    if (pending && th.conflict) { // conflicted suggestion: mark anchor line cleanly without slicing unrelated text
+      const { from: a, to: b } = threadEditorRange(th)
+      if (b > a) rs.push(Decoration.mark({
+        class: 'cm-hl cm-suggestion cm-suggestion-conflict',
+        attributes: { 'data-suggestion-id': String(th.id) },
+      }).range(a, b))
+      continue
+    }
+    let source = th, span = null
+    if (pending) {
+      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
       const a = Math.min(th.b, th.a + span.a)
       source = { ...th, a, b: Math.max(a, th.b - span.b) }
     }
     const { from: a, to: b } = threadEditorRange(source)
     if (b > a) rs.push(Decoration.mark({
-      class: th.suggestion_status === 'pending' ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
-      attributes: th.suggestion_status === 'pending' ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
+      class: pending ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
+      attributes: pending ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
     }).range(a, b))
-    if (th.suggestion_status === 'pending') {
-      const widget = new SuggestionReplacement(th)
+    if (pending) {
+      const widget = new SuggestionReplacement(th, span)
       if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
     }
   }
@@ -2628,12 +2654,13 @@ $('cm').addEventListener('mousedown', e => { // click on line number or yellow h
   if (g && marks.has(+g.textContent)) { openLinePop(+g.textContent); return }
   const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
   if (hl) {
+    const cid = hl.getAttribute('data-comment-id')
     const p = cm.posAtCoords({ x: e.clientX, y: e.clientY }) ?? cm.posAtDOM(hl)
-    const th = threads.find(th => {
+    const th = (cid && threads.find(t => String(t.id) === cid)) || threads.find(th => {
       const r = threadEditorRange(th)
       return th.a != null && p >= r.from && p <= r.to
     })
-    if (th) openPop(cm.state.doc.lineAt(p).number, false)
+    if (th) openPop(cm.state.doc.lineAt(p != null ? p : threadEditorRange(th).from).number, false)
   }
 })
 // #3 hover-claim: hovering any fragment of a comment thread / suggestion / package patch also lights up all its other fragments
@@ -2758,6 +2785,7 @@ function onEdit(mapPos, changes, oldLen) {
 let anchorT = 0
 const anchorDirty = new Map()
 function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not many
+  if (th.suggestion_status === 'pending' || (typeof user !== 'undefined' && th.username && th.username !== user)) return
   anchorDirty.set(th.id, { doc: docId, anchor: th.anchor })
   clearTimeout(anchorT)
   anchorT = setTimeout(() => {
@@ -2778,18 +2806,18 @@ function mapThreads(mapPos, paint = true, fromLen) { // start right, end left: t
     const rb = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
     const quoted = !th.suggestion_status && !!th.quote
     if (collapsed) {
-      if (quoted) { th.a = th.b = null; continue }
+      if (quoted) { th.a = th.b = null; th._deleted = true; continue }
       th.a = th.b = ra // collapsed range never balloons onto newly typed text
     } else if (rb <= ra) {
       if (quoted) {
-        th.a = th.b = null // commented text deleted: drop highlight so later typing at that spot never resurrects it
+        th.a = th.b = null; th._deleted = true // commented text deleted: drop highlight so later typing at that spot never resurrects it
         const line = t.slice(0, ra).split('\n').length
         if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
         continue
       }
       th.a = th.b = ra
     } else {
-      th.a = ra; th.b = rb
+      th.a = ra; th.b = rb; th._deleted = false
     }
     if (th.b > th.a || (!th.quote && th.suggestion_status !== 'pending')) { // collapsed away: never persist a sanitized anchor from stale offsets — except quoteless comments, whose whole data IS the anchor line
       const line = t.slice(0, th.a).split('\n').length
@@ -2805,7 +2833,7 @@ function initRanges() { // ranges from quote (once; then mapping keeps them aliv
   if (!t) return false // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
   let changed = false
   for (const th of threads) {
-    if (th.a != null) continue
+    if (th.a != null || th._deleted) continue
     const pending = th.suggestion_status === 'pending'
     const quote = pending ? th.suggestion_old : th.quote
     const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1 // non-overlap count like the backend
@@ -5899,18 +5927,27 @@ function renderPop() {
   const pop = $('pop'); pop.replaceChildren()
   if (popAnchor != null) popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, popAnchor)) // doc shrank while open: never address a dead line
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
-  bar.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
+  const title = el('span', 'barTitle')
+  title.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
+  const barActs = el('span', 'barActs')
   const x = icoBtn('ib', ICO_X); x.title = t('common.close'); x.setAttribute('aria-label', x.title); x.onclick = closePop
-  bar.appendChild(x); pop.appendChild(bar)
+  bar.append(title, barActs); pop.appendChild(bar)
   requestAnimationFrame(movePop)
-  if (window.suggestionPopup) { if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
+  if (window.suggestionPopup) { barActs.appendChild(x); if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
   const line = cm.state.doc.line(popAnchor)
   const list = threads.filter(th => {
     if (th.a == null || th.b == null) return th.anchor === popAnchor
     const r = threadEditorRange(th)
     return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
   })
+  if (list.length > 1) title.appendChild(el('span', 'popCnt', String(list.length)))
   const roC = openedTrashed
+  if (!roC && !popFresh && list.length) {
+    const add = icoBtn('ib', ICO_PLUS); add.title = t('comments.newAria'); add.setAttribute('aria-label', add.title)
+    add.onclick = () => { popFresh = true; renderPop() }
+    barActs.appendChild(add)
+  }
+  barActs.appendChild(x)
   if ((popFresh || !list.length) && !roC) {
     pop.appendChild(newBox())
     document.getElementById('popNew')?.focus()
@@ -5940,7 +5977,7 @@ function newBox() {
       if (doc === docId && epoch === openN) { popFresh = false; popQuote = ''; await refresh(''); closePop() }
     } catch (e) { if (draft) draft.commentRanges.delete(target); toast(e.message) } finally { ok.disabled = false }
   }
-  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post() }
+  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post(); else if (e.key === 'Escape') closePop() }
   row.append(inp, ok); box.append(row)
   return box
 }
@@ -5952,9 +5989,12 @@ function threadCard(th) {
   const hd = el('div', 'hd')
   const author = th.author || th.username || '?'
   const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(th.username || author); av.setAttribute('aria-hidden', 'true')
+  if (typeof paintAvatar === 'function' && th.username) paintAvatar(av, th.username, colOf(th.username))
+  const meta = el('span', 'hdMeta')
   const nm = el('b', 'nm', author); nm.style.color = colOf(th.username || author)
+  meta.append(nm, el('span', 'tm', ago(th.created_at)))
   const acts = el('span', 'acts')
-  hd.append(av, nm, el('span', 'tm', ago(th.created_at)), acts)
+  hd.append(av, meta, acts)
   const roC = openedTrashed
   if (!roC && !th.suggestion_status && (docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
@@ -5981,18 +6021,22 @@ function threadCard(th) {
   }
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
-  else d.appendChild(el('span', 'thTag', t('comments.newAria')))
+  else meta.appendChild(el('span', 'thTag', t('comments.newAria')))
   if (th.text) d.appendChild(richText(th.text))
   if (th.quote && !pendingSug) { // show context, click jumps there (pending suggestions show the diff above)
     const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
+    if (!th.suggestion_status && th.a == null) q.classList?.add('is-detached')
     q.title = t('comments.jumpPos')
     q.onclick = () => jumpThread(th)
     d.appendChild(q)
   }
   th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
-    const rn = el('b', 'nm', r.author || r.username); rn.style.color = colOf(r.username)
-    rh.append(rn, el('span', 'tm', ago(r.created_at)))
+    const rAuthor = r.author || r.username || '?'
+    const rav = el('span', 'av', rAuthor.slice(0, 1).toUpperCase()); rav.style.background = colOf(r.username || rAuthor); rav.setAttribute('aria-hidden', 'true')
+    if (typeof paintAvatar === 'function' && r.username) paintAvatar(rav, r.username, colOf(r.username))
+    const rn = el('b', 'nm', rAuthor); rn.style.color = colOf(r.username || rAuthor)
+    rh.append(rav, rn, el('span', 'tm', ago(r.created_at)))
     rd.append(rh, richText(r.text)); d.appendChild(rd)
   })
   const row = el('div', 'rr')
@@ -6004,7 +6048,7 @@ function threadCard(th) {
       const text = inp.value; inp.value = '' // clear first: else loadComments keeps it as draft and skips renderPop
       api('POST', `/api/docs/${doc}/comments`,
       { anchor: th.anchor, text, parent_id: th.id }).then(() => { if (doc === docId && epoch === openN) return refresh('r_' + th.id) }).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
-    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
+    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send(); else if (e.key === 'Escape') closePop() }
     row.append(inp, ok)
   }
   d.appendChild(row)
@@ -6022,8 +6066,17 @@ async function loadComments(force) {
   if (doc !== docId || epoch !== openN) return
   const s = JSON.stringify(d.comments)
   if (s === lastC) { repaintCommentRanges(); return } // poll: nothing new, keep inputs untouched - but re-derive ranges the first sync skipped
+  const prevById = new Map(threads.map(th => [th.id, th]))
+  const docLen = (window.suggestionDraft || window.changeSession ? shadow : getT()).length
   lastC = s; threads = d.comments
-  for (const t of threads) t.anchor = Math.max(1, +t.anchor || 1) // heal legacy anchor 0 -> 1
+  for (const th of threads) {
+    th.anchor = Math.max(1, +th.anchor || 1) // heal legacy anchor 0 -> 1
+    const prev = prevById.get(th.id)
+    if (prev && !th.suggestion_status && th.quote === prev.quote) { // preserve live tracked range across replies/polls so edited highlights never vanish
+      if (prev._deleted) { th._deleted = true; th.a = th.b = null }
+      else if (prev.a != null && prev.b != null && prev.b > prev.a && prev.b <= docLen) { th.a = prev.a; th.b = prev.b }
+    }
+  }
   if (!activeFile) { initRanges(); reanchor(); gutter(); refreshHl() } // file tab: do not touch main anchors
   paintBadge()
   const draft = [...$('pop').querySelectorAll('input,textarea')].some(i => i.value.trim())
@@ -6071,7 +6124,7 @@ function reanchor() { // keep live ranges on edits; suggestions track exact uniq
       } else { // deleted or unfound: only re-attach if the exact quote reappears (e.g. Undo)
         const i = exactQuotePos(t, quote, th.anchor)
         if (i >= 0) {
-          th.a = i; th.b = Math.min(t.length, i + quote.length)
+          th.a = i; th.b = Math.min(t.length, i + quote.length); th._deleted = false
           const line = t.slice(0, i).split('\n').length
           if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
         } else {
@@ -6122,8 +6175,8 @@ function updCNewTip() {
 }
 $('cNew').onclick = () => {
   if (!docId || activeFile || openedTrashed) return
-  const m = cm.state.selection.main // save selected spot along
-  openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, 20000))
+  const m = cm.state.selection.main // anchor at selection start so multi-line comments sit on their opening line
+  openPop(lineOf(m.from), true, getT().slice(m.from, m.to).slice(0, 20000))
 }
 
 const ICO_MORE = svgI('<circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/>')
@@ -14909,20 +14962,22 @@ function suggestionCard(th, fresh, doc, epoch) {
   const card = el('div', 'suggestionCard')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
   card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
-  if (th.suggestion_status === 'pending') {
-    const span = diffSpan(th.suggestion_old, th.replacement)
-    const old = th.suggestion_old.slice(span.a, th.suggestion_old.length - span.b)
-    const next = th.replacement.slice(span.a, th.replacement.length - span.b)
+  const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
+  if (oldFull || nextFull) {
+    const span = diffSpan(oldFull, nextFull)
+    const old = oldFull.slice(span.a, oldFull.length - span.b)
+    const next = nextFull.slice(span.a, nextFull.length - span.b)
     if (old || next) {
       const diff = el('div', 'sugDiff')
+      if (th.suggestion_status !== 'pending') diff.classList?.add('is-decided')
       if (old) diff.append(el('div', 'sugDel suggestionDeleted', old))
       if (next) diff.append(el('div', 'sugAdd', next))
       card.append(diff)
     }
-    if (th.a == null || th.conflict) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   }
+  if (th.suggestion_status === 'pending' && (th.a == null || th.conflict)) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   if (th.suggestion_status === 'pending' && !openedTrashed && ['owner', 'editor'].includes(docRole)) {
-    const actions = el('div', 'rr sugActs')
+    const actions = el('div', 'sugActs')
     const button = el('button', 'sugAccept', t('comments.accept'))
     button.disabled = th.a == null || !!th.conflict
     button.onclick = () => decideSuggestion(th, 'accept', doc, epoch)
@@ -14939,10 +14994,10 @@ async function decideSuggestion(th, action, doc = docId, epoch = openN) {
   } catch (e) { toast(e.status === 409 ? t('comments.suggestionConflict') : e.message) }
 }
 class SuggestionReplacement extends WidgetType {
-  constructor(th) {
+  constructor(th, span = null) {
     super(); this.th = th
-    const span = diffSpan(th.suggestion_old, th.replacement)
-    this.text = th.replacement.slice(span.a, th.replacement.length - span.b)
+    const s = span || diffSpan(th.suggestion_old, th.replacement)
+    this.text = th.replacement.slice(s.a, th.replacement.length - s.b)
   }
   get lineBreaks() { return this.text.split('\n').length - 1 }
   eq(other) { return other instanceof SuggestionReplacement && other.th.id === this.th.id && other.text === this.text }

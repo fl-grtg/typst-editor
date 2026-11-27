@@ -451,22 +451,25 @@ const posOfLine = (t, line) => { // char pos of 1-based line
   for (let l = 1; l < line; l++) { p = t.indexOf('\n', p) + 1; if (!p) return t.length }
   return p
 }
-function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine, else -1
+function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine (line distance first, then char distance), else -1
   if (!q) return -1
   const hint = posOfLine(t, hintLine)
-  let p = -1, best = -1, dist = Infinity, n = 0
+  let p = -1, best = -1, bestL = Infinity, bestC = Infinity, n = 0
   while ((p = t.indexOf(q, p + 1)) >= 0 && n++ < 20) {
-    const d = Math.abs(p - hint)
-    if (d < dist) { dist = d; best = p }
+    const ld = Math.abs(t.slice(0, p).split('\n').length - hintLine), cd = Math.abs(p - hint)
+    if (ld < bestL || (ld === bestL && cd < bestC)) { bestL = ld; bestC = cd; best = p }
   }
   return best
 }
 function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = not found
   if (!q) return -1
   const exact = exactQuotePos(t, q, hintLine)
-  if (exact >= 0) return exact // same text twice: keep the one at the cursor, not the first
+  if (exact >= 0) return exact // same text twice: keep the one on the anchored line, not the first
   const hint = posOfLine(t, hintLine)
-  const near = arr => arr.sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint))[0]
+  const near = arr => arr.sort((a, b) => {
+    const ld = Math.abs(t.slice(0, a).split('\n').length - hintLine) - Math.abs(t.slice(0, b).split('\n').length - hintLine)
+    return ld || Math.abs(a - hint) - Math.abs(b - hint)
+  })[0]
   const cands = []
   const pushAll = (sub, shift = 0) => {
     if (sub.length < 10) return
@@ -484,19 +487,28 @@ function threadHighlights() {
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
     if (th.a == null || th.b == null) continue
-    let source = th
-    if (th.suggestion_status === 'pending') {
-      const span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
+    const pending = th.suggestion_status === 'pending'
+    if (pending && th.conflict) { // conflicted suggestion: mark anchor line cleanly without slicing unrelated text
+      const { from: a, to: b } = threadEditorRange(th)
+      if (b > a) rs.push(Decoration.mark({
+        class: 'cm-hl cm-suggestion cm-suggestion-conflict',
+        attributes: { 'data-suggestion-id': String(th.id) },
+      }).range(a, b))
+      continue
+    }
+    let source = th, span = null
+    if (pending) {
+      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
       const a = Math.min(th.b, th.a + span.a)
       source = { ...th, a, b: Math.max(a, th.b - span.b) }
     }
     const { from: a, to: b } = threadEditorRange(source)
     if (b > a) rs.push(Decoration.mark({
-      class: th.suggestion_status === 'pending' ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
-      attributes: th.suggestion_status === 'pending' ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
+      class: pending ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
+      attributes: pending ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
     }).range(a, b))
-    if (th.suggestion_status === 'pending') {
-      const widget = new SuggestionReplacement(th)
+    if (pending) {
+      const widget = new SuggestionReplacement(th, span)
       if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
     }
   }

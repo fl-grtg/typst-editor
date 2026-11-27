@@ -347,3 +347,26 @@ test('owner dismisses pending suggestions via reject, reviewer gets no broken de
   const reviewerCard = mkCtx('reviewer', 'alice').threadCard(th)
   assert.equal(walk(reviewerCard).find(n => n.title === 'comments.delThread'), undefined)
 })
+
+test('conflicted pending suggestions mark anchor line cleanly without slicing or replacement widgets', () => {
+  const highlights = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  let widgetCreated = false
+  const c = vm.createContext({
+    window: {},
+    threads: [{ id: 's1', a: 10, b: 30, conflict: true, suggestion_status: 'pending', suggestion_old: 'old text', replacement: 'new text' }],
+    threadEditorRange: th => ({ from: th.a, to: th.b }),
+    Decoration: {
+      mark: spec => ({ range: (from, to) => ({ from, to, spec }) }),
+      widget: spec => ({ range: pos => ({ pos, spec }) }),
+    },
+    SuggestionReplacement: class { constructor() { widgetCreated = true; this.text = 'new' } },
+  })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
+  vm.runInContext(highlights.slice(highlights.indexOf('function threadHighlights'), highlights.indexOf('function refreshHl')), c)
+  const out = plain(c.threadHighlights())
+  assert.equal(widgetCreated, false)
+  assert.equal(out.length, 1)
+  assert.deepEqual([out[0].from, out[0].to], [10, 30])
+  assert.ok(out[0].spec.class.includes('cm-suggestion-conflict'))
+})
