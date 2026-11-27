@@ -12608,7 +12608,9 @@ function sidebarInlineCreate(container, value = '', opts = {}) { // create in pl
   })
 }
 function projectCreateTarget(projectId, folder = '') {
-  const group = document.querySelector(`.project-group[data-project-id="${CSS.escape(projectId)}"]`)
+  if (typeof document === 'undefined' || !document.querySelector) return null
+  const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(projectId) : projectId
+  const group = document.querySelector(`.project-group[data-project-id="${esc}"]`)
   if (!group || !group.offsetParent) return null
   const after = folder
     ? ([...group.querySelectorAll('.fhd.folder')].find(r => r.dataset.folderPath === folder) || group.querySelector('.fhd.project'))
@@ -12869,7 +12871,9 @@ async function pullLibrary(source, target, targetFolder = '') {
     if (preview.collisions?.length) {
       toast(t('common.nameExists'))
       const files = preview.files || [{ source: source.source, name: body.name }]
-      for (const file of files.filter(f => preview.collisions.includes(f.name))) {
+      const clashes = files.filter(f => preview.collisions.includes(f.name))
+      if (!clashes.length) return null
+      for (const file of clashes) {
         const replacement = await ask(t('projects.copyConflict') + '\n' + file.source, { value: file.name, maxLen: 240, stem: true })
         if (!replacement?.trim() || !current()) return null
         if (file.source === source.source) body.name = replacement.trim()
@@ -13231,9 +13235,11 @@ function uniqueDocTitle(used, title) {
   }
 }
 function entryAnchor(p, entry) {
-  if (entry?.kind === 'document' && entry.doc_id) return document.querySelector(`aside [data-doc-id="${CSS.escape(entry.doc_id)}"]`) || document.querySelector(`.project-group[data-project-id="${CSS.escape(p.id)}"] .fhd.project`)
-  if (entry?.kind === 'folder' && entry.name) return [...document.querySelectorAll(`.project-group[data-project-id="${CSS.escape(p.id)}"] .fhd.folder`)].find(r => r.dataset.folderPath === entry.name) || document.querySelector(`.project-group[data-project-id="${CSS.escape(p.id)}"] .fhd.project`)
-  return document.querySelector(`.project-group[data-project-id="${CSS.escape(p.id)}"] .fhd.project`)
+  if (typeof document === 'undefined' || !document.querySelector) return null
+  const esc = v => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(v) : v)
+  if (entry?.kind === 'document' && entry.doc_id) return document.querySelector(`aside [data-doc-id="${esc(entry.doc_id)}"]`) || document.querySelector(`.project-group[data-project-id="${esc(p.id)}"] .fhd.project`)
+  if (entry?.kind === 'folder' && entry.name) return [...document.querySelectorAll(`.project-group[data-project-id="${esc(p.id)}"] .fhd.folder`)].find(r => r.dataset.folderPath === entry.name) || document.querySelector(`.project-group[data-project-id="${esc(p.id)}"] .fhd.project`)
+  return document.querySelector(`.project-group[data-project-id="${esc(p.id)}"] .fhd.project`)
 }
 async function pickTargetFolder(p, head, exclude = '', reserve = 0, anchor = null, o = {}) {
   // reserve is the depth the moved entry adds itself: a folder needs one level,

@@ -302,7 +302,7 @@ test('proposal picker displays the key name with an account-name fallback', asyn
   const labels = []
   const c = vm.createContext({ docProject: 'p', packageLoad: 0, window: {},
     api: async () => ({ packages: [{ author: 'alice', author_name: 'Review Bot' }, { author: 'bob', author_name: '' }] }),
-    t: (_key, args) => { if (args) labels.push(args.author); return '' }, askPick: async () => null,
+    t: (_key, args) => { if (args) labels.push(args.author); return '' }, pickPop: async () => null, reviewButton: null,
     toast: message => { throw Error(message) } })
   vm.runInContext(packages.slice(packages.indexOf('async function choosePackage'), packages.indexOf('// topbar chip opener')), c)
   await c.choosePackage()

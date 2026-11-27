@@ -98,25 +98,22 @@ test('private module insertion waits for copied snapshot and uses returned name'
   assert.equal(inserted, '#include "../copied.typ"') // the copied file is quoted as the open text reaches it
 })
 test('personal pull keeps its collection folder or follows the target folder', async () => {
-  let initial, body, stem
-  const c = setup({ ask: async (_label, options) => { initial = options.value; stem = options.stem; return options.value }, api: async (_m, url, sent) => {
+  let body
+  const c = setup({ api: async (_m, url, sent) => {
     if (url.endsWith('pull-preview')) return { preview: 'token' }
     body = sent; return { name: sent.name }
   } })
   assert.equal(await c.pullLibrary({ source_scope: 'personal', source: 'module.typ', folder: 'MeineOrdner' }, { scope: 'project', project_id: 'p' }), 'MeineOrdner/module.typ')
-  assert.equal(initial, 'MeineOrdner/module.typ')
-  assert.equal(stem, true)
   assert.equal(body.name, 'MeineOrdner/module.typ')
   assert.equal(await c.pullLibrary({ source_scope: 'personal', source: 'module.typ', folder: 'MeineOrdner' }, { scope: 'project', project_id: 'p' }, 'Ziel'), 'Ziel/module.typ')
-  assert.equal(initial, 'Ziel/module.typ')
   assert.equal(body.name, 'Ziel/module.typ')
 })
 test('snapshot collision only offers rename or cancel, never overwrites', async () => {
-  const calls = [], answers = ['taken.typ', null]
+  const calls = [], answers = [null]
   const c = setup({ ask: async () => answers.shift(), api: async (_method, url, body) => {
     calls.push({ url, body }); return { collisions: ['taken.typ'] }
   } })
-  assert.equal(await c.pullLibrary({ source_scope: 'personal', source: 'a.typ' }, { scope: 'project', project_id: 'p' }), null)
+  assert.equal(await c.pullLibrary({ source_scope: 'personal', source: 'taken.typ' }, { scope: 'project', project_id: 'p' }), null)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].url, '/api/library/pull-preview')
   assert.equal(calls[0].body.overwrite, undefined)
@@ -160,7 +157,7 @@ test('project share preserves document-only guests without granting project memb
 })
 
 test('pull retries every colliding source mapping and submits refreshed preview', async () => {
-  const calls = [], answers = ['root.typ', 'root-new.typ', 'left.typ', 'right.typ', true]
+  const calls = [], answers = ['root-new.typ', 'left.typ', 'right.typ', true]
   const c = setup({ ask: async () => answers.shift(), api: async (_m, url, body) => {
     calls.push({ url, body: JSON.parse(JSON.stringify(body)) })
     if (calls.length === 1) return { files: [{ source: 'dir/root.typ', name: 'root.typ' }, { source: 'a/shared.typ', name: 'shared.typ' }, { source: 'b/shared.typ', name: 'shared.typ' }], collisions: ['root.typ', 'shared.typ'] }
@@ -173,15 +170,15 @@ test('pull retries every colliding source mapping and submits refreshed preview'
   assert.equal(calls[2].body.overwrite, undefined)
 })
 
-test('personal pull defaults to basename and cancel never copies', async () => {
-  let initial
-  const c = setup({ ask: async (_label, options) => { initial = options.value; return null }, api: () => assert.fail('cancelled') })
+test('personal pull defaults to basename and collision cancel never copies', async () => {
+  let requested
+  const c = setup({ ask: async () => null, api: async (_m, url, body) => { requested = body.name; return { collisions: [body.name] } } })
   assert.equal(await c.pullLibrary({ source: 'nested/module.typ' }, { scope: 'personal' }), null)
-  assert.equal(initial, 'module.typ')
+  assert.equal(requested, 'module.typ')
 })
 
 test('dependency rename cancellation aborts pull', async () => {
-  const answers = ['root.typ', null], calls = []
+  const answers = [null], calls = []
   const c = setup({ ask: async () => answers.shift(), api: async (_m, url) => { calls.push(url); return { files: [{ source: 'dep.typ', name: 'dep.typ' }], collisions: ['dep.typ'] } } })
   assert.equal(await c.pullLibrary({ source: 'root.typ' }, { scope: 'personal' }), null)
   assert.deepEqual(calls, ['/api/library/pull-preview'])

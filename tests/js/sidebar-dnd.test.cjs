@@ -113,7 +113,7 @@ test('external files reach the module uploader', async () => {
 test('a Typst file dropped on modules asks document or module and respects cancellation', async () => {
   for (const choice of [null, 0, 1]) {
     const calls = []
-    const c = context({ myTpl: [], loadTpl() {}, sidebar() {}, askPick: async () => choice,
+    const c = context({ myTpl: [], loadTpl() {}, sidebar() {}, pickPop: async () => choice, $: () => null,
       api: async (...args) => { calls.push(args); return { id: 'new-doc' } }, openDoc: async id => calls.push(['open', id]) })
     await c.uploadModuleFiles([{ name: 'sample.typ', size: 4, text: async () => 'text' }])
     if (choice == null) assert.equal(calls.length, 0)
