@@ -76,6 +76,5 @@ def test_word_count_follows_tab_and_document_switches(page):
     row.hover()
     row.locator('button.mini[data-side-menu]').click()
     page.get_by_role('menuitem', name='Move to trash').click()
-    page.click('#mYes')
     expect(page.locator('#title')).to_have_text('Welcome')
     expect(page.locator('#pos')).not_to_contain_text('words')
