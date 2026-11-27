@@ -341,12 +341,14 @@ function paintSuggestionControls() {
   if (bar) {
     bar.hidden = !draft
     if (draft) {
+      const label = bar.querySelector('b')
+      if (label) label.textContent = t('comments.suggestMode')
       const n = draftRanges(draft).length
       const cnt = $('sugCount')
       if (cnt) cnt.textContent = n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : ''
       const send = $('sugSend'), disc = $('sugDiscard')
-      if (send) { send.disabled = !draft.changed || !!draft.busy; send.onclick = () => sendSuggestionDraft() }
-      if (disc) { disc.disabled = !!draft.busy; disc.onclick = () => draft.changed ? leaveSuggestionDraft() : stopSuggestionDraft() }
+      if (send) { send.hidden = false; send.textContent = t('comments.draftSend'); send.disabled = !draft.changed || !!draft.busy; send.onclick = () => sendSuggestionDraft() }
+      if (disc) { disc.textContent = t('comments.draftDiscard'); disc.disabled = !!draft.busy; disc.onclick = () => draft.changed ? leaveSuggestionDraft() : stopSuggestionDraft() }
     }
   }
   if (docId && !activeFile && !tplName && !openedTrashed) {

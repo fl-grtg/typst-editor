@@ -190,7 +190,7 @@
 
 #cmWrap .cm-draft-change { cursor: text; }
 .suggestionDeleted { text-decoration: line-through; text-decoration-color: #9560d5; text-decoration-thickness: 1.5px; color: var(--text); }
-#cmWrap .suggestionDeleted[contenteditable="false"] { white-space: pre-wrap; cursor: pointer; }
+#cmWrap .suggestionDeleted[contenteditable="false"] { white-space: pre-wrap; cursor: pointer; margin-right: 3px; }
 #cmWrap [data-suggestion-id][contenteditable="false"] { white-space: pre-wrap; cursor: pointer; margin-left: 3px; }
 
 .csvEditor td.csv-selected { background: var(--acc-soft); }

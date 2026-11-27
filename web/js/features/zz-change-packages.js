@@ -473,65 +473,97 @@ function sessionBibPatch(file, selector, accept) {
 function sessionCard(box) {
   const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
   if (!range) { closePop(true); return }
-  const card = el('div', 'th'), header = el('div', 'hd')
-  header.append(el('b', 'nm', s.package?.author_name || s.package?.author || user), el('span', 'tm', t('comments.suggestionpending')))
-  if (s.package && ['owner', 'editor'].includes(docRole)) {
-    const accept = icoBtn('ib', ICO_CHECK); accept.title = t('comments.accept')
-    accept.onclick = async () => {
-      if (!await saveSessionCorrections()) return
-      const actual = s.files.get(sessionKey(sessionCurrent()))
-      if (!actual || window.changeSession !== s) return
-      if (actual.action === 'rename' || actual.action === 'add' && !box.cell && !box.bibField) {
-        await acceptSessionSelection(actual.id); return
-      }
-      if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
-      if (box.bibField) {
-        const patch = sessionBibPatch(actual, box.bibField, true)
-        if (!patch) return
-        const state = EditorState.create({ doc: actual.base || '' }), delta = state.changes(patch)
-        const edits = suggestionChanges(actual.base || '', delta.apply(state.doc).toString(), delta)
-        if (edits.length === 1) await acceptSessionSelection(actual.id, '', null, edits[0])
-        return
-      }
-      await acceptSessionRange(actual, range)
+  const renderMain = () => {
+    const card = el('div', 'th'), header = el('div', 'hd')
+    const author = s.package?.author_name || s.package?.author || user || '?'
+    const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(s.package?.author || author); av.setAttribute('aria-hidden', 'true')
+    if (typeof paintAvatar === 'function') paintAvatar(av, s.package?.author || author, colOf(s.package?.author || author))
+    const meta = el('span', 'hdMeta')
+    meta.append(el('b', 'nm', author))
+    const acts = el('span', 'acts')
+    const remove = icoBtn('ib', ICO_TRASH); remove.classList?.add('danger'); remove.title = t('comments.draftDiscard'); remove.setAttribute('aria-label', remove.title)
+    remove.onclick = () => {
+      if (s.busy) return
+      closePop(true)
+      if (box.cell) {
+        const { row, column } = box.cell, before = parseCsv(file.base || '', csvDelimiter)
+        csvPut(row, column, before[row]?.[column] || ''); csvSave(); csvWindow = ''; csvRender()
+      } else if (box.bibField) {
+        const patch = sessionBibPatch(file, box.bibField, false)
+        if (patch) cm.dispatch({ changes: patch })
+      } else cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } })
     }
-    header.append(accept)
-  }
-  const remove = icoBtn('ib', ICO_TRASH); remove.title = t('comments.draftDiscard')
-  remove.onclick = () => {
-    if (s.busy) return
-    closePop(true)
+    if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) acts.append(remove)
+    header.append(av, meta, acts)
+    card.append(header)
+    const sugWrap = el('div', 'suggestionCard')
+    sugWrap.append(el('span', 'thTag sug-pending', s.package ? t('comments.suggestionpending') : t('packages.draft')))
     if (box.cell) {
-      const { row, column } = box.cell, before = parseCsv(file.base || '', csvDelimiter)
-      csvPut(row, column, before[row]?.[column] || ''); csvSave(); csvWindow = ''; csvRender()
+      const { row, column } = box.cell
+      const old = parseCsv(file.base || '', csvDelimiter)[row]?.[column] || '', next = csvRows[row]?.[column] || ''
+      const table = el('table', 'proposalCells')
+      const tr = el('tr')
+      tr.append(el('th', null, csvColumn(column) + (row + 1)))
+      if (old) { const before = el('td', 'qt suggestionDeleted', old); if (!next) before.colSpan = 2; tr.append(before) }
+      if (next) { const after = el('td', 'tx', next); if (!old) after.colSpan = 2; tr.append(after) }
+      table.append(tr)
+      sugWrap.append(table)
     } else if (box.bibField) {
-      const patch = sessionBibPatch(file, box.bibField, false)
-      if (patch) cm.dispatch({ changes: patch })
-    } else cm.dispatch({ changes: { from: range.a, to: range.b, insert: range.old } })
+      const field = sessionBibField(file, box.bibField), diff = el('div', 'sugDiff')
+      if (field.before?.value) diff.append(el('div', 'sugDel', field.before.value))
+      if (field.after?.value) diff.append(el('div', 'sugAdd', field.after.value))
+      if (diff.children.length) sugWrap.append(diff)
+    } else if (range.old || range.next) {
+      const diff = el('div', 'sugDiff')
+      if (range.old) diff.append(el('div', 'sugDel', range.old))
+      if (range.next) diff.append(el('div', 'sugAdd', range.next))
+      sugWrap.append(diff)
+    }
+    if (s.package && ['owner', 'editor'].includes(docRole)) {
+      const actions = el('div', 'sugActs')
+      const accept = el('button', 'sugAccept', t('comments.accept'))
+      accept.onclick = async () => {
+        if (!await saveSessionCorrections()) return
+        const actual = s.files.get(sessionKey(sessionCurrent()))
+        if (!actual || window.changeSession !== s) return
+        if (actual.action === 'rename' || actual.action === 'add' && !box.cell && !box.bibField) {
+          await acceptSessionSelection(actual.id); return
+        }
+        if (box.cell) { await acceptSessionSelection(actual.id, '', box.cell); return }
+        if (box.bibField) {
+          const patch = sessionBibPatch(actual, box.bibField, true)
+          if (!patch) return
+          const state = EditorState.create({ doc: actual.base || '' }), delta = state.changes(patch)
+          const edits = suggestionChanges(actual.base || '', delta.apply(state.doc).toString(), delta)
+          if (edits.length === 1) await acceptSessionSelection(actual.id, '', null, edits[0])
+          return
+        }
+        await acceptSessionRange(actual, range)
+      }
+      actions.append(accept)
+      sugWrap.append(actions)
+    }
+    card.append(sugWrap)
+    return card
   }
-  if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) header.append(remove)
-  card.append(header)
-  if (box.cell) {
-    const { row, column } = box.cell
-    const old = parseCsv(file.base || '', csvDelimiter)[row]?.[column] || '', next = csvRows[row]?.[column] || ''
-    const table = el('table', 'proposalCells')
-    const tr = el('tr')
-    tr.append(el('th', null, csvColumn(column) + (row + 1)))
-    if (old) { const before = el('td', 'qt suggestionDeleted', old); if (!next) before.colSpan = 2; tr.append(before) }
-    if (next) { const after = el('td', 'tx', next); if (!old) after.colSpan = 2; tr.append(after) }
-    table.append(tr)
-    card.append(table)
-  } else if (box.bibField) {
-    const field = sessionBibField(file, box.bibField), item = el('div', 'proposalBibField')
-    if (field.before?.value) item.append(el('div', 'qt suggestionDeleted', field.before.value))
-    if (field.after?.value) item.append(el('div', 'tx', field.after.value))
-    card.append(item)
-  } else {
-    if (range.old) card.append(el('div', 'qt suggestionDeleted', range.old))
-    if (range.next) card.append(el('div', 'tx', range.next))
+  const overlaps = !activeFile ? threads.filter(th => { const r = threadEditorRange(th); return th.a != null && r.from <= range.b && r.to >= range.a }) : []
+  const items = [{ id: 's:' + box.index, render: renderMain }, ...overlaps.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) }))]
+  let idx = popThreadId ? items.findIndex(it => it.id === popThreadId) : 0
+  if (idx < 0) idx = 0
+  popThreadId = items[idx].id
+  const pop = $('pop')
+  if (items.length > 1) {
+    const barActs = pop.querySelector('.barActs')
+    if (barActs) {
+      const nav = el('span', 'popNav')
+      const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
+      prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx - 1 + items.length) % items.length].id; renderPop() }
+      next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx + 1) % items.length].id; renderPop() }
+      nav.append(prev, el('span', 'popStep', `${idx + 1} / ${items.length}`), next)
+      barActs.prepend(nav)
+    }
   }
-  $('pop').append(card)
-  if (!activeFile) threads.filter(th => { const r = threadEditorRange(th); return r.from <= range.b && r.to >= range.a }).forEach(th => $('pop').append(threadCard(th)))
+  pop.append(items[idx].render())
 }
 function paintSessionSelection() {
   const s = window.changeSession
@@ -702,8 +734,35 @@ paintSuggestionControls = () => {
   discardFileButton.title = t('packages.discardFile'); discardFileButton.setAttribute('aria-label', discardFileButton.title)
   discardFileButton.hidden = !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id) || !!s?.package && s.package.author !== user && !['owner', 'editor'].includes(docRole)
   discardFileButton.disabled = !!s?.busy || !!s?.original
-  packageActions.hidden = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
+  packageActions.hidden = !s?.package || [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
   exitPackageButton.hidden = !s
+  const bar = $('sugBar')
+  if (bar && s) {
+    bar.hidden = false
+    const label = bar.querySelector('b')
+    if (label) label.textContent = s.package ? (s.package.title || t('comments.suggestionpending')) : t('packages.draft')
+    const cnt = $('sugCount'), n = sessionFiles(s).length
+    if (cnt) cnt.textContent = n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : ''
+    const send = $('sugSend'), disc = $('sugDiscard')
+    if (send) {
+      if (s.package) {
+        send.hidden = !['owner', 'editor'].includes(docRole)
+        send.textContent = t('packages.acceptPackage')
+        send.disabled = !!s.busy
+        send.onclick = () => acceptSessionSelection()
+      } else {
+        send.hidden = false
+        send.textContent = t('comments.draftSend')
+        send.disabled = !n || !!s.busy
+        send.onclick = () => submitChangeSession()
+      }
+    }
+    if (disc) {
+      disc.textContent = s.package ? t('packages.exit') : t('comments.draftDiscard')
+      disc.disabled = !!s.busy
+      disc.onclick = () => s.package ? endChangeSession() : endChangeSession(true)
+    }
+  }
   if (available) {
     $('suggestionToggle').hidden = !!s?.package
     $('suggestionToggle').disabled = sessionStarting || !!s?.busy || !synced
