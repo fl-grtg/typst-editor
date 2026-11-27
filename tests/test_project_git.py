@@ -73,11 +73,17 @@ def test_version_settings_are_for_the_owner_and_hide_the_token(c, monkeypatch):
     assert c.put(f"/api/projects/{pid}/versioning", json=_settings()).status_code == 403
 
 
-def test_remote_must_be_public_https(c):
-    for url in ("http://example.org/r.git", "https://user:pw@example.org/r.git", "file:///tmp/r", "ext::sh -c id", "https://127.0.0.1/r.git"):
+def test_remote_must_be_routable_https(c):
+    for url in ("http://example.org/r.git", "https://user:pw@example.org/r.git", "file:///tmp/r", "ext::sh -c id", "https://127.0.0.1/r.git",
+                "https://169.254.169.254/r.git", "https://[::ffff:127.0.0.1]/r.git"):
         with pytest.raises(Exception) as error:
             project_git.check_remote(url)
         assert getattr(error.value, "status_code", None) == 400, url
+
+
+def test_remote_may_be_on_a_private_network(c):
+    for url in ("https://192.168.1.10/r.git", "https://10.0.0.5:8443/r.git", "https://172.17.0.1/r.git"):
+        assert project_git.check_remote(url) == url
 
 
 def test_tree_lays_out_documents_next_to_files():
