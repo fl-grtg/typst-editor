@@ -164,18 +164,20 @@ def test_export_doc_lock_429(c):
     assert c.post(f"/api/docs/{did}/export", params={"format": "zip"}).status_code == 200
 
 
-def test_export_doc_ratelimit_429(c):
+def test_export_doc_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "Rpt", content="= Hi")
-    for _ in range(10):
+    monkeypatch.setenv("RATE_EXPORT_DOC_PER_MIN", "3")
+    for _ in range(3):
         assert c.post(f"/api/docs/{did}/export", params={"format": "zip"}).status_code == 200
     assert c.post(f"/api/docs/{did}/export", params={"format": "zip"}).status_code == 429
 
 
-def test_export_doc_isolated_from_full_export(c):
+def test_export_doc_isolated_from_full_export(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "Rpt", content="= Hi")
-    for _ in range(5):  # exhaust the full-backup export bucket
+    monkeypatch.setenv("RATE_EXPORT_PER_MIN", "3")
+    for _ in range(3):  # exhaust the full-backup export bucket
         assert c.get("/api/export.zip").status_code == 200
     assert c.get("/api/export.zip").status_code == 429
     assert c.post(f"/api/docs/{did}/export", params={"format": "zip"}).status_code == 200

@@ -162,7 +162,7 @@ def delete_comment(doc_id: str, cid: str, req: Request, user: str = Depends(deps
 @router.post("/api/docs/{doc_id}/comments/{cid}/anchor")
 def move_comment(doc_id: str, cid: str, b: AnchorSet, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.check_doc_id(doc_id)
-    deps.limited(req, "comments")
+    deps.limited(req, "files_list")  # background anchor shifts on edit: must not starve comment writes
     deps.need_access(user, doc_id)
     if b.anchor < 0:
         raise HTTPException(400, "Anchor < 0")

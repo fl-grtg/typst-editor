@@ -33,43 +33,58 @@ def test_clear_resets(c):
     assert c.post("/api/login", json={"username": "alice", "password": "falsch123"}).status_code == 401
 
 
-def test_search_ratelimit_429(c):
+def test_search_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
+    monkeypatch.setenv("RATE_SEARCH_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(61):
+    for _ in range(4):
         codes.add(c.get("/api/search", params={"q": "xy"}).status_code)
     assert 429 in codes
 
 
-def test_files_ratelimit_429(c):
+def test_files_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     pid = project_of(c, make_doc(c, "F"))
+    monkeypatch.setenv("RATE_FILES_LIST_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(121): # list scope is 120/min (preview polls per render)
+    for _ in range(4):
         codes.add(c.get(f"/api/projects/{pid}/files").status_code)
     assert 429 in codes
 
 
-def test_save_ratelimit_429(c):
+def test_save_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "S", content="hi")
+    monkeypatch.setenv("RATE_SAVE_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(31):
+    for _ in range(4):
         codes.add(c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code)
     assert 429 in codes
 
 
-def test_file_text_save_ratelimit_429(c):
+def test_file_text_save_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     pid = project_of(c, make_doc(c, "T", content="hi"))
+    monkeypatch.setenv("RATE_SAVE_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(31): # same save scope as doc save (autosave cadence fits 30/min)
+    for _ in range(4):
         codes.add(put_file(c, pid, "n.typ", b"hi", force=1).status_code)
     assert 429 in codes
+
+
+def test_comment_anchor_does_not_consume_comments(c, monkeypatch):
+    register_user(c, "alice")
+    did = make_doc(c, "C", content="line1\nline2\nline3")
+    cid = c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "note"}).json()["id"]
+    monkeypatch.setenv("RATE_COMMENTS_PER_MIN", "2")
+    ratelimit.clear()
+    for line in range(2, 7):
+        assert c.post(f"/api/docs/{did}/comments/{cid}/anchor", json={"anchor": line}).status_code == 200
+    assert c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "still works"}).status_code == 200
 
 
 def test_avatar_get_no_limit(c):
@@ -81,82 +96,90 @@ def test_avatar_get_no_limit(c):
     assert 429 not in codes
 
 
-def test_rename_ratelimit_429(c):
+def test_rename_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "R", content="hi")
+    monkeypatch.setenv("RATE_RENAME_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for i in range(11): # rename scope is 10/min (own bucket, no longer shares save)
+    for i in range(4):
         codes.add(c.post(f"/api/docs/{did}/rename", json={"title": f"R{i}"}).status_code)
     assert 429 in codes
 
 
-def test_delete_ratelimit_429(c):
+def test_delete_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
-    dids = [make_doc(c, f"D{i}", content="hi") for i in range(11)]
+    dids = [make_doc(c, f"D{i}", content="hi") for i in range(4)]
+    monkeypatch.setenv("RATE_DELETE_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for did in dids: # delete scope is 10/min (own bucket, no longer shares save)
+    for did in dids:
         codes.add(c.delete(f"/api/docs/{did}").status_code)
     assert 429 in codes
 
 
-def test_restore_ratelimit_429(c):
+def test_restore_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "W", content="hi")
     assert c.delete(f"/api/docs/{did}").status_code == 200
+    monkeypatch.setenv("RATE_RESTORE_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(11): # restore scope is 10/min (own bucket, no longer shares save)
+    for _ in range(4):
         codes.add(c.post(f"/api/docs/{did}/restore").status_code)
     assert 429 in codes
 
 
-def test_move_ratelimit_429(c):
+def test_move_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "M", content="hi")
     pid = c.get(f"/api/docs/{did}").json()["project_id"]
+    monkeypatch.setenv("RATE_MOVE_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for i in range(21): # project rename uses the move bucket
+    for i in range(4): # project rename uses the move bucket
         codes.add(c.post(f"/api/projects/{pid}/rename", json={"title": f"M{i}"}).status_code)
     assert 429 in codes
 
 
-def test_templates_ratelimit_429(c):
+def test_templates_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
+    monkeypatch.setenv("RATE_TEMPLATES_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(21): # templates scope is 20/min (own bucket, no longer shares save/files)
+    for _ in range(4):
         codes.add(c.post("/api/templates", json={"name": "r.typ", "content": "x"}).status_code)
     assert 429 in codes
 
 
-def test_tplfolders_ratelimit_429(c):
+def test_tplfolders_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
+    monkeypatch.setenv("RATE_TPLFOLDERS_PER_MIN", "3")
     ratelimit.clear()
     codes = set()
-    for _ in range(21): # tplfolders scope is 20/min (own bucket, no longer shares files)
+    for _ in range(4):
         codes.add(c.delete("/api/tplfolders/Z").status_code)
     assert 429 in codes
 
 
-def test_rename_isolated_from_save(c):
+def test_rename_isolated_from_save(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "S", content="hi")
+    monkeypatch.setenv("RATE_SAVE_PER_MIN", "3")
     ratelimit.clear()
-    for _ in range(30): # exhaust the save bucket (autosave cadence)
+    for _ in range(3): # exhaust the save bucket (autosave cadence)
         assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 200
     assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 429
     # rename has its own bucket: still works despite save exhaustion
     assert c.post(f"/api/docs/{did}/rename", json={"title": "S2"}).status_code == 200
 
 
-def test_templates_isolated_from_save(c):
+def test_templates_isolated_from_save(c, monkeypatch):
     register_user(c, "alice")
     did = make_doc(c, "S", content="hi")
+    monkeypatch.setenv("RATE_SAVE_PER_MIN", "3")
     ratelimit.clear()
-    for _ in range(30): # exhaust the save bucket
+    for _ in range(3): # exhaust the save bucket
         assert c.post(f"/api/docs/{did}/save", json={"content": "hi"}).status_code == 200
     # templates have their own bucket: still works despite save exhaustion
     assert c.post("/api/templates", json={"name": "iso.typ", "content": "x"}).status_code == 200

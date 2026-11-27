@@ -14,10 +14,11 @@ def test_export_too_big_413(c, monkeypatch):
     assert c.get("/api/export.zip").status_code == 413
 
 
-def test_export_ratelimit_429(c):
+def test_export_ratelimit_429(c, monkeypatch):
     register_user(c, "alice")
     make_doc(c, "Backup", content="inhalt")
-    for _ in range(5):
+    monkeypatch.setenv("RATE_EXPORT_PER_MIN", "3")
+    for _ in range(3):
         assert c.get("/api/export.zip").status_code == 200
     assert c.get("/api/export.zip").status_code == 429
 
