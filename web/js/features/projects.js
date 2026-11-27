@@ -53,7 +53,7 @@ function personalModuleMenu(actions) {
   return [
     by('rename') && menuButtonItem(by('rename'), 'module'),
     by('duplicate') && menuButtonItem(by('duplicate'), 'module'),
-    by('use') && menuButtonItem(by('use'), 'module'),
+    by('use') && { ...menuButtonItem(by('use'), 'module'), keepOpen: true },
     by('trash') && menuButtonItem(by('trash'), 'module'),
   ].filter(Boolean)
 }
@@ -446,7 +446,7 @@ async function pullLibrary(source, target, targetFolder = '') {
 
 async function pullPersonalResource(name, anchor) {
   const targets = projects.filter(projectEditable)
-  const i = await pickPop(t('projects.pullProject'), targets.map(p => [p.title, '']), anchor || $('tplH'))
+  const i = await pickPop(t('projects.pullProject'), targets.map(p => [p.title, '']), anchor || $('tplH'), { empty: t('projects.noOtherProject') })
   if (i == null || i < 0 || !targets[i]) return
   const folder = myTpl.find(r => r.name === name)?.folder || ''
   return pullLibrary({ source_scope: 'personal', source: name }, { scope: 'project', project_id: targets[i].id }, folder)
@@ -474,7 +474,7 @@ async function uploadProjectFiles(p, files, folder = '') {
         const response = await fetch(`/api/projects/${p.id}/import-zip`, { method: 'POST', body })
         if (!response.ok) throw new Error(expMsg(await response.text()))
       } else if (/\.typ$/i.test(file.name)) {
-        const choice = await pickPop(file.name, [[t('docs.pickDoc'), ''], [t('projects.newFile'), t('projects.newResourceHint')]], $('upDoc'))
+        const choice = await pickPop(file.name, [[t('docs.pickDoc'), ''], [t('projects.newResource'), t('projects.newResourceHint')]], $('upDoc'))
         if (choice === 0) await api('POST', `/api/projects/${p.id}/docs`, { title: file.name.replace(/\.typ$/i, ''), content: await file.text(), folder })
         else if (choice === 1) await putFile(fileUrl(at(file.name), p.id), file)
       } else await putFile(fileUrl(at(file.name), p.id), file)
@@ -516,7 +516,7 @@ function projectMenu(p, folder = '', anchor) { // the + on a project/folder open
     } },
     { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), keepOpen: true, run: run(async () => {
       await loadTpl()
-      const j = await pickPop(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']), anchor)
+      const j = await pickPop(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']), anchor, { empty: t('templates.noTpls') })
       if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id }, folder)
     }) },
   )
@@ -1060,7 +1060,7 @@ async function transferProjectEntry(p, entry, move, selectedTarget, direct = fal
   let target = selectedTarget
   if (!target) {
     const targets = projects.filter(projectEditable)
-    const i = await pickPop(t(move ? 'menu.moveTo' : 'menu.copyTo'), targets.map(x => [x.title, '']), entryAnchor(p, entry))
+    const i = await pickPop(t(move ? 'menu.moveTo' : 'menu.copyTo'), targets.map(x => [x.title, '']), entryAnchor(p, entry), { empty: t('projects.noOtherProject') })
     if (i == null || !targets[i]) return
     target = targets[i]
   }

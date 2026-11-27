@@ -244,6 +244,7 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
     }
     top.appendChild(el('b', null, head))
     const list = el('div', 'pkList')
+    if (!opts.length) list.appendChild(el('div', 'pkEmpty', o.empty || t('docs.noHits')))
     opts.forEach((opt, i) => {
       const b = el('button', 'pkRow'); b.type = 'button'; b.setAttribute('role', 'menuitem')
       b.appendChild(el('b', null, opt[0]))

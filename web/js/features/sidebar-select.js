@@ -79,8 +79,8 @@ function sideSelMenuItems() {
   return [
     { head: t('menu.selCount', { n: items.length }) },
     writable && sidebarMenuItem('duplicate', () => sideSelDuplicate(items), { what }),
-    !session && sidebarMenuItem('copy', () => sideSelTransfer(items, false), { what }),
-    writable && sidebarMenuItem('move', () => sideSelTransfer(items, true), { what }),
+    !session && sidebarMenuItem('copy', () => sideSelTransfer(items, false), { what, keepOpen: true }),
+    writable && sidebarMenuItem('move', () => sideSelTransfer(items, true), { what, keepOpen: true }),
     writable && sidebarMenuItem('trash', () => sideSelTrash(items), { what }),
     { sep: true },
     { label: t('menu.selClear'), run: sideSelClear },
@@ -97,7 +97,7 @@ async function sideSelDuplicate(items) {
 }
 async function sideSelTransfer(items, move) {
   const targets = projects.filter(projectEditable).sort((a, b) => Number(b.id === docProject) - Number(a.id === docProject))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const anchor = document.querySelector('aside .sel') || $('own')
   const picked = await pickProjectAndFolder(targets, t(move ? 'menu.moveTo' : 'menu.copyTo'), items.some(item => item.entry.kind === 'folder') ? 1 : 0, anchor)
   if (picked) await sideSelDrop(items, picked.target, picked.folder, move)

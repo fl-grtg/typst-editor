@@ -980,6 +980,7 @@ body.present-switch .pvPage { transition: none !important; }
 #pickPop .pkRow:active { background: var(--press); }
 #pickPop .pkRow b { font-weight: 500; font-size: 13px; }
 #pickPop .pkRow span { font-size: 11.5px; color: var(--sub); font-weight: 400; line-height: 1.3; }
+#pickPop .pkEmpty { padding: 5px 8px; font-size: 12.5px; color: var(--faint); }
 #histPop .histSaveRow { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 #histPop .histSaveRow input { flex: 1; min-width: 0; min-height: 30px; padding: 4px 8px; font-size: 12.5px; border-radius: var(--r-sm); }
 #histPop .histSaveRow button { flex: none; min-height: 30px; padding: 4px 10px; font-size: 12px; border-radius: var(--r-sm); }
@@ -5550,6 +5551,7 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
     }
     top.appendChild(el('b', null, head))
     const list = el('div', 'pkList')
+    if (!opts.length) list.appendChild(el('div', 'pkEmpty', o.empty || t('docs.noHits')))
     opts.forEach((opt, i) => {
       const b = el('button', 'pkRow'); b.type = 'button'; b.setAttribute('role', 'menuitem')
       b.appendChild(el('b', null, opt[0]))
@@ -12503,7 +12505,7 @@ function personalModuleMenu(actions) {
   return [
     by('rename') && menuButtonItem(by('rename'), 'module'),
     by('duplicate') && menuButtonItem(by('duplicate'), 'module'),
-    by('use') && menuButtonItem(by('use'), 'module'),
+    by('use') && { ...menuButtonItem(by('use'), 'module'), keepOpen: true },
     by('trash') && menuButtonItem(by('trash'), 'module'),
   ].filter(Boolean)
 }
@@ -12896,7 +12898,7 @@ async function pullLibrary(source, target, targetFolder = '') {
 
 async function pullPersonalResource(name, anchor) {
   const targets = projects.filter(projectEditable)
-  const i = await pickPop(t('projects.pullProject'), targets.map(p => [p.title, '']), anchor || $('tplH'))
+  const i = await pickPop(t('projects.pullProject'), targets.map(p => [p.title, '']), anchor || $('tplH'), { empty: t('projects.noOtherProject') })
   if (i == null || i < 0 || !targets[i]) return
   const folder = myTpl.find(r => r.name === name)?.folder || ''
   return pullLibrary({ source_scope: 'personal', source: name }, { scope: 'project', project_id: targets[i].id }, folder)
@@ -12924,7 +12926,7 @@ async function uploadProjectFiles(p, files, folder = '') {
         const response = await fetch(`/api/projects/${p.id}/import-zip`, { method: 'POST', body })
         if (!response.ok) throw new Error(expMsg(await response.text()))
       } else if (/\.typ$/i.test(file.name)) {
-        const choice = await pickPop(file.name, [[t('docs.pickDoc'), ''], [t('projects.newFile'), t('projects.newResourceHint')]], $('upDoc'))
+        const choice = await pickPop(file.name, [[t('docs.pickDoc'), ''], [t('projects.newResource'), t('projects.newResourceHint')]], $('upDoc'))
         if (choice === 0) await api('POST', `/api/projects/${p.id}/docs`, { title: file.name.replace(/\.typ$/i, ''), content: await file.text(), folder })
         else if (choice === 1) await putFile(fileUrl(at(file.name), p.id), file)
       } else await putFile(fileUrl(at(file.name), p.id), file)
@@ -12966,7 +12968,7 @@ function projectMenu(p, folder = '', anchor) { // the + on a project/folder open
     } },
     { label: t('projects.fromPersonal'), title: t('projects.fromPersonalHint'), keepOpen: true, run: run(async () => {
       await loadTpl()
-      const j = await pickPop(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']), anchor)
+      const j = await pickPop(t('projects.fromPersonal'), myTpl.map(r => [r.name, '']), anchor, { empty: t('templates.noTpls') })
       if (j != null && myTpl[j]) return pullLibrary({ source_scope: 'personal', source: myTpl[j].name }, { scope: 'project', project_id: p.id }, folder)
     }) },
   )
@@ -13510,7 +13512,7 @@ async function transferProjectEntry(p, entry, move, selectedTarget, direct = fal
   let target = selectedTarget
   if (!target) {
     const targets = projects.filter(projectEditable)
-    const i = await pickPop(t(move ? 'menu.moveTo' : 'menu.copyTo'), targets.map(x => [x.title, '']), entryAnchor(p, entry))
+    const i = await pickPop(t(move ? 'menu.moveTo' : 'menu.copyTo'), targets.map(x => [x.title, '']), entryAnchor(p, entry), { empty: t('projects.noOtherProject') })
     if (i == null || !targets[i]) return
     target = targets[i]
   }
@@ -14618,8 +14620,8 @@ function sideSelMenuItems() {
   return [
     { head: t('menu.selCount', { n: items.length }) },
     writable && sidebarMenuItem('duplicate', () => sideSelDuplicate(items), { what }),
-    !session && sidebarMenuItem('copy', () => sideSelTransfer(items, false), { what }),
-    writable && sidebarMenuItem('move', () => sideSelTransfer(items, true), { what }),
+    !session && sidebarMenuItem('copy', () => sideSelTransfer(items, false), { what, keepOpen: true }),
+    writable && sidebarMenuItem('move', () => sideSelTransfer(items, true), { what, keepOpen: true }),
     writable && sidebarMenuItem('trash', () => sideSelTrash(items), { what }),
     { sep: true },
     { label: t('menu.selClear'), run: sideSelClear },
@@ -14636,7 +14638,7 @@ async function sideSelDuplicate(items) {
 }
 async function sideSelTransfer(items, move) {
   const targets = projects.filter(projectEditable).sort((a, b) => Number(b.id === docProject) - Number(a.id === docProject))
-  if (!targets.length) { toast(t('projects.noOtherProject')); return }
+  if (!targets.length) { if (window.closeMenu) window.closeMenu(false); toast(t('projects.noOtherProject')); return }
   const anchor = document.querySelector('aside .sel') || $('own')
   const picked = await pickProjectAndFolder(targets, t(move ? 'menu.moveTo' : 'menu.copyTo'), items.some(item => item.entry.kind === 'folder') ? 1 : 0, anchor)
   if (picked) await sideSelDrop(items, picked.target, picked.folder, move)
