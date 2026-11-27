@@ -206,7 +206,7 @@ test('comment navigation uses mapped draft positions', async () => {
   const c = vm.createContext({ window: { suggestionDraft: {} }, docId: 'doc', openN: 1, activeFile: '',
     getT: () => 'draft text', threadEditorRange: () => ({ from: 2, to: 6 }),
     cm: { dispatch: value => dispatched = value, focus() {}, state: { doc: { lineAt: () => ({ number: 1 }) } } },
-    EditorView: { scrollIntoView() {} }, openPop: line => opened = line })
+    EditorView: { scrollIntoView() {} }, openPop: line => opened = line, $: () => ({ focus() {} }) })
   vm.runInContext(source.slice(source.indexOf('async function jumpThread'), source.indexOf('async function refresh(')), c)
   await c.jumpThread({ a: 1000, b: 2000 })
   assert.deepEqual(plain(dispatched.selection), { anchor: 2, head: 6 })
@@ -242,8 +242,8 @@ test('suggestion hits use the comment opener and include overlapping comments', 
   const node = { dataset: { suggestionChange: range.key } }
   c.openSuggestionBox(node)
   assert.equal(opened[0], 1)
-  assert.equal(opened[3].nodes[0], node)
-  assert.deepEqual(plain(opened[3].threadIds), ['comment'])
+  assert.equal(opened[2].nodes[0], node)
+  assert.deepEqual(plain(opened[2].threadIds), ['comment'])
 })
 
 test('source and draft comment positions map through replacement without changing source', async () => {
@@ -292,19 +292,19 @@ test('gutter opens every draft change on the same line', () => {
   let box
   const c = vm.createContext({ window: { suggestionDraft: {} }, threads: [], draftRanges: () => [{ key: 'a', a: 1, b: 2 }, { key: 'b', a: 4, b: 5 }],
     cm: { state: { doc: { lineAt: () => ({ number: 1 }) } }, dom: { querySelectorAll: () => [] } },
-    openPop: (...args) => box = args[3] })
+    openPop: (...args) => box = args[2] })
   vm.runInContext(code.slice(code.indexOf('function openLinePop'), code.indexOf('function draftSuggestionCard')), c)
   c.openLinePop(1)
   assert.equal(box.ranges.length, 2)
 })
 
 test('cards label comments and keep dismissal in the trash action for editors', async () => {
-  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, children: [],
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [],
     append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
   const calls = []
-  const c = vm.createContext({ docId: 'doc', openN: 1, docRole: 'editor', openedTrashed: false, user: 'editor',
+  const c = vm.createContext({ window: {}, docId: 'doc', openN: 1, docRole: 'editor', openedTrashed: false, user: 'editor',
     el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', t: value => value,
-    ago: () => 'now', colOf: () => 'blue', wireMentions() {}, refresh() {},
+    ago: () => 'now', colOf: () => 'blue', popDrafts: new Map(), wireMentions() {}, refresh() {},
     decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
   const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
   vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
@@ -323,13 +323,13 @@ test('cards label comments and keep dismissal in the trash action for editors', 
 })
 
 test('owner dismisses pending suggestions via reject, reviewer gets no broken delete, conflict disables accept', async () => {
-  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, children: [],
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [],
     append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
   const calls = []
   const mkCtx = (docRole, user) => {
-    const c = vm.createContext({ docId: 'doc', openN: 1, docRole, openedTrashed: false, user,
+    const c = vm.createContext({ window: {}, docId: 'doc', openN: 1, docRole, openedTrashed: false, user,
       el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', ICO_EDIT: 'edit', t: value => value,
-      ago: () => 'now', colOf: () => 'blue', wireMentions() {}, refresh() {}, api: () => { throw Error('must not call DELETE') },
+      ago: () => 'now', colOf: () => 'blue', popDrafts: new Map(), wireMentions() {}, refresh() {}, api: () => { throw Error('must not call DELETE') },
       decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
     const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
     vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)

@@ -55,10 +55,13 @@ CREATE TABLE IF NOT EXISTS comments (
     replacement TEXT,
     suggestion_status TEXT NOT NULL DEFAULT '',
     package_id TEXT NOT NULL DEFAULT '', -- non-empty: comment scoped to a change package, hidden in live doc
+    anchor_quote TEXT,
+    anchor_range TEXT,
+    replaces_id TEXT,
+    deleted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_doc ON comments(doc_id);
-CREATE INDEX IF NOT EXISTS idx_comments_pkg ON comments(doc_id, package_id);
 
 -- folders: created explicitly (even empty), kind 'doc' or 'tpl'. Docs/templates carry the name as attribute.
 CREATE TABLE IF NOT EXISTS folders (

@@ -107,7 +107,7 @@
 .mbox button:hover { background: var(--hover); color: var(--text); }
 
 /* Comments */
-#pop { position: absolute; left: 56px; z-index: var(--z-pop); width: 336px; max-width: calc(100vw - 32px); max-height: 80vh; overflow: auto; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--sh-pop); font-size: 13px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+#pop { position: absolute; left: 56px; z-index: var(--z-pop); width: 336px; max-width: min(calc(100vw - 32px), calc(100% - 16px)); max-height: 80vh; overflow: auto; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--sh-pop); font-size: 13px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 #pop::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
 #pop::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 6px; }
 #pop .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 11.5px; font-weight: 600; color: var(--sub); }
@@ -120,7 +120,7 @@
 #pop .bar .ib:hover { background: var(--hover); color: var(--text); }
 #pop .th { padding: 12px 14px; border-bottom: 1px solid var(--line); }
 #pop .th:last-child { border-bottom: 0; }
-#pop .th.is-resolved { opacity: .6; }
+#pop .changeThread { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); border-bottom: 0; }
 #pop .hd { display: flex; align-items: center; gap: 8px; }
 #pop .hd .av { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 700; }
 #pop .hdMeta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; min-width: 0; flex: 1; }
@@ -131,15 +131,17 @@
 #pop .nm { font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #pop .tm { font-size: 11.5px; color: var(--faint); flex: none; }
 #pop .hdMeta .thTag { display: none; } /* comment type is implicit; keep pill only for suggestion status */
+#pop .hdMeta .resolvedTag { display: inline-flex; }
 #pop .thTag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--sub); background: var(--hover); line-height: 1.5; }
 #pop .suggestionCard .thTag { margin-top: 7px; }
-#pop .thTag.sug-pending { color: #9560d5; background: rgba(145, 90, 225, .14); }
 #pop .thTag.sug-accepted { color: #1a7f37; background: rgba(46, 160, 67, .14); }
 #pop .thTag.sug-rejected { color: var(--danger); background: var(--danger-soft); }
 #pop .tx { margin: 6px 0 0; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
 #pop .qt { display: block; width: 100%; margin: 7px 0 0; padding: 1px 0 1px 8px; text-align: left; font-size: 12px; line-height: 1.4; color: var(--faint); background: transparent; border: 0; border-left: 2px solid rgba(212, 160, 23, .7); border-radius: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; box-shadow: none; }
 #pop .qt:hover { color: var(--sub); border-left-color: #ffc400; }
-#pop .qt.is-detached { border-left-color: var(--line-2); text-decoration: line-through; opacity: .65; }
+#pop .qt.is-detached { border-left-color: var(--line-2); }
+#pop .commentAnchorNote { display: block; margin-top: 5px; color: var(--sub); }
+#pop .bar .ib:focus-visible, #pop .acts .ib:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 #pop .qt.nwQt { margin: 0 0 8px; cursor: default; font-style: italic; }
 #pop .qt.nwQt:hover { color: var(--faint); border-left-color: rgba(212, 160, 23, .7); }
 #pop .rp { margin: 10px 0 0; padding: 10px 0 0; background: transparent; border-top: 1px solid var(--line); }
@@ -151,6 +153,9 @@
 #pop .rr .ib { padding: 0; width: 26px; min-width: 26px; height: 26px; min-height: 26px; border: 0; border-radius: var(--r-sm); color: var(--sub); background: transparent; box-shadow: none; }
 #pop .rr .ib:not(:disabled):hover { background: var(--press); color: var(--text); }
 #pop .rr .ib:not(:disabled):active { background: var(--ink); color: var(--on-ink); }
+@media (pointer: coarse) {
+  #pop .bar .ib, #pop .hd .acts .ib, #pop .rr .ib { width: 36px; min-width: 36px; height: 36px; min-height: 36px; }
+}
 #pop .ib { color: var(--sub); background: transparent; border: 0; box-shadow: none; }
 #pop .ib:hover { background: var(--hover); color: var(--text); }
 #pop .nw { padding: 10px 14px 12px; }

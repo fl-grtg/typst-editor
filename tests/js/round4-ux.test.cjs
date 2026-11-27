@@ -36,7 +36,7 @@ test('proposal marks wait for their text buffer during document transitions', ()
   const f = { content: 'x'.repeat(41) }
   const c = context({
     window: { changeSession: { files: new Map([['file', f]]) } }, activeFile: '',
-    sessionKey: () => 'file', sessionCurrent() {}, threadHighlights: () => [], getT: () => buffer,
+    sessionKey: () => 'file', sessionCurrent() {}, threadHighlights: () => [], commentCovers: () => false, getT: () => buffer,
     sessionChangeRanges: () => [{ old: '', a: 0, b: 41 }],
     Decoration: { mark: () => ({ range: (from, to) => ({ from, to }) }) },
     RangeSet: { of: marks => { if (marks.some(r => r.to > buffer.length)) throw RangeError('Out of range'); return marks } },

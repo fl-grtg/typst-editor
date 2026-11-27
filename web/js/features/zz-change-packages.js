@@ -77,7 +77,7 @@ function sessionStash(immediate = false) {
   if (!s || s.busy) return
   clearTimeout(sessionStashTimer)
   const save = async () => {
-    const key = sessionStashKey(s), value = { package: s.package && { id: s.package.id, revision: s.package.revision }, title: s.title, files: sessionFiles(s) }
+    const key = sessionStashKey(s), value = { package: s.package && { id: s.package.id, revision: s.package.revision }, title: s.title, files: sessionFiles(s), comments: s.draftComments }
     try {
       await packageDraft('put', key, value)
       try { localStorage.removeItem(key) } catch (e) {}
@@ -120,13 +120,95 @@ function sessionMainText() {
   const s = window.changeSession, item = s?.files.get(sessionKey({ kind: 'document', doc_id: docId, path: '' }))
   return s && !s.original && item ? item.content : activeFile ? shadow : getT()
 }
+async function postReviewComment(s, doc, body, target = null) {
+  if (s.package) return api('POST', `/api/docs/${doc}/comments`, { ...body, package_id: s.package.id })
+  const id = 'draft-comment-' + crypto.randomUUID()
+  s.draftComments = (s.draftComments || []).filter(item => !body.replaces_id || item.replaces_id !== body.replaces_id)
+  s.draftComments.push({
+    ...body, text: (body.text || '').trim(), package_id: 'draft', id, doc_id: doc, username: user,
+    created_at: new Date().toISOString(), replies: [], ...(target ? { a: target.from, b: target.to } : {}),
+  })
+  sessionStash()
+  return { id }
+}
+
+function sessionDraftComments(s) {
+  return (s.draftComments || []).map(th => {
+    const base = { client_id: th.id, doc_id: th.doc_id, quote: th.quote || '', text: th.text || '', parent_id: th.parent_id, replaces_id: th.replaces_id, deleted: !!th.deleted }
+    if (th.parent_id || th.replaces_id) return { ...base, anchor: Math.max(1, th.anchor || 1), anchor_quote: '' }
+    const file = s.files.get(sessionKey({ kind: 'document', doc_id: th.doc_id, path: '' }))
+    const content = file?.content ?? file?.base
+    const anchor = content == null ? th.anchor : content.slice(0, th.a).split('\n').length
+    const anchor_quote = content != null && th.b > th.a ? content.slice(th.a, th.b).slice(0, 500) : th.anchor_quote
+    return { ...base, anchor, anchor_quote }
+  })
+}
+function sessionRemote(old, current, delta) {
+  const s = window.changeSession, key = sessionKey({ kind: 'document', doc_id: docId, path: '' }), f = s?.files.get(key)
+  if (!f || s.package || f.binary || f.base !== old || !f.delta) return
+  const state = EditorState.create({ doc: old }), spec = []
+  if (delta) {
+    let pos = 0
+    for (const d of delta) {
+      if (d.retain) pos += d.retain
+      else if (d.delete) { spec.push({ from: pos, to: pos + d.delete }); pos += d.delete }
+      else if (typeof d.insert === 'string') spec.push({ from: pos, insert: d.insert })
+    }
+  } else {
+    const { a, b } = diffSpan(old, current)
+    spec.push({ from: a, to: old.length - b, insert: current.slice(a, current.length - b) })
+  }
+  const remote = state.changes(spec)
+  let overlaps = false
+  remote.iterChangedRanges((from, to) => f.delta.iterChangedRanges((a, b) => { overlaps ||= from <= b && a <= to }))
+  if (overlaps) return
+  const incoming = remote.map(f.delta, true)
+  const showing = !activeFile && sessionKey(sessionCurrent()) === key && getT() === (s.original ? old : f.content)
+  f.content = incoming.apply(EditorState.create({ doc: f.content }).doc).toString()
+  f.base = current
+  f.state = EditorState.create({ doc: current })
+  f.delta = normalizeSuggestionChanges(f.state, f.content, f.delta.map(remote))
+  f.changes = suggestionChanges(f.base, f.content, f.delta).map((c, i) => ({ ...c, id: f.id + '_' + i }))
+  const map = range => {
+    const point = range.from === range.to
+    const replacement = !point && commentReplacement(fn => incoming.iterChangedRanges(fn), range.from, range.to)
+    range.from = incoming.mapPos(range.from, 1)
+    range.to = point ? range.from : Math.max(range.from, incoming.mapPos(range.to, -1))
+    if (replacement) { range.from = Math.min(range.from, replacement.from); range.to = Math.max(range.to, replacement.to) }
+  }
+  for (const range of s.commentRanges.values()) if (range.doc === docId) map(range)
+  for (const th of s.draftComments || []) if (th.doc_id === docId && th.a != null) {
+    const range = { from: th.a, to: th.b }
+    map(range); th.a = range.from; th.b = range.to
+  }
+  if (showing) {
+    applying = true
+    try { cm.dispatch({ changes: s.original ? remote : incoming, annotations: NO_HIST }) } finally { applying = false }
+  }
+  s.previewRevision++; sessionStash()
+  queueMicrotask(() => { if (window.changeSession === s) { sessionPaint(); paintSuggestionControls(); paintSessionSidebar() } })
+}
 function sessionRecord(changes, oldLen) {
   const s = window.changeSession, f = s?.files.get(sessionKey(sessionCurrent()))
   if (!f || s.original || s.busy) return
-  if (!activeFile) for (const th of threads) if (!s.commentRanges.has(th.id)) s.commentRanges.set(th.id, threadEditorRange(th))
-  // one mapping loop for every entry (thread-id keys and pending popover targets alike), same semantics as recordSuggestionEdit
-  const len = oldLen == null ? changes.length : Math.max(0, Math.min(oldLen, changes.length)) // stale popover targets beyond the changeset must not reach mapPos
-  if (!activeFile) for (const range of s.commentRanges.values()) { range.from = changes.mapPos(Math.max(0, Math.min(range.from, len)), -1); range.to = changes.mapPos(Math.max(0, Math.min(range.to, len)), 1) }
+  if (!activeFile) {
+    for (const th of threads) if (th.package_id && th.a != null && !s.commentRanges.has(th.id)) s.commentRanges.set(th.id, { doc: docId, from: th.a, to: th.b })
+    const len = oldLen ?? changes.length
+    const map = range => {
+      const point = range.from === range.to
+      const replacement = !point && commentReplacement(fn => changes.iterChangedRanges(fn), range.from, range.to)
+      range.from = changes.mapPos(Math.min(range.from, len), 1)
+      range.to = point ? range.from : Math.max(range.from, changes.mapPos(Math.min(range.to, len), -1))
+      if (replacement) { range.from = Math.min(range.from, replacement.from); range.to = Math.max(range.to, replacement.to) }
+    }
+    for (const range of s.commentRanges.values()) {
+      if (range.doc === docId) map(range)
+    }
+    for (const th of s.draftComments || []) if (th.doc_id === docId) {
+      const range = s.commentRanges.get(th.id)
+      if (range) { th.a = range.from; th.b = range.to }
+    }
+  }
   f.content = getT()
   f.delta = normalizeSuggestionChanges(f.state, f.content, f.delta.compose(changes))
   if (f.action === 'modify' || f.action === 'rename') f.changes = suggestionChanges(f.base, f.content, f.delta).map((c, i) => ({ ...c, id: f.id + '_' + i }))
@@ -152,10 +234,10 @@ async function sessionActivate(preserveView = false) {
   if (!item || window.changeSession !== s || key !== sessionKey(sessionCurrent())) return
   const text = s.original || item.action === 'delete' ? item.base : item.content
   if (!item.binary && (!preserveView || getT() !== (text || ''))) setT(text || '', preserveView)
-  cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
+  cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && s.package?.files?.length !== 0 && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
   tabDirty = false; marks = new Set(); markStyle = ''
+  if ((s.package || s.draftComments) && !activeFile) loadComments().catch(() => {})
   paintFileExtras(); paintCsv(); fmtSync(); sessionPaint(); paintSuggestionControls(); paintSessionSidebar(); queueRender()
-  if (s.package && !activeFile) { invalidateCommentCache(); loadComments().catch(() => {}) }
 }
 async function startChangeSession(proposal = null) {
   if (!docProject || openedTrashed || window.changeSession || sessionStarting) return
@@ -169,7 +251,7 @@ async function startChangeSession(proposal = null) {
     if (!await flushTab() || !await flushTpl()) return
     const project = docProject
     await api('GET', '/api/projects/' + project + '/proposals') // membership, not document-only guest access
-    const s = { project, files: new Map(), commentRanges: new Map(), package: proposal, title: proposal?.title || '', original: false, dirty: false, busy: false, previewRevision: ++sessionSequence }
+    const s = { project, files: new Map(), commentRanges: new Map(), draftComments: [], package: proposal, title: proposal?.title || '', original: false, dirty: false, busy: false, previewRevision: ++sessionSequence }
     if (proposal) {
       proposal.files.forEach(f => s.files.set(sessionKey(f), sessionRuntime(f)))
       try {
@@ -182,8 +264,10 @@ async function startChangeSession(proposal = null) {
     else {
       try {
         const saved = await readSessionDraft(s)
-        if (saved?.files?.length && !saved.package && await ask(t('comments.draftRestore'), { noInput: true })) {
-          saved.files.forEach(f => s.files.set(sessionKey(f), sessionRuntime(f))); s.title = saved.title || ''; s.dirty = true
+        if ((saved?.files?.length || saved?.comments?.length) && !saved.package && await ask(t('comments.draftRestore'), { noInput: true })) {
+          for (const f of saved.files || []) s.files.set(sessionKey(f), sessionRuntime(f))
+          s.title = saved.title || ''; s.dirty = true
+          s.draftComments = saved.comments || []
         }
       } catch (e) {}
     }
@@ -220,7 +304,7 @@ async function submitChangeSession() {
   if (title == null || window.changeSession !== s) return false
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
   try {
-    await api('POST', sessionUrl(s), { title: title.trim() || t('packages.untitled'), files })
+    await api('POST', sessionUrl(s), { title: title.trim() || t('packages.untitled'), files, comments: sessionDraftComments(s) })
     s.dirty = false; await endChangeSession(true); toast(t('comments.draftSent')); return true
   } catch (e) { toast(e.status === 409 && /^Original (file|passage) changed/.test(e.message) ? t('packages.sourceConflict') : e.message); return false }
   finally { s.busy = false; if (window.changeSession === s) { sessionStash(); await sessionActivate() } paintSuggestionControls() }
@@ -230,10 +314,15 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
   if (!s) return true
   if (s.busy && !discard) return false
   if (!discard && s.package && !await saveSessionCorrections()) return false
-  if (!discard && !s.package && sessionFiles(s).length) {
-    const choice = await askPick(t('comments.draftLeave'), [[t('comments.draftSend'), ''], [t('comments.draftDiscard'), ''], [t('projects.stay'), '']])
-    if (window.changeSession !== s || choice !== 0 && choice !== 1) return false
-    if (choice === 0) return submitChangeSession()
+  if (!discard && !s.package) {
+    const hasChanges = !!sessionFiles(s).length
+    if (hasChanges || s.draftComments?.length) {
+      const choices = [[t('comments.draftDiscard'), ''], [t('projects.stay'), '']]
+      if (hasChanges) choices.unshift([t('comments.draftSend'), ''])
+      const choice = await askPick(t('comments.draftLeave'), choices)
+      if (window.changeSession !== s || !Number.isInteger(choice) || choice < 0 || choice >= choices.length - 1) return false
+      if (hasChanges && choice === 0) return submitChangeSession()
+    }
   }
   const addedTab = [...s.files.values()].some(f => f.action === 'add' && sessionKey(f) === sessionKey(sessionCurrent()))
   window.changeSession = null
@@ -250,27 +339,27 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
     }
     else setT(mainText ?? shadow, preserveView && !addedTab)
     cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
-    paintTabs(); paintFileExtras(); paintOutline(); invalidateCommentCache(); loadComments().catch(() => {}); reanchor(); refreshHl(); queueRender()
+    paintTabs(); paintFileExtras(); paintOutline(); loadComments().catch(() => {}); reanchor(); refreshHl(); queueRender()
   }
   paintSuggestionControls(); await sidebar(); return true
 }
 async function choosePackage() {
   try {
     const project = docProject, epoch = ++packageLoad, previous = window.changeSession
-    const response = await api('GET', '/api/projects/' + project + '/proposals')
+    const response = await api('GET', '/api/projects/' + project + '/proposals?include_closed=true')
     if (project !== docProject || epoch !== packageLoad) return
     packageList = response.packages
     const choice = await pickPop(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
-      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (p.accepted ? ' · ' + t('packages.partial') : '')])], reviewButton)
+      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (!p.file_count ? ' · ' + t('comments.completedPackage') : p.accepted ? ' · ' + t('packages.partial') : '')])], reviewButton)
     if (choice == null || project !== docProject || window.changeSession !== previous) return
     if (choice === 0) {
-      if (previous?.package) { previous.original = true; await sessionActivate() }
+      if (previous?.package) { closePop(true); previous.original = true; await sessionActivate() }
       else if (previous) await endChangeSession()
       return
     }
     const selected = packageList[choice - 1]
     if (!selected) return
-    if (previous?.package?.id === selected.id) { previous.original = false; await sessionActivate(); return }
+    if (previous?.package?.id === selected.id) { closePop(true); previous.original = false; await sessionActivate(); return }
     if (previous && !await endChangeSession()) return
     const proposal = await api('GET', '/api/projects/' + project + '/proposals/' + selected.id)
     if (project === docProject) await startChangeSession(proposal)
@@ -330,8 +419,8 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null, f
       s.files.set(sessionKey(old), sessionRuntime({ ...old, action: 'modify', base: current.content, content: current.content, changes: [] }))
     }
     s.commentRanges.clear(); s.dirty = false; s.previewRevision++; s.original = false; filesDirty = true; fileCache.clear(); pvSentSig = ''; closePop(true)
-    for (const th of threads) { th.a = null; th.b = null } // accepted text replaced the base: rebuild comment ranges on the fresh shadow
-    initRanges(); invalidateCommentCache() // the accepted text reaches shadow via WS: the stale-ordered re-anchor must not stick behind the poll dedupe
+    for (const th of threads) if (th.package_id) { th.a = null; th.b = null }
+    invalidateCommentCache()
     if (deletedActive && !deletedCurrent) {
       lastFiles = lastFiles.filter(f => f.path !== activeFile)
       activeFile = ''; tabDirty = false; setT(shadow); tabSig = ''
@@ -385,11 +474,12 @@ async function acceptSessionRange(file, range) {
   toast(t('comments.suggestionConflict'))
 }
 class PackageDeletion extends WidgetType {
-  constructor(range, index) { super(); this.range = range; this.index = index }
+  constructor(range, index, commented = false) { super(); this.range = range; this.index = index; this.commented = commented }
   get lineBreaks() { return this.range.old.split('\n').length - 1 }
-  eq(other) { return other instanceof PackageDeletion && this.range.old === other.range.old && this.index === other.index }
+  eq(other) { return other instanceof PackageDeletion && this.range.old === other.range.old && this.index === other.index && this.commented === other.commented }
   toDOM() {
     const node = el('span', 'cm-hl cm-suggestion suggestionDeleted', this.range.old)
+    if (this.commented) node.classList.add('cm-hl-mix')
     node.contentEditable = 'false'; node.dataset.packageChange = this.index
     node.tabIndex = 0; node.setAttribute('role', 'button'); node.setAttribute('aria-label', t('comments.suggestMode'))
     node.onmousedown = e => { e.preventDefault(); e.stopPropagation(); openSessionChange(this.index) }
@@ -404,8 +494,8 @@ function sessionPaint() {
   // Opening a document briefly installs an empty buffer before its session text.
   // Decorations belong to the session buffer, never to that intermediate state.
   if (!s.original && f && !f.binary && getT() === (f.content || '')) sessionChangeRanges(f).forEach((r, i) => {
-    if (r.old) marks.push(Decoration.widget({ widget: new PackageDeletion(r, i), side: -1 }).range(r.a))
-    if (r.b > r.a) marks.push(Decoration.mark({ class: 'cm-hl cm-draft-change', attributes: { 'data-package-change': String(i) } }).range(r.a, r.b))
+    if (r.old) marks.push(Decoration.widget({ widget: new PackageDeletion(r, i, commentCovers(r.a, r.a)), side: -1 }).range(r.a))
+    if (r.b > r.a) marks.push(Decoration.mark({ class: 'cm-hl cm-draft-change' + (commentCovers(r.a, r.b) ? ' cm-hl-mix' : ''), attributes: { 'data-package-change': String(i) } }).range(r.a, r.b))
   })
   cm.dispatch({ effects: setHl.of(RangeSet.of(marks, true)) })
   gutter()
@@ -433,7 +523,11 @@ function openSessionChange(index, anchors = null, cell = null, bibField = null) 
   if (!range || s.original) return
   const nodes = anchors || [...cm.dom.querySelectorAll('[data-package-change]')].filter(n => n.dataset.packageChange === String(index))
   const label = cell ? csvColumn(cell.column) + (cell.row + 1) : anchors ? anchors[0].querySelector('span')?.textContent : ''
-  openPop(cm.state.doc.lineAt(range.a).number, false, '', { session: true, index, from: range.a, to: range.b, nodes, cell, label, bibField })
+  openPop(cm.state.doc.lineAt(range.a).number, false, { session: true, index, from: range.a, to: range.b, nodes, cell, label, bibField })
+}
+function openSessionLine(lineNumber, focus = null, nodes = []) {
+  const line = cm.state.doc.line(Math.max(1, Math.min(cm.state.doc.lines, lineNumber)))
+  openPop(line.number, false, { session: true, line: line.number, focus, from: line.from, to: line.to, nodes })
 }
 function sessionBibEntryPending(file, entry) {
   if (!file || window.changeSession?.original) return false
@@ -471,10 +565,31 @@ function sessionBibPatch(file, selector, accept) {
   const prefix = text.slice(target.from, at).trimEnd().endsWith(',') ? '' : ','
   return { from: at, to: at, insert: prefix + sourceText.slice(value.statementFrom, value.statementTo) }
 }
+function sessionRangeOnLine(range, line) {
+  return range.a === range.b ? range.a >= line.from && range.a <= line.to : range.a <= line.to && range.b >= line.from
+}
+function sessionChangeHasThread(range, r) {
+  if (range.a === range.b) return r.from <= range.a && r.to >= range.a
+  return r.to > r.from ? r.from < range.b && r.to > range.a : r.from >= range.a && r.from <= range.b
+}
 function sessionCard(box) {
-  const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), range = file && sessionChangeRanges(file)[box.index]
-  if (!range) { closePop(true); return }
-  const renderMain = () => {
+  const s = window.changeSession, file = s?.files.get(sessionKey(sessionCurrent())), ranges = file ? sessionChangeRanges(file) : []
+  const lineNumber = Math.min(cm.state.doc.lines, box.line || cm.state.doc.lineAt(ranges[box.index]?.a ?? 0).number)
+  const line = cm.state.doc.line(lineNumber)
+  const indexes = box.cell || box.bibField ? [box.index].filter(i => ranges[i]) : ranges.map((_, i) => i).filter(i => sessionRangeOnLine(ranges[i], line))
+  const lineThreads = activeFile ? [] : threads.filter(th => {
+    if (th.a == null) return false
+    const r = threadEditorRange(th)
+    return r.from <= line.to && r.to >= line.from
+  })
+  const attached = new Map(indexes.map(i => [i, []])), shown = new Set()
+  for (const th of lineThreads) if (!th.suggestion_status) {
+    const index = indexes.find(i => sessionChangeHasThread(ranges[i], threadEditorRange(th)))
+    if (index != null) { attached.get(index).push(th); shown.add(th) }
+  }
+  if (!indexes.length && !lineThreads.length) { closePop(true); return }
+  const renderMain = index => {
+    const range = ranges[index]
     const card = el('div', 'th'), header = el('div', 'hd')
     const author = s.package?.author_name || s.package?.author || user || '?'
     const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(s.package?.author || author); av.setAttribute('aria-hidden', 'true')
@@ -498,7 +613,6 @@ function sessionCard(box) {
     header.append(av, meta, acts)
     card.append(header)
     const sugWrap = el('div', 'suggestionCard')
-    sugWrap.append(el('span', 'thTag sug-pending', s.package ? t('comments.suggestionpending') : t('packages.draft')))
     if (box.cell) {
       const { row, column } = box.cell
       const old = parseCsv(file.base || '', csvDelimiter)[row]?.[column] || '', next = csvRows[row]?.[column] || ''
@@ -545,50 +659,41 @@ function sessionCard(box) {
       sugWrap.append(actions)
     }
     card.append(sugWrap)
-    if (s.package && !openedTrashed && !activeFile) { // comment directly on this proposed change (scoped to this package)
+    for (const th of attached.get(index)) {
+      const thread = threadCard(th)
+      thread.classList.add('changeThread')
+      card.append(thread)
+    }
+    if (!openedTrashed && !activeFile) {
       const row = el('div', 'rr')
-      const inp = el('input'); inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
+      const inp = el('input'); inp.id = 'popPackageComment-' + index; inp.maxLength = 2000; inp.dataset.commentDraft = ''; inp.value = popDrafts.get(inp.id) || ''; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
       wireMentions(inp)
       const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
-      const doc = docId, epoch = openN, pkgId = s.package.id
+      const doc = docId, epoch = openN, pkgId = commentPackage()
       const post = async () => {
-        if (doc !== docId || epoch !== openN || !inp.value.trim() || ok.disabled) return
+        if (doc !== docId || epoch !== openN || window.changeSession !== s || s.original || !inp.value.trim() || ok.disabled) return
         ok.disabled = true
         const text = inp.value; inp.value = ''
         try {
           const anchor = cm.state.doc.lineAt(Math.min(range.a, cm.state.doc.length)).number
           const quote = (range.next || range.old || '').slice(0, 500)
-          const res = await api('POST', `/api/docs/${doc}/comments`, { anchor, text, quote, package_id: pkgId })
+          const res = await postReviewComment(s, doc, { anchor, text, quote, anchor_quote: range.next.slice(0, 500), package_id: pkgId }, { from: range.a, to: range.b })
           if (doc === docId && epoch === openN && window.changeSession === s) {
-            s.commentRanges.set(res.id, { from: range.a, to: range.b })
-            popThreadId = 't:' + res.id
+            s.commentRanges.set(res.id, { doc, from: range.a, to: range.b })
             await loadComments(true)
           }
         } catch (e) { inp.value = text; toast(e.message) } finally { ok.disabled = false }
       }
-      ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post(); else if (e.key === 'Escape') closePop() }
+      ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); post() } else if (e.key === 'Escape') closePop() }
       row.append(inp, ok); card.append(row)
     }
     return card
   }
-  const overlaps = !activeFile ? threads.filter(th => { const r = threadEditorRange(th); return th.a != null && r.from <= range.b && r.to >= range.a }) : []
-  const items = [{ id: 's:' + box.index, render: renderMain }, ...overlaps.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) }))]
-  let idx = popThreadId ? items.findIndex(it => it.id === popThreadId) : 0
-  if (idx < 0) idx = 0
-  popThreadId = items[idx].id
-  const pop = $('pop')
-  if (items.length > 1) {
-    const barActs = pop.querySelector('.barActs')
-    if (barActs) {
-      const nav = el('span', 'popNav')
-      const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
-      prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx - 1 + items.length) % items.length].id; renderPop() }
-      next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx + 1) % items.length].id; renderPop() }
-      nav.append(prev, el('span', 'popStep', `${idx + 1} / ${items.length}`), next)
-      barActs.prepend(nav)
-    }
-  }
-  pop.append(items[idx].render())
+  popThreadId ||= box.focus || 's:' + box.index
+  paintPopItems([
+    ...indexes.map(i => ({ id: 's:' + i, render: () => renderMain(i) })),
+    ...lineThreads.filter(th => !shown.has(th)).map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
+  ])
 }
 function paintSessionSelection() {
   const s = window.changeSession
@@ -721,8 +826,7 @@ const acceptPackageButton = icoBtn('ib', ICO_CHECK), acceptFileButton = icoBtn('
 const exitPackageButton = icoBtn('ib', ICO_X), deletePackageButton = icoBtn('ib', ICO_TRASH)
 const packageActions = icoBtn('ib', ICO_CHECK)
 const discardFileButton = icoBtn('ib', ICO_TRASH)
-const packageMode = el('span', 'package-mode sr-only')
-reviewTools.append(packageMode, reviewButton, originalButton, packageActions, exitPackageButton)
+reviewTools.append(reviewButton, originalButton, packageActions, exitPackageButton)
 packageActions.onclick = async () => {
   const s = window.changeSession
   if (!s || s.busy) return
@@ -732,7 +836,7 @@ packageActions.onclick = async () => {
 }
 $('tools').insertBefore(reviewTools, $('tools').querySelector('.tsp'))
 reviewButton.onclick = choosePackage
-originalButton.onclick = async () => { const s = window.changeSession; if (s && !s.busy) { s.original = !s.original; await sessionActivate() } }
+originalButton.onclick = async () => { const s = window.changeSession; if (s && !s.busy) { closePop(true); s.original = !s.original; await sessionActivate() } }
 acceptPackageButton.onclick = () => acceptSessionSelection()
 acceptFileButton.onclick = () => { const f = window.changeSession?.files.get(sessionKey(sessionCurrent())); if (f) acceptSessionSelection(f.id) }
 exitPackageButton.onclick = () => endChangeSession()
@@ -744,35 +848,36 @@ paintSuggestionControls = () => {
   const s = window.changeSession, member = docRole === 'owner' || projects.some(p => p.id === docProject && p.role !== 'guest')
   const available = !!docProject && member && !window.suggestionDraft && !openedTrashed && !tplName
   reviewTools.hidden = !available
-  packageMode.hidden = !s
-  packageMode.textContent = s ? s.package?.title || t('packages.draft') : ''
-  packageMode.title = packageMode.textContent
   const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptPackage'), t('packages.acceptFile'), t('packages.delete'), t('packages.exit')]
   ;[reviewButton, originalButton, acceptPackageButton, acceptFileButton, deletePackageButton, exitPackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
   packageActions.title = t('packages.actions'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
   reviewButton.hidden = !!s && !s.package
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
   originalButton.hidden = !s; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
-  acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || !['owner', 'editor'].includes(docRole)
+  acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
   const currentFile = s?.files.get(sessionKey(sessionCurrent()))
   acceptFileButton.disabled = !!s?.busy || !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id)
   deletePackageButton.hidden = !s?.package || s.package.author !== user && docRole !== 'owner'
   discardFileButton.title = t('packages.discardFile'); discardFileButton.setAttribute('aria-label', discardFileButton.title)
   discardFileButton.hidden = !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id) || !!s?.package && s.package.author !== user && !['owner', 'editor'].includes(docRole)
   discardFileButton.disabled = !!s?.busy || !!s?.original
-  packageActions.hidden = !s?.package || [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
+  packageActions.hidden = [acceptFileButton, acceptPackageButton, discardFileButton, deletePackageButton].every(button => button.hidden)
   exitPackageButton.hidden = !s
   const bar = $('sugBar')
   if (bar && s) {
     bar.hidden = false
     const label = bar.querySelector('b')
-    if (label) label.textContent = s.package ? (s.package.title || t('comments.suggestionpending')) : t('packages.draft')
-    const cnt = $('sugCount'), n = sessionFiles(s).length
-    if (cnt) cnt.textContent = n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : ''
+    if (label) { label.hidden = false; label.textContent = s.package ? t('packages.reviewMode') : t('packages.draftMode') }
+    const cnt = $('sugCount'), n = sessionFiles(s).reduce((sum, f) => sum + Math.max(1, f.changes?.length || 0), 0)
+    const comments = s.package ? 0 : (s.draftComments || []).length
+    if (cnt) cnt.textContent = [
+      n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : t('packages.noChanges'),
+      comments === 1 ? t('packages.commentCountOne') : comments > 1 ? t('packages.commentCountMany', { n: comments }) : '',
+    ].filter(Boolean).join(' · ')
     const send = $('sugSend'), disc = $('sugDiscard')
     if (send) {
       if (s.package) {
-        send.hidden = !['owner', 'editor'].includes(docRole)
+        send.hidden = s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
         send.textContent = t('packages.acceptPackage')
         send.disabled = !!s.busy
         send.onclick = () => acceptSessionSelection()
@@ -780,13 +885,17 @@ paintSuggestionControls = () => {
         send.hidden = false
         send.textContent = t('comments.draftSend')
         send.disabled = !n || !!s.busy
+        send.title = n ? '' : t('packages.sendNeedsChange')
         send.onclick = () => submitChangeSession()
       }
     }
     if (disc) {
       disc.textContent = s.package ? t('packages.exit') : t('comments.draftDiscard')
       disc.disabled = !!s.busy
-      disc.onclick = () => s.package ? endChangeSession() : endChangeSession(true)
+      disc.onclick = async () => {
+        if (s.package) return endChangeSession()
+        if (!sessionFiles(s).length && !s.draftComments?.length || await ask(t('packages.discardConfirm'), { noInput: true, danger: true })) await endChangeSession(true)
+      }
     }
   }
   if (available) {
@@ -978,20 +1087,22 @@ closeView = () => { if (window.changeSession) { sessionStash(true); window.chang
 const sessionOriginalSourceMap = sourceToEditor, sessionOriginalEditorMap = editorToSource
 sourceToEditor = (pos, end = false) => {
   const s = window.changeSession, f = s?.files.get(sessionKey(sessionCurrent()))
-  if (!s || activeFile || !f?.delta || s.original) return sessionOriginalSourceMap(pos, end)
+  if (!s || activeFile || !f?.delta) return sessionOriginalSourceMap(pos, end)
   const basePos = diffMap(shadow, f.base || '')(Math.min(pos, shadow.length), end) // stale source pos must not overflow the changeset (add/empty-base files: changeset length 0)
+  if (s.original || f.action === 'delete') return basePos
   return f.delta.mapPos(Math.max(0, Math.min(basePos, f.delta.length)), end ? 1 : -1)
 }
 editorToSource = (pos, end = false) => {
   const s = window.changeSession, f = s?.files.get(sessionKey(sessionCurrent()))
-  if (!s || activeFile || !f?.delta || s.original) return sessionOriginalEditorMap(pos, end)
+  if (!s || activeFile || !f?.delta) return sessionOriginalEditorMap(pos, end)
+  if (s.original || f.action === 'delete') return diffMap(f.base || '', shadow)(pos, end)
   const basePos = f.delta.invertedDesc.mapPos(Math.max(0, Math.min(pos, f.delta.invertedDesc.length)), end ? 1 : -1)
   return diffMap(f.base || '', shadow)(basePos, end)
 }
 const sessionSourceApi = api
 api = async (method, url, body, tries) => {
   if (window.changeSession && method !== 'GET' && /^\/api\/(docs|projects|templates|library)(\/|$)/.test(url)
-      && !/\/proposals(?:\/|$)/.test(url) && !/\/comments(?:\/|$)/.test(url) && !/\/(render|export)(?:\/|$)/.test(url)) {
+      && !/\/proposals(?:\/|$)/.test(url) && !/\/comments(?:\/|$)/.test(url) && !/\/suggestions\/[^/]+\/(accept|reject)$/.test(url) && !/\/(render|export)(?:\/|$)/.test(url)) {
     throw Error(t('packages.sourceBlocked'))
   }
   return sessionSourceApi(method, url, body, tries)
@@ -1044,7 +1155,5 @@ const sessionOriginalLinePop = openLinePop
 openLinePop = line => {
   const s = window.changeSession, f = s?.files.get(sessionKey(sessionCurrent()))
   if (!s || s.original || !f) return sessionOriginalLinePop(line)
-  const index = sessionChangeRanges(f).findIndex(r => cm.state.doc.lineAt(r.a).number === line)
-  if (index >= 0) openSessionChange(index)
-  else openPop(line, false)
+  openSessionLine(line)
 }

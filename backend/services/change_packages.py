@@ -139,7 +139,9 @@ def get(con, project: str, package: str) -> dict:
     return result
 
 
-def save(user: str, project: str, title: str, files: list[dict], package: str = "", revision: int = 0, author_name: str = "") -> dict:
+def save(user: str, project: str, title: str, files: list[dict], package: str = "", revision: int = 0, author_name: str = "",
+         *, comments: list[dict] | None = None) -> dict:
+    posted = []
     with _named_lock("packages:" + project):
         # Phase 1 (no write tx): snapshots, validation and serialization run
         # OUTSIDE BEGIN IMMEDIATE so a big draft cannot stall other writers;
@@ -228,11 +230,44 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
                     "INSERT INTO suggestion_packages(id,project_id,author,author_name,title,files,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
                     (package, project, user, author_name.strip()[:40], title, payload, now, now),
                 )
+                ids: dict[str, str] = {}
+                for comment in sorted(comments or [], key=lambda c: (bool(c.get("parent_id")), bool(c.get("replaces_id")))):
+                    doc_id, text = comment["doc_id"], comment["text"].strip()
+                    parent, replaces = comment.get("parent_id"), comment.get("replaces_id")
+                    parent = ids.get(parent or "", parent)
+                    doc_role = db.role_on(con2, user, doc_id)
+                    valid = doc_role and con2.execute(
+                        "SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (doc_id, project),
+                    ).fetchone()
+                    if parent:
+                        row = con2.execute("SELECT parent_id, package_id FROM comments WHERE id=? AND doc_id=?",
+                                           (parent, doc_id)).fetchone()
+                        valid = valid and row and not row["parent_id"] and row["package_id"] in ("", package)
+                    if replaces:
+                        row = con2.execute("SELECT username, package_id, suggestion_status FROM comments WHERE id=? AND doc_id=?",
+                                           (replaces, doc_id)).fetchone()
+                        valid = valid and not parent and row and not row["package_id"] and not row["suggestion_status"] and (
+                            row["username"] == user or comment.get("deleted") and doc_role == "owner")
+                    if not valid or (not comment.get("deleted") and not text) or (comment.get("deleted") and not replaces):
+                        raise HTTPException(400, "Invalid proposal comment")
+                    cid = db.new_id("c_")
+                    con2.execute(
+                        "INSERT INTO comments(id,doc_id,username,anchor,quote,anchor_quote,text,parent_id,package_id,replaces_id,deleted,created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (cid, doc_id, user, comment["anchor"], comment["quote"], comment["anchor_quote"], "" if comment.get("deleted") else text,
+                         parent, package, replaces, int(bool(comment.get("deleted"))), now),
+                    )
+                    if comment.get("client_id"):
+                        ids[comment["client_id"]] = cid
+                    if text and not replaces:
+                        posted.append((doc_id, text, cid))
             result = get(con2, project, package)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
     from backend.services import notifications
     notifications.notify_proposal(project, user, result["id"], title)
+    for doc_id, text, cid in posted:
+        notifications.notify_mentions(doc_id, user, text, cid)
     return result
 
 

@@ -41,10 +41,23 @@ class ProposalFile(BaseModel):
     changes: list[Change] = Field(default_factory=list, max_length=500)
 
 
+class DraftComment(BaseModel):
+    client_id: str = Field(default="", max_length=100)
+    doc_id: str = Field(max_length=100)
+    anchor: int = Field(ge=1, le=10000000)
+    text: str = Field(default="", max_length=2000)
+    quote: str = Field(default="", max_length=500)
+    anchor_quote: str = Field(default="", max_length=500)
+    parent_id: str | None = Field(default=None, max_length=100)
+    replaces_id: str | None = Field(default=None, max_length=100)
+    deleted: bool = False
+
+
 class PackageSave(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     files: list[ProposalFile] = Field(max_length=100)
     revision: int = 0
+    comments: list[DraftComment] = Field(default_factory=list, max_length=100)
 
 
 class Cell(BaseModel):
@@ -62,7 +75,7 @@ class Selection(BaseModel):
 
 
 @router.get("/api/projects/{project_id}/proposals")
-def list_packages(project_id: str, user: str = Depends(deps.me)) -> dict:
+def list_packages(project_id: str, user: str = Depends(deps.me), include_closed: bool = False) -> dict:
     with db.tx() as con:
         projects.require(con, project_id, user)
         rows = con.execute(
@@ -70,8 +83,10 @@ def list_packages(project_id: str, user: str = Depends(deps.me)) -> dict:
                json_array_length(files) AS file_count,
                (SELECT COALESCE(SUM(MAX(COALESCE(json_array_length(value,'$.changes'),0),1)),0)
                 FROM json_each(files)) AS change_count
-               FROM suggestion_packages WHERE project_id=? AND json_array_length(files)>0 ORDER BY updated_at DESC""",
-            (project_id,),
+               FROM suggestion_packages s WHERE project_id=? AND (json_array_length(files)>0
+                 OR (? AND EXISTS(SELECT 1 FROM comments WHERE package_id=s.id)))
+               ORDER BY file_count=0, updated_at DESC""",
+            (project_id, include_closed),
         ).fetchall()
         return {"packages": [dict(row) for row in rows]}
 
@@ -101,7 +116,8 @@ async def create_package(project_id: str, req: Request, user: str = Depends(deps
         raise HTTPException(400, "An empty package cannot be submitted")
     return await asyncio.to_thread(
         packages.save, user, project_id, body.title,
-        [f.model_dump(exclude_defaults=True) for f in body.files])
+        [f.model_dump(exclude_defaults=True) for f in body.files],
+        comments=[comment.model_dump() for comment in body.comments])
 
 
 @router.patch("/api/projects/{project_id}/proposals/{package_id}")

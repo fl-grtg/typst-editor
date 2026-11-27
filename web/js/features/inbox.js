@@ -58,17 +58,23 @@ async function goInbox(it) {
   if (!it.is_read) { api('POST', `/api/notifications/${it.id}/read`).then(loadInbox).catch(() => {}) }
   if (it.type === 'proposal') return openTopPackage({ project: it.project_id, id: it.ref })
   if (it.type === 'mention') {
-    if (!await inboxLeaveSession()) return
+    const s = window.changeSession, pkg = it.package_id || ''
+    if (s && s.package?.id !== pkg && !await inboxLeaveSession()) return
     if (it.doc_id !== docId) { await openDoc(it.doc_id); if (docId !== it.doc_id) return }
-    if (activeFile) await switchTab('')
+    if (activeFile && !await switchTab('')) return
+    if (pkg && window.changeSession?.package?.id !== pkg) {
+      const proposal = await api('GET', `/api/projects/${it.project_id}/proposals/${pkg}`)
+      if (it.doc_id !== docId || !await startChangeSession(proposal)) return
+    }
+    if (pkg && window.changeSession?.original) {
+      window.changeSession.original = false
+      await sessionActivate()
+    }
     await loadComments(true)
-    // Older notifications stored the reply id; the inbox only lists thread
-    // roots, so resolve a reply ref to its thread instead of claiming it's gone.
+    if (it.doc_id !== docId || pkg !== commentPackage()) return
     const th = threads.find(x => x.id === it.ref) || threads.find(x => (x.replies || []).some(r => r.id === it.ref))
     if (!th) { toast(t('inbox.gone')); return }
-    const line = Math.max(1, Math.min(cm.state.doc.lines, th.anchor || 1))
-    cm.dispatch({ selection: { anchor: cm.state.doc.line(line).from }, effects: EditorView.scrollIntoView(cm.state.doc.line(line).from, { y: 'center' }) })
-    openPop(line, false)
+    await jumpThread(th)
     return
   }
   if (it.type === 'changes') return openProjectChanges(it.project_id, it.project_title)

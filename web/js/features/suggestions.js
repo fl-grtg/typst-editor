@@ -1,7 +1,7 @@
 function suggestionCard(th, fresh, doc, epoch) {
   const card = el('div', 'suggestionCard')
   const status = { pending: t('comments.suggestionpending'), accepted: t('comments.suggestionaccepted'), rejected: t('comments.suggestionrejected') }
-  card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
+  if (th.suggestion_status !== 'pending') card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
   const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
   if (oldFull || nextFull) {
     const raw = diffSpan(oldFull, nextFull)
@@ -53,11 +53,12 @@ class SuggestionReplacement extends WidgetType {
   }
 }
 class DraftDeletion extends WidgetType {
-  constructor(range) { super(); this.range = range }
+  constructor(range, commented = false) { super(); this.range = range; this.commented = commented }
   get lineBreaks() { return this.range.old.split('\n').length - 1 }
-  eq(other) { return other instanceof DraftDeletion && other.range.key === this.range.key && other.range.old === this.range.old }
+  eq(other) { return other instanceof DraftDeletion && other.range.key === this.range.key && other.range.old === this.range.old && other.commented === this.commented }
   toDOM() {
     const node = el('span', 'cm-hl cm-suggestion suggestionDeleted', this.range.old)
+    if (this.commented) node.classList.add('cm-hl-mix')
     node.dataset.suggestionChange = this.range.key
     node.contentEditable = 'false'; node.tabIndex = 0; node.setAttribute('role', 'button')
     node.setAttribute('aria-label', t('comments.suggestMode'))
@@ -109,8 +110,8 @@ function paintDraftSuggestions() {
   if (!draft) return
   const ranges = threadHighlights()
   for (const r of draftRanges(draft)) {
-    if (r.old) ranges.push(Decoration.widget({ widget: new DraftDeletion(r), side: -1 }).range(r.a))
-    if (r.b > r.a) ranges.push(Decoration.mark({ class: 'cm-hl cm-draft-change', attributes: { 'data-suggestion-change': r.key } }).range(r.a, r.b))
+    if (r.old) ranges.push(Decoration.widget({ widget: new DraftDeletion(r, commentCovers(r.a, r.a)), side: -1 }).range(r.a))
+    if (r.b > r.a) ranges.push(Decoration.mark({ class: 'cm-hl cm-draft-change' + (commentCovers(r.a, r.b) ? ' cm-hl-mix' : ''), attributes: { 'data-suggestion-change': r.key } }).range(r.a, r.b))
   }
   cm.dispatch({ effects: setHl.of(RangeSet.of(ranges, true)) })
 }
@@ -130,13 +131,14 @@ function openSuggestionBox(node) {
   if (!range && !th) return
   const { from, to } = range ? { from: range.a, to: range.b } : threadEditorRange(th)
   const overlaps = threads.filter(item => {
+    if (item.id === th?.id) return true
     if (item.a == null || item.resolved) return false
     const r = threadEditorRange(item)
     return r.from <= to && r.to >= from
   })
   const nodes = cm.dom ? [...cm.dom.querySelectorAll('[data-suggestion-change],[data-suggestion-id]')].filter(item =>
     range ? item.dataset.suggestionChange === range.key : item.dataset.suggestionId === String(th.id)) : [node]
-  openPop(cm.state.doc.lineAt(from).number, false, '', { from, to, range, threadIds: overlaps.map(item => item.id), nodes })
+  openPop(cm.state.doc.lineAt(from).number, false, { from, to, range, threadIds: overlaps.map(item => item.id), nodes })
 }
 function openLinePop(line) {
   const draft = window.suggestionDraft
@@ -145,7 +147,7 @@ function openLinePop(line) {
   const keys = new Set(ranges.map(r => r.key))
   const threadIds = threads.filter(th => cm.state.doc.lineAt(threadEditorRange(th).from).number === line).map(th => th.id)
   const nodes = [...cm.dom.querySelectorAll('[data-suggestion-change]')].filter(node => keys.has(node.dataset.suggestionChange))
-  openPop(line, false, '', { from: Math.min(...ranges.map(r => r.a)), to: Math.max(...ranges.map(r => r.b)), ranges, threadIds, nodes })
+  openPop(line, false, { from: Math.min(...ranges.map(r => r.a)), to: Math.max(...ranges.map(r => r.b)), ranges, threadIds, nodes })
 }
 function draftSuggestionCard(range) {
   const card = el('div', 'th'), header = el('div', 'hd')
@@ -178,27 +180,12 @@ function draftSuggestionCard(range) {
   return card
 }
 function renderSuggestionBox(box) {
-  const pop = $('pop')
   const keys = (box.ranges || (box.range ? [box.range] : [])).map(r => r.key)
   const ranges = window.suggestionDraft ? draftRanges(window.suggestionDraft).filter(r => keys.includes(r.key)) : []
   const list = threads.filter(th => box.threadIds.includes(th.id))
   const items = [...ranges.map(r => ({ id: 'd:' + r.key, render: () => draftSuggestionCard(r) })), ...list.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) }))]
   if (!items.length) { closePop(true); return }
-  let idx = popThreadId ? items.findIndex(it => it.id === popThreadId) : 0
-  if (idx < 0) idx = 0
-  popThreadId = items[idx].id
-  if (items.length > 1) {
-    const barActs = pop.querySelector('.barActs')
-    if (barActs) {
-      const nav = el('span', 'popNav')
-      const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
-      prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx - 1 + items.length) % items.length].id; renderPop() }
-      next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx + 1) % items.length].id; renderPop() }
-      nav.append(prev, el('span', 'popStep', `${idx + 1} / ${items.length}`), next)
-      barActs.prepend(nav)
-    }
-  }
-  pop.append(items[idx].render())
+  paintPopItems(items)
 }
 async function acceptDraftSuggestion(range) {
   const draft = window.suggestionDraft, doc = docId, epoch = openN
@@ -346,7 +333,7 @@ function paintSuggestionControls() {
     bar.hidden = !draft
     if (draft) {
       const label = bar.querySelector('b')
-      if (label) label.textContent = t('comments.suggestMode')
+      if (label) { label.hidden = false; label.textContent = t('comments.suggestMode') }
       const n = draftRanges(draft).length
       const cnt = $('sugCount')
       if (cnt) cnt.textContent = n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : ''

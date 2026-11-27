@@ -4,7 +4,7 @@
 #editWrap { flex: 1; display: flex; position: relative; background: var(--editor); min-width: 0; min-height: 0; }
 #cmWrap { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; background: var(--editor); --ed: 14px; --lh: 23px; padding: 0; }
 #cm { flex: 1; min-height: 0; overflow: hidden; padding: 8px 8px 0 0; }
-#sugBar { display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 14px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; color: var(--sub); }
+#sugBar { display: flex; align-items: center; gap: 8px; flex: none; min-height: 38px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, #9560d5 7%, var(--panel)); font-size: 12px; color: var(--sub); }
 #sugBar[hidden] { display: none; }
 #sugBar .sugDot { width: 6px; height: 6px; border-radius: 50%; background: #9560d5; flex: none; }
 #sugBar b { font-weight: 600; color: var(--text); }
@@ -14,7 +14,7 @@
 #sugBar button { min-height: 24px; padding: 2px 10px; border-radius: var(--r-xs); font-size: 11.5px; font-weight: 600; box-shadow: none; }
 #sugBar .sugSend { border: 1px solid transparent; background: var(--ink); color: var(--on-ink); }
 #sugBar .sugSend:not(:disabled):hover { filter: opacity(.86); }
-#sugBar .sugSend:disabled { opacity: .4; cursor: default; }
+#sugBar .sugSend:disabled { border-color: var(--line); background: transparent; color: var(--faint); cursor: default; }
 #sugBar .sugDiscard { border: 0; background: transparent; color: var(--sub); }
 #sugBar .sugDiscard:not(:disabled):hover { background: var(--hover); color: var(--text); }
 #cm .cm-editor { height: 100%; }
@@ -182,8 +182,8 @@
 
 #cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: rgba(149, 90, 225, .18); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .5); }
 #cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: rgba(149, 90, 225, .28); }
-#cmWrap .cm-suggestion.cm-hl-mix { background: rgba(188, 134, 152, .26); box-shadow: inset 0 -2px 0 rgba(186, 130, 120, .75); }
-#cmWrap .cm-suggestion.cm-hl-mix:hover { background: rgba(188, 134, 152, .38); }
+#cmWrap .cm-suggestion.cm-hl-mix, #cmWrap .cm-draft-change.cm-hl-mix { background: rgba(188, 134, 152, .26); box-shadow: inset 0 -2px 0 rgba(186, 130, 120, .75); }
+#cmWrap .cm-suggestion.cm-hl-mix:hover, #cmWrap .cm-draft-change.cm-hl-mix:hover { background: rgba(188, 134, 152, .38); }
 #cmWrap .cm-suggestion.cm-suggestion-conflict { background: rgba(217, 45, 32, .12); box-shadow: none; text-decoration: underline dashed var(--danger); text-underline-offset: 3px; }
 #suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
 #tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }
@@ -209,7 +209,6 @@
 .package-file .t, .package-modified .t { color: #9560d5; }
 aside .doc .package-accept-action { visibility: visible; }
 .package-tools button.on { background: rgba(145,90,225,.2); color: #9560d5; }
-.package-mode { max-width: 160px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #9560d5; }
 
 /* #3 hover-claim: hovering ANY fragment of a comment/suggestion/patch claims all its tiles (sibling fragments light up together) */
 #cmWrap .cm-hl.cm-hl-claim { background: rgba(255, 196, 0, .38); cursor: pointer; }

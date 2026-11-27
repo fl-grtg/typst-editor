@@ -454,33 +454,20 @@ const posOfLine = (t, line) => { // char pos of 1-based line
 function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine (line distance first, then char distance), else -1
   if (!q) return -1
   const hint = posOfLine(t, hintLine)
-  let p = -1, best = -1, bestL = Infinity, bestC = Infinity, n = 0
-  while ((p = t.indexOf(q, p + 1)) >= 0 && n++ < 20) {
-    const ld = Math.abs(t.slice(0, p).split('\n').length - hintLine), cd = Math.abs(p - hint)
-    if (ld < bestL || (ld === bestL && cd < bestC)) { bestL = ld; bestC = cd; best = p }
-  }
-  return best
+  const before = hint ? t.lastIndexOf(q, hint - 1) : -1
+  const after = t.indexOf(q, hint)
+  if (before < 0) return after
+  if (after < 0) return before
+  const left = t.slice(before, hint).split('\n').length
+  const right = t.slice(hint, after).split('\n').length
+  return left < right || (left === right && hint - before <= after - hint) ? before : after
 }
-function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = not found
-  if (!q) return -1
-  const exact = exactQuotePos(t, q, hintLine)
-  if (exact >= 0) return exact // same text twice: keep the one on the anchored line, not the first
-  const hint = posOfLine(t, hintLine)
-  const near = arr => arr.sort((a, b) => {
-    const ld = Math.abs(t.slice(0, a).split('\n').length - hintLine) - Math.abs(t.slice(0, b).split('\n').length - hintLine)
-    return ld || Math.abs(a - hint) - Math.abs(b - hint)
-  })[0]
-  const cands = []
-  const pushAll = (sub, shift = 0) => {
-    if (sub.length < 10) return
-    let p = -1, n = 0
-    while ((p = t.indexOf(sub, p + 1)) >= 0 && n++ < 20) cands.push(Math.max(0, p - shift))
-  }
-  if (q.length >= 16) { const h = q.length >> 1; pushAll(q.slice(0, h)); pushAll(q.slice(h), h) }
-  else pushAll(q.slice(0, Math.min(10, q.length)))
-  if (!cands.length && q.length > 10) pushAll(q.slice(0, 10))
-  if (!cands.length) return -1
-  return near(cands)
+function commentCovers(from, to) {
+  return threads.some(th => {
+    if (th.suggestion_status || th.a == null || th.b == null) return false
+    const r = threadEditorRange(th)
+    return r.to > r.from && (from === to ? r.from <= from && r.to >= to : r.from < to && r.to > from)
+  })
 }
 function threadHighlights() {
   const rs = [], segs = []

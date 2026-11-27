@@ -61,7 +61,8 @@ def list_notifications(req: Request, user: str = Depends(deps.me)) -> dict:
     try:
         rows = con.execute(
             "SELECT n.id, n.type, n.project_id, p.title AS project_title, n.doc_id, "
-            "COALESCE(c.parent_id, n.ref) AS ref, n.text, n.actor, n.is_read, n.created_at"
+            "COALESCE(c.parent_id, n.ref) AS ref, COALESCE(c.package_id, '') AS package_id,"
+            " n.text, n.actor, n.is_read, n.created_at"
             " FROM notifications n LEFT JOIN projects p ON p.id=n.project_id"
             " LEFT JOIN comments c ON c.id=n.ref"
             " WHERE n.recipient=? ORDER BY n.created_at DESC, n.rowid DESC LIMIT ?", (user, LIST_CAP)).fetchall()

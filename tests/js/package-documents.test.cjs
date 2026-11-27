@@ -107,7 +107,7 @@ test('leaving an added document tab restores source without requesting a nonexis
     localStorage: { removeItem: () => {} }, fileCache: new Map(), shadow: 'Source document', setT: value => { text = value },
     cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {}, tabCanEdit: () => true,
     paintTabs: () => {}, paintFileExtras: () => {}, paintOutline: () => {}, reanchor: () => {}, refreshHl: () => {}, queueRender: () => {},
-    paintSuggestionControls: () => {}, sidebar: async () => {}, sessionOriginalSwitchTab: async () => { throw Error('nonexistent file requested') } })
+    paintSuggestionControls: () => {}, sidebar: async () => {}, loadComments: async () => {}, sessionOriginalSwitchTab: async () => { throw Error('nonexistent file requested') } })
   vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
   assert.equal(await c.endChangeSession(true), true)
   assert.equal(c.activeFile, '')
@@ -228,7 +228,7 @@ test('ending acceptance preserves main and module views instead of restoring old
       localStorage: { removeItem() {} }, fileCache: new Map(), shadow: 'Accepted source',
       setT: (...args) => { restored = args }, cm: { dispatch() {} }, editableComp: { reconfigure() {} }, editMode() {}, tabCanEdit: () => true,
       paintTabs() {}, paintFileExtras() {}, paintOutline() {}, reanchor() {}, refreshHl() {}, queueRender() {}, paintSuggestionControls() {},
-      sidebar: async () => {}, loadProjectFiles: async () => {}, sessionOriginalSwitchTab: async (...args) => { switched = args; return true } })
+      sidebar: async () => {}, loadComments: async () => {}, sessionOriginalSwitchTab: async (...args) => { switched = args; return true } })
     vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
     await c.endChangeSession(true, true)
     if (key) assert.deepEqual(switched, [key, true, true])

@@ -54,13 +54,13 @@ def test_structured_proposal_actions_without_source_mode(page, extension, action
         else:
             expect(row.locator('.tx')).to_have_count(0)
     elif change == 'replace':
-        expect(page.locator('#pop .proposalBibField .tx')).to_have_text('New title')
-        expect(page.locator('#pop .proposalBibField')).to_have_count(1)
+        expect(page.locator('#pop .sugAdd')).to_have_text('New title')
+        expect(page.locator('#pop .sugDiff')).to_have_count(1)
         expect(page.locator('#pop')).not_to_contain_text('Joan')
     else:
-        expect(page.locator('#pop .tx')).to_have_count(0)
-    expect(page.locator('#pop .qt').filter(has_text='Old')).to_contain_text('Old')
-    page.locator('#pop .th .hd button').nth(0 if action == 'accept' else 1).click()
+        expect(page.locator('#pop .sugAdd')).to_have_count(0)
+    expect(page.locator('#pop .qt, #pop .sugDel').filter(has_text='Old')).to_contain_text('Old')
+    page.locator('#pop .sugAccept' if action == 'accept' else '#pop .hd .acts button.danger').click()
     expect(page.locator('#pop')).not_to_be_visible()
     if extension == 'bib' and change == 'replace':
         page.wait_for_function('window.changeSession && !window.changeSession.busy')
@@ -96,7 +96,7 @@ def test_bib_draft_marks_and_opens_changed_input_immediately(page):
     title.locator('textarea').click()
     expect(page.locator('#pop')).to_be_visible()
     assert page.locator('#pop').evaluate('pop => { const p = pop.getBoundingClientRect(), f = document.querySelector(".bib-proposed").getBoundingClientRect(); return p.bottom <= f.top || p.top >= f.bottom }')
-    expect(page.locator('#pop .tx')).to_contain_text('longer new')
+    expect(page.locator('#pop .sugAdd')).to_contain_text('longer new')
     expect(page.locator('#pop .bar b')).to_have_text('Title')
     page.locator('#pop .th .hd button').click()
     expect(title.locator('textarea')).to_have_value('Old title')
@@ -241,7 +241,7 @@ def test_csv_review_accepts_and_discards_only_clicked_cell(page):
     expect(page.locator('#pop .tx')).to_have_text('first')
     expect(page.locator('#pop .qt')).to_have_count(0)
     expect(page.locator('#pop .bar b')).to_have_text('C2')
-    page.locator('#pop .th .hd button').first.click()
+    page.locator('#pop .sugAccept').click()
     page.wait_for_function('window.changeSession?.package?.accepted === 1 && !window.changeSession.busy')
     expected = 'a,b,c,d\n1,2,first,\n3,4,,\n'
     assert file_text(page.request, project, 'data.csv') == expected
@@ -249,7 +249,7 @@ def test_csv_review_accepts_and_discards_only_clicked_cell(page):
     expect(page.locator('#pop .proposalCells tr')).to_have_count(1)
     expect(page.locator('#pop .proposalCells th')).to_have_text('D3')
     expect(page.locator('#pop .tx')).to_have_text('second')
-    page.locator('#pop .th .hd button').nth(1).click()
+    page.locator('#pop .hd .acts button.danger').click()
     page.wait_for_function("[...window.changeSession.files.values()].every(f => f.content === f.base)")
     expect(page.locator('.csv-proposed')).to_have_count(0)
 
@@ -571,7 +571,7 @@ def test_upload_in_proposal_is_submitted_without_writing_source(page):
     expect(page.locator('#wsTxt')).to_have_text('Live')
     page.locator('#suggestionToggle').click()
     expect(page.locator('#suggestionToggle')).to_have_attribute('aria-pressed', 'true')
-    expect(page.locator('.package-mode')).to_have_text('Unsent proposal')
+    expect(page.locator('#sugBar')).to_contain_text('Suggestion mode')
     page.locator('#imgPick').set_input_files({'name': 'draft.csv', 'mimeType': 'text/csv', 'buffer': b'a,b\n1,2\n'})
     expect(page.locator('.package-file .t').filter(has_text='draft.csv')).to_be_visible()
     page.locator('.package-tools button[title="Back to editing"]').click()

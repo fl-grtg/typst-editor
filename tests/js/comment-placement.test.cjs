@@ -10,7 +10,8 @@ function placement(top, bottom, height = 200) {
   const bounds = { top: 0, bottom: 700, left: 0, width: 800 }
   const cm = { state: { selection: { main: { empty: true } } }, contentDOM: { style: {} }, scrollDOM: { getBoundingClientRect: () => bounds },
     coordsAtPos: pos => pos === 10 ? { top, bottom: top + 20, left: 100 } : { top: bottom - 20, bottom, left: 300 }, dispatch: () => {} }
-  const c = vm.createContext({ window: {}, popAnchor: 1, popFresh: false, popLayoutTries: 0, getT: () => 'x'.repeat(100), threads: [{ anchor: 1, a: 10, b: 50 }],
+  const c = vm.createContext({ window: {}, popAnchor: 1, popFresh: false, popLayoutTries: 0, popThreadId: 'c', getT: () => 'x'.repeat(100),
+    threads: [{ id: 'c', a: 10, b: 50 }], threadEditorRange: th => ({ from: th.a, to: th.b }),
     cm, $: id => id === 'pop' ? pop : { getBoundingClientRect: () => bounds }, requestAnimationFrame: () => {}, EditorView: { scrollIntoView: () => ({}) } })
   vm.runInContext(source.slice(source.indexOf('function movePop()'), source.indexOf('function renderPop()')), c)
   c.movePop()
@@ -38,24 +39,27 @@ test('session edits remap every comment range, including popover targets keyed w
   const base = '0123456789\ndef\n'
   const cs = EditorState.create({ doc: base }).changes({ from: 1, insert: 'abc' })
   const file = { base, content: base, state: EditorState.create({ doc: base }), delta: EditorState.create({ doc: base }).changes([]), action: 'modify', id: 'f1', changes: [] }
-  const commentRanges = new Map([['comment-old', { from: 2, to: 6 }]])
-  const target = { from: 10, to: 14 } // newBox keeps a posting comment under the object key it stored while awaiting the POST
+  const commentRanges = new Map([['comment-old', { doc: 'd1', from: 2, to: 6 }], ['other-doc', { doc: 'd2', from: 2, to: 6 }]])
+  const target = { doc: 'd1', from: 10, to: 14 } // newBox keeps a posting comment under the object key it stored while awaiting the POST
   commentRanges.set(target, target)
   const s = { files: new Map([['current', file]]), commentRanges, original: false, busy: false, dirty: false, previewRevision: 0 }
-  const c = vm.createContext({ window: { changeSession: s }, activeFile: '', threads: [{ id: 'comment-old' }, { id: 'c-new' }], popAnchor: null,
+  const c = vm.createContext({ window: { changeSession: s }, docId: 'd1', activeFile: '', threads: [{ id: 'comment-old', package_id: 'pkg' }, { id: 'c-new', package_id: 'pkg', a: 4, b: 8 }], popAnchor: null,
     sessionKey: () => 'current', sessionCurrent: () => ({ kind: 'document', doc_id: 'd1' }),
-    threadEditorRange: () => ({ from: 4, to: 8 }), getT: () => cs.apply(EditorState.create({ doc: base }).doc).toString(),
+    getT: () => cs.apply(EditorState.create({ doc: base }).doc).toString(),
     queueRender: () => {}, queueMicrotask: () => {}, sessionStash: () => {},
     sessionPaint: () => {}, paintSuggestionControls: () => {}, paintSessionSidebar: () => {}, RangeSet: { of: ranges => ranges } })
   vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
   vm.runInContext(sug.slice(sug.indexOf('function suggestionChanges'), sug.indexOf('function draftStashKey')), c)
   vm.runInContext(sug.slice(sug.indexOf('function normalizeSuggestionChanges'), sug.indexOf('function draftRanges')), c)
+  const hl = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  vm.runInContext(hl.slice(hl.indexOf('function commentReplacement'), hl.indexOf('function mapThreads')), c)
   vm.runInContext(pkg.slice(pkg.indexOf('function sessionRecord'), pkg.indexOf('async function sessionActivate')), c)
   c.sessionRecord(cs)
-  assert.deepEqual(commentRanges.get('comment-old'), { from: 5, to: 9 }) // thread-keyed entries still map
-  assert.deepEqual(commentRanges.get('c-new'), { from: 7, to: 11 }) // fallback range derived and mapped exactly once
+  assert.deepEqual(commentRanges.get('comment-old'), { doc: 'd1', from: 5, to: 9 })
+  assert.deepEqual({ ...commentRanges.get('c-new') }, { doc: 'd1', from: 7, to: 11 })
+  assert.deepEqual(commentRanges.get('other-doc'), { doc: 'd2', from: 2, to: 6 })
   assert.equal(commentRanges.get(target), target) // object-keyed entry keeps its key and its value is the same mutated object
-  assert.deepEqual(commentRanges.get(target), { from: 13, to: 17 }) // the popover target maps too (was stale before fix 2)
+  assert.deepEqual(commentRanges.get(target), { doc: 'd1', from: 13, to: 17 })
 })
 
 test('package accept can force comment re-derivation: the cache helper clears the poll dedupe key', () => {
@@ -114,7 +118,7 @@ test('editing inside commented text keeps tight range, typing outside stays out,
     getT: () => state.doc.toString(), gutter: () => {}, refreshHl: () => {}, movePop: () => {}, dirtyAnchor: () => {},
   })
   vm.runInContext(comp.slice(comp.indexOf('const posOfLine'), comp.indexOf('function threadHighlights')), c)
-  vm.runInContext(hlx.slice(hlx.indexOf('function mapThreads')), c)
+  vm.runInContext(hlx.slice(hlx.indexOf('function commentReplacement')), c)
   vm.runInContext(source.slice(source.indexOf('function reanchor()'), source.indexOf('async function jumpThread')), c)
   const applyEdit = spec => {
     const oldLen = state.doc.length
@@ -154,6 +158,100 @@ test('exactQuotePos prefers a match on the anchored line over a closer-in-chars 
   const text = 'prefix '.repeat(2) + 'same\n' + 'x'.repeat(80) + ' same\n'
   const line2Pos = text.lastIndexOf('same')
   assert.equal(c.exactQuotePos(text, 'same', 2), line2Pos)
+  assert.equal(c.exactQuotePos('same\n'.repeat(25), 'same', 25), 120)
+})
+
+test('live ranges survive a shortened document, edited quotes and a fresh Yjs client', async () => {
+  const Y = await import(pathToFileURL(path.resolve('vendor/yjs-13.6.27-232b4982bc3f.js')).href)
+  const hl = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  const ydoc = new Y.Doc(), ytext = ydoc.getText('typst')
+  ytext.insert(0, '0123456789 word')
+  const c = vm.createContext({ Y, ydoc, ytext, synced: true, btoa, atob, window: {}, activeFile: '', getT: () => c.ytext.toString() })
+  vm.runInContext(hl.slice(hl.indexOf('function commentReplacement')), c)
+  let anchor = c.saveCommentRange(11, 15)
+  c.threads = [{ a: 11, b: 15, quote: 'word', anchor_range: anchor, anchor: 1 }]
+  ytext.delete(0, 11)
+  c.mapThreads(p => Math.max(0, p - 11), false, 15)
+  assert.deepEqual([c.threads[0].a, c.threads[0].b], [0, 4])
+  ytext.insert(2, 'X')
+
+  const reloaded = new Y.Doc()
+  Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(ydoc))
+  c.ydoc = reloaded; c.ytext = reloaded.getText('typst')
+  c.threads = [{ quote: 'word', anchor_range: anchor }]
+  c.initRanges()
+  assert.equal(c.ytext.toString().slice(c.threads[0].a, c.threads[0].b), 'woXrd')
+
+  c.dirtyAnchor = (thread, before) => {
+    assert.equal(before, anchor)
+    anchor = thread.anchor_range
+  }
+  reloaded.transact(() => { c.ytext.delete(0, 5); c.ytext.insert(0, 'replacement') })
+  c.mapThreads((_pos, end) => end ? 0 : 11, false, 5, fn => fn(0, 5, 0, 11))
+  assert.deepEqual([c.threads[0].a, c.threads[0].b], [0, 11])
+  c.threads = [{ quote: 'word', anchor_range: anchor }]
+  c.initRanges()
+  assert.deepEqual([c.threads[0].a, c.threads[0].b], [0, 11])
+
+  c.ytext.delete(0, c.ytext.length)
+  c.ytext.insert(0, 'word in a new paragraph')
+  c.threads = [{ quote: 'word', anchor_range: anchor }]
+  c.initRanges()
+  assert.equal(c.threads[0].a, undefined)
+  assert.equal(c.threads[0]._deleted, true)
+  ydoc.destroy(); reloaded.destroy()
+})
+
+test('a discussion on a deletion attaches to the patch, not identical surviving text', () => {
+  const hl = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  const file = {}, thread = { package_id: 'pkg', anchor: 1, anchor_quote: '', quote: 'word' }
+  const c = vm.createContext({
+    window: { changeSession: { files: new Map([['doc', file]]) } }, threads: [thread],
+    getT: () => 'word remains', sessionCurrent: () => 'doc', sessionKey: key => key,
+    sessionChangeRanges: () => [{ a: 6, old: 'word', next: '' }], lineOf: () => 1,
+  })
+  vm.runInContext(hl.slice(hl.indexOf('function initRanges')), c)
+  c.initRanges()
+  assert.deepEqual([thread.a, thread.b], [6, 6])
+})
+
+test('review comments are stashed locally and publish the latest text at their draft position', async () => {
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  const session = { files: new Map([['d1', { content: 'Header\nbefore revised text after' }]]) }
+  let stashed = 0
+  const c = vm.createContext({ user: 'author', crypto: { randomUUID: () => 'test' },
+    api: () => assert.fail('an unsent comment must not call the live comment API'),
+    sessionStash: () => stashed++, sessionKey: f => f.doc_id })
+  vm.runInContext(pkg.slice(pkg.indexOf('async function postReviewComment'), pkg.indexOf('function sessionRecord')), c)
+  await c.postReviewComment(session, 'd1', { anchor: 1, quote: 'before original text', anchor_quote: 'before original text', text: '  Note  ' }, { from: 7, to: 26 })
+  assert.equal(stashed, 1)
+  const payload = c.sessionDraftComments(session)[0]
+  assert.deepEqual({ ...payload }, { client_id: 'draft-comment-test', doc_id: 'd1', anchor: 2, quote: 'before original text',
+    anchor_quote: 'before revised text', text: 'Note', parent_id: undefined, replaces_id: undefined, deleted: false })
+})
+
+test('proposal comment edits, deletions and replies overlay live threads without changing them', () => {
+  const live = [
+    { id: 'edit-me', text: 'old', replies: [{ id: 'reply-delete', text: 'gone' }] },
+    { id: 'delete-me', text: 'remove', replies: [] },
+  ]
+  const c = vm.createContext({})
+  vm.runInContext(source.slice(source.indexOf('function proposalComments'), source.indexOf('function commentPackage')), c)
+  const result = c.proposalComments(live, [
+    { id: 'p1', replaces_id: 'edit-me', text: 'new' },
+    { id: 'p2', replaces_id: 'reply-delete', deleted: true },
+    { id: 'p3', replaces_id: 'delete-me', deleted: true },
+    { id: 'p4', parent_id: 'edit-me', text: 'package reply' },
+    { id: 'p5', text: 'package thread', replies: [] },
+  ])
+  assert.equal(JSON.stringify(result.map(th => [th.id, th.text, th.replies.map(r => r.id).join(',')])), JSON.stringify([['edit-me', 'new', 'p4'], ['p5', 'package thread', '']]))
+  assert.equal(live[0].text, 'old')
+  assert.equal(live[0].replies[0]._removed, undefined)
+})
+
+test('submitting a comment with Enter does not reach the editor', () => {
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  for (const code of [source, pkg]) assert.doesNotMatch(code, /if \(e\.key === 'Enter'\) (post|send)\(\)/)
 })
 
 test('loadComments preserves live edited ranges and deleted state across replies/polls', async () => {
@@ -178,6 +276,44 @@ test('loadComments preserves live edited ranges and deleted state across replies
   assert.equal(c.threads[1].a, null)
 })
 
+test('proposal views project live comments onto the modified text and keep package comments separate', async () => {
+  const { EditorState } = await import(pathToFileURL(path.resolve('vendor-cm.js')).href)
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  const hl = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const sug = fs.readFileSync('web/js/features/suggestions.js', 'utf8')
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  const base = 'first\nbefore old after', proposed = 'first\nbefore replacement after'
+  const delta = EditorState.create({ doc: base }).changes({ from: 13, to: 16, insert: 'replacement' })
+  const session = { files: new Map([['doc', { base, delta }]]), commentRanges: new Map(),
+    draftComments: [{ id: 'draft-note', package_id: 'draft', doc_id: 'doc', anchor: 2, a: 13, b: 24 }] }
+  const c = vm.createContext({
+    window: { changeSession: session }, docId: 'doc', openN: 1, activeFile: '', shadow: base, threads: [], lastC: '',
+    sessionKey: key => key, sessionCurrent: () => 'doc', getT: () => session.original ? base : proposed,
+    api: async (_, url) => url.includes('package_id') ? { comments: [{ id: 'pkg-note', package_id: 'pkg', quote: 'replacement', anchor: 2 }] }
+      : { comments: [{ id: 'live-note', quote: 'old', anchor: 2 }] },
+    cm: { state: { doc: { length: proposed.length } } }, reanchor() {}, gutter() {}, refreshHl() {}, paintBadge() {},
+    popAnchor: null, $: () => ({ querySelectorAll: () => [] }),
+  })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const deltaMap')), c)
+  vm.runInContext(comp.slice(comp.indexOf('const posOfLine'), comp.indexOf('function threadHighlights')), c)
+  vm.runInContext(hl.slice(hl.indexOf('function initRanges')), c)
+  vm.runInContext(sug.slice(sug.indexOf('function sourceToEditor'), sug.indexOf('function normalizeSuggestionChanges')), c)
+  vm.runInContext(pkg.slice(pkg.indexOf('const sessionOriginalSourceMap'), pkg.indexOf('const sessionSourceApi')), c)
+  vm.runInContext(source.slice(source.indexOf('function repaintCommentRanges'), source.indexOf('function paintBadge()')), c)
+  await c.loadComments()
+  assert.equal(c.threads.map(th => th.id).join(','), 'live-note,draft-note')
+  assert.deepEqual({ ...c.threadEditorRange(c.threads[0]) }, { from: 13, to: 24 })
+  session.package = { id: 'pkg' }
+  await c.loadComments()
+  assert.equal(c.threads.map(th => th.id).join(','), 'live-note,pkg-note')
+  assert.deepEqual({ ...c.threadEditorRange(c.threads[1]) }, { from: 13, to: 24 })
+  session.original = true
+  await c.loadComments()
+  assert.equal(c.threads.map(th => th.id).join(','), 'live-note')
+  assert.deepEqual({ ...c.threadEditorRange(c.threads[0]) }, { from: 13, to: 16 })
+})
+
 test('visibleSelectionQuote excludes deleted draft text and reflects live pending replacements', () => {
   const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
   const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
@@ -195,4 +331,74 @@ test('visibleSelectionQuote excludes deleted draft text and reflects live pendin
   c.getT = () => 'im Modus aendern kann.'
   c.threads = [{ id: 's1', a: 0, b: 22, conflict: false, suggestion_status: 'pending', suggestion_old: 'im Modus aendern kann.', replacement: 'im Modus ueberarbeiten kann.' }]
   assert.equal(c.visibleSelectionQuote(0, 22), 'im Modus ueberarbeiten kann.')
+})
+
+test('a draft follows accepted live text without losing its own changes or comment ranges', async () => {
+  const { EditorState } = await import(pathToFileURL(path.resolve('vendor-cm.js')).href)
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  const sug = fs.readFileSync('web/js/features/suggestions.js', 'utf8')
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  const base = 'alpha old omega'
+  const state = EditorState.create({ doc: base })
+  const delta = state.changes({ from: 0, to: 5, insert: 'ALPHA' })
+  let text = 'ALPHA old omega'
+  const file = { id: 'f', base, content: text, state, delta, changes: [] }
+  const session = { files: new Map([['doc', file]]), commentRanges: new Map([['c', { doc: 'd', from: 6, to: 9 }]]), draftComments: [], previewRevision: 0 }
+  const c = vm.createContext({ EditorState, window: { changeSession: session }, docId: 'd', activeFile: '', applying: false, NO_HIST: [],
+    sessionKey: () => 'doc', sessionCurrent: () => 'doc', getT: () => text, sessionStash() {}, queueMicrotask() {},
+    cm: { dispatch: tr => { text = tr.changes.apply(EditorState.create({ doc: text }).doc).toString() } } })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
+  vm.runInContext(sug.slice(sug.indexOf('function normalizeSuggestionChanges'), sug.indexOf('function draftRanges')), c)
+  vm.runInContext(sug.slice(sug.indexOf('function suggestionChanges'), sug.indexOf('function draftStashKey')), c)
+  const hl = fs.readFileSync('web/js/30-highlight-theme.js', 'utf8')
+  vm.runInContext(hl.slice(hl.indexOf('function commentReplacement'), hl.indexOf('function mapThreads')), c)
+  vm.runInContext(pkg.slice(pkg.indexOf('function sessionRemote'), pkg.indexOf('function sessionRecord')), c)
+  c.sessionRemote(base, 'alpha new omega', [{ retain: 6 }, { delete: 3 }, { insert: 'new' }])
+  assert.equal(file.base, 'alpha new omega')
+  assert.equal(file.content, 'ALPHA new omega')
+  assert.equal(text, 'ALPHA new omega')
+  assert.deepEqual({ ...session.commentRanges.get('c') }, { doc: 'd', from: 6, to: 9 })
+})
+
+test('proposal mode keeps live suggestion decisions available', () => {
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  const suggestion = fs.readFileSync('web/js/features/suggestions.js', 'utf8')
+  assert.ok(pkg.includes(String.raw`suggestions\/[^/]+\/(accept|reject)`))
+  assert.doesNotMatch(source, /pendingSug && !window\.changeSession/)
+  assert.doesNotMatch(suggestion, /!openedTrashed && !window\.changeSession/)
+})
+
+test('a proposal line shows every change and comment, with change comments inside the change card', () => {
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  const ranges = [{ a: 3, b: 5, old: 'x', next: 'yy' }, { a: 8, b: 8, old: 'gone', next: '' }]
+  const card = (cls, text = '') => ({ className: cls, textContent: text, children: [], dataset: {}, style: {}, classList: { add() {} },
+    append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
+  let items
+  const c = vm.createContext({ window: { changeSession: { files: new Map([['f', {}]]) } }, activeFile: '', openedTrashed: true, docRole: 'reader', user: 'u',
+    sessionKey: () => 'f', sessionCurrent() {}, sessionChangeRanges: () => ranges,
+    threads: [{ id: 'on-change', a: 3, b: 4 }, { id: 'on-delete', a: 8, b: 8 }, { id: 'live-suggestion', suggestion_status: 'pending', a: 10, b: 12 }, { id: 'line-comment', a: 13, b: 14 }],
+    threadEditorRange: th => ({ from: th.a, to: th.b }), cm: { state: { doc: { lines: 1, line: () => ({ from: 0, to: 20 }), lineAt: () => ({ number: 1 }) } } },
+    popThreadId: null, paintPopItems: list => { items = list }, el: card, icoBtn: card, colOf: () => '', t: key => key, ICO_TRASH: '',
+    threadCard: th => card('th', th.id) })
+  vm.runInContext(pkg.slice(pkg.indexOf('function sessionRangeOnLine'), pkg.indexOf('function paintSessionSelection')), c)
+  c.sessionCard({ index: 1 })
+  assert.equal(JSON.stringify(items.map(item => item.id)), JSON.stringify(['s:0', 's:1', 't:live-suggestion', 't:line-comment']))
+  assert.equal(c.popThreadId, 's:1')
+  const walk = node => [node, ...(node.children || []).flatMap(walk)]
+  assert.ok(walk(items[0].render()).some(node => node.textContent === 'on-change'))
+  assert.ok(walk(items[1].render()).some(node => node.textContent === 'on-delete'))
+})
+
+test('a draft keeps its base when live text changed the same passage', async () => {
+  const { EditorState } = await import(pathToFileURL(path.resolve('vendor-cm.js')).href)
+  const pkg = fs.readFileSync('web/js/features/zz-change-packages.js', 'utf8')
+  const base = 'alpha beta gamma'
+  const state = EditorState.create({ doc: base })
+  const file = { base, content: 'alpha BETA gamma', state, delta: state.changes({ from: 6, to: 10, insert: 'BETA' }) }
+  const c = vm.createContext({ EditorState, window: { changeSession: { files: new Map([['doc', file]]) } }, docId: 'd',
+    sessionKey: () => 'doc', diffSpan: () => assert.fail('the delta is used') })
+  vm.runInContext(pkg.slice(pkg.indexOf('function sessionRemote'), pkg.indexOf('function sessionRecord')), c)
+  c.sessionRemote(base, 'alpha replaced gamma', [{ retain: 6 }, { delete: 4 }, { insert: 'replaced' }])
+  assert.equal(file.base, base)
+  assert.equal(file.content, 'alpha BETA gamma')
 })
