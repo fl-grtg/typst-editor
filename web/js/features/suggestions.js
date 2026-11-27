@@ -4,7 +4,8 @@ function suggestionCard(th, fresh, doc, epoch) {
   card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
   const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
   if (oldFull || nextFull) {
-    const span = diffSpan(oldFull, nextFull)
+    const raw = diffSpan(oldFull, nextFull)
+    const span = typeof tokenSafeSpan === 'function' ? tokenSafeSpan(oldFull, raw) : raw
     const old = oldFull.slice(span.a, oldFull.length - span.b)
     const next = nextFull.slice(span.a, nextFull.length - span.b)
     if (old || next) {
@@ -15,6 +16,7 @@ function suggestionCard(th, fresh, doc, epoch) {
       card.append(diff)
     }
   }
+  if (th.text && typeof richText === 'function') card.append(richText(th.text))
   if (th.suggestion_status === 'pending' && (th.a == null || th.conflict)) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   if (th.suggestion_status === 'pending' && !openedTrashed && ['owner', 'editor'].includes(docRole)) {
     const actions = el('div', 'sugActs')
@@ -175,10 +177,24 @@ function renderSuggestionBox(box) {
   const pop = $('pop')
   const keys = (box.ranges || (box.range ? [box.range] : [])).map(r => r.key)
   const ranges = window.suggestionDraft ? draftRanges(window.suggestionDraft).filter(r => keys.includes(r.key)) : []
-  ranges.forEach(range => pop.append(draftSuggestionCard(range)))
   const list = threads.filter(th => box.threadIds.includes(th.id))
-  list.forEach(th => pop.append(threadCard(th)))
-  if (!ranges.length && !list.length) closePop(true)
+  const items = [...ranges.map(r => ({ id: 'd:' + r.key, render: () => draftSuggestionCard(r) })), ...list.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) }))]
+  if (!items.length) { closePop(true); return }
+  let idx = popThreadId ? items.findIndex(it => it.id === popThreadId) : 0
+  if (idx < 0) idx = 0
+  popThreadId = items[idx].id
+  if (items.length > 1) {
+    const barActs = pop.querySelector('.barActs')
+    if (barActs) {
+      const nav = el('span', 'popNav')
+      const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
+      prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx - 1 + items.length) % items.length].id; renderPop() }
+      next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx + 1) % items.length].id; renderPop() }
+      nav.append(prev, el('span', 'popStep', `${idx + 1} / ${items.length}`), next)
+      barActs.prepend(nav)
+    }
+  }
+  pop.append(items[idx].render())
 }
 async function acceptDraftSuggestion(range) {
   const draft = window.suggestionDraft, doc = docId, epoch = openN

@@ -67,14 +67,12 @@
 #cmWrap .cm-scroller { overflow-x: clip; } /* wrapping on: carrier extension must never cause a horizontal scrollbar */
 #cmWrap.wrapOff .cm-scroller { overflow-x: auto; } /* wrapping off: long lines scroll horizontally */
 #cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
-#cmWrap .cm-hl.cm-hl-resolved { background: color-mix(in srgb, var(--editor) 86%, var(--sub)); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--editor) 45%, var(--sub)); }
-#cmWrap .cm-hl.cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 74%, var(--sub)); }
-#cmWrap .cm-hl:not(.cm-hl-resolved) { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
-#cmWrap .cm-hl:not(.cm-hl-resolved):hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
-/* Overlap layering: open comment always wins over resolved gray; two overlapping open comments deepen slightly */
-#cmWrap .cm-hl:not(.cm-hl-resolved) .cm-hl-resolved { background: color-mix(in srgb, var(--editor) 72%, #ffc400); box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); }
-#cmWrap .cm-hl:not(.cm-hl-resolved) .cm-hl:not(.cm-hl-resolved) { background: color-mix(in srgb, var(--editor) 56%, #ffc400); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .75); }
-#cmWrap .cm-hl:not(.cm-hl-resolved) .cm-suggestion, #cmWrap .cm-suggestion .cm-hl:not(.cm-hl-resolved) { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 72%, #ffc400) 50%, #955ae1); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .65); }
+#cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
+#cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
+#cmWrap .cm-hl-multi { background: color-mix(in srgb, var(--editor) 54%, #ffc400); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .8); }
+#cmWrap .cm-hl-multi:hover { background: color-mix(in srgb, var(--editor) 42%, #ffc400); }
+#cmWrap .cm-hl-resolved { background: color-mix(in srgb, var(--editor) 86%, var(--sub)); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--editor) 45%, var(--sub)); }
+#cmWrap .cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 74%, var(--sub)); }
 .typ-hover .hvSug { margin-top: 4px; font: 12px/1.45 var(--mono); }
 .typ-hover .hvAdd { color: #9560d5; font-weight: 600; }
 #cmWrap .cm-syncLine { animation: syncFlash .8s ease-out; } /* preview -> editor: the target line lights up (dark mode) or darkens (light mode) */
@@ -180,6 +178,7 @@
 
 #cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .55); }
 #cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: color-mix(in srgb, var(--editor) 68%, #955ae1); }
+#cmWrap .cm-suggestion.cm-hl-mix { box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .85); }
 #cmWrap .cm-suggestion.cm-suggestion-conflict { background: color-mix(in srgb, var(--editor) 88%, #d92d20); box-shadow: none; text-decoration: underline dashed var(--danger); text-underline-offset: 3px; }
 #suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
 #tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }

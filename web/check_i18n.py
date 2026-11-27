@@ -62,7 +62,7 @@ SKIP_FILES = {"10-cm-setup.js"}
 # Exact hardcoded strings that are NOT user-visible UI (console-only,
 # protocol, keys, selectors, file names, inserted document defaults ...).
 ALLOW_EXACT = {
-    "hasThread hasSuggestion", "cm-hl cm-hl-resolved", "cm-hl cm-suggestion", "cm-hl cm-suggestion suggestionDeleted", "cm-hl cm-suggestion cm-suggestion-conflict", "cm-hl cm-draft-change",  # editor marker classes
+    "hasThread hasSuggestion", "cm-hl cm-hl-multi", "cm-hl cm-hl-resolved", "cm-hl cm-suggestion", "cm-hl cm-suggestion suggestionDeleted", "cm-hl cm-suggestion suggestionDeleted cm-hl-mix", "cm-hl cm-suggestion cm-suggestion-conflict", "cm-hl cm-draft-change",  # editor marker classes
     # console-only (never rendered)
     "anchor save failed", "file list stale, using cache", "shares failed",
     "invites failed", "comments failed", "comments poll failed",

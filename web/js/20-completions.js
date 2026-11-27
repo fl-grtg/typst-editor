@@ -483,34 +483,50 @@ function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spo
   return near(cands)
 }
 function threadHighlights() {
-  const rs = []
+  const rs = [], segs = []
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
     if (th.a == null || th.b == null) continue
     const pending = th.suggestion_status === 'pending'
-    if (pending && th.conflict) { // conflicted suggestion: mark anchor line cleanly without slicing unrelated text
+    if (pending && th.conflict) {
       const { from: a, to: b } = threadEditorRange(th)
-      if (b > a) rs.push(Decoration.mark({
-        class: 'cm-hl cm-suggestion cm-suggestion-conflict',
-        attributes: { 'data-suggestion-id': String(th.id) },
-      }).range(a, b))
+      if (b > a) segs.push({ a, b, kind: 'conflict', id: String(th.id) })
       continue
     }
     let source = th, span = null
     if (pending) {
-      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
+      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement))
       const a = Math.min(th.b, th.a + span.a)
       source = { ...th, a, b: Math.max(a, th.b - span.b) }
     }
     const { from: a, to: b } = threadEditorRange(source)
-    if (b > a) rs.push(Decoration.mark({
-      class: pending ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
-      attributes: pending ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
-    }).range(a, b))
+    if (b > a) segs.push({ a, b, kind: pending ? 'sug' : th.resolved ? 'resolved' : 'open', id: String(th.id) })
     if (pending) {
       const widget = new SuggestionReplacement(th, span)
       if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
     }
+  }
+  if (!segs.length) return rs
+  const pts = [...new Set(segs.flatMap(s => [s.a, s.b]))].sort((x, y) => x - y)
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1]
+    if (b <= a) continue
+    let open = 0, resolved = null, sug = null, conflict = null, openId = null
+    for (const s of segs) {
+      if (s.a > a || s.b < b) continue
+      if (s.kind === 'conflict') conflict = s.id
+      else if (s.kind === 'sug') sug = s.id
+      else if (s.kind === 'open') { open++; openId = s.id }
+      else if (s.kind === 'resolved') resolved = s.id
+    }
+    if (!conflict && !sug && !open && !resolved) continue
+    const cls = conflict ? 'cm-hl cm-suggestion cm-suggestion-conflict'
+      : sug ? (open ? 'cm-hl cm-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion suggestionDeleted')
+      : open > 1 ? 'cm-hl cm-hl-multi'
+      : open ? 'cm-hl'
+      : 'cm-hl cm-hl-resolved'
+    const attrs = (conflict || sug) ? { 'data-suggestion-id': conflict || sug } : { 'data-comment-id': openId || resolved }
+    rs.push(Decoration.mark({ class: cls, attributes: attrs }).range(a, b))
   }
   return rs
 }

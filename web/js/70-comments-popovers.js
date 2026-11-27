@@ -539,8 +539,8 @@ function renderPop() {
   if (list.length > 1) {
     const nav = el('span', 'popNav')
     const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
-    prev.onclick = () => { popThreadId = String(list[(idx - 1 + list.length) % list.length].id); renderPop() }
-    next.onclick = () => { popThreadId = String(list[(idx + 1) % list.length].id); renderPop() }
+    prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = String(list[(idx - 1 + list.length) % list.length].id); renderPop() }
+    next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = String(list[(idx + 1) % list.length].id); renderPop() }
     nav.append(prev, el('span', 'popStep', `${idx + 1} / ${list.length}`), next)
     barActs.appendChild(nav)
   }
@@ -614,15 +614,17 @@ function threadCard(th) {
   }
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
-  else meta.appendChild(el('span', 'thTag', t('comments.newAria')))
-  if (th.quote && !pendingSug) { // quoted passage first so comment + replies read as one continuous thread
-    const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
-    if (!th.suggestion_status && th.a == null) q.classList?.add('is-detached')
-    q.title = t('comments.jumpPos')
-    q.onclick = () => jumpThread(th)
-    d.appendChild(q)
+  else {
+    meta.appendChild(el('span', 'thTag', t('comments.newAria')))
+    if (th.quote) { // quoted passage first so comment + replies read as one continuous thread
+      const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
+      if (th.a == null) q.classList?.add('is-detached')
+      q.title = t('comments.jumpPos')
+      q.onclick = () => jumpThread(th)
+      d.appendChild(q)
+    }
+    if (th.text) d.appendChild(richText(th.text))
   }
-  if (th.text) d.appendChild(richText(th.text))
   th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
     const rAuthor = r.author || r.username || '?'

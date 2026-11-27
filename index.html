@@ -688,14 +688,12 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 #cmWrap .cm-scroller { overflow-x: clip; } /* wrapping on: carrier extension must never cause a horizontal scrollbar */
 #cmWrap.wrapOff .cm-scroller { overflow-x: auto; } /* wrapping off: long lines scroll horizontally */
 #cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
-#cmWrap .cm-hl.cm-hl-resolved { background: color-mix(in srgb, var(--editor) 86%, var(--sub)); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--editor) 45%, var(--sub)); }
-#cmWrap .cm-hl.cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 74%, var(--sub)); }
-#cmWrap .cm-hl:not(.cm-hl-resolved) { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
-#cmWrap .cm-hl:not(.cm-hl-resolved):hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
-/* Overlap layering: open comment always wins over resolved gray; two overlapping open comments deepen slightly */
-#cmWrap .cm-hl:not(.cm-hl-resolved) .cm-hl-resolved { background: color-mix(in srgb, var(--editor) 72%, #ffc400); box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); }
-#cmWrap .cm-hl:not(.cm-hl-resolved) .cm-hl:not(.cm-hl-resolved) { background: color-mix(in srgb, var(--editor) 56%, #ffc400); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .75); }
-#cmWrap .cm-hl:not(.cm-hl-resolved) .cm-suggestion, #cmWrap .cm-suggestion .cm-hl:not(.cm-hl-resolved) { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 72%, #ffc400) 50%, #955ae1); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .65); }
+#cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
+#cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
+#cmWrap .cm-hl-multi { background: color-mix(in srgb, var(--editor) 54%, #ffc400); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .8); }
+#cmWrap .cm-hl-multi:hover { background: color-mix(in srgb, var(--editor) 42%, #ffc400); }
+#cmWrap .cm-hl-resolved { background: color-mix(in srgb, var(--editor) 86%, var(--sub)); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--editor) 45%, var(--sub)); }
+#cmWrap .cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 74%, var(--sub)); }
 .typ-hover .hvSug { margin-top: 4px; font: 12px/1.45 var(--mono); }
 .typ-hover .hvAdd { color: #9560d5; font-weight: 600; }
 #cmWrap .cm-syncLine { animation: syncFlash .8s ease-out; } /* preview -> editor: the target line lights up (dark mode) or darkens (light mode) */
@@ -801,6 +799,7 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 
 #cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .55); }
 #cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: color-mix(in srgb, var(--editor) 68%, #955ae1); }
+#cmWrap .cm-suggestion.cm-hl-mix { box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .85); }
 #cmWrap .cm-suggestion.cm-suggestion-conflict { background: color-mix(in srgb, var(--editor) 88%, #d92d20); box-shadow: none; text-decoration: underline dashed var(--danger); text-underline-offset: 3px; }
 #suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
 #tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }
@@ -2505,34 +2504,50 @@ function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spo
   return near(cands)
 }
 function threadHighlights() {
-  const rs = []
+  const rs = [], segs = []
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
     if (th.a == null || th.b == null) continue
     const pending = th.suggestion_status === 'pending'
-    if (pending && th.conflict) { // conflicted suggestion: mark anchor line cleanly without slicing unrelated text
+    if (pending && th.conflict) {
       const { from: a, to: b } = threadEditorRange(th)
-      if (b > a) rs.push(Decoration.mark({
-        class: 'cm-hl cm-suggestion cm-suggestion-conflict',
-        attributes: { 'data-suggestion-id': String(th.id) },
-      }).range(a, b))
+      if (b > a) segs.push({ a, b, kind: 'conflict', id: String(th.id) })
       continue
     }
     let source = th, span = null
     if (pending) {
-      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
+      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement))
       const a = Math.min(th.b, th.a + span.a)
       source = { ...th, a, b: Math.max(a, th.b - span.b) }
     }
     const { from: a, to: b } = threadEditorRange(source)
-    if (b > a) rs.push(Decoration.mark({
-      class: pending ? 'cm-hl cm-suggestion suggestionDeleted' : th.resolved ? 'cm-hl cm-hl-resolved' : 'cm-hl',
-      attributes: pending ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
-    }).range(a, b))
+    if (b > a) segs.push({ a, b, kind: pending ? 'sug' : th.resolved ? 'resolved' : 'open', id: String(th.id) })
     if (pending) {
       const widget = new SuggestionReplacement(th, span)
       if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
     }
+  }
+  if (!segs.length) return rs
+  const pts = [...new Set(segs.flatMap(s => [s.a, s.b]))].sort((x, y) => x - y)
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1]
+    if (b <= a) continue
+    let open = 0, resolved = null, sug = null, conflict = null, openId = null
+    for (const s of segs) {
+      if (s.a > a || s.b < b) continue
+      if (s.kind === 'conflict') conflict = s.id
+      else if (s.kind === 'sug') sug = s.id
+      else if (s.kind === 'open') { open++; openId = s.id }
+      else if (s.kind === 'resolved') resolved = s.id
+    }
+    if (!conflict && !sug && !open && !resolved) continue
+    const cls = conflict ? 'cm-hl cm-suggestion cm-suggestion-conflict'
+      : sug ? (open ? 'cm-hl cm-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion suggestionDeleted')
+      : open > 1 ? 'cm-hl cm-hl-multi'
+      : open ? 'cm-hl'
+      : 'cm-hl cm-hl-resolved'
+    const attrs = (conflict || sug) ? { 'data-suggestion-id': conflict || sug } : { 'data-comment-id': openId || resolved }
+    rs.push(Decoration.mark({ class: cls, attributes: attrs }).range(a, b))
   }
   return rs
 }
@@ -5971,8 +5986,8 @@ function renderPop() {
   if (list.length > 1) {
     const nav = el('span', 'popNav')
     const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
-    prev.onclick = () => { popThreadId = String(list[(idx - 1 + list.length) % list.length].id); renderPop() }
-    next.onclick = () => { popThreadId = String(list[(idx + 1) % list.length].id); renderPop() }
+    prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = String(list[(idx - 1 + list.length) % list.length].id); renderPop() }
+    next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = String(list[(idx + 1) % list.length].id); renderPop() }
     nav.append(prev, el('span', 'popStep', `${idx + 1} / ${list.length}`), next)
     barActs.appendChild(nav)
   }
@@ -6046,15 +6061,17 @@ function threadCard(th) {
   }
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
-  else meta.appendChild(el('span', 'thTag', t('comments.newAria')))
-  if (th.quote && !pendingSug) { // quoted passage first so comment + replies read as one continuous thread
-    const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
-    if (!th.suggestion_status && th.a == null) q.classList?.add('is-detached')
-    q.title = t('comments.jumpPos')
-    q.onclick = () => jumpThread(th)
-    d.appendChild(q)
+  else {
+    meta.appendChild(el('span', 'thTag', t('comments.newAria')))
+    if (th.quote) { // quoted passage first so comment + replies read as one continuous thread
+      const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
+      if (th.a == null) q.classList?.add('is-detached')
+      q.title = t('comments.jumpPos')
+      q.onclick = () => jumpThread(th)
+      d.appendChild(q)
+    }
+    if (th.text) d.appendChild(richText(th.text))
   }
-  if (th.text) d.appendChild(richText(th.text))
   th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
     const rAuthor = r.author || r.username || '?'
@@ -15005,7 +15022,8 @@ function suggestionCard(th, fresh, doc, epoch) {
   card.appendChild(el('span', 'thTag sug-' + th.suggestion_status, status[th.suggestion_status]))
   const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
   if (oldFull || nextFull) {
-    const span = diffSpan(oldFull, nextFull)
+    const raw = diffSpan(oldFull, nextFull)
+    const span = typeof tokenSafeSpan === 'function' ? tokenSafeSpan(oldFull, raw) : raw
     const old = oldFull.slice(span.a, oldFull.length - span.b)
     const next = nextFull.slice(span.a, nextFull.length - span.b)
     if (old || next) {
@@ -15016,6 +15034,7 @@ function suggestionCard(th, fresh, doc, epoch) {
       card.append(diff)
     }
   }
+  if (th.text && typeof richText === 'function') card.append(richText(th.text))
   if (th.suggestion_status === 'pending' && (th.a == null || th.conflict)) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   if (th.suggestion_status === 'pending' && !openedTrashed && ['owner', 'editor'].includes(docRole)) {
     const actions = el('div', 'sugActs')
@@ -15176,10 +15195,24 @@ function renderSuggestionBox(box) {
   const pop = $('pop')
   const keys = (box.ranges || (box.range ? [box.range] : [])).map(r => r.key)
   const ranges = window.suggestionDraft ? draftRanges(window.suggestionDraft).filter(r => keys.includes(r.key)) : []
-  ranges.forEach(range => pop.append(draftSuggestionCard(range)))
   const list = threads.filter(th => box.threadIds.includes(th.id))
-  list.forEach(th => pop.append(threadCard(th)))
-  if (!ranges.length && !list.length) closePop(true)
+  const items = [...ranges.map(r => ({ id: 'd:' + r.key, render: () => draftSuggestionCard(r) })), ...list.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) }))]
+  if (!items.length) { closePop(true); return }
+  let idx = popThreadId ? items.findIndex(it => it.id === popThreadId) : 0
+  if (idx < 0) idx = 0
+  popThreadId = items[idx].id
+  if (items.length > 1) {
+    const barActs = pop.querySelector('.barActs')
+    if (barActs) {
+      const nav = el('span', 'popNav')
+      const prev = icoBtn('ib', ICO_PREV), next = icoBtn('ib', ICO_NEXT)
+      prev.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx - 1 + items.length) % items.length].id; renderPop() }
+      next.onclick = e => { e.preventDefault(); e.stopPropagation(); popT = Date.now(); popThreadId = items[(idx + 1) % items.length].id; renderPop() }
+      nav.append(prev, el('span', 'popStep', `${idx + 1} / ${items.length}`), next)
+      barActs.prepend(nav)
+    }
+  }
+  pop.append(items[idx].render())
 }
 async function acceptDraftSuggestion(range) {
   const draft = window.suggestionDraft, doc = docId, epoch = openN
