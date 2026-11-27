@@ -125,7 +125,7 @@ function sidebarInlineRename(host, label, value, opts = {}) { // rename in place
 }
 function sidebarInlineCreate(container, value = '', opts = {}) { // create in place in sidebar: Enter/blur saves, Esc cancels
   if (!container || !container.offsetParent) return null
-  const row = el('div', 'doc renaming')
+  const row = el('div', 'doc sub renaming')
   if (opts.level) row.style.setProperty('--lv', opts.level)
   const input = el('input', 'renameInput')
   input.value = value; input.placeholder = opts.ph || ''; input.maxLength = opts.maxLen || 240
@@ -790,9 +790,12 @@ function uniqueDocTitle(used, title) {
 function entryAnchor(p, entry) {
   if (typeof document === 'undefined' || !document.querySelector) return null
   const esc = v => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(v) : v)
-  if (entry?.kind === 'document' && entry.doc_id) return document.querySelector(`aside [data-doc-id="${esc(entry.doc_id)}"]`) || document.querySelector(`.project-group[data-project-id="${esc(p.id)}"] .fhd.project`)
-  if (entry?.kind === 'folder' && entry.name) return [...document.querySelectorAll(`.project-group[data-project-id="${esc(p.id)}"] .fhd.folder`)].find(r => r.dataset.folderPath === entry.name) || document.querySelector(`.project-group[data-project-id="${esc(p.id)}"] .fhd.project`)
-  return document.querySelector(`.project-group[data-project-id="${esc(p.id)}"] .fhd.project`)
+  const group = `.project-group[data-project-id="${esc(p.id)}"]`
+  const row = (entry?.kind === 'document' && entry.doc_id && document.querySelector(`aside [data-doc-id="${esc(entry.doc_id)}"]`))
+    || (entry?.kind === 'file' && entry.name && document.querySelector(`${group} [data-package-key="${esc('file::' + entry.name)}"]`))
+    || (entry?.kind === 'folder' && entry.name && [...document.querySelectorAll(`${group} .fhd.folder`)].find(r => r.dataset.folderPath === entry.name))
+    || document.querySelector(`${group} .fhd.project`)
+  return row?.querySelector('[data-side-menu]') || row
 }
 async function pickTargetFolder(p, head, exclude = '', reserve = 0, anchor = null, o = {}) {
   // reserve is the depth the moved entry adds itself: a folder needs one level,

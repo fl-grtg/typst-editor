@@ -360,6 +360,7 @@
     var l = document.createElement('span'); l.className = 'lb'; l.textContent = d.label
     if (d.checked !== undefined) b.appendChild(c)
     b.appendChild(l)
+    if (d.sub) { b.classList.add('rich'); var subEl = document.createElement('span'); subEl.className = 'mSub'; subEl.textContent = d.sub; b.appendChild(subEl) }
     if (d.kbd) { var k = document.createElement('span'); k.className = 'kbd'; k.textContent = d.kbd; b.appendChild(k) }
     if (d.ext) { var x = document.createElement('span'); x.className = 'ext'; x.innerHTML = EXT_ICON; b.appendChild(x) } // link leaves Typst
     var hasSub = !!(d.submenu && (typeof d.submenu === 'function' || d.submenu.length))
@@ -428,7 +429,7 @@
     }
     menu.style.left = left + 'px'; menu.style.top = top + 'px'
   }
-  function show(anchor, list, name, align) {
+  function show(anchor, list, name, align, opts) {
     var r = anchor.getBoundingClientRect() // before closing a parent popover: its child would otherwise measure 0x0
     close(false)
     if (window.closeFloatPanels) window.closeFloatPanels(null, anchor) // one floating panel at a time (popovers, watch menu, comment card); the popover holding the anchor stays
@@ -442,6 +443,7 @@
     menu.hidden = false
     menu.dataset.name = name
     if (width) menu.style.width = width + 'px'
+    else if (opts && opts.matchWidth && r.width) menu.style.width = Math.round(r.width) + 'px'
     else menu.style.removeProperty('width')
     place(anchor, align, r)
     anchor.setAttribute('aria-expanded', 'true')
@@ -452,8 +454,8 @@
   function open(anchor, name) {
     show(anchor, DEF[name] ? DEF[name]() : [], name, name === 'export' ? 'right' : name === 'font' ? 'center' : 'left')
   }
-  window.showMenuAt = function (anchor, list, align) { // anchored menu for tabs and other row-level actions
-    show(anchor, list, 'anchored', align || 'left')
+  window.showMenuAt = function (anchor, list, align, opts) { // anchored menu for tabs and other row-level actions
+    show(anchor, list, 'anchored', align || 'left', opts)
     focusItem(0)
   }
 

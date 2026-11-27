@@ -153,9 +153,9 @@ function askNewTpl(uploadName, headTitle) { // one dialog: name + folder radio (
 function openNewMenu(anchor) {
   if (!window.showMenuAt) { $('docPick').click(); return }
   window.showMenuAt(anchor, [
-    { label: t('docs.newProject'), title: t('docs.pickDocSub'), run: newProjectFromMenu },
-    { label: t('docs.pickUp'), title: t('docs.pickUpSub'), run: () => $('docPick').click() },
-  ], 'left')
+    { label: t('docs.newProject'), sub: t('docs.pickDocSub'), run: newProjectFromMenu },
+    { label: t('docs.pickUp'), sub: t('docs.pickUpSub'), run: () => $('docPick').click() },
+  ], 'left', { matchWidth: true })
 }
 function openNewResourceMenu(anchor) {
   if (!window.showMenuAt) { newResource('resource'); return }

@@ -136,7 +136,7 @@ function openExportDlg(fmt) { // compact popover under Export: server compile, c
   act.append(yes)
   p.appendChild(act)
   p.style.display = ''
-  anchorPop(p, $('exportBtn'))
+  anchorPop(p, $('exportBtn'), 'right')
   p.tabIndex = -1
   setTimeout(() => p.focus({ preventScroll: true }), 10)
 }

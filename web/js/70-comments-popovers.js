@@ -258,13 +258,8 @@ function pickPop(head, opts, anchor = null, o = {}) { // compact menu-style anch
     let left = Math.round((innerWidth - w) / 2), topY = Math.min(88, Math.max(12, Math.round((innerHeight - h) / 3)))
     if (ref) {
       const r = ref.getBoundingClientRect()
-      if (ref.closest?.('aside')) {
-        left = r.right + 6 + w <= innerWidth - 8 ? r.right + 6 : Math.max(8, innerWidth - w - 8)
-        topY = Math.max(8, Math.min(r.top, innerHeight - h - 8))
-      } else {
-        left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
-        topY = r.bottom + 4 + h <= innerHeight - 8 ? r.bottom + 4 : Math.max(8, r.top - h - 4)
-      }
+      left = Math.max(8, Math.min(r.left, innerWidth - w - 8))
+      topY = r.bottom + 6 + h <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - h - 6)
     }
     pop.style.left = left + 'px'; pop.style.top = topY + 'px'
     const onDown = e => { if (!pop.contains(e.target)) done(-1) }
@@ -437,12 +432,13 @@ function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   }
   return open
 }
-function anchorPop(p, btn) { // popover under its trigger: getBoundingClientRect, clamped (no framework)
+function anchorPop(p, btn, align = 'left') { // popover under its trigger: getBoundingClientRect, clamped (no framework)
   try {
     if (!btn || !p.offsetParent) return
     const r = btn.getBoundingClientRect(), pr = p.offsetParent.getBoundingClientRect()
     const w = p.offsetWidth || 300
-    const left = Math.max(8, Math.min(r.left - pr.left, pr.width - w - 8))
+    const raw = align === 'right' ? r.right - pr.left - w : r.left - pr.left
+    const left = Math.max(8, Math.min(raw, pr.width - w - 8))
     p.style.left = left + 'px'
     if (p.id !== 'setPop') p.style.maxHeight = '70vh' // settings never scrolls: card grows with content
   } catch (e) {}
