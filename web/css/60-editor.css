@@ -107,6 +107,10 @@
 .csvEditor th.csvRowHead { min-width: 42px; width: 42px; }
 .csvEditor input[type=text] { display: block; width: 140px; height: 29px; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 4px 8px; }
 .csvEditor input:focus { outline: 2px solid var(--acc); outline-offset: -2px; }
+.bibInlineAdd { width: 100%; margin-top: 6px; }
+.bibInlineAdd input { width: 100%; min-height: 30px; padding: 4px 10px; font-size: 12.5px; border-radius: var(--r-sm); }
+#tools .bibInlineAdd { display: inline-flex; width: auto; margin: 0 0 0 6px; }
+#tools .bibInlineAdd input { width: 140px; min-height: 26px; }
 
 .bibEditor { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--editor); }
 .bibEditor.sourceMode { position: absolute; top: 0; left: 0; right: 0; z-index: 20; height: 50px; }

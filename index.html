@@ -728,6 +728,10 @@ header button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px
 .csvEditor th.csvRowHead { min-width: 42px; width: 42px; }
 .csvEditor input[type=text] { display: block; width: 140px; height: 29px; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 4px 8px; }
 .csvEditor input:focus { outline: 2px solid var(--acc); outline-offset: -2px; }
+.bibInlineAdd { width: 100%; margin-top: 6px; }
+.bibInlineAdd input { width: 100%; min-height: 30px; padding: 4px 10px; font-size: 12.5px; border-radius: var(--r-sm); }
+#tools .bibInlineAdd { display: inline-flex; width: auto; margin: 0 0 0 6px; }
+#tools .bibInlineAdd input { width: 140px; min-height: 26px; }
 
 .bibEditor { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--editor); }
 .bibEditor.sourceMode { position: absolute; top: 0; left: 0; right: 0; z-index: 20; height: 50px; }
@@ -11626,14 +11630,38 @@ function paintBib() {
   bibSource = source; bibEditable = editable; bibProposal = proposal; bibOriginal = original; bibPanel.replaceChildren()
   const bar = el('div', 'bibBar'), raw = el('button', 'btn', t(bibRaw ? 'editor.entries' : 'editor.source'))
   raw.onclick = () => { bibRaw = !bibRaw; bibSource = null; paintBib() }
+  const bibInlinePrompt = (host, ph, label, maxLen, onSubmit) => { // inline 1-field input inside BibTeX UI (Enter saves, Esc/blur cancels)
+    const old = host.querySelector('.bibInlineAdd')
+    if (old) { old.querySelector('input')?.focus(); return }
+    const box = el('div', 'bibInlineAdd')
+    const inp = el('input'); inp.placeholder = ph; inp.setAttribute('aria-label', label); if (maxLen) inp.maxLength = maxLen
+    let done = false
+    const finish = save => {
+      if (done) return; done = true
+      const v = inp.value.trim()
+      box.remove()
+      if (save && v) onSubmit(v)
+    }
+    inp.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true) }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false) }
+    }
+    inp.onblur = () => finish(false)
+    box.append(inp)
+    host.append(box)
+    setTimeout(() => inp.focus(), 0)
+  }
   const add = el('button', 'btn', t('editor.newEntry')); add.disabled = !editable
-  add.onclick = async () => {
-    const identity = bibIdentity, key = await ask(t('editor.entryKey'), { ph: 'author2026' })
-    if (!key || identity !== bibIdentity || !cm.state.facet(EditorView.editable)) return
-    const clean = key.trim().replace(/[^\w:.-]/g, '_')
-    if (parseBib(getT()).some(e => e.key === clean)) { toast(t('common.nameExists')); return }
-    bibSelected = parseBib(getT()).length
-    replaceBib(getT().length, getT().length, `\n@book{${clean},\n}\n`)
+  add.onclick = () => {
+    const identity = bibIdentity
+    const host = (!bibRaw && bibPanel.querySelector('.bibList')) || bibTools
+    bibInlinePrompt(host, 'author2026', t('editor.entryKey'), 100, key => {
+      if (identity !== bibIdentity || !cm.state.facet(EditorView.editable)) return
+      const clean = key.replace(/[^\w:.-]/g, '_')
+      if (parseBib(getT()).some(e => e.key === clean)) { toast(t('common.nameExists')); return }
+      bibSelected = parseBib(getT()).length
+      replaceBib(getT().length, getT().length, `\n@book{${clean},\n}\n`)
+    })
   }
   bar.append(raw, add); bibPanel.append(bar)
   if (bibRaw) { bibPanel.classList.add('sourceMode'); return }
@@ -11729,20 +11757,20 @@ function paintBib() {
   }
   const addField = el('button', 'ibtn bibAddField'); addField.innerHTML = svgI('<path d="M8 3v10M3 8h10"/>')
   addField.title = t('editor.addField'); addField.setAttribute('aria-label', addField.title); addField.disabled = !editable
-  addField.onclick = async () => {
+  addField.onclick = () => {
     const identity = bibIdentity, key = entry.key
-    const value = await ask(t('editor.addField'), { ph: t('editor.fieldNamePh'), maxLen: 64 })
-    if (!value || identity !== bibIdentity || !cm.state.facet(EditorView.editable)) return
-    const name = value.trim()
-    if (!/^[A-Za-z][\w-]*$/.test(name)) { toast(t('editor.fieldNameInvalid')); return }
-    const latest = parseBib(getT()).find(e => e.key === key)
-    if (!latest || latest.invalid) return
-    const pending = bibPending.get(key) || new Set()
-    const taken = new Set(['title', 'author', 'year', 'doi', 'url', 'publisher', 'journal', ...latest.fields.map(f => f.name.toLowerCase()), ...[...pending].map(f => f.toLowerCase())])
-    if (taken.has(name.toLowerCase())) { toast(t('editor.fieldExists')); focusField(name); return }
-    // Keep the new row in the form only. It reaches the file once it has a value.
-    pending.add(name); bibPending.set(key, pending)
-    bibSource = null; paintBib(); focusField(name)
+    bibInlinePrompt(moreBar, t('editor.fieldNamePh'), t('editor.addField'), 64, name => {
+      if (identity !== bibIdentity || !cm.state.facet(EditorView.editable)) return
+      if (!/^[A-Za-z][\w-]*$/.test(name)) { toast(t('editor.fieldNameInvalid')); return }
+      const latest = parseBib(getT()).find(e => e.key === key)
+      if (!latest || latest.invalid) return
+      const pending = bibPending.get(key) || new Set()
+      const taken = new Set(['title', 'author', 'year', 'doi', 'url', 'publisher', 'journal', ...latest.fields.map(f => f.name.toLowerCase()), ...[...pending].map(f => f.toLowerCase())])
+      if (taken.has(name.toLowerCase())) { toast(t('editor.fieldExists')); focusField(name); return }
+      // Keep the new row in the form only. It reaches the file once it has a value.
+      pending.add(name); bibPending.set(key, pending)
+      bibSource = null; paintBib(); focusField(name)
+    })
   }
   const moreBar = el('div', 'bibMoreBar'); moreBar.append(extras, addField)
   form.append(mainFields, moreBar)
