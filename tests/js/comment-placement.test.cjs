@@ -177,3 +177,22 @@ test('loadComments preserves live edited ranges and deleted state across replies
   assert.equal(c.threads[1]._deleted, true)
   assert.equal(c.threads[1].a, null)
 })
+
+test('visibleSelectionQuote excludes deleted draft text and reflects live pending replacements', () => {
+  const comp = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  const c = vm.createContext({
+    window: { changeSession: {} },
+    getT: () => 'Sa man',
+    threads: [],
+  })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
+  vm.runInContext(comp.slice(comp.indexOf('function tokenCut'), comp.indexOf('function refreshHl')), c)
+  vm.runInContext(source.slice(source.indexOf('function visibleSelectionQuote'), source.indexOf('function newBox()')), c)
+  assert.equal(c.visibleSelectionQuote(0, 6), 'Sa man') // draft buffer already excludes deleted text
+  // Live doc with pending inline suggestion
+  c.window.changeSession = null
+  c.getT = () => 'im Modus aendern kann.'
+  c.threads = [{ id: 's1', a: 0, b: 22, conflict: false, suggestion_status: 'pending', suggestion_old: 'im Modus aendern kann.', replacement: 'im Modus ueberarbeiten kann.' }]
+  assert.equal(c.visibleSelectionQuote(0, 22), 'im Modus ueberarbeiten kann.')
+})

@@ -6008,15 +6008,33 @@ function renderPop() {
   barActs.appendChild(x)
   if (list[idx]) pop.appendChild(threadCard(list[idx]))
 }
+function visibleSelectionQuote(from, to) { // reflect proposed text in quotes: deleted draft spans stay out, live pending suggestions use their replacement
+  const txt = getT()
+  if (window.changeSession || window.suggestionDraft) return txt.slice(from, to).slice(0, 500)
+  const pending = threads.filter(th => th.suggestion_status === 'pending' && !th.conflict && th.a != null && th.b != null)
+    .map(th => {
+      const span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement))
+      const a = Math.min(th.b, th.a + span.a), b = Math.max(a, th.b - span.b)
+      return { a, b, next: th.replacement.slice(span.a, th.replacement.length - span.b) }
+    })
+    .filter(s => s.a >= from && s.b <= to)
+    .sort((x, y) => x.a - y.a)
+  if (!pending.length) return txt.slice(from, to).slice(0, 500)
+  let out = '', cur = from
+  for (const s of pending) {
+    if (s.a < cur) continue
+    out += txt.slice(cur, s.a) + s.next
+    cur = s.b
+  }
+  return (out + txt.slice(cur, to)).slice(0, 500)
+}
 function newBox() {
   const doc = docId, epoch = openN, draft = window.suggestionDraft || window.changeSession
   const pkg = window.changeSession?.package?.id || ''
   const selection = cm.state.selection.main
   const target = { from: selection.from, to: selection.to }
-  const source = !pkg && draft ? shadow : getT()
-  const a = pkg ? target.from : editorToSource(target.from), b = pkg ? target.to : editorToSource(target.to, true)
-  const anchor = draft ? source.slice(0, a).split('\n').length : popAnchor
-  const quote = draft ? source.slice(a, b).slice(0, 500) : popQuote
+  const anchor = draft ? lineOf(target.from) : popAnchor
+  const quote = target.to > target.from ? visibleSelectionQuote(target.from, target.to) : popQuote
   const box = el('div', 'nw'), row = el('div', 'rr')
   if (quote && quote.trim()) box.appendChild(el('div', 'qt nwQt', '"' + (quote.length > 90 ? quote.slice(0, 90) + '…' : quote) + '"'))
   const inp = el('input'); inp.id = 'popNew'; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
@@ -6252,7 +6270,7 @@ function updCNewTip() {
 $('cNew').onclick = () => {
   if (!docId || activeFile || openedTrashed) return
   const m = cm.state.selection.main // anchor at selection start so multi-line comments sit on their opening line
-  openPop(lineOf(m.from), true, getT().slice(m.from, m.to).slice(0, 20000))
+  openPop(lineOf(m.from), true, visibleSelectionQuote(m.from, m.to))
 }
 
 const ICO_MORE = svgI('<circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/>')
