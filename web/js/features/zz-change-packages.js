@@ -725,8 +725,9 @@ paintSuggestionControls = () => {
   const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptPackage'), t('packages.acceptFile'), t('packages.delete'), t('packages.exit')]
   ;[reviewButton, originalButton, acceptPackageButton, acceptFileButton, deletePackageButton, exitPackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
   packageActions.title = t('packages.actions'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
+  reviewButton.hidden = !!s && !s.package
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
-  originalButton.hidden = !s?.package; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
+  originalButton.hidden = !s; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
   acceptPackageButton.hidden = acceptFileButton.hidden = !s?.package || !['owner', 'editor'].includes(docRole)
   const currentFile = s?.files.get(sessionKey(sessionCurrent()))
   acceptFileButton.disabled = !!s?.busy || !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id)
