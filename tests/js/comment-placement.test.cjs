@@ -417,3 +417,16 @@ test('decided suggestions leave the comment list and whitespace changes stay rea
   assert.equal(c.visibleChange(' \n'), '·↵\n')
   assert.equal(c.visibleChange('word '), 'word ')
 })
+
+test('a comment card quotes the text its mark covers now, not the text it was written on', () => {
+  const card = (tag, cls, text) => ({ tag, className: cls, textContent: text, children: [], dataset: {}, style: {}, classList: { add() {} },
+    append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
+  const c = vm.createContext({ window: {}, docId: 'd', openN: 1, docRole: 'owner', openedTrashed: false, user: 'u', el: card, icoBtn: tag => card('button', tag), ICO_CHECK: '', ICO_UNDO: '', ICO_EDIT: '', ICO_TRASH: '', ICO_SEND: '',
+    t: key => key, ago: () => '', colOf: () => '', wireMentions() {}, popDrafts: new Map(), richText: text => card('p', 'tx', text),
+    threadEditorRange: th => ({ from: th.a, to: th.b }), cm: { state: { doc: { sliceString: (a, b) => 'Dies e Zele wird'.slice(a, b) } } } })
+  vm.runInContext(source.slice(source.indexOf('function saveCommentChange'), source.indexOf('function invalidateCommentCache')), c)
+  const walk = node => [node, ...(node.children || []).flatMap(walk)]
+  const quote = th => walk(c.threadCard({ id: 'c', username: 'u', created_at: '', replies: [], text: 'note', ...th })).find(n => n.className === 'qt').textContent
+  assert.equal(quote({ quote: 'Diese Zeile wird', a: 0, b: 16 }), '"Dies e Zele wird"')
+  assert.equal(quote({ quote: 'gone text', a: null, b: null }), '"gone text"')
+})

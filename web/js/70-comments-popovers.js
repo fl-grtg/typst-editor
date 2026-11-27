@@ -684,8 +684,10 @@ function threadCard(th) {
     const tag = el('span', 'thTag', t(th._proposedEdit ? 'comments.proposedEdit' : th.resolved ? 'comments.done' : 'comments.newAria'))
     if (th.resolved || th._proposedEdit) tag.classList.add('resolvedTag')
     meta.appendChild(tag)
-    if (th.quote) { // quoted passage first so comment + replies read as one continuous thread
-      const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
+    const range = th.a != null && th.b > th.a ? threadEditorRange(th) : null
+    const quote = range && range.to > range.from ? cm.state.doc.sliceString(range.from, range.to) : th.quote
+    if (quote) { // quoted passage first so comment + replies read as one continuous thread
+      const q = el('button', 'qt', '"' + (quote.length > 80 ? quote.slice(0, 80) + '…' : quote) + '"')
       if (th.a == null) q.classList?.add('is-detached')
       q.title = t(th.a == null ? 'comments.detached' : 'comments.jumpPos')
       q.onclick = () => jumpThread(th)
