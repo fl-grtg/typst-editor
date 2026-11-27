@@ -27,10 +27,11 @@ def test_config_examples_parity():
 def test_rate_scopes_parity():
     from backend.constants import RATE_DEFAULTS
 
-    expected = {"rename", "delete", "restore", "move", "templates", "tplfolders", "export_doc"}
-    assert {s.upper() for s in expected} <= set(backend_config._RATE_KEYS)
-    assert expected <= set(RATE_DEFAULTS)
-    for scope in expected:
-        attr = f"RATE_{scope.upper()}_PER_MIN"
+    cfg = backend_config.Config()
+    for key in backend_config._RATE_KEYS:
+        scope = key.lower()
+        attr = f"RATE_{key}_PER_MIN"
         assert attr in backend_config.Config.__dataclass_fields__
         assert attr in backend_config._ENV_KEYS
+        assert RATE_DEFAULTS[scope] == (getattr(cfg, attr), 60)
+    assert RATE_DEFAULTS["register"] == (cfg.RATE_REGISTER_PER_HOUR, 3600)
