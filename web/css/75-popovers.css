@@ -479,3 +479,4 @@ body.settings-open #modal { z-index: 302; }
 @media (hover: none) { .inDismiss { visibility: visible; } }
 #inboxPop .sTop { gap: 6px; }
 #inboxPop .sTop b { flex: 1; }
+#pop .changeThread > .qt, #pop .changeThread > .commentAnchorNote { display: none; }

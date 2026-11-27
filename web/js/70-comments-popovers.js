@@ -128,8 +128,8 @@ function schedulePeerEdges() { if (!edgeT) edgeT = requestAnimationFrame(renderP
 cm.scrollDOM.addEventListener('scroll', schedulePeerEdges, { passive: true })
 new ResizeObserver(schedulePeerEdges).observe(cm.scrollDOM)
 new ResizeObserver(schedulePeerEdges).observe(cm.contentDOM) // editor font/split changes move the excerpt without a scroll event
-cm.dom.addEventListener('focusin', pushPresence)
-cm.dom.addEventListener('focusout', () => { pushPresence(); renderPeers() })
+cm.dom.addEventListener('focusin', () => queueMicrotask(pushPresence)) // focus moves during editor updates; awareness repaints dispatch, so wait until the update is done
+cm.dom.addEventListener('focusout', () => queueMicrotask(() => { pushPresence(); renderPeers() }))
 addEventListener('blur', pushPresence)
 addEventListener('focus', () => { pushPresence(); renderPeers() })
 document.addEventListener('visibilitychange', () => { pushPresence(); renderPeers() })
