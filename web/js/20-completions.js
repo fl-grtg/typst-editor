@@ -523,6 +523,7 @@ function threadHighlights() {
     const cls = conflict ? 'cm-hl cm-suggestion cm-suggestion-conflict'
       : sug ? (open ? 'cm-hl cm-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion suggestionDeleted')
       : open > 1 ? 'cm-hl cm-hl-multi'
+      : open && resolved ? 'cm-hl cm-hl-mix-res'
       : open ? 'cm-hl'
       : 'cm-hl cm-hl-resolved'
     const attrs = (conflict || sug) ? { 'data-suggestion-id': conflict || sug } : { 'data-comment-id': openId || resolved }

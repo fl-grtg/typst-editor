@@ -11,7 +11,7 @@ function suggestionCard(th, fresh, doc, epoch) {
     if (old || next) {
       const diff = el('div', 'sugDiff')
       if (th.suggestion_status !== 'pending') diff.classList?.add('is-decided')
-      if (old) diff.append(el('div', 'sugDel suggestionDeleted', old))
+      if (old) diff.append(el('div', 'sugDel', old))
       if (next) diff.append(el('div', 'sugAdd', next))
       card.append(diff)
     }
@@ -167,7 +167,7 @@ function draftSuggestionCard(range) {
   acts.append(discard); card.append(header)
   if (range.old || range.next) {
     const diff = el('div', 'sugDiff')
-    if (range.old) diff.append(el('div', 'sugDel suggestionDeleted', range.old))
+    if (range.old) diff.append(el('div', 'sugDel', range.old))
     if (range.next) diff.append(el('div', 'sugAdd', range.next))
     card.append(diff)
   }

@@ -69,8 +69,10 @@
 #cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
 #cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
 #cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
-#cmWrap .cm-hl-multi { background: color-mix(in srgb, var(--editor) 54%, #ffc400); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .8); }
-#cmWrap .cm-hl-multi:hover { background: color-mix(in srgb, var(--editor) 42%, #ffc400); }
+#cmWrap .cm-hl-multi { background: color-mix(in srgb, var(--editor) 52%, #ffc400); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .85); }
+#cmWrap .cm-hl-multi:hover { background: color-mix(in srgb, var(--editor) 40%, #ffc400); }
+#cmWrap .cm-hl-mix-res { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 72%, #ffc400) 72%, var(--sub)); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, #d4a017 65%, var(--sub)); }
+#cmWrap .cm-hl-mix-res:hover { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 56%, #ffc400) 72%, var(--sub)); }
 #cmWrap .cm-hl-resolved { background: color-mix(in srgb, var(--editor) 86%, var(--sub)); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--editor) 45%, var(--sub)); }
 #cmWrap .cm-hl-resolved:hover { background: color-mix(in srgb, var(--editor) 74%, var(--sub)); }
 .typ-hover .hvSug { margin-top: 4px; font: 12px/1.45 var(--mono); }
@@ -178,7 +180,8 @@
 
 #cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .55); }
 #cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: color-mix(in srgb, var(--editor) 68%, #955ae1); }
-#cmWrap .cm-suggestion.cm-hl-mix { box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .85); }
+#cmWrap .cm-suggestion.cm-hl-mix { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 74%, #955ae1) 66%, #ffc400); box-shadow: inset 0 -2px 0 color-mix(in srgb, #9560d5 50%, #d4a017); }
+#cmWrap .cm-suggestion.cm-hl-mix:hover { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 62%, #955ae1) 66%, #ffc400); }
 #cmWrap .cm-suggestion.cm-suggestion-conflict { background: color-mix(in srgb, var(--editor) 88%, #d92d20); box-shadow: none; text-decoration: underline dashed var(--danger); text-underline-offset: 3px; }
 #suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
 #tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }
@@ -208,7 +211,11 @@ aside .doc .package-accept-action { visibility: visible; }
 
 /* #3 hover-claim: hovering ANY fragment of a comment/suggestion/patch claims all its tiles (sibling fragments light up together) */
 #cmWrap .cm-hl.cm-hl-claim { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-resolved.cm-hl-claim { background: color-mix(in srgb, var(--editor) 72%, var(--sub)); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-mix-res.cm-hl-claim { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 56%, #ffc400) 72%, var(--sub)); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-multi.cm-hl-claim { background: color-mix(in srgb, var(--editor) 40%, #ffc400); cursor: pointer; }
 #cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: color-mix(in srgb, var(--editor) 68%, #955ae1); cursor: pointer; }
+#cmWrap .cm-suggestion.cm-hl-mix.cm-hl-claim { background: color-mix(in srgb, color-mix(in srgb, var(--editor) 62%, #955ae1) 66%, #ffc400); cursor: pointer; }
 
 .bibList button.bibEntryPending { color: #9560d5; box-shadow: inset 3px 0 #9560d5; }
 /* Drop into the editor: an accent caret (images) or insertion line glides to the drop spot, a chip names the text it writes, and that text glows once it is in */
