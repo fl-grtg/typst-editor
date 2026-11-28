@@ -6228,7 +6228,7 @@ function threadCard(th) {
   const acts = el('span', 'acts')
   hd.append(av, meta, acts)
   const roC = openedTrashed
-  const mayWithdraw = item => docRole === 'owner' || item._changeUser === user // a proposed change belongs to whoever proposed it
+  const mayWithdraw = item => !!session && (docRole === 'owner' || item._changeUser === user) // a proposed change belongs to whoever proposed it
   if (!roC && th.package_id !== 'draft' && !th.suggestion_status && !th._proposedDelete && (th._proposedResolve ? mayWithdraw(th) : docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
     fin.onclick = () => saveCommentResolve(doc, th).then(fresh).catch(e => toast(e.message))
