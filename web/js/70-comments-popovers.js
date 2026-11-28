@@ -702,7 +702,7 @@ function threadCard(th) {
   else if (canDel && !th._proposedDelete) {
     const del = icoBtn('ib', ICO_TRASH); del.classList.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
     del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : saveCommentChange(doc, th, null).then(() => fresh().then(() => {
-      if (doc === docId && epoch === openN && !threads.some(x => String(x.id) === String(th.id))) closePop()
+      if (doc === docId && epoch === openN && !window.suggestionPopup && !threads.some(x => String(x.id) === String(th.id))) closePop() // a change card stays open without its discussion
     })).catch(e => toast(e.message))
     acts.appendChild(del)
   }

@@ -6252,7 +6252,7 @@ function threadCard(th) {
   else if (canDel && !th._proposedDelete) {
     const del = icoBtn('ib', ICO_TRASH); del.classList.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
     del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : saveCommentChange(doc, th, null).then(() => fresh().then(() => {
-      if (doc === docId && epoch === openN && !threads.some(x => String(x.id) === String(th.id))) closePop()
+      if (doc === docId && epoch === openN && !window.suggestionPopup && !threads.some(x => String(x.id) === String(th.id))) closePop() // a change card stays open without its discussion
     })).catch(e => toast(e.message))
     acts.appendChild(del)
   }
@@ -16307,7 +16307,8 @@ function sessionCard(box) {
   })
   const talk = index => lineThreads.filter(th => { // proposal threads written on a change belong to its card
     const r = threadEditorRange(th), c = ranges[index]
-    return th.package_id && !box.cell && !box.bibField && r.from <= c.b && r.to >= c.a
+    const touches = c.a === c.b || r.from === r.to ? r.from <= c.b && r.to >= c.a : r.from < c.b && r.to > c.a
+    return th.package_id && !box.cell && !box.bibField && touches
   })
   const attached = new Set(indexes.flatMap(i => talk(i)))
   if (!indexes.length && !lineThreads.length) { closePop(true); return }

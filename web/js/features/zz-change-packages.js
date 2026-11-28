@@ -582,7 +582,8 @@ function sessionCard(box) {
   })
   const talk = index => lineThreads.filter(th => { // proposal threads written on a change belong to its card
     const r = threadEditorRange(th), c = ranges[index]
-    return th.package_id && !box.cell && !box.bibField && r.from <= c.b && r.to >= c.a
+    const touches = c.a === c.b || r.from === r.to ? r.from <= c.b && r.to >= c.a : r.from < c.b && r.to > c.a
+    return th.package_id && !box.cell && !box.bibField && touches
   })
   const attached = new Set(indexes.flatMap(i => talk(i)))
   if (!indexes.length && !lineThreads.length) { closePop(true); return }

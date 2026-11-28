@@ -44,6 +44,9 @@ def test_proposal_comments_stay_at_changes_and_live_suggestions_can_be_decided(p
     card.locator('.changeTalk input[id^="r_"]').press('Enter')
     expect(card.locator('.changeTalk')).to_contain_text('Second thought')
     expect(card.locator('.changeTalk')).to_have_count(1)
+    card.locator('.changeTalk .hd .acts button.danger').first.click()
+    expect(card.locator('.changeTalk')).to_have_count(0)
+    expect(card.locator('.sugAdd')).to_have_text('new')  # the change card stays open without its discussion
     expect(page.locator('#cm .cm-line')).to_have_count(2)
     assert [thread['text'] for thread in page.request.get(url).json()['comments'] if not thread['suggestion_status']] == ['Live note']
     page.keyboard.press('Escape')
