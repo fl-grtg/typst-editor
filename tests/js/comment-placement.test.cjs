@@ -450,3 +450,10 @@ test('a proposed resolve flips the shown state only when it differs from the liv
   assert.deepEqual([done.resolved, done._proposedResolve], [1, undefined])
   assert.equal(live[0].resolved, 0)
 })
+
+test('replies to an unsent draft thread stay on that thread', () => {
+  const c = vm.createContext({})
+  vm.runInContext(source.slice(source.indexOf('function proposalComments'), source.indexOf('function commentPackage')), c)
+  const [draft] = c.proposalComments([], [{ id: 'd1', text: 'note' }, { id: 'd2', parent_id: 'd1', text: 'reply' }])
+  assert.equal(JSON.stringify([draft.id, draft.replies.map(r => r.text)]), JSON.stringify(['d1', ['reply']]))
+})

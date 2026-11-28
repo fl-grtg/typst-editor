@@ -133,6 +133,8 @@
 #pop .hdMeta .thTag { display: none; }
 #pop .hdMeta .resolvedTag { display: inline-flex; }
 #pop .commentRemoved { opacity: .55; text-decoration: line-through; }
+#pop .th.changeTalk { margin-top: 10px; padding: 10px 0 0; border-top: 1px solid var(--line); border-bottom: 0; }
+#pop .changeTalk > .qt { display: none; }
 #pop .thTag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--sub); background: var(--hover); line-height: 1.5; }
 #pop .suggestionCard .thTag { margin-top: 7px; }
 #pop .thTag.sug-accepted { color: #1a7f37; background: rgba(46, 160, 67, .14); }

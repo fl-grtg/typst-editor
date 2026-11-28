@@ -580,6 +580,11 @@ function sessionCard(box) {
     const r = threadEditorRange(th)
     return r.from <= line.to && r.to >= line.from
   })
+  const talk = index => lineThreads.filter(th => { // proposal threads written on a change belong to its card
+    const r = threadEditorRange(th), c = ranges[index]
+    return th.package_id && !box.cell && !box.bibField && r.from <= c.b && r.to >= c.a
+  })
+  const attached = new Set(indexes.flatMap(i => talk(i)))
   if (!indexes.length && !lineThreads.length) { closePop(true); return }
   const renderMain = index => {
     const range = ranges[index]
@@ -652,7 +657,9 @@ function sessionCard(box) {
       sugWrap.append(actions)
     }
     card.append(sugWrap)
-    if (!openedTrashed && !activeFile) {
+    const replies = talk(index)
+    for (const th of replies) { const thread = threadCard(th); thread.classList.add('changeTalk'); card.append(thread) }
+    if (!openedTrashed && !activeFile && !replies.length) {
       const row = el('div', 'rr')
       const inp = el('input'); inp.id = 'popPackageComment-' + index; inp.maxLength = 2000; inp.dataset.commentDraft = ''; inp.value = popDrafts.get(inp.id) || ''; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
       wireMentions(inp)
@@ -668,7 +675,6 @@ function sessionCard(box) {
           const res = await postReviewComment(s, doc, { anchor, text, quote, anchor_quote: range.next.slice(0, 500), package_id: pkgId }, { from: range.a, to: range.b })
           if (doc === docId && epoch === openN && window.changeSession === s) {
             s.commentRanges.set(res.id, { doc, from: range.a, to: range.b })
-            popThreadId = 't:' + res.id
             await loadComments(true)
           }
         } catch (e) { inp.value = text; toast(e.message) } finally { ok.disabled = false }
@@ -681,7 +687,7 @@ function sessionCard(box) {
   popThreadId ||= box.focus || 's:' + box.index
   paintPopItems([
     ...indexes.map(i => ({ id: 's:' + i, render: () => renderMain(i) })),
-    ...lineThreads.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
+    ...lineThreads.filter(th => !attached.has(th)).map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
   ])
 }
 function paintSessionSelection() {

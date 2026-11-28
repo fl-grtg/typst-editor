@@ -561,7 +561,7 @@ function renderPop() {
   const line = cm.state.doc.line(popAnchor)
   const list = threads.filter(th => {
     if (String(th.id) === popThreadId) return true
-    if (th.a == null || th.b == null) return th.anchor === popAnchor
+    if (th.a == null || th.b == null) return false // detached: reachable from the open-threads badge, not from a line it no longer marks
     const r = threadEditorRange(th)
     return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
   })
@@ -786,8 +786,10 @@ function proposalComments(live, items) {
     else if (item.text) Object.assign(target, { text: item.text, _proposedEdit: true, _changeId: item.id, _changeUser: item.username })
     else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id, _changeUser: item.username })
   }
+  const fresh = items.filter(item => !item.parent_id && !item.replaces_id).map(item => ({ ...item, replies: [...(item.replies || [])] }))
+  for (const th of fresh) byId.set(th.id, th)
   for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
-  return [...tops, ...items.filter(item => !item.parent_id && !item.replaces_id)]
+  return [...tops, ...fresh]
 }
 function commentPackage() {
   const s = window.changeSession

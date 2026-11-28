@@ -38,8 +38,12 @@ def test_proposal_comments_stay_at_changes_and_live_suggestions_can_be_decided(p
     expect(card).not_to_contain_text('Live note')
     card.locator('input[id^="popPackageComment"]').fill('Package note')
     card.locator('input[id^="popPackageComment"]').press('Enter')
-    expect(card.locator('.popStep')).to_have_text('3 / 3')
-    expect(card).to_contain_text('Package note')
+    expect(card.locator('.popStep')).to_have_text('1 / 2')  # the note belongs to the change card, not a page of its own
+    expect(card.locator('.changeTalk')).to_contain_text('Package note')
+    card.locator('.changeTalk input[id^="r_"]').fill('Second thought')
+    card.locator('.changeTalk input[id^="r_"]').press('Enter')
+    expect(card.locator('.changeTalk')).to_contain_text('Second thought')
+    expect(card.locator('.changeTalk')).to_have_count(1)
     expect(page.locator('#cm .cm-line')).to_have_count(2)
     assert [thread['text'] for thread in page.request.get(url).json()['comments'] if not thread['suggestion_status']] == ['Live note']
     page.keyboard.press('Escape')

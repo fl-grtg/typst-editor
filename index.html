@@ -1114,6 +1114,8 @@ body.present-switch .pvPage { transition: none !important; }
 #pop .hdMeta .thTag { display: none; }
 #pop .hdMeta .resolvedTag { display: inline-flex; }
 #pop .commentRemoved { opacity: .55; text-decoration: line-through; }
+#pop .th.changeTalk { margin-top: 10px; padding: 10px 0 0; border-top: 1px solid var(--line); border-bottom: 0; }
+#pop .changeTalk > .qt { display: none; }
 #pop .thTag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--sub); background: var(--hover); line-height: 1.5; }
 #pop .suggestionCard .thTag { margin-top: 7px; }
 #pop .thTag.sug-accepted { color: #1a7f37; background: rgba(46, 160, 67, .14); }
@@ -6109,7 +6111,7 @@ function renderPop() {
   const line = cm.state.doc.line(popAnchor)
   const list = threads.filter(th => {
     if (String(th.id) === popThreadId) return true
-    if (th.a == null || th.b == null) return th.anchor === popAnchor
+    if (th.a == null || th.b == null) return false // detached: reachable from the open-threads badge, not from a line it no longer marks
     const r = threadEditorRange(th)
     return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
   })
@@ -6334,8 +6336,10 @@ function proposalComments(live, items) {
     else if (item.text) Object.assign(target, { text: item.text, _proposedEdit: true, _changeId: item.id, _changeUser: item.username })
     else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id, _changeUser: item.username })
   }
+  const fresh = items.filter(item => !item.parent_id && !item.replaces_id).map(item => ({ ...item, replies: [...(item.replies || [])] }))
+  for (const th of fresh) byId.set(th.id, th)
   for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
-  return [...tops, ...items.filter(item => !item.parent_id && !item.replaces_id)]
+  return [...tops, ...fresh]
 }
 function commentPackage() {
   const s = window.changeSession
@@ -16301,6 +16305,11 @@ function sessionCard(box) {
     const r = threadEditorRange(th)
     return r.from <= line.to && r.to >= line.from
   })
+  const talk = index => lineThreads.filter(th => { // proposal threads written on a change belong to its card
+    const r = threadEditorRange(th), c = ranges[index]
+    return th.package_id && !box.cell && !box.bibField && r.from <= c.b && r.to >= c.a
+  })
+  const attached = new Set(indexes.flatMap(i => talk(i)))
   if (!indexes.length && !lineThreads.length) { closePop(true); return }
   const renderMain = index => {
     const range = ranges[index]
@@ -16373,7 +16382,9 @@ function sessionCard(box) {
       sugWrap.append(actions)
     }
     card.append(sugWrap)
-    if (!openedTrashed && !activeFile) {
+    const replies = talk(index)
+    for (const th of replies) { const thread = threadCard(th); thread.classList.add('changeTalk'); card.append(thread) }
+    if (!openedTrashed && !activeFile && !replies.length) {
       const row = el('div', 'rr')
       const inp = el('input'); inp.id = 'popPackageComment-' + index; inp.maxLength = 2000; inp.dataset.commentDraft = ''; inp.value = popDrafts.get(inp.id) || ''; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
       wireMentions(inp)
@@ -16389,7 +16400,6 @@ function sessionCard(box) {
           const res = await postReviewComment(s, doc, { anchor, text, quote, anchor_quote: range.next.slice(0, 500), package_id: pkgId }, { from: range.a, to: range.b })
           if (doc === docId && epoch === openN && window.changeSession === s) {
             s.commentRanges.set(res.id, { doc, from: range.a, to: range.b })
-            popThreadId = 't:' + res.id
             await loadComments(true)
           }
         } catch (e) { inp.value = text; toast(e.message) } finally { ok.disabled = false }
@@ -16402,7 +16412,7 @@ function sessionCard(box) {
   popThreadId ||= box.focus || 's:' + box.index
   paintPopItems([
     ...indexes.map(i => ({ id: 's:' + i, render: () => renderMain(i) })),
-    ...lineThreads.map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
+    ...lineThreads.filter(th => !attached.has(th)).map(th => ({ id: 't:' + th.id, render: () => threadCard(th) })),
   ])
 }
 function paintSessionSelection() {
