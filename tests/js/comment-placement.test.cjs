@@ -439,10 +439,10 @@ test('a proposed resolve flips the shown state only when it differs from the liv
   vm.runInContext(source.slice(source.indexOf('function proposalComments'), source.indexOf('function commentPackage')), c)
   const live = [{ id: 'open', text: 'a', resolved: 0, replies: [] }, { id: 'done', text: 'b', resolved: 1, replies: [] }]
   const [open, done] = c.proposalComments(live, [
-    { id: 'p1', replaces_id: 'open', text: '', resolved: true },
+    { id: 'p1', replaces_id: 'open', text: '', resolved: true, username: 'bob' },
     { id: 'p2', replaces_id: 'done', text: '', resolved: true },
   ])
-  assert.deepEqual([open.resolved, open._proposedResolve, open._changeId], [1, true, 'p1'])
+  assert.deepEqual([open.resolved, open._proposedResolve, open._changeId, open._changeUser], [1, true, 'p1', 'bob'])
   assert.deepEqual([done.resolved, done._proposedResolve], [1, undefined])
   assert.equal(live[0].resolved, 0)
 })

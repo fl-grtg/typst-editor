@@ -353,3 +353,20 @@ def test_discussion_packages_reach_the_topbar_summary(c):
         {"doc_id": did, "anchor": 1, "text": "hi"}]}).json()["id"]
     login(c, "alice")
     assert [p["id"] for p in c.get("/api/notifications/summary").json()["packages"]] == [pkg]
+
+
+def test_accepting_a_discussion_tells_its_author(c):
+    from conftest import project_of, wait_for
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    project = project_of(c, did)
+    assert c.post(f"/api/projects/{project}/members", json={"username": "bob", "role": "editor"}).status_code == 200
+    login(c, "bob")
+    package = c.post(f"/api/projects/{project}/proposals", json={"title": "Talk", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "text": "hi"}]}).json()
+    login(c, "alice")
+    assert c.post(f"/api/projects/{project}/proposals/{package['id']}/accept", json={"revision": package["revision"]}).json()["open"] is False
+    login(c, "bob")
+    wait_for(lambda: any(n["type"] == "reviewed" and n["text"] == "accepted: Talk" for n in c.get("/api/notifications").json()["items"]))

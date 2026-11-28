@@ -677,7 +677,8 @@ function threadCard(th) {
   const acts = el('span', 'acts')
   hd.append(av, meta, acts)
   const roC = openedTrashed
-  if (!roC && th.package_id !== 'draft' && !th.suggestion_status && !th._proposedDelete && (docRole === 'owner' || th.username === user)) {
+  const mayWithdraw = item => docRole === 'owner' || item._changeUser === user // a proposed change belongs to whoever proposed it
+  if (!roC && th.package_id !== 'draft' && !th.suggestion_status && !th._proposedDelete && (th._proposedResolve ? mayWithdraw(th) : docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
     fin.onclick = () => saveCommentResolve(doc, th).then(fresh).catch(e => toast(e.message))
     acts.appendChild(fin)
@@ -694,8 +695,8 @@ function threadCard(th) {
   const pendingSug = th.suggestion_status === 'pending'
   const canDecide = pendingSug && ['owner', 'editor'].includes(docRole)
   const canDel = !roC && (pendingSug ? canDecide : (docRole === 'owner' || th.username === user))
-  if (canDel && th._proposedDelete) acts.appendChild(keepButton(doc, th, fresh))
-  else if (canDel) {
+  if (!roC && th._proposedDelete && mayWithdraw(th)) acts.appendChild(keepButton(doc, th, fresh))
+  else if (canDel && !th._proposedDelete) {
     const del = icoBtn('ib', ICO_TRASH); del.classList.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
     del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : saveCommentChange(doc, th, null).then(() => fresh().then(() => {
       if (doc === docId && epoch === openN && !threads.some(x => String(x.id) === String(th.id))) closePop()
@@ -740,8 +741,8 @@ function threadCard(th) {
       }
       rActs.appendChild(red)
     }
-    if (!roC && r._proposedDelete && (docRole === 'owner' || r.username === user)) rActs.appendChild(keepButton(doc, r, fresh))
-    else if (!roC && (docRole === 'owner' || r.username === user)) {
+    if (!roC && r._proposedDelete && mayWithdraw(r)) rActs.appendChild(keepButton(doc, r, fresh))
+    else if (!roC && !r._proposedDelete && (docRole === 'owner' || r.username === user)) {
       const rdel = icoBtn('ib', ICO_TRASH); rdel.classList.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
       rdel.onclick = () => saveCommentChange(doc, r, null).then(fresh).catch(e => toast(e.message))
       rActs.appendChild(rdel)
@@ -777,9 +778,9 @@ function proposalComments(live, items) {
   const byId = new Map(tops.flatMap(th => [[th.id, th], ...th.replies.map(r => [r.id, r])]))
   for (const item of items) if (item.replaces_id && byId.has(item.replaces_id)) {
     const target = byId.get(item.replaces_id)
-    if (item.deleted) Object.assign(target, { _proposedDelete: true, _changeId: item.id })
+    if (item.deleted) Object.assign(target, { _proposedDelete: true, _changeId: item.id, _changeUser: item.username })
     else if (item.text) { target.text = item.text; target._proposedEdit = true }
-    else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id })
+    else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id, _changeUser: item.username })
   }
   for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
   return [...tops, ...items.filter(item => !item.parent_id && !item.replaces_id)]

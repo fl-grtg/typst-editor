@@ -555,10 +555,10 @@ def accept(
                             accepted += 1
                         writes.append((file, content))
                     if not writes and not stale_marked and not proposal["files"] and not file_id:
-                        apply_comment_changes(con, package, _comment_change_docs(con, package))
-                        con.execute("UPDATE suggestion_packages SET revision=revision+1,accepted=accepted+1,updated_at=? WHERE id=?",
-                                    (db.now_iso(), package))  # nothing but comments: accepting closes the package
-                        return get(con, project, package), [], []
+                        if not proposal["open"]:
+                            return proposal, [], []
+                        accepted = 1  # nothing but comments: accepting closes the package
+                        break
                     if not writes and not stale_marked:
                         raise HTTPException(409, "No pending changes selected")
                     required = dependencies(con, project, proposal["files"], writes, include_dependencies) if writes else []
