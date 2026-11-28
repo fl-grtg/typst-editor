@@ -9,7 +9,7 @@ def test_file_server_name_and_rename_preview(page):
     head = page.locator('aside .project-group').filter(has_text='Workspace').locator('.fhd.project')
     head.hover()
     head.locator('button.mini').first.click()
-    page.locator('#menu button').filter(has_text='New file').click()
+    page.locator('#menu button').filter(has_text='New module').click()
     page.locator('#submenu button').filter(has_text='.typ').first.click()
     inp = page.locator('aside input.renameInput')
     expect(inp).to_be_visible()

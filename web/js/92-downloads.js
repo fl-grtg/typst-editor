@@ -115,7 +115,6 @@ function openExportDlg(fmt) { // compact popover under Export: server compile, c
   pg.type = 'text'; pg.placeholder = t('downloads.expPagesPh'); pg.setAttribute('aria-label', t('downloads.expPages')); pg.maxLength = 40
   pg.oninput = () => { pages = pg.value.trim() }
   p.appendChild(pg)
-  p.appendChild(el('p', 'sub', t('downloads.expServerNote')))
   const act = el('div', 'expAct')
   const yes = el('button', 'primary', t('downloads.expGo')); yes.type = 'button'
   const fallback = { pdf: dlPdfClient, png: dlPngClient, svg: dlSvgClient }[fmt]
@@ -136,7 +135,7 @@ function openExportDlg(fmt) { // compact popover under Export: server compile, c
   act.append(yes)
   p.appendChild(act)
   p.style.display = ''
-  anchorPop(p, $('exportBtn'))
+  anchorPop(p, $('exportBtn'), 'right')
   p.tabIndex = -1
   setTimeout(() => p.focus({ preventScroll: true }), 10)
 }
