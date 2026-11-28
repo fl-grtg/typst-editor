@@ -844,7 +844,7 @@ paintSuggestionControls = () => {
   reviewTools.hidden = !available
   const labels = [t('packages.choose'), t('packages.original'), t('packages.acceptFile'), t('packages.delete')]
   ;[reviewButton, originalButton, acceptFileButton, deletePackageButton].forEach((button, i) => { button.title = labels[i]; button.setAttribute('aria-label', labels[i]); button.disabled = !!s?.busy })
-  packageActions.title = t('packages.actions'); packageActions.setAttribute('aria-label', packageActions.title); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
+  packageActions.setAttribute('aria-label', t('packages.actions')); packageActions.setAttribute('aria-haspopup', 'dialog'); packageActions.disabled = !!s?.busy
   reviewButton.hidden = !!s && !s.package
   reviewButton.classList.toggle('on', !!s?.package); reviewButton.title = s?.package?.title || labels[0]
   originalButton.hidden = !s; originalButton.classList.toggle('on', !!s?.original); originalButton.setAttribute('aria-pressed', String(!!s?.original))
