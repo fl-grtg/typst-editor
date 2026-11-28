@@ -286,6 +286,7 @@ function stopSuggestionDraft(discard = true) {
   applying = true
   try {
     cm.setState(draft.originState)
+    marks = new Set(); markStyle = '' // the restored state holds the markers of before the draft
     const old = getT(), span = diffSpan(old, shadow)
     if (old !== shadow) cm.dispatch({ changes: { from: span.a, to: old.length - span.b, insert: shadow.slice(span.a, shadow.length - span.b) }, annotations: NO_HIST })
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(tabCanEdit(activeFile))), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : [])] })

@@ -237,7 +237,7 @@ async function sessionActivate(preserveView = false) {
   const text = s.original || item.action === 'delete' ? item.base : item.content
   if (!item.binary && (!preserveView || getT() !== (text || ''))) setT(text || '', preserveView)
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && s.package?.files?.length !== 0 && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
-  tabDirty = false; marks = new Set(); markStyle = ''
+  tabDirty = false
   if ((s.package || s.draftComments) && !activeFile) loadComments().catch(() => {})
   paintFileExtras(); paintCsv(); fmtSync(); sessionPaint(); paintSuggestionControls(); paintSessionSidebar(); queueRender()
 }
@@ -336,7 +336,6 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
     }
     else setT(mainText ?? shadow, preserveView && !addedTab)
     cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
-    marks = new Set(); markStyle = '' // the swapped text dropped the painted gutter markers
     paintTabs(); paintFileExtras(); paintOutline(); loadComments().catch(() => {}); reanchor(); gutter(); refreshHl(); queueRender()
   }
   paintSuggestionControls(); await sidebar(); return true

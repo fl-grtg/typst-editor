@@ -218,6 +218,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
   applying = true
   try {
     cm.setState(EditorState.create({ doc: v, selection, extensions: cmExtensions }))
+    marks = new Set(); markStyle = '' // a fresh state carries no gutter markers
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }

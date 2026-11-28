@@ -2814,6 +2814,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
   applying = true
   try {
     cm.setState(EditorState.create({ doc: v, selection, extensions: cmExtensions }))
+    marks = new Set(); markStyle = '' // a fresh state carries no gutter markers
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }
@@ -15547,6 +15548,7 @@ function stopSuggestionDraft(discard = true) {
   applying = true
   try {
     cm.setState(draft.originState)
+    marks = new Set(); markStyle = '' // the restored state holds the markers of before the draft
     const old = getT(), span = diffSpan(old, shadow)
     if (old !== shadow) cm.dispatch({ changes: { from: span.a, to: old.length - span.b, insert: shadow.slice(span.a, shadow.length - span.b) }, annotations: NO_HIST })
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(tabCanEdit(activeFile))), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : [])] })
@@ -15956,7 +15958,7 @@ async function sessionActivate(preserveView = false) {
   const text = s.original || item.action === 'delete' ? item.base : item.content
   if (!item.binary && (!preserveView || getT() !== (text || ''))) setT(text || '', preserveView)
   cm.dispatch({ effects: editableComp.reconfigure(editMode(!s.original && !s.busy && s.package?.files?.length !== 0 && !item.binary && item.action !== 'delete' && (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)))) })
-  tabDirty = false; marks = new Set(); markStyle = ''
+  tabDirty = false
   if ((s.package || s.draftComments) && !activeFile) loadComments().catch(() => {})
   paintFileExtras(); paintCsv(); fmtSync(); sessionPaint(); paintSuggestionControls(); paintSessionSidebar(); queueRender()
 }
@@ -16055,7 +16057,6 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
     }
     else setT(mainText ?? shadow, preserveView && !addedTab)
     cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
-    marks = new Set(); markStyle = '' // the swapped text dropped the painted gutter markers
     paintTabs(); paintFileExtras(); paintOutline(); loadComments().catch(() => {}); reanchor(); gutter(); refreshHl(); queueRender()
   }
   paintSuggestionControls(); await sidebar(); return true
