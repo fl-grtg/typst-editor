@@ -244,10 +244,13 @@ test('proposal comment edits, deletions and replies overlay live threads without
     { id: 'p4', parent_id: 'edit-me', text: 'package reply' },
     { id: 'p5', text: 'package thread', replies: [] },
   ])
-  assert.equal(JSON.stringify(result.map(th => [th.id, th.text, th.replies.map(r => r.id).join(',')])), JSON.stringify([['edit-me', 'new', 'p4'], ['p5', 'package thread', '']]))
+  assert.equal(JSON.stringify(result.map(th => [th.id, th.text, th.replies.map(r => r.id).join(',')])),
+    JSON.stringify([['edit-me', 'new', 'reply-delete,p4'], ['delete-me', 'remove', ''], ['p5', 'package thread', '']]))
   assert.equal(result[0]._proposedEdit, true)
+  assert.deepEqual([result[0].replies[0]._proposedDelete, result[0].replies[0]._changeId], [true, 'p2'])
+  assert.deepEqual([result[1]._proposedDelete, result[1]._changeId], [true, 'p3'])
   assert.equal(live[0].text, 'old')
-  assert.equal(live[0].replies[0]._removed, undefined)
+  assert.equal(live[0].replies[0]._proposedDelete, undefined)
 })
 
 test('submitting a comment with Enter does not reach the editor', () => {

@@ -268,16 +268,17 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
                         "SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (doc_id, project),
                     ).fetchone()
                     if parent:
-                        row = con2.execute("SELECT parent_id, package_id FROM comments WHERE id=? AND doc_id=?",
+                        row = con2.execute("SELECT parent_id, package_id, replaces_id FROM comments WHERE id=? AND doc_id=?",
                                            (parent, doc_id)).fetchone()
-                        valid = valid and row and not row["parent_id"] and row["package_id"] in ("", package)
+                        valid = valid and row and not row["parent_id"] and not row["replaces_id"] and row["package_id"] in ("", package)
                     deleted, old = bool(comment.get("deleted")), None
                     if replaces:
-                        row = con2.execute("SELECT username, parent_id, package_id, suggestion_status, text FROM comments WHERE id=? AND doc_id=?",
+                        row = con2.execute("SELECT username, parent_id, package_id, suggestion_status, text, resolved FROM comments WHERE id=? AND doc_id=?",
                                            (replaces, doc_id)).fetchone()
                         resolve = not deleted and not text
                         valid = valid and not parent and row and not row["package_id"] and not row["suggestion_status"] and (
-                            not resolve or not row["parent_id"]) and (row["username"] == user or (deleted or resolve) and doc_role == "owner")
+                            not resolve or not row["parent_id"] and bool(row["resolved"]) != bool(comment.get("resolved"))) and (
+                            row["username"] == user or (deleted or resolve) and doc_role == "owner")
                         old = row and row["text"]
                     if not valid or (not replaces and not text) or (deleted and not replaces):
                         raise HTTPException(400, "Invalid proposal comment")

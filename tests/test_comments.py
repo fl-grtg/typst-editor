@@ -322,3 +322,34 @@ def test_a_discussion_only_proposal_stays_open_until_accepted(c):
     assert c.get(proposals).json()["packages"] == []
     assert [p["open"] for p in c.get(proposals, params={"include_closed": True}).json()["packages"]] == [False]
     assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []
+
+
+def test_comment_change_rows_reject_no_ops_and_replies(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    cid = c.post(url, json={"anchor": 1, "text": "open"}).json()["id"]
+    proposals = f"/api/projects/{project_of(c, did)}/proposals"
+    assert c.post(proposals, json={"title": "Noop", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": cid, "resolved": False}]}).status_code == 400
+    pkg = c.post(proposals, json={"title": "Talk", "files": [], "comments": [{"doc_id": did, "anchor": 1, "text": "hi"}]}).json()["id"]
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": cid, "text": "", "resolved": False}).status_code == 400
+    change = c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": cid, "text": "", "resolved": True}).json()["id"]
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "parent_id": change, "text": "reply"}).status_code == 400
+
+
+def test_discussion_packages_reach_the_topbar_summary(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    project = project_of(c, did)
+    assert c.post(f"/api/projects/{project}/members", json={"username": "bob", "role": "editor"}).status_code == 200
+    login(c, "bob")
+    pkg = c.post(f"/api/projects/{project}/proposals", json={"title": "Talk", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "text": "hi"}]}).json()["id"]
+    login(c, "alice")
+    assert [p["id"] for p in c.get("/api/notifications/summary").json()["packages"]] == [pkg]

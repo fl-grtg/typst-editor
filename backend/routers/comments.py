@@ -139,21 +139,21 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
         if b.replaces_id:
             if not pkg or b.parent_id:
                 raise HTTPException(400, "Comment changes belong to a proposal")
-            target = con.execute("SELECT username, parent_id, package_id, suggestion_status, text FROM comments WHERE id=? AND doc_id=?",
+            target = con.execute("SELECT username, parent_id, package_id, suggestion_status, text, resolved FROM comments WHERE id=? AND doc_id=?",
                                  (b.replaces_id, doc_id)).fetchone()
             if not target or target["package_id"] or target["suggestion_status"]:
                 raise HTTPException(404, "Comment gone")
-            if not b.deleted and not text and target["parent_id"]:
-                raise HTTPException(400, "Only threads can be resolved")
+            if not b.deleted and not text and (target["parent_id"] or bool(target["resolved"]) == b.resolved):
+                raise HTTPException(400, "Nothing to resolve")
             if target["username"] != user and not ((b.deleted or not text) and role == "owner"):
                 raise HTTPException(403, "Only author or owner")
             old = target["text"]
         if b.parent_id:
-            p = con.execute("SELECT parent_id, package_id FROM comments WHERE id=? AND doc_id=?",
+            p = con.execute("SELECT parent_id, package_id, replaces_id FROM comments WHERE id=? AND doc_id=?",
                             (b.parent_id, doc_id)).fetchone()
             if not p:
                 raise HTTPException(404, "Thread gone")
-            if p["parent_id"]:
+            if p["parent_id"] or p["replaces_id"]:
                 raise HTTPException(400, "Nested replies not allowed")
             if p["package_id"]:
                 if pkg and pkg != p["package_id"]:

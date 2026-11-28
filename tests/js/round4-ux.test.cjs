@@ -67,7 +67,7 @@ test('paintSessionSidebar places the draft group inside its project group after 
   }
   const s = { project: 'p1', package: { title: 'P1' }, files: new Map(), dirty: false, busy: false }
   const c = context({
-    window: { changeSession: s }, document: doc, el: (tag, cls, text) => node(cls, text), $: name => own,
+    window: { changeSession: s }, user: 'u', docRole: 'owner', document: doc, el: (tag, cls, text) => node(cls, text), $: name => own,
     sessionFiles: () => [], sessionKey: k => JSON.stringify(k), sessionRuntime: f => ({ ...f }), sessionStash() {},
     sessionCurrent: () => null, switchTab() {}, sessionActivate() {}, sessionOpenFile() {},
     projectAction() {}, ICO_CHECK: '', ICO_TRASH: '', docRole: 'owner',

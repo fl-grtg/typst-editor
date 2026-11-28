@@ -316,15 +316,10 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
   if (!s) return true
   if (s.busy && !discard) return false
   if (!discard && s.package && !await saveSessionCorrections()) return false
-  if (!discard && !s.package) {
-    const hasChanges = !!sessionFiles(s).length || !!s.draftComments?.length
-    if (hasChanges || s.draftComments?.length) {
-      const choices = [[t('comments.draftDiscard'), ''], [t('projects.stay'), '']]
-      if (hasChanges) choices.unshift([t('comments.draftSend'), ''])
-      const choice = await askPick(t('comments.draftLeave'), choices)
-      if (window.changeSession !== s || !Number.isInteger(choice) || choice < 0 || choice >= choices.length - 1) return false
-      if (hasChanges && choice === 0) return submitChangeSession()
-    }
+  if (!discard && !s.package && (sessionFiles(s).length || s.draftComments?.length)) {
+    const choice = await askPick(t('comments.draftLeave'), [[t('comments.draftSend'), ''], [t('comments.draftDiscard'), ''], [t('projects.stay'), '']])
+    if (window.changeSession !== s || choice !== 0 && choice !== 1) return false
+    if (choice === 0) return submitChangeSession()
   }
   const addedTab = [...s.files.values()].some(f => f.action === 'add' && sessionKey(f) === sessionKey(sessionCurrent()))
   window.changeSession = null
@@ -703,6 +698,7 @@ function paintSessionSidebar() {
   document.querySelectorAll('.package-accept-action, .package-discard-action').forEach(node => node.remove())
   document.querySelectorAll('.project-group .package-modified, .project-group .package-deleted').forEach(node => node.classList.remove('package-modified', 'package-deleted'))
   if (!s) return
+  const canDiscard = !s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)
   const group = el('div', 'package-files')
   group.append(el('b', 'package-caption', s.package?.title || t('packages.draft')))
   sessionFiles(s).forEach(file => {
@@ -715,7 +711,7 @@ function paintSessionSidebar() {
         if (label) label.textContent = name + ' → ' + file.target
         existing.title = name + ' → ' + file.target
       }
-      if (!s.package || ['owner', 'editor'].includes(docRole) && ['add', 'delete', 'rename'].includes(file.action)) {
+      if (canDiscard && (!s.package || ['add', 'delete', 'rename'].includes(file.action))) {
         const discard = projectAction(existing, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
         discard.classList.add('package-discard-action')
       }
@@ -729,7 +725,7 @@ function paintSessionSidebar() {
     if (file.action === 'delete' || file.action === 'rename') label.classList.add('suggestionDeleted')
     row.append(label); row.title = file.action === 'rename' ? file.path + ' → ' + file.target : name
     row.onclick = () => sessionOpenFile(file)
-    if (!s.package || s.package.author === user || ['owner', 'editor'].includes(docRole)) projectAction(row, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
+    if (canDiscard) projectAction(row, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
     sessionActionButton(row, file)
     group.append(row)
   })
