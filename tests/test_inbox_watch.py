@@ -166,3 +166,22 @@ def test_legacy_reply_mention_rows_are_listed_with_the_thread_root(c):
     mentions = [n for n in _inbox(c, 'alice')['items'] if n['type'] == 'mention']
     assert len(mentions) == 1
     assert mentions[0]['ref'] == root  # pre-fix rows stored the reply id
+
+
+def test_package_mentions_link_to_the_package_and_exclude_document_only_guests(c):
+    did, pid = _project(c)
+    register_user(c, 'guest')
+    login(c, 'alice')
+    assert c.post(f'/api/docs/{did}/share', json={'username': 'guest', 'role': 'reviewer'}).status_code == 200
+    package = c.post(f'/api/projects/{pid}/proposals', json={'title': 'Review', 'files': [
+        {'kind': 'document', 'doc_id': did, 'action': 'modify', 'base': 'one\ntwo', 'content': 'ONE\ntwo',
+         'changes': [{'old_string': 'one', 'new_string': 'ONE'}]},
+    ]}).json()['id']
+    url = f'/api/docs/{did}/comments'
+    cid = c.post(url, json={'anchor': 1, 'package_id': package, 'text': '@bob @guest'}).json()['id']
+    mention, = [n for n in _inbox(c, 'bob')['items'] if n['type'] == 'mention']
+    assert (mention['ref'], mention['package_id']) == (cid, package)
+    assert _inbox(c, 'guest')['items'] == []
+    assert c.get(url).status_code == 200
+    assert c.get(url, params={'package_id': package}).status_code == 404
+    assert c.post(url, json={'anchor': 1, 'parent_id': cid, 'text': 'reply'}).status_code == 404

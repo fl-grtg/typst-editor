@@ -21,7 +21,7 @@ test('loadComments dedupe-skip still repaints not-yet-derived comment ranges', a
     const counts = {}
     const hit = n => { counts[n] = (counts[n] || 0) + 1 }
     const c = vm.createContext({
-      docId: 'd1', openN: 1, activeFile, synced, ytext: synced ? {} : null, lastC: '[]', threads: anchors,
+      window: {}, docId: 'd1', openN: 1, activeFile, synced, ytext: synced ? {} : null, lastC: '[]', threads: anchors,
       api: async () => ({ comments: [] }),
       initRanges: () => hit('initRanges'), reanchor: () => hit('reanchor'), gutter: () => hit('gutter'), refreshHl: () => hit('refreshHl'),
       paintBadge: () => {}, popAnchor: null, renderPop: () => {}, $: () => ({ querySelectorAll: () => [] }),
@@ -89,9 +89,9 @@ test('editor edits map thread anchors against the pre-edit length, never past th
 })
 
 test('sync paths hand the pre-sync document length to mapThreads', () => {
-  assert.match(sync, /if \(threads\.length\) mapThreads\(map, false, old\.length\)/)
-  assert.match(sync, /mapThreads\(map, true, old\.length\)/)
-  assert.match(hlx, /mapThreads\(mapPos, true, oldLen\)/)
+  assert.match(sync, /if \(threads\.length\) mapThreads\(map, false, old\.length, ranges\)/)
+  assert.match(sync, /mapThreads\(map, true, old\.length, ranges\)/)
+  assert.match(hlx, /mapThreads\(mapPos, true, oldLen,/)
   assert.match(hlx, /sessionRecord\(changes, oldLen\)/)
   assert.match(hlx, /recordSuggestionEdit\(changes, oldLen\)/)
 })

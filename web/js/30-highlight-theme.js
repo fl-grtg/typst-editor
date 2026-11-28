@@ -66,7 +66,7 @@ const cmExtensions = [keymap.of([ // first: highest priority before minimalSetup
     spellCode, markField, lineNumbers(), foldGutter({ markerDOM: open => { const s = document.createElement('span'); s.className = 'foldMk ' + (open ? 'fold-open' : 'fold-closed'); s.title = open ? t('editor.fold') : t('editor.unfold'); s.innerHTML = open ? '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>' : '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>'; return s } }), // F10 fold lane right of numbers: hover-revealed chevrons, folded stays visible
     EditorView.theme({ '&': { height: '100%' }, '.cm-scroller': { overflow: 'auto' }, '.cm-content': { padding: '12px 0' } }),
     EditorView.updateListener.of(u => {
-      if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? 1 : -1), u.changes, u.startState.doc.length) // start left, end right: type before stays out, inside/after highlights
+      if (u.docChanged && !applying) onEdit((p, end) => u.changes.mapPos(p, end ? -1 : 1), u.changes, u.startState.doc.length) // start sticks right, end sticks left: typing before/after stays out, edits inside grow
       if (u.docChanged && window.__booted) { paintCsv(); window.paintFileExtras?.() }
       if (u.docChanged) hideLinkTip() // typing under a pinned preview invalidates it
       if (u.docChanged && findOpen) markFind(false) // recount only: typing beside an open find must not yank the cursor back to a hit
@@ -94,22 +94,29 @@ cm.scrollDOM.addEventListener('scroll', () => {
 })
 $('cm').addEventListener('mousemove', errTipMove) // full-line error tooltip: any spot on a red line, no aim needed
 $('cm').addEventListener('mouseleave', errTipHide)
-$('cm').addEventListener('mousedown', e => { // click on line number or yellow highlight opens card
+$('cm').addEventListener('mousedown', e => {
   if (findOpen && findI >= 0) { findI = -1; paintFind(false) } // manual click drops the current hit: all blue, typing stays where clicked
+  const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
+  if (g && marks.has(+g.textContent)) openLinePop(+g.textContent)
+})
+$('cm').addEventListener('click', e => {
+  if (!cm.state.selection.main.empty) return
   const packageHit = e.target.closest('[data-package-change]')
   if (packageHit && window.changeSession) { openSessionChange(+packageHit.dataset.packageChange); return }
   const suggestion = e.target.closest('[data-suggestion-change], [data-suggestion-id]')
   if (suggestion) { openSuggestionBox(suggestion); return }
-  const g = e.target.closest('.cm-lineNumbers .cm-gutterElement')
-  if (g && marks.has(+g.textContent)) { openLinePop(+g.textContent); return }
+  const session = window.changeSession && !window.changeSession.original
   const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
   if (hl) {
+    const cid = hl.getAttribute('data-comment-id')
     const p = cm.posAtCoords({ x: e.clientX, y: e.clientY }) ?? cm.posAtDOM(hl)
-    const th = threads.find(th => {
+    const th = (cid && threads.find(t => String(t.id) === cid)) || threads.find(th => {
       const r = threadEditorRange(th)
       return th.a != null && p >= r.from && p <= r.to
     })
-    if (th) openPop(cm.state.doc.lineAt(p).number, false)
+    const line = th && cm.state.doc.lineAt(p != null ? p : threadEditorRange(th).from).number
+    if (th && session) openSessionLine(line, 't:' + th.id, [hl])
+    else if (th) openPop(line, false, null, th.id)
   }
 })
 // #3 hover-claim: hovering any fragment of a comment thread / suggestion / package patch also lights up all its other fragments
@@ -211,6 +218,7 @@ const setT = (v, preserveView = false) => { // a new text buffer also needs a fr
   applying = true
   try {
     cm.setState(EditorState.create({ doc: v, selection, extensions: cmExtensions }))
+    marks = new Set(); markStyle = '' // a fresh state carries no gutter markers
     cm.dispatch({ effects: [editableComp.reconfigure(editMode(mode)), tabComp.reconfigure([EditorState.tabSize.of(tabW), indentUnit.of(' '.repeat(tabW))]), wrapComp.reconfigure(wrapOn ? EditorView.lineWrapping : []), ...(scroll ? [scroll] : [])] })
     if (window.__booted && findOpen) markFind(false)
   } finally { applying = false }
@@ -227,36 +235,73 @@ function onEdit(mapPos, changes, oldLen) {
   paintOutline()
   if (activeFile) { queueFileSave(); tabLive(); return } // file/template tab: only that text + preview, no Yjs
   pushLocal(changes, oldLen); queueRender(); queueSave()
-  if (mapPos) mapThreads(mapPos, true, oldLen) // oldLen: anchors can sit at the pre-edit end; full-doc growth must not clip them before mapPos
+  if (mapPos) mapThreads(mapPos, true, oldLen, changes && (fn => changes.iterChangedRanges(fn)))
   reanchor()
   if (threads.length) refreshHl()
 }
 let anchorT = 0
 const anchorDirty = new Map()
-function dirtyAnchor(th) { // batch anchor saves: typing makes one request, not many
-  anchorDirty.set(th.id, { doc: docId, anchor: th.anchor })
+function dirtyAnchor(th, previousRange) {
+  if (th.suggestion_status === 'pending' || (previousRange === undefined && th.username && th.username !== user)) return
+  const pending = anchorDirty.get(th.id)
+  anchorDirty.set(th.id, { doc: docId, anchor: th.anchor, ...(pending?.range || previousRange !== undefined ? {
+    range: { anchor_range: th.anchor_range, previous_range: pending?.range ? pending.range.previous_range : previousRange },
+  } : {}) })
   clearTimeout(anchorT)
   anchorT = setTimeout(() => {
     for (const [id, s] of anchorDirty) {
-      const t = threads.find(x => x.id === id)
-      if (t && s.doc) api('POST', `/api/docs/${s.doc}/comments/${t.id}/anchor`, { anchor: s.anchor }).catch(e => console.warn('anchor save failed', e))
+      if (s.doc) api('POST', `/api/docs/${s.doc}/comments/${id}/anchor`, { anchor: s.anchor, ...s.range }).catch(e => console.warn('anchor save failed', e))
     }
     anchorDirty.clear()
-  }, SAVE_MS)
+  }, previousRange !== undefined ? 0 : SAVE_MS)
 }
-function mapThreads(mapPos, paint = true, fromLen) { // start left, end right: typing before stays out, inside/after grows
-  const t = activeFile || window.suggestionDraft ? shadow : getT() // file tab: anchors live in main, not in file text
-  const len = fromLen == null ? t.length : Math.max(0, Math.min(fromLen, t.length)) // stale anchors beyond the changeset must not reach mapPos (RangeError on empty/short changesets)
+function commentReplacement(changes, from, to) {
+  let replacement
+  changes?.((a, b, start, end) => {
+    if (a < b && start < end && a < to && b > from) {
+      replacement = replacement ? { from: replacement.from, to: end } : { from: start, to: end }
+    }
+  })
+  return replacement
+}
+function mapThreads(mapPos, paint = true, fromLen, changes) {
+  const t = activeFile || window.suggestionDraft || window.changeSession ? shadow : getT()
+  const len = fromLen ?? t.length
   for (const th of threads) {
-    if (th.a == null || th.b == null) continue
+    if (th.package_id || th.a == null || th.b == null) continue
     const collapsed = th.a === th.b
-    let a = Math.max(0, Math.min(t.length, mapPos(Math.min(th.a, len), false)))
-    let b = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
-    if (collapsed && a === 0 && b === t.length && t.length) b = a // full-text insert delta: a collapsed range must not balloon to the whole doc
-    th.a = Math.min(a, b); th.b = Math.max(a, b)
-    if (th.b > th.a || (!th.quote && th.suggestion_status !== 'pending')) { // collapsed away: never persist a sanitized anchor from stale offsets — except quoteless comments, whose whole data IS the anchor line
+    let ra = Math.max(0, Math.min(t.length, mapPos(Math.min(th.a, len), false)))
+    let rb = Math.max(0, Math.min(t.length, mapPos(Math.min(th.b, len), true)))
+    const quoted = !th.suggestion_status && !!(th.anchor_quote ?? th.quote)
+    let previousRange
+    if (quoted && !collapsed) {
+      const replacement = commentReplacement(changes, th.a, th.b)
+      if (replacement) {
+        ra = Math.min(ra, replacement.from); rb = Math.max(rb, replacement.to)
+        const resolved = th.anchor_range && resolveCommentRange(th.anchor_range)
+        if (resolved?.from !== ra || resolved?.to !== rb) {
+          const range = saveCommentRange(ra, rb)
+          if (range) { previousRange = th.anchor_range ?? null; th.anchor_range = range }
+        }
+      }
+    }
+    if (collapsed) {
+      if (quoted) { th.a = th.b = null; th._deleted = true; continue }
+      th.a = th.b = ra // collapsed range never balloons onto newly typed text
+    } else if (rb <= ra) {
+      if (quoted) {
+        th.a = th.b = null; th._deleted = true // commented text deleted: drop highlight so later typing at that spot never resurrects it
+        const line = t.slice(0, ra).split('\n').length
+        if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+        continue
+      }
+      th.a = th.b = ra
+    } else {
+      th.a = ra; th.b = rb; th._deleted = false
+    }
+    if ((th.b > th.a || !quoted) && th.suggestion_status !== 'pending') {
       const line = t.slice(0, th.a).split('\n').length
-      if (line !== th.anchor) { th.anchor = line; dirtyAnchor(th) }
+      if (line !== th.anchor || previousRange !== undefined) { th.anchor = line; dirtyAnchor(th, previousRange) }
     }
   }
   if (!paint) return
@@ -264,18 +309,58 @@ function mapThreads(mapPos, paint = true, fromLen) { // start left, end right: t
   if (popAnchor != null) movePop()
 }
 function initRanges() { // ranges from quote (once; then mapping keeps them alive)
-  const t = window.suggestionDraft || window.changeSession ? shadow : getT()
-  if (!t) return // pre-sync empty buffer: keep a unset so the first real text re-derives (no (0,0) ghosts)
+  let changed = false
   for (const th of threads) {
     if (th.a != null) continue
+    const live = th.anchor_range && resolveCommentRange(th.anchor_range)
+    if (live) {
+      if (live.from < live.to) { th.a = live.from; th.b = live.to; th._deleted = false; changed = true }
+      else th._deleted = true
+      continue
+    }
+    if (th._deleted) continue
+    const s = window.changeSession
+    const src = th.package_id || !(window.suggestionDraft || s) ? getT() : shadow
+    if (th.package_id && th.anchor_quote === '' && th.quote) {
+      const file = s?.files.get(sessionKey(sessionCurrent()))
+      const matches = file && sessionChangeRanges(file).filter(r => !r.next && r.old.startsWith(th.quote) && lineOf(r.a) === th.anchor)
+      if (matches?.length === 1) { th.a = th.b = matches[0].a; changed = true }
+      continue
+    }
+    if (!src) continue
     const pending = th.suggestion_status === 'pending'
-    const quote = pending ? th.suggestion_old : th.quote
-    const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1 // non-overlap count like the backend
-    if (i >= 0) { th.a = i; th.b = Math.min(t.length, i + quote.length) }
-    else { // empty pending old (legacy) or quoteless comment: anchor line, same fallback as reanchor
-      th.a = posOfLine(t, th.anchor)
-      th.b = th.a + t.slice(th.a).split('\n')[0].length
+    const quote = pending ? th.suggestion_old : th.anchor_quote ?? th.quote
+    const i = pending ? pendingSuggestionPos(src, th) : quote ? exactQuotePos(src, quote, th.anchor) : -1
+    if (i >= 0) { th.a = i; th.b = Math.min(src.length, i + quote.length); changed = true }
+    else if (!quote || pending) { // empty pending old (legacy) or quoteless comment: anchor line, same fallback as reanchor
+      th.a = posOfLine(src, th.anchor)
+      th.b = th.a + src.slice(th.a).split('\n')[0].length
       if (pending) th.conflict = true
+      changed = true
     }
   }
+  return changed
+}
+
+function pendingSuggestionPos(text, th) {
+  const old = th.suggestion_old
+  if (!old) return old === '' && !text && !th.quote ? 0 : -1
+  const at = text.indexOf(old)
+  return at >= 0 && text.indexOf(old, at + old.length) < 0 ? at : -1
+}
+
+function saveCommentRange(from, to) {
+  if (!synced || !ytext || to <= from) return null
+  const encode = (pos, assoc) => btoa(String.fromCharCode(...Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(ytext, pos, assoc))))
+  return encode(from, 1) + '.' + encode(to, -1)
+}
+
+function resolveCommentRange(encoded) {
+  if (!synced || !ytext) return null
+  try {
+    const [start, end] = encoded.split('.').map(part => Y.createAbsolutePositionFromRelativePosition(
+      Y.decodeRelativePosition(Uint8Array.from(atob(part), ch => ch.charCodeAt(0))), ydoc))
+    if (start?.type === ytext && end?.type === ytext) return { from: start.index, to: end.index }
+  } catch (e) { /* Invalid or old range: fall back to the saved quote. */ }
+  return null
 }

@@ -41,10 +41,24 @@ class ProposalFile(BaseModel):
     changes: list[Change] = Field(default_factory=list, max_length=500)
 
 
+class DraftComment(BaseModel):
+    client_id: str = Field(default="", max_length=100)
+    doc_id: str = Field(max_length=100)
+    anchor: int = Field(ge=1, le=10000000)
+    text: str = Field(default="", max_length=2000)
+    quote: str = Field(default="", max_length=500)
+    anchor_quote: str = Field(default="", max_length=500)
+    parent_id: str | None = Field(default=None, max_length=100)
+    replaces_id: str | None = Field(default=None, max_length=100)
+    deleted: bool = False
+    resolved: bool = False
+
+
 class PackageSave(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     files: list[ProposalFile] = Field(max_length=100)
     revision: int = 0
+    comments: list[DraftComment] = Field(default_factory=list, max_length=100)
 
 
 class Cell(BaseModel):
@@ -62,18 +76,20 @@ class Selection(BaseModel):
 
 
 @router.get("/api/projects/{project_id}/proposals")
-def list_packages(project_id: str, user: str = Depends(deps.me)) -> dict:
+def list_packages(project_id: str, user: str = Depends(deps.me), include_closed: bool = False) -> dict:
     with db.tx() as con:
         projects.require(con, project_id, user)
         rows = con.execute(
-            """SELECT id,title,author,author_name,revision,accepted,created_at,updated_at,
-               json_array_length(files) AS file_count,
+            f"""SELECT id,title,author,author_name,revision,accepted,created_at,updated_at,
+               json_array_length(files) AS file_count, {packages.COMMENT_CHANGES_SQL} AS comment_changes, {packages.OPEN_SQL} AS open,
                (SELECT COALESCE(SUM(MAX(COALESCE(json_array_length(value,'$.changes'),0),1)),0)
                 FROM json_each(files)) AS change_count
-               FROM suggestion_packages WHERE project_id=? AND json_array_length(files)>0 ORDER BY updated_at DESC""",
-            (project_id,),
+               FROM suggestion_packages s WHERE project_id=? AND ({packages.OPEN_SQL}
+                 OR (? AND EXISTS(SELECT 1 FROM comments WHERE package_id=s.id)))
+               ORDER BY open DESC, updated_at DESC""",
+            (project_id, include_closed),
         ).fetchall()
-        return {"packages": [dict(row) for row in rows]}
+        return {"packages": [{**dict(row), "open": bool(row["open"])} for row in rows]}
 
 
 @router.get("/api/projects/{project_id}/proposals/{package_id}")
@@ -97,11 +113,12 @@ async def _package_body(req: Request) -> PackageSave:
 async def create_package(project_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "comments")
     body = await _package_body(req)
-    if not body.files:
+    if not body.files and not body.comments:
         raise HTTPException(400, "An empty package cannot be submitted")
     return await asyncio.to_thread(
         packages.save, user, project_id, body.title,
-        [f.model_dump(exclude_defaults=True) for f in body.files])
+        [f.model_dump(exclude_defaults=True) for f in body.files],
+        comments=[comment.model_dump() for comment in body.comments])
 
 
 @router.patch("/api/projects/{project_id}/proposals/{package_id}")
@@ -165,6 +182,7 @@ def delete_package(project_id: str, package_id: str, req: Request, user: str = D
         if proposal["author"] != user and role != "owner":
             raise HTTPException(403, "Only the author or owner may delete the package")
         owner = con.execute("SELECT owner FROM projects WHERE id=?", (project_id,)).fetchone()[0]
+        con.execute("DELETE FROM comments WHERE package_id=?", (package_id,))
         con.execute("DELETE FROM suggestion_packages WHERE id=?", (package_id,))
     quota.invalidate_quota_cache(owner)
     projects.notify(project_id)

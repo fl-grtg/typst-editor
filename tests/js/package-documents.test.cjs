@@ -106,8 +106,8 @@ test('leaving an added document tab restores source without requesting a nonexis
   Object.assign(c, { sessionStashTimer: 0, clearTimeout: () => {}, packageDraft: async () => {}, sessionStashKey: () => 'draft',
     localStorage: { removeItem: () => {} }, fileCache: new Map(), shadow: 'Source document', setT: value => { text = value },
     cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {}, tabCanEdit: () => true,
-    paintTabs: () => {}, paintFileExtras: () => {}, paintOutline: () => {}, reanchor: () => {}, refreshHl: () => {}, queueRender: () => {},
-    paintSuggestionControls: () => {}, sidebar: async () => {}, sessionOriginalSwitchTab: async () => { throw Error('nonexistent file requested') } })
+    paintTabs: () => {}, paintFileExtras: () => {}, paintOutline: () => {}, reanchor: () => {}, gutter: () => {}, refreshHl: () => {}, queueRender: () => {},
+    paintSuggestionControls: () => {}, sidebar: async () => {}, loadComments: async () => {}, sessionOriginalSwitchTab: async () => { throw Error('nonexistent file requested') } })
   vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
   assert.equal(await c.endChangeSession(true), true)
   assert.equal(c.activeFile, '')
@@ -227,8 +227,8 @@ test('ending acceptance preserves main and module views instead of restoring old
       clearTimeout() {}, packageDraft: async () => {}, sessionStashKey: () => 'draft',
       localStorage: { removeItem() {} }, fileCache: new Map(), shadow: 'Accepted source',
       setT: (...args) => { restored = args }, cm: { dispatch() {} }, editableComp: { reconfigure() {} }, editMode() {}, tabCanEdit: () => true,
-      paintTabs() {}, paintFileExtras() {}, paintOutline() {}, reanchor() {}, refreshHl() {}, queueRender() {}, paintSuggestionControls() {},
-      sidebar: async () => {}, loadProjectFiles: async () => {}, sessionOriginalSwitchTab: async (...args) => { switched = args; return true } })
+      paintTabs() {}, paintFileExtras() {}, paintOutline() {}, reanchor() {}, gutter() {}, refreshHl() {}, queueRender() {}, paintSuggestionControls() {},
+      sidebar: async () => {}, loadComments: async () => {}, sessionOriginalSwitchTab: async (...args) => { switched = args; return true } })
     vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
     await c.endChangeSession(true, true)
     if (key) assert.deepEqual(switched, [key, true, true])
@@ -299,12 +299,14 @@ test('late proposal activation cannot blank a newly selected document', async ()
 })
 
 test('proposal picker displays the key name with an account-name fallback', async () => {
-  const labels = []
+  let items = []
+  const row = { change_count: 1, comment_changes: 1, open: true, accepted: 0, updated_at: '2026-01-01T00:00:00Z' }
   const c = vm.createContext({ docProject: 'p', packageLoad: 0, window: {},
-    api: async () => ({ packages: [{ author: 'alice', author_name: 'Review Bot' }, { author: 'bob', author_name: '' }] }),
-    t: (_key, args) => { if (args) labels.push(args.author); return '' }, pickPop: async () => null, reviewButton: null,
+    api: async () => ({ packages: [{ ...row, author: 'alice', author_name: 'Review Bot' }, { ...row, author: 'bob', author_name: '', open: false }] }),
+    t: (key, args) => key + (args ? ':' + args.n : ''), pickPop: async (_title, list) => { items = list; return null }, reviewButton: null,
     toast: message => { throw Error(message) } })
-  vm.runInContext(packages.slice(packages.indexOf('async function choosePackage'), packages.indexOf('// topbar chip opener')), c)
+  vm.runInContext(packages.slice(packages.indexOf('function packageSummary'), packages.indexOf('// topbar chip opener')), c)
   await c.choosePackage()
-  assert.deepEqual(labels, ['Review Bot', 'bob'])
+  assert.match(items[1][1], /^Review Bot · comments\.draftCountMany:2 · /)
+  assert.match(items[2][1], /^bob · .* · comments\.completedPackage$/)
 })

@@ -130,16 +130,46 @@ def validate_file(file: dict) -> None:
         project_files.clean(file.get("target", ""))
 
 
+# Per package row `s`: pending comment changes, and whether anything is left to review
+# (files, comment changes, or a discussion that was never accepted).
+COMMENT_CHANGES_SQL = "(SELECT COUNT(*) FROM comments WHERE package_id=s.id AND replaces_id IS NOT NULL)"
+OPEN_SQL = ("(json_array_length(s.files)>0 OR " + COMMENT_CHANGES_SQL + ">0"
+            " OR (s.accepted=0 AND EXISTS(SELECT 1 FROM comments WHERE package_id=s.id)))")
+
+
 def get(con, project: str, package: str) -> dict:
-    row = con.execute("SELECT * FROM suggestion_packages WHERE id=? AND project_id=?", (package, project)).fetchone()
+    row = con.execute(f"SELECT s.*, {COMMENT_CHANGES_SQL} AS comment_changes, {OPEN_SQL} AS open "
+                      "FROM suggestion_packages s WHERE id=? AND project_id=?", (package, project)).fetchone()
     if not row:
         raise HTTPException(404, "Proposal package gone")
     result = dict(row)
     result["files"] = [normalize(f) for f in json.loads(row["files"])]
+    result["open"] = bool(row["open"])
     return result
 
 
-def save(user: str, project: str, title: str, files: list[dict], package: str = "", revision: int = 0, author_name: str = "") -> dict:
+def _comment_change_docs(con, package: str) -> set[str]:
+    return {r[0] for r in con.execute("SELECT doc_id FROM comments WHERE package_id=? AND replaces_id IS NOT NULL", (package,))}
+
+
+def apply_comment_changes(con, package: str, doc_ids: set[str]) -> None:
+    """Proposed edits, deletions and resolves of live comments; an edit loses to a newer live edit."""
+    for doc_id in doc_ids:
+        for row in con.execute("SELECT id, replaces_id, text, deleted, resolved, suggestion_old FROM comments "
+                               "WHERE package_id=? AND doc_id=? AND replaces_id IS NOT NULL", (package, doc_id)).fetchall():
+            if row["deleted"]:
+                con.execute("DELETE FROM comments WHERE (id=? OR parent_id=?) AND package_id=''", (row["replaces_id"], row["replaces_id"]))
+            elif row["text"]:
+                con.execute("UPDATE comments SET text=? WHERE id=? AND package_id='' AND text IS ?",
+                            (row["text"], row["replaces_id"], row["suggestion_old"]))
+            else:
+                con.execute("UPDATE comments SET resolved=? WHERE id=? AND package_id=''", (row["resolved"], row["replaces_id"]))
+            con.execute("DELETE FROM comments WHERE id=?", (row["id"],))
+
+
+def save(user: str, project: str, title: str, files: list[dict], package: str = "", revision: int = 0, author_name: str = "",
+         *, comments: list[dict] | None = None) -> dict:
+    posted = []
     with _named_lock("packages:" + project):
         # Phase 1 (no write tx): snapshots, validation and serialization run
         # OUTSIDE BEGIN IMMEDIATE so a big draft cannot stall other writers;
@@ -228,11 +258,48 @@ def save(user: str, project: str, title: str, files: list[dict], package: str = 
                     "INSERT INTO suggestion_packages(id,project_id,author,author_name,title,files,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
                     (package, project, user, author_name.strip()[:40], title, payload, now, now),
                 )
+                ids: dict[str, str] = {}
+                for comment in sorted(comments or [], key=lambda c: (bool(c.get("parent_id")), bool(c.get("replaces_id")))):
+                    doc_id, text = comment["doc_id"], comment["text"].strip()
+                    parent, replaces = comment.get("parent_id"), comment.get("replaces_id")
+                    parent = ids.get(parent or "", parent)
+                    doc_role = db.role_on(con2, user, doc_id)
+                    valid = doc_role and con2.execute(
+                        "SELECT 1 FROM docs WHERE id=? AND project_id=? AND trashed=0", (doc_id, project),
+                    ).fetchone()
+                    if parent:
+                        row = con2.execute("SELECT parent_id, package_id, replaces_id FROM comments WHERE id=? AND doc_id=?",
+                                           (parent, doc_id)).fetchone()
+                        valid = valid and row and not row["parent_id"] and not row["replaces_id"] and row["package_id"] in ("", package)
+                    deleted, old = bool(comment.get("deleted")), None
+                    if replaces:
+                        row = con2.execute("SELECT username, parent_id, package_id, suggestion_status, text, resolved FROM comments WHERE id=? AND doc_id=?",
+                                           (replaces, doc_id)).fetchone()
+                        resolve = not deleted and not text
+                        valid = valid and not parent and row and not row["package_id"] and not row["suggestion_status"] and (
+                            not resolve or not row["parent_id"] and bool(row["resolved"]) != bool(comment.get("resolved"))) and (
+                            row["username"] == user or (deleted or resolve) and doc_role == "owner")
+                        old = row and row["text"]
+                    if not valid or (not replaces and not text) or (deleted and not replaces):
+                        raise HTTPException(400, "Invalid proposal comment")
+                    cid = db.new_id("c_")
+                    con2.execute(
+                        "INSERT INTO comments(id,doc_id,username,anchor,quote,anchor_quote,text,parent_id,package_id,replaces_id,deleted,"
+                        "resolved,suggestion_old,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (cid, doc_id, user, comment["anchor"], comment["quote"], comment["anchor_quote"], "" if deleted else text,
+                         parent, package, replaces, int(deleted), int(bool(replaces and comment.get("resolved"))), old, now),
+                    )
+                    if comment.get("client_id"):
+                        ids[comment["client_id"]] = cid
+                    if text and not replaces:
+                        posted.append((doc_id, text, cid))
             result = get(con2, project, package)
     quota.invalidate_quota_cache(owner)
     projects.notify(project)
     from backend.services import notifications
     notifications.notify_proposal(project, user, result["id"], title)
+    for doc_id, text, cid in posted:
+        notifications.notify_mentions(doc_id, user, text, cid)
     return result
 
 
@@ -488,7 +555,10 @@ def accept(
                             accepted += 1
                         writes.append((file, content))
                     if not writes and not stale_marked and not proposal["files"] and not file_id:
-                        return proposal, [], []
+                        if not proposal["open"]:
+                            return proposal, [], []
+                        accepted = 1  # nothing but comments: accepting closes the package
+                        break
                     if not writes and not stale_marked:
                         raise HTTPException(409, "No pending changes selected")
                     required = dependencies(con, project, proposal["files"], writes, include_dependencies) if writes else []
@@ -572,6 +642,11 @@ def accept(
                     "UPDATE suggestion_packages SET files=?,revision=revision+1,accepted=accepted+?,updated_at=? WHERE id=?",
                     (encode(remaining), accepted, db.now_iso(), package),
                 )
+                # Comment changes land with their document's text, or with the whole package; the package's own discussion stays.
+                open_docs = {f.get("doc_id") for f in remaining if f["kind"] == "document"}
+                accepted_docs = {f.get("doc_id") for f in proposal["files"] if f["id"] in selection}
+                apply_comment_changes(con, package, {d for d in _comment_change_docs(con, package)
+                                                     if d not in open_docs and (not file_id or d in accepted_docs)})
                 quota.check_quota(owner, 0, con)
                 result = get(con, project, package)
         except Exception:

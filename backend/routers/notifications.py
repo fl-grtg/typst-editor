@@ -6,7 +6,7 @@ Contract (additive; new endpoint, nothing else changes):
   package_total: int      matching open packages by others (uncapped)
   packages: [{project, project title?, id, title, author, updated_at}]
                           newest first, at most 50 entries
-Open means packages with remaining files (json_array_length(files)>0),
+Open means change_packages.OPEN_SQL,
 the same predicate the proposals list uses; author != requester keeps the
 package visible for exactly the users it needs a decision from Scope:
 projects the user is a member of (owner row or project_members, including
@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from backend import db, deps
+from backend.services import change_packages as packages
 from backend.services import notifications, projects
 
 router = APIRouter()
@@ -34,7 +35,7 @@ def notification_summary(req: Request, user: str = Depends(deps.me)) -> dict:
             "SELECT s.id, s.project_id AS project, p.title AS project_title, s.title, "
             "s.author, s.author_name, s.updated_at FROM suggestion_packages s"
             " JOIN projects p ON p.id=s.project_id"
-            " WHERE p.archived=0 AND s.author<>? AND json_array_length(s.files)>0"
+            f" WHERE p.archived=0 AND s.author<>? AND {packages.OPEN_SQL}"
             " AND (p.owner=? OR EXISTS(SELECT 1 FROM project_members m"
             " WHERE m.project_id=s.project_id AND m.username=?))"
             " ORDER BY s.updated_at DESC, s.id DESC",
@@ -61,7 +62,8 @@ def list_notifications(req: Request, user: str = Depends(deps.me)) -> dict:
     try:
         rows = con.execute(
             "SELECT n.id, n.type, n.project_id, p.title AS project_title, n.doc_id, "
-            "COALESCE(c.parent_id, n.ref) AS ref, n.text, n.actor, n.is_read, n.created_at"
+            "COALESCE(c.parent_id, n.ref) AS ref, COALESCE(c.package_id, '') AS package_id,"
+            " n.text, n.actor, n.is_read, n.created_at"
             " FROM notifications n LEFT JOIN projects p ON p.id=n.project_id"
             " LEFT JOIN comments c ON c.id=n.ref"
             " WHERE n.recipient=? ORDER BY n.created_at DESC, n.rowid DESC LIMIT ?", (user, LIST_CAP)).fetchall()

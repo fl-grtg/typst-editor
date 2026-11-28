@@ -206,7 +206,7 @@ test('comment navigation uses mapped draft positions', async () => {
   const c = vm.createContext({ window: { suggestionDraft: {} }, docId: 'doc', openN: 1, activeFile: '',
     getT: () => 'draft text', threadEditorRange: () => ({ from: 2, to: 6 }),
     cm: { dispatch: value => dispatched = value, focus() {}, state: { doc: { lineAt: () => ({ number: 1 }) } } },
-    EditorView: { scrollIntoView() {} }, openPop: line => opened = line })
+    EditorView: { scrollIntoView() {} }, openPop: line => opened = line, $: () => ({ focus() {} }) })
   vm.runInContext(source.slice(source.indexOf('async function jumpThread'), source.indexOf('async function refresh(')), c)
   await c.jumpThread({ a: 1000, b: 2000 })
   assert.deepEqual(plain(dispatched.selection), { anchor: 2, head: 6 })
@@ -242,8 +242,8 @@ test('suggestion hits use the comment opener and include overlapping comments', 
   const node = { dataset: { suggestionChange: range.key } }
   c.openSuggestionBox(node)
   assert.equal(opened[0], 1)
-  assert.equal(opened[3].nodes[0], node)
-  assert.deepEqual(plain(opened[3].threadIds), ['comment'])
+  assert.equal(opened[2].nodes[0], node)
+  assert.deepEqual(plain(opened[2].threadIds), ['comment'])
 })
 
 test('source and draft comment positions map through replacement without changing source', async () => {
@@ -279,7 +279,7 @@ test('draft gutter marks include mapped comments and new draft suggestions', () 
   const source = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
   let painted
   const c = vm.createContext({ window: { suggestionDraft: {} }, docId: 'doc', tplName: '', activeFile: '', marks: new Set(), markStyle: '',
-    threads: [{ id: 'comment', anchor: 1 }], threadEditorRange: () => ({ from: 20 }), draftRanges: () => [{ a: 40 }],
+    threads: [{ id: 'comment', anchor: 1, a: 0 }], threadEditorRange: () => ({ from: 20 }), draftRanges: () => [{ a: 40 }],
     cm: { state: { doc: { lines: 5, lineAt: pos => ({ number: pos / 10 + 1 }), line: n => ({ from: (n - 1) * 10 }) } },
       dispatch: value => painted = value.effects },
     ThreadDot: class { range(from) { return from } }, RangeSet: { of: ranges => ranges }, setMarks: { of: ranges => ranges } })
@@ -292,19 +292,19 @@ test('gutter opens every draft change on the same line', () => {
   let box
   const c = vm.createContext({ window: { suggestionDraft: {} }, threads: [], draftRanges: () => [{ key: 'a', a: 1, b: 2 }, { key: 'b', a: 4, b: 5 }],
     cm: { state: { doc: { lineAt: () => ({ number: 1 }) } }, dom: { querySelectorAll: () => [] } },
-    openPop: (...args) => box = args[3] })
+    openPop: (...args) => box = args[2] })
   vm.runInContext(code.slice(code.indexOf('function openLinePop'), code.indexOf('function draftSuggestionCard')), c)
   c.openLinePop(1)
   assert.equal(box.ranges.length, 2)
 })
 
 test('cards label comments and keep dismissal in the trash action for editors', async () => {
-  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, children: [],
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [], classList: { add() {} },
     append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
   const calls = []
-  const c = vm.createContext({ docId: 'doc', openN: 1, docRole: 'editor', openedTrashed: false, user: 'editor',
+  const c = vm.createContext({ window: {}, docId: 'doc', openN: 1, docRole: 'editor', openedTrashed: false, user: 'editor',
     el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', t: value => value,
-    ago: () => 'now', colOf: () => 'blue', wireMentions() {}, refresh() {},
+    ago: () => 'now', colOf: () => 'blue', paintAvatar() {}, tokenSafeSpan: (old, span) => span, richText: text => node('p', 'tx', text), popDrafts: new Map(), wireMentions() {}, refresh() {},
     decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
   const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
   vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
@@ -320,4 +320,75 @@ test('cards label comments and keep dismissal in the trash action for editors', 
   assert.equal(calls[0][1], 'reject')
   const comment = c.threadCard({ ...th, suggestion_status: null })
   assert.ok(walk(comment).some(n => n.textContent === 'comments.newAria'))
+})
+
+test('owner dismisses pending suggestions via reject, reviewer gets no broken delete, conflict disables accept', async () => {
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [], classList: { add() {} },
+    append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
+  const calls = []
+  const mkCtx = (docRole, user) => {
+    const c = vm.createContext({ window: {}, docId: 'doc', openN: 1, docRole, openedTrashed: false, user,
+      el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', ICO_EDIT: 'edit', t: value => value,
+      ago: () => 'now', colOf: () => 'blue', paintAvatar() {}, tokenSafeSpan: (old, span) => span, richText: text => node('p', 'tx', text), popDrafts: new Map(), wireMentions() {}, refresh() {}, api: () => { throw Error('must not call DELETE') },
+      decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
+    const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+    vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
+    vm.runInContext(code.slice(0, code.indexOf('async function decideSuggestion')), c)
+    const comments = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
+    vm.runInContext(comments.slice(comments.indexOf('function threadCard'), comments.indexOf('async function loadComments')), c)
+    return c
+  }
+  const walk = root => [root, ...root.children.flatMap(walk)]
+  const th = { id: 's1', username: 'alice', created_at: '', replies: [], text: '', quote: 'abc', suggestion_status: 'pending', suggestion_old: 'abc', replacement: 'axc', a: 0, conflict: true }
+  const ownerCard = mkCtx('owner', 'alice').threadCard(th)
+  assert.equal(walk(ownerCard).find(n => n.textContent === 'comments.accept').disabled, true)
+  await walk(ownerCard).find(n => n.title === 'comments.delThread').onclick()
+  assert.equal(calls[0][1], 'reject')
+  const reviewerCard = mkCtx('reviewer', 'alice').threadCard(th)
+  assert.equal(walk(reviewerCard).find(n => n.title === 'comments.delThread'), undefined)
+})
+
+test('conflicted pending suggestions mark anchor line cleanly without slicing or replacement widgets', () => {
+  const highlights = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  let widgetCreated = false
+  const c = vm.createContext({
+    window: {},
+    threads: [{ id: 's1', a: 10, b: 30, conflict: true, suggestion_status: 'pending', suggestion_old: 'old text', replacement: 'new text' }],
+    threadEditorRange: th => ({ from: th.a, to: th.b }),
+    Decoration: {
+      mark: spec => ({ range: (from, to) => ({ from, to, spec }) }),
+      widget: spec => ({ range: pos => ({ pos, spec }) }),
+    },
+    SuggestionReplacement: class { constructor() { widgetCreated = true; this.text = 'new' } },
+  })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
+  vm.runInContext(highlights.slice(highlights.indexOf('function threadHighlights'), highlights.indexOf('function refreshHl')), c)
+  const out = plain(c.threadHighlights())
+  assert.equal(widgetCreated, false)
+  assert.equal(out.length, 1)
+  assert.deepEqual([out[0].from, out[0].to], [10, 30])
+  assert.ok(out[0].spec.class.includes('cm-suggestion-conflict'))
+})
+test('deleted commented text leaves no gutter marker and a deleted suggestion base no replacement', () => {
+  const source = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
+  const c = vm.createContext({ window: {}, docId: 'doc', tplName: '', activeFile: '', marks: new Set(), markStyle: '',
+    threads: [{ id: 'gone', anchor: 4, a: null, _deleted: true }, { id: 'moved', anchor: 4, a: 10 }],
+    threadEditorRange: th => ({ from: th.a }),
+    cm: { state: { doc: { lines: 5, lineAt: pos => ({ number: pos / 10 + 1 }), line: n => ({ from: (n - 1) * 10 }) } }, dispatch() {} },
+    ThreadDot: class { range(from) { return from } }, RangeSet: { of: ranges => ranges }, setMarks: { of: ranges => ranges } })
+  vm.runInContext(source.slice(source.indexOf('function gutter'), source.indexOf('let popFresh')), c)
+  c.gutter()
+  assert.deepEqual(Array.from(c.marks), [2])
+  const highlights = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  const widgets = []
+  const h = vm.createContext({ window: { suggestionDraft: {} }, threads: [{ id: 's', a: 0, b: 7, suggestion_status: 'pending', suggestion_old: 'Einsatz', replacement: 'Pilot' }],
+    threadEditorRange: () => ({ from: 3, to: 3 }), tokenSafeSpan: (old, span) => span,
+    Decoration: { mark: spec => ({ range: (from, to) => ({ from, to, spec }) }), widget: spec => ({ range: at => { widgets.push(at); return { at } } }) },
+    SuggestionReplacement: class { constructor() { this.text = 'Pilot' } } })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), h)
+  vm.runInContext(highlights.slice(highlights.indexOf('function threadHighlights'), highlights.indexOf('function refreshHl')), h)
+  h.threadHighlights()
+  assert.deepEqual(widgets, [])
 })

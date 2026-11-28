@@ -2,8 +2,23 @@
    Editor
    ========================================================================== */
 #editWrap { flex: 1; display: flex; position: relative; background: var(--editor); min-width: 0; min-height: 0; }
-#cmWrap { flex: 1; min-width: 0; position: relative; background: var(--editor); --ed: 14px; --lh: 23px; padding: 8px 8px 0 0; }
-#cm { height: 100%; overflow: hidden; }
+#cmWrap { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; background: var(--editor); --ed: 14px; --lh: 23px; padding: 0; }
+#cm { flex: 1; min-height: 0; overflow: hidden; padding: 8px 8px 0 0; }
+#sugBar { display: flex; align-items: center; gap: 8px; flex: none; min-height: 38px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, #9560d5 7%, var(--panel)); font-size: 12px; color: var(--sub); }
+#sugBar[hidden] { display: none; }
+#sugBar .sugDot { width: 6px; height: 6px; border-radius: 50%; background: #9560d5; flex: none; }
+#sugBar b { font-weight: 600; color: var(--text); white-space: nowrap; }
+#sugBar .sugCount { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--sub); }
+#sugBar .sugCount:not(:empty)::before { content: '·'; margin-right: 6px; color: var(--faint); }
+#sugBar .sugSp { flex: 1 0 0; }
+#sugBar .sugMore { display: inline-flex; align-items: center; justify-content: center; width: 24px; min-width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; background: transparent; color: var(--sub); }
+#sugBar .sugMore:hover { background: var(--hover); color: var(--text); }
+#sugBar button { flex: none; white-space: nowrap; min-height: 24px; padding: 2px 10px; border-radius: var(--r-xs); font-size: 11.5px; font-weight: 600; box-shadow: none; }
+#sugBar .sugSend { border: 1px solid transparent; background: var(--ink); color: var(--on-ink); }
+#sugBar .sugSend:not(:disabled):hover { filter: opacity(.86); }
+#sugBar .sugSend:disabled { border-color: var(--line); background: transparent; color: var(--faint); cursor: default; }
+#sugBar .sugDiscard { border: 0; background: transparent; color: var(--sub); }
+#sugBar .sugDiscard:not(:disabled):hover { background: var(--hover); color: var(--text); }
 #cm .cm-editor { height: 100%; }
 #cm .cm-editor.cm-focused { outline: none; }
 #cmWrap .cm-content { font: var(--ed)/var(--lh) var(--mono); color: var(--text); caret-color: var(--acc); }
@@ -18,6 +33,7 @@
 #cmWrap .cm-scroller::-webkit-scrollbar-track, #cmWrap .cm-scroller::-webkit-scrollbar-track-piece, #cmWrap .cm-scroller::-webkit-scrollbar-corner { background: transparent; }
 @supports not selector(::-webkit-scrollbar) { #cmWrap .cm-scroller { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; } } /* Firefox: no per-axis width */
 #cmWrap .cm-lineNumbers .cm-gutterElement.hasThread { color: var(--acc); font-weight: 700; cursor: pointer; }
+#cmWrap .cm-lineNumbers .cm-gutterElement.hasThread.hasSuggestion { color: #9560d5; }
 /* Fold lane right of numbers: shares editor bg, chevrons hover-revealed, folded stays visible */
 #cmWrap .cm-foldGutter { background: var(--editor); }
 #cmWrap .cm-foldGutter .cm-gutterElement { padding: 0 4px 0 0; line-height: var(--lh); min-width: 18px; }
@@ -54,8 +70,17 @@
 #cmWrap .cm-scroller { overflow-x: clip; } /* wrapping on: carrier extension must never cause a horizontal scrollbar */
 #cmWrap.wrapOff .cm-scroller { overflow-x: auto; } /* wrapping off: long lines scroll horizontally */
 #cmWrap.wrapOff .cm-errMark::after { display: none; } /* the 100vw carrier would inflate the now-scrollable width */
-#cmWrap .cm-hl { background: color-mix(in srgb, var(--editor) 72%, #ffc400); border-radius: 0; } /* no radius: adjacent mark tiles (around tokens) stay one continuous surface; opaque mix so sibling tiles never show seams */
-#cmWrap .cm-hl:hover { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
+/* Semi-transparent highlights so CM6's blue selection layer shines right through when selecting across marks */
+#cmWrap .cm-hl { background: rgba(255, 196, 0, .24); border-radius: 0; box-shadow: inset 0 -1.5px 0 rgba(212, 160, 23, .45); }
+#cmWrap .cm-hl:hover { background: rgba(255, 196, 0, .38); cursor: pointer; }
+#cmWrap .cm-hl-multi { background: rgba(255, 184, 0, .38); box-shadow: inset 0 -2px 0 rgba(212, 160, 23, .85); }
+#cmWrap .cm-hl-multi:hover { background: rgba(255, 184, 0, .50); }
+#cmWrap .cm-hl-mix-res { background: rgba(186, 164, 96, .28); box-shadow: inset 0 -1.5px 0 rgba(160, 140, 82, .6); }
+#cmWrap .cm-hl-mix-res:hover { background: rgba(186, 164, 96, .40); }
+#cmWrap .cm-hl-resolved { background: rgba(128, 134, 145, .16); box-shadow: inset 0 -1.5px 0 rgba(128, 134, 145, .45); }
+#cmWrap .cm-hl-resolved:hover { background: rgba(128, 134, 145, .26); }
+.typ-hover .hvSug { margin-top: 4px; font: 12px/1.45 var(--mono); }
+.typ-hover .hvAdd { color: #9560d5; font-weight: 600; }
 #cmWrap .cm-syncLine { animation: syncFlash .8s ease-out; } /* preview -> editor: the target line lights up (dark mode) or darkens (light mode) */
 @keyframes syncFlash { 0%, 55% { background-color: var(--sync-flash); } 100% { background-color: transparent; } }
 #cmWrap .cm-find { background: color-mix(in srgb, var(--editor) 82%, #ffc400); border-radius: 3px; }
@@ -157,17 +182,20 @@
 .bibField textarea { min-height: 38px; height: 38px; resize: none; }
 .bibField input:invalid { border-color: var(--danger); }
 
-#cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: color-mix(in srgb, var(--editor) 78%, #955ae1); }
-#cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: color-mix(in srgb, var(--editor) 68%, #955ae1); }
+#cmWrap .cm-suggestion, #cmWrap .cm-draft-change { background: rgba(149, 90, 225, .18); box-shadow: inset 0 -1.5px 0 rgba(149, 96, 213, .5); }
+#cmWrap .cm-suggestion:hover, #cmWrap .cm-draft-change:hover { background: rgba(149, 90, 225, .28); }
+#cmWrap .cm-suggestion.cm-hl-mix, #cmWrap .cm-draft-change.cm-hl-mix { background: rgba(188, 134, 152, .26); box-shadow: inset 0 -2px 0 rgba(186, 130, 120, .75); }
+#cmWrap .cm-suggestion.cm-hl-mix:hover, #cmWrap .cm-draft-change.cm-hl-mix:hover { background: rgba(188, 134, 152, .38); }
+#cmWrap .cm-suggestion.cm-suggestion-conflict { background: rgba(217, 45, 32, .12); box-shadow: none; text-decoration: underline dashed var(--danger); text-underline-offset: 3px; }
 #suggestionToggle.on { color: #9560d5; background: rgba(145, 90, 225, .18); }
 #tools #suggestionToggle.on:hover { color: #9560d5; background: rgba(145, 90, 225, .28); }
 #tools #suggestionToggle.on:active { color: #9560d5; background: rgba(145, 90, 225, .36); }
 #pop pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 #cmWrap .cm-draft-change { cursor: text; }
-.suggestionDeleted { text-decoration: line-through; text-decoration-color: #9560d5; text-decoration-thickness: 1.5px; color: var(--text); }
-#cmWrap .suggestionDeleted[contenteditable="false"] { white-space: pre-wrap; cursor: pointer; }
-#cmWrap [data-suggestion-id][contenteditable="false"] { white-space: pre-wrap; cursor: pointer; }
+.suggestionDeleted { text-decoration: line-through; text-decoration-color: rgba(149, 96, 213, .75); text-decoration-thickness: 1px; color: var(--sub); }
+#cmWrap .suggestionDeleted[contenteditable="false"] { white-space: pre-wrap; cursor: pointer; margin-right: 3px; }
+#cmWrap [data-suggestion-id][contenteditable="false"] { white-space: pre-wrap; cursor: pointer; margin-left: 3px; }
 
 .csvEditor td.csv-selected { background: var(--acc-soft); }
 .csvEditor td.csv-target { box-shadow: inset 0 0 0 2px var(--acc); background: var(--acc-soft); }
@@ -183,11 +211,20 @@
 .package-file .t, .package-modified .t { color: #9560d5; }
 aside .doc .package-accept-action { visibility: visible; }
 .package-tools button.on { background: rgba(145,90,225,.2); color: #9560d5; }
-.package-mode { max-width: 160px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #9560d5; }
 
 /* #3 hover-claim: hovering ANY fragment of a comment/suggestion/patch claims all its tiles (sibling fragments light up together) */
-#cmWrap .cm-hl.cm-hl-claim { background: color-mix(in srgb, var(--editor) 54%, #ffc400); cursor: pointer; }
-#cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: color-mix(in srgb, var(--editor) 68%, #955ae1); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-claim { background: rgba(255, 196, 0, .38); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-resolved.cm-hl-claim { background: rgba(128, 134, 145, .26); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-mix-res.cm-hl-claim { background: rgba(186, 164, 96, .40); cursor: pointer; }
+#cmWrap .cm-hl.cm-hl-multi.cm-hl-claim { background: rgba(255, 184, 0, .50); cursor: pointer; }
+#cmWrap .cm-suggestion.cm-hl-claim, #cmWrap .cm-draft-change.cm-hl-claim { background: rgba(149, 90, 225, .28); cursor: pointer; }
+#cmWrap .cm-suggestion.cm-hl-mix.cm-hl-claim { background: rgba(188, 134, 152, .38); cursor: pointer; }
+/* live inline suggestions are teal: purple stays reserved for the open draft or package */
+#cmWrap .cm-live-suggestion { background: rgba(14, 148, 136, .14); box-shadow: inset 0 -1.5px 0 rgba(14, 148, 136, .55); }
+#cmWrap .cm-live-suggestion.suggestionDeleted { text-decoration-color: rgba(14, 148, 136, .85); }
+#cmWrap .cm-live-suggestion:hover, #cmWrap .cm-live-suggestion.cm-hl-claim { background: rgba(14, 148, 136, .24); }
+#cmWrap .cm-live-suggestion.cm-hl-mix { background: rgba(130, 160, 80, .24); box-shadow: inset 0 -2px 0 rgba(150, 140, 60, .7); }
+#cmWrap .cm-live-suggestion.cm-hl-mix:hover, #cmWrap .cm-live-suggestion.cm-hl-mix.cm-hl-claim { background: rgba(130, 160, 80, .36); }
 
 .bibList button.bibEntryPending { color: #9560d5; box-shadow: inset 3px 0 #9560d5; }
 /* Drop into the editor: an accent caret (images) or insertion line glides to the drop spot, a chip names the text it writes, and that text glows once it is in */

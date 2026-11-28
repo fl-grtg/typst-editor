@@ -178,10 +178,17 @@ def _notify_mentions(doc_id: str, author: str, text: str, ref: str, before: str 
     con = db.connect()
     try:
         d = con.execute("SELECT project_id FROM docs WHERE id=?", (doc_id,)).fetchone()
+        thread = con.execute("SELECT package_id FROM comments WHERE id=? AND doc_id=?", (ref, doc_id)).fetchone()
+        if d and thread and thread["package_id"]:
+            audience = [r[0] for r in con.execute(
+                "SELECT owner FROM projects WHERE id=? UNION SELECT username FROM project_members WHERE project_id=?",
+                (d["project_id"], d["project_id"]),
+            )]
+        else:
+            audience = doc_users(doc_id)
     finally:
         con.close()
     project_id = d["project_id"] if d else ""
-    audience = doc_users(doc_id)
     for user in audience:
         if user != author and user.lower() in names:
             _safely("mention", create_notification, user, "mention", doc_id, text.strip()[:140], project_id, ref, author)

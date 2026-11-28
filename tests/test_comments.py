@@ -1,5 +1,8 @@
 from conftest import login, make_doc, register_user
 
+from backend import db
+from backend.mcp_fs import open_comments
+
 
 def _setup(c):
     register_user(c, "alice")
@@ -89,3 +92,281 @@ def test_suggestion_delete_resolve_guards(c):
     assert got["anchor"] == 9
     assert c.delete(f"/api/docs/{did}/comments/{sid}").status_code == 200
     assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []
+
+
+def test_package_scoped_comments_isolated_and_cleaned(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, "PaketDoc", content="alpha beta")
+    pid = project_of(c, did)
+    pkg = c.post(f"/api/projects/{pid}/proposals", json={
+        "title": "Aenderung",
+        "files": [{"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha GAMMA",
+                   "changes": [{"old_string": "alpha beta", "new_string": "alpha GAMMA"}]}],
+    }).json()["id"]
+    live_id = c.post(f"/api/docs/{did}/comments", json={
+        "anchor": 1, "text": "live", "quote": "GAMMA", "anchor_quote": "beta", "anchor_range": "AQI=.AwQ=",
+    }).json()["id"]
+    pkg_cid = c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "quote": "GAMMA", "text": "im paket", "package_id": pkg}).json()["id"]
+    # replies inherit package_id automatically
+    c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "antwort im paket", "parent_id": pkg_cid})
+    # unknown package rejected
+    assert c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "text": "x", "package_id": "bogus"}).status_code == 404
+    # live comments never include package comments, and vice versa
+    live, = c.get(f"/api/docs/{did}/comments").json()["comments"]
+    assert (live["id"], live["quote"], live["anchor_quote"], live["anchor_range"]) == (live_id, "GAMMA", "beta", "AQI=.AwQ=")
+    assert [t["id"] for t in open_comments(did)] == [live_id]
+    pkg_list = c.get(f"/api/docs/{did}/comments", params={"package_id": pkg}).json()["comments"]
+    assert [t["id"] for t in pkg_list] == [pkg_cid]
+    assert len(pkg_list[0]["replies"]) == 1
+    package_url = f"/api/projects/{pid}/proposals/{pkg}"
+    revision = c.get(package_url).json()["revision"]
+    assert c.post(package_url + "/accept", json={"revision": revision}).status_code == 200
+    assert c.get(f"/api/projects/{pid}/proposals").json()["packages"] == []
+    assert [p["id"] for p in c.get(f"/api/projects/{pid}/proposals?include_closed=true").json()["packages"]] == [pkg]
+    assert c.get(f"/api/docs/{did}/comments", params={"package_id": pkg}).json()["comments"] == pkg_list
+    # deleting the package cleans up its package-scoped comments, leaving live comments untouched
+    assert c.delete(package_url).status_code == 200
+    assert c.get(f"/api/docs/{did}/comments", params={"package_id": pkg}).status_code == 404
+    assert [t["id"] for t in c.get(f"/api/docs/{did}/comments").json()["comments"]] == [live_id]
+
+
+def test_upgrade_legacy_comments_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "app.db")
+    legacy_schema = tmp_path / "legacy.sql"
+    schema = db.SCHEMA_PATH.read_text(encoding="utf-8")
+    legacy_schema.write_text("\n".join(
+        line for line in schema.splitlines() if not line.lstrip().startswith(("package_id TEXT", "anchor_quote TEXT", "anchor_range TEXT"))
+    ), encoding="utf-8")
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_PATH", legacy_schema)
+        m.setattr(db, "_MIGRATIONS", db._MIGRATIONS[:35])
+        db.init_db()
+    with db.tx() as con:
+        con.execute("INSERT INTO users (name,hash) VALUES ('alice','')")
+        con.execute("INSERT INTO docs (id,owner,created_at,updated_at) VALUES ('d','alice','','')")
+        con.execute("INSERT INTO comments (id,doc_id,username,text,created_at) VALUES ('c','d','alice','keep me','')")
+    db.init_db()
+    with db.tx() as con:
+        row = con.execute("SELECT text,package_id,anchor_quote,anchor_range FROM comments WHERE id='c'").fetchone()
+        assert tuple(row) == ("keep me", "", None, None)
+        assert any(index["name"] == "idx_comments_pkg" for index in con.execute("PRAGMA index_list(comments)"))
+
+
+def test_unsent_comments_are_published_with_the_package_only(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta gamma")
+    url = f"/api/projects/{project_of(c, did)}/proposals"
+    file = {"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta gamma", "content": "alpha BETTER gamma",
+            "changes": [{"old_string": "beta", "new_string": "BETTER"}]}
+    comment = {"doc_id": did, "anchor": 1, "text": "Why this change?", "quote": "alpha BETTER", "anchor_quote": "alpha BETTER"}
+    invalid = c.post(url, json={"title": "Review", "files": [file], "comments": [{**comment, "doc_id": "missing"}]})
+    assert invalid.status_code == 400
+    assert c.get(url).json()["packages"] == []
+    response = c.post(url, json={"title": "Review", "files": [file], "comments": [comment]})
+    assert response.status_code == 200, response.text
+    pkg = response.json()["id"]
+    comment_url = f"/api/docs/{did}/comments"
+    assert c.get(comment_url).json()["comments"] == []
+    thread, = c.get(comment_url, params={"package_id": pkg}).json()["comments"]
+    assert (thread["quote"], thread["package_id"], thread["text"]) == ("alpha BETTER", pkg, "Why this change?")
+
+
+
+def test_proposal_comment_changes_stay_in_the_package(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    live = c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "quote": "alpha", "text": "live"}).json()["id"]
+    reply = c.post(f"/api/docs/{did}/comments", json={"anchor": 1, "parent_id": live, "text": "live reply"}).json()["id"]
+    file = {"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha BETA",
+            "changes": [{"old_string": "beta", "new_string": "BETA"}]}
+    pkg = c.post(f"/api/projects/{project_of(c, did)}/proposals", json={"title": "Review", "files": [file], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": live, "text": "proposed edit"},
+        {"doc_id": did, "anchor": 1, "replaces_id": reply, "deleted": True},
+        {"doc_id": did, "anchor": 1, "parent_id": live, "text": "proposal reply"},
+    ]}).json()["id"]
+    url = f"/api/docs/{did}/comments"
+    thread, = c.get(url).json()["comments"]
+    assert (thread["text"], [r["text"] for r in thread["replies"]]) == ("live", ["live reply"])
+    changes = c.get(url, params={"package_id": pkg}).json()["changes"]
+    assert {(x["replaces_id"], x["parent_id"], x["text"], x["deleted"]) for x in changes} == {
+        (live, None, "proposed edit", False), (reply, None, "", True), (None, live, "proposal reply", False),
+    }
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": live, "text": "second edit"}).status_code == 200
+    assert c.get(url).json()["comments"][0]["text"] == "live"
+    assert [x["text"] for x in c.get(url, params={"package_id": pkg}).json()["changes"] if x["replaces_id"] == live] == ["second edit"]
+
+
+def test_accepting_a_package_applies_proposed_comment_changes_and_keeps_its_discussion(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    edited = c.post(url, json={"anchor": 1, "quote": "alpha", "text": "old wording"}).json()["id"]
+    removed = c.post(url, json={"anchor": 1, "quote": "beta", "text": "remove me"}).json()["id"]
+    file = {"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha BETA",
+            "changes": [{"old_string": "beta", "new_string": "BETA"}]}
+    project = project_of(c, did)
+    package = c.post(f"/api/projects/{project}/proposals", json={"title": "Review", "files": [file], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": edited, "text": "new wording"},
+        {"doc_id": did, "anchor": 1, "replaces_id": removed, "deleted": True},
+        {"doc_id": did, "anchor": 1, "text": "Is BETA right?", "quote": "BETA", "anchor_quote": "BETA"},
+    ]}).json()
+    assert [t["text"] for t in c.get(url).json()["comments"]] == ["old wording", "remove me"]
+    assert c.post(f"/api/projects/{project}/proposals/{package['id']}/accept", json={"revision": package["revision"]}).status_code == 200
+    assert [t["text"] for t in c.get(url).json()["comments"]] == ["new wording"]
+    scoped = c.get(url, params={"package_id": package["id"]}).json()
+    assert [t["text"] for t in scoped["comments"]] == ["Is BETA right?"]
+    assert scoped["changes"] == []
+
+
+def test_comment_only_proposal_can_be_sent_and_accepted(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    edited = c.post(url, json={"anchor": 1, "quote": "alpha", "text": "old wording"}).json()["id"]
+    done = c.post(url, json={"anchor": 1, "quote": "beta", "text": "finish me"}).json()["id"]
+    reply = c.post(url, json={"anchor": 1, "parent_id": done, "text": "reply"}).json()["id"]
+    project = project_of(c, did)
+    proposals = f"/api/projects/{project}/proposals"
+    assert c.post(proposals, json={"title": "Bad", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": reply, "resolved": True}]}).status_code == 400
+    package = c.post(proposals, json={"title": "Comments", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": edited, "text": "new wording"},
+        {"doc_id": did, "anchor": 1, "replaces_id": done, "resolved": True},
+    ]}).json()
+    assert package["comment_changes"] == 2
+    listed, = c.get(proposals).json()["packages"]
+    assert (listed["file_count"], listed["comment_changes"]) == (0, 2)
+    assert [t["resolved"] for t in c.get(url).json()["comments"]] == [0, 0]
+    accepted = c.post(f"{proposals}/{package['id']}/accept", json={"revision": package["revision"]}).json()
+    assert accepted["comment_changes"] == 0
+    assert [(t["text"], t["resolved"]) for t in c.get(url).json()["comments"]] == [("new wording", 0), ("finish me", 1)]
+    assert c.get(proposals).json()["packages"] == []
+
+
+def test_newer_live_comment_edit_wins_over_the_proposal(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    cid = c.post(url, json={"anchor": 1, "text": "first"}).json()["id"]
+    project = project_of(c, did)
+    package = c.post(f"/api/projects/{project}/proposals", json={"title": "Edit", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": cid, "text": "proposed"}]}).json()
+    assert c.post(f"{url}/{cid}/edit", json={"text": "edited live"}).status_code == 200
+    assert c.post(f"/api/projects/{project}/proposals/{package['id']}/accept", json={"revision": package["revision"]}).status_code == 200
+    assert c.get(url).json()["comments"][0]["text"] == "edited live"
+
+
+def test_comment_changes_survive_a_discarded_file(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    cid = c.post(url, json={"anchor": 1, "text": "old"}).json()["id"]
+    project = project_of(c, did)
+    file = {"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha BETA",
+            "changes": [{"old_string": "beta", "new_string": "BETA"}]}
+    package = c.post(f"/api/projects/{project}/proposals", json={"title": "Mixed", "files": [file], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": cid, "text": "new"}]}).json()
+    package_url = f"/api/projects/{project}/proposals/{package['id']}"
+    package = c.patch(package_url, json={"title": "Mixed", "files": [], "revision": package["revision"]}).json()
+    assert (package["files"], package["comment_changes"]) == ([], 1)
+    assert c.post(package_url + "/accept", json={"revision": package["revision"]}).status_code == 200
+    assert c.get(url).json()["comments"][0]["text"] == "new"
+    assert c.get(f"/api/docs/{did}").json()["content"] == "alpha beta"
+
+
+def test_proposed_resolve_through_the_comment_api(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    cid = c.post(url, json={"anchor": 1, "text": "open"}).json()["id"]
+    reply = c.post(url, json={"anchor": 1, "parent_id": cid, "text": "r"}).json()["id"]
+    file = {"kind": "document", "doc_id": did, "action": "modify", "base": "alpha beta", "content": "alpha BETA",
+            "changes": [{"old_string": "beta", "new_string": "BETA"}]}
+    pkg = c.post(f"/api/projects/{project_of(c, did)}/proposals", json={"title": "P", "files": [file]}).json()["id"]
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": reply, "text": "", "resolved": True}).status_code == 400
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": cid, "text": "", "resolved": True}).status_code == 200
+    change, = c.get(url, params={"package_id": pkg}).json()["changes"]
+    assert (change["replaces_id"], change["text"], change["resolved"], change["deleted"]) == (cid, "", 1, False)
+    assert c.get(url).json()["comments"][0]["resolved"] == 0
+
+
+def test_a_discussion_only_proposal_stays_open_until_accepted(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    proposals = f"/api/projects/{project_of(c, did)}/proposals"
+    assert c.post(proposals, json={"title": "Empty", "files": [], "comments": []}).status_code == 400
+    package = c.post(proposals, json={"title": "Talk", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "text": "Is alpha right?", "quote": "alpha", "anchor_quote": "alpha"}]}).json()
+    assert (package["open"], package["comment_changes"]) == (True, 0)
+    assert [p["open"] for p in c.get(proposals).json()["packages"]] == [True]
+    closed = c.post(f"{proposals}/{package['id']}/accept", json={"revision": package["revision"]}).json()
+    assert closed["open"] is False
+    assert c.get(proposals).json()["packages"] == []
+    assert [p["open"] for p in c.get(proposals, params={"include_closed": True}).json()["packages"]] == [False]
+    assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []
+
+
+def test_comment_change_rows_reject_no_ops_and_replies(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    url = f"/api/docs/{did}/comments"
+    cid = c.post(url, json={"anchor": 1, "text": "open"}).json()["id"]
+    proposals = f"/api/projects/{project_of(c, did)}/proposals"
+    assert c.post(proposals, json={"title": "Noop", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "replaces_id": cid, "resolved": False}]}).status_code == 400
+    pkg = c.post(proposals, json={"title": "Talk", "files": [], "comments": [{"doc_id": did, "anchor": 1, "text": "hi"}]}).json()["id"]
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": cid, "text": "", "resolved": False}).status_code == 400
+    change = c.post(url, json={"anchor": 1, "package_id": pkg, "replaces_id": cid, "text": "", "resolved": True}).json()["id"]
+    assert c.post(url, json={"anchor": 1, "package_id": pkg, "parent_id": change, "text": "reply"}).status_code == 400
+
+
+def test_discussion_packages_reach_the_topbar_summary(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    project = project_of(c, did)
+    assert c.post(f"/api/projects/{project}/members", json={"username": "bob", "role": "editor"}).status_code == 200
+    login(c, "bob")
+    pkg = c.post(f"/api/projects/{project}/proposals", json={"title": "Talk", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "text": "hi"}]}).json()["id"]
+    login(c, "alice")
+    assert [p["id"] for p in c.get("/api/notifications/summary").json()["packages"]] == [pkg]
+
+
+def test_accepting_a_discussion_tells_its_author(c):
+    from conftest import project_of, wait_for
+    register_user(c, "alice")
+    register_user(c, "bob")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    project = project_of(c, did)
+    assert c.post(f"/api/projects/{project}/members", json={"username": "bob", "role": "editor"}).status_code == 200
+    login(c, "bob")
+    package = c.post(f"/api/projects/{project}/proposals", json={"title": "Talk", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "text": "hi"}]}).json()
+    login(c, "alice")
+    assert c.post(f"/api/projects/{project}/proposals/{package['id']}/accept", json={"revision": package["revision"]}).json()["open"] is False
+    login(c, "bob")
+    wait_for(lambda: any(n["type"] == "reviewed" and n["text"] == "accepted: Talk" for n in c.get("/api/notifications").json()["items"]))

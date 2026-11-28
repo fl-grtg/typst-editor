@@ -962,7 +962,7 @@ async function openDoc(id) {
           toast(t('docs.stashFound'), () => { // opt-in: others may have edited since, never overwrite silently
             if (n !== openN || !ytext) return
             localStorage.removeItem('typst-pending-' + id)
-            setYText(pend); setT(pend); shadow = pend; queueSave(); queueRender(); paintOutline()
+            setYText(pend); setT(pend); shadow = pend; reanchor(); gutter(); refreshHl(); queueSave(); queueRender(); paintOutline()
             toast(t('docs.stashRestored'))
           }, t('docs.restore'), 15000)
           setTimeout(() => { if (n === openN) localStorage.removeItem('typst-pending-' + id) }, 15000) // ignored: drop the stash

@@ -36,7 +36,7 @@ test('proposal marks wait for their text buffer during document transitions', ()
   const f = { content: 'x'.repeat(41) }
   const c = context({
     window: { changeSession: { files: new Map([['file', f]]) } }, activeFile: '',
-    sessionKey: () => 'file', sessionCurrent() {}, threadHighlights: () => [], getT: () => buffer,
+    sessionKey: () => 'file', sessionCurrent() {}, threadHighlights: () => [], commentCovers: () => false, getT: () => buffer,
     sessionChangeRanges: () => [{ old: '', a: 0, b: 41 }],
     Decoration: { mark: () => ({ range: (from, to) => ({ from, to }) }) },
     RangeSet: { of: marks => { if (marks.some(r => r.to > buffer.length)) throw RangeError('Out of range'); return marks } },
@@ -67,7 +67,7 @@ test('paintSessionSidebar places the draft group inside its project group after 
   }
   const s = { project: 'p1', package: { title: 'P1' }, files: new Map(), dirty: false, busy: false }
   const c = context({
-    window: { changeSession: s }, document: doc, el: (tag, cls, text) => node(cls, text), $: name => own,
+    window: { changeSession: s }, user: 'u', docRole: 'owner', document: doc, el: (tag, cls, text) => node(cls, text), $: name => own,
     sessionFiles: () => [], sessionKey: k => JSON.stringify(k), sessionRuntime: f => ({ ...f }), sessionStash() {},
     sessionCurrent: () => null, switchTab() {}, sessionActivate() {}, sessionOpenFile() {},
     projectAction() {}, ICO_CHECK: '', ICO_TRASH: '', docRole: 'owner',
@@ -234,7 +234,7 @@ test('openTopPackage routes to the document, loads the proposal and avoids doubl
   const c = context({
     window: {}, docProject: 'p1', lastOwn: [{ id: 'd1', project_id: 'p1' }], lastShared: [],
     t: key => key, toast: msg => toasts.push(msg), sidebar: async () => {}, endChangeSession: async () => true,
-    choosePackage: async () => picked.push(true), startChangeSession: async p => started.push(p),
+    choosePackage: async () => picked.push(true), startChangeSession: async p => started.push(p), packageOpen: p => !!p?.files?.length,
     api: async (method, url) => {
       calls.push([method, url])
       const id = url.slice(url.lastIndexOf('/') + 1)

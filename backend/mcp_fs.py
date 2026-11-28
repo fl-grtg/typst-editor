@@ -288,7 +288,7 @@ def open_comments(doc_id: str) -> list[dict]:
     con = db.connect()
     try:
         rows = con.execute("SELECT id,username,author,anchor,quote,text,parent_id,created_at FROM comments "
-                           "WHERE doc_id=? AND resolved=0 ORDER BY created_at", (doc_id,)).fetchall()
+                           "WHERE doc_id=? AND package_id='' AND resolved=0 ORDER BY created_at", (doc_id,)).fetchall()
     finally:
         con.close()
     threads: dict[str, dict] = {}
@@ -356,7 +356,7 @@ def _entries(con, ctx: Ctx, node: dict) -> list[dict]:
     guest = node["role"] == "guest"
     out = []
     open_c = {r[0]: r[1] for r in con.execute(
-        "SELECT c.doc_id,COUNT(*) FROM comments c JOIN docs d ON d.id=c.doc_id WHERE d.project_id=? AND c.resolved=0 AND c.parent_id IS NULL GROUP BY c.doc_id", (pid,))}
+        "SELECT c.doc_id,COUNT(*) FROM comments c JOIN docs d ON d.id=c.doc_id WHERE d.project_id=? AND c.package_id='' AND c.resolved=0 AND c.parent_id IS NULL GROUP BY c.doc_id", (pid,))}
     for r in con.execute("SELECT id,title,folder,length(content) AS size,updated_at FROM docs WHERE project_id=? AND trashed=0 ORDER BY folder,title", (pid,)):
         if guest and not db.role_on(con, ctx.user, r["id"]):
             continue

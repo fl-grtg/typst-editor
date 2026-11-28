@@ -8,12 +8,12 @@ const diffMap = (old, v) => { // position mapper for the diff fallback
   const { a, b } = diffSpan(old, v), d = v.length - old.length
   return (p, end) => p <= a ? p : p >= old.length - b ? p + d : end ? v.length - b : a
 }
-const deltaMap = delta => (p, end) => { // position mapper from a Y delta (start sticks left, end grows right)
+const deltaMap = delta => (p, end) => { // position mapper from a Y delta (start sticks right, end sticks left: inserts before/after stay out)
   let o = 0, n = 0
   for (const d of delta) {
     if (d.retain) { if (p < o + d.retain) return n + (p - o); o += d.retain; n += d.retain }
     else if (d.delete) { if (p < o + d.delete) return n; o += d.delete }
-    else if (d.insert != null) { if (p === o && !end) return n; n += typeof d.insert === 'string' ? d.insert.length : 1 }
+    else if (d.insert != null) { if (p === o && end) return n; n += typeof d.insert === 'string' ? d.insert.length : 1 }
   }
   return n + (p - o)
 }
@@ -51,14 +51,32 @@ function pullRemote(ev) {
   const old = shadow, delta = ev && ev.delta
   queueContentRefresh() // a peer's edit changes the counts too
   const map = delta ? deltaMap(delta) : diffMap(old, v)
+  const ranges = fn => {
+    if (!delta) {
+      const { a, b } = diffSpan(old, v)
+      fn(a, old.length - b, a, v.length - b)
+      return
+    }
+    let a = 0, b = 0, from = 0, to = 0
+    for (const d of delta) {
+      if (d.retain) {
+        fn(from, a, to, b)
+        from = a += d.retain
+        to = b += d.retain
+      } else if (d.delete) a += d.delete
+      else if (typeof d.insert === 'string') b += d.insert.length
+    }
+    fn(from, a, to, b)
+  }
   shadow = v
   if (window.suggestionDraft || window.changeSession) {
-    if (threads.length) mapThreads(map, false, old.length) // old length: anchors sit in the pre-sync text
-    if (window.changeSession) { window.changeSession.commentRanges.clear(); refreshHl(); queueRender() }
+    if (window.changeSession) sessionRemote(old, v, delta)
+    if (threads.length) mapThreads(map, false, old.length, ranges)
+    refreshHl(); queueRender()
     return
   }
   if (activeFile) { // file tab open: buffer main only, editor shows file
-    if (threads.length) mapThreads(map, false, old.length) // values yes (main-relative), paint no
+    if (threads.length) mapThreads(map, false, old.length, ranges)
     queueRender()
     return
   }
@@ -79,7 +97,7 @@ function pullRemote(ev) {
         selection: { anchor: Math.min(m(sel.anchor, false), v.length), head: Math.min(m(sel.head, true), v.length) } })
     }
   } finally { applying = false }
-  if (threads.length) mapThreads(map, true, old.length)
+  if (threads.length) mapThreads(map, true, old.length, ranges)
   reanchor()
   paintOutline()
   scrollApplyEditor() // first sync of an opened doc: restore its saved editor spot

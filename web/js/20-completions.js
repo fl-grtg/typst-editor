@@ -294,16 +294,31 @@ function docNear(view, pos, a, b) { // command docs for nearest word (also at br
   return null
 }
 function commentHover(view, pos) { // full comment view + command docs below, click opens card
-  const list = threads.filter(t => t.a != null && t.b != null && pos >= t.a && pos <= t.b)
+  const list = threads.filter(th => {
+    if (th.a == null || th.b == null) return false
+    const r = threadEditorRange(th)
+    return r.to > r.from && pos >= r.from && pos <= r.to
+  })
   if (!list.length) return null
-  const a = Math.min(...list.map(t => t.a)), b = Math.max(...list.map(t => t.b))
+  const rs = list.map(threadEditorRange)
+  const a = Math.min(...rs.map(r => r.from)), b = Math.max(...rs.map(r => r.to))
   return { pos: a, end: b, above: true, create: () => {
     const div = document.createElement('div'); div.className = 'typ-hover full'
     for (const th of list.slice(0, 3)) {
       const h = document.createElement('div'); h.style.marginBottom = '6px'
       const nm = document.createElement('b'); nm.textContent = th.author || th.username; nm.style.color = colOf(th.username)
       h.appendChild(nm); h.appendChild(document.createTextNode(' · ' + ago(th.created_at)))
-      const p = document.createElement('div'); p.textContent = th.text; h.appendChild(p)
+      if (th.suggestion_status === 'pending') {
+        const span = diffSpan(th.suggestion_old, th.replacement)
+        const old = th.suggestion_old.slice(span.a, th.suggestion_old.length - span.b)
+        const next = th.replacement.slice(span.a, th.replacement.length - span.b)
+        const d = document.createElement('div'); d.className = 'hvSug'
+        if (old) { const s = document.createElement('span'); s.className = 'suggestionDeleted'; s.textContent = old.slice(0, 60); d.appendChild(s) }
+        if (old && next) d.appendChild(document.createTextNode(' → '))
+        if (next) { const s = document.createElement('span'); s.className = 'hvAdd'; s.textContent = next.slice(0, 60); d.appendChild(s) }
+        h.appendChild(d)
+      }
+      if (th.text) { const p = document.createElement('div'); p.textContent = th.text; h.appendChild(p) }
       if (th.replies && th.replies.length) {
         const r = document.createElement('div'); r.style.color = 'var(--sub)'; r.style.fontSize = '12px'
         r.textContent = th.replies.length === 1 ? t('comments.repliesOne', { n: th.replies.length }) : t('comments.repliesMany', { n: th.replies.length }); h.appendChild(r)
@@ -320,7 +335,7 @@ function commentHover(view, pos) { // full comment view + command docs below, cl
       s.style.borderTop = '1px solid var(--line)'; s.style.marginTop = '6px'; s.style.paddingTop = '6px'; s.style.color = 'var(--sub)'
       s.textContent = d; div.appendChild(s)
     }
-    div.style.cursor = 'pointer'; div.onclick = () => openPop(list[0].anchor, false)
+    div.style.cursor = 'pointer'; div.onclick = () => openPop(view.state.doc.lineAt(a).number, false)
     return { dom: div } } }
 }
 let errTipEl = null // full-line error tooltip: manual div (no aim needed, works on empty line area too)
@@ -436,45 +451,70 @@ const posOfLine = (t, line) => { // char pos of 1-based line
   for (let l = 1; l < line; l++) { p = t.indexOf('\n', p) + 1; if (!p) return t.length }
   return p
 }
-function locateQuote(t, q, hintLine) { // exact, else halves/prefix near old spot; -1 = keep, never delete
+function exactQuotePos(t, q, hintLine) { // exact match nearest to hintLine (line distance first, then char distance), else -1
   if (!q) return -1
   const hint = posOfLine(t, hintLine)
-  const near = arr => arr.sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint))[0]
-  let p = -1; const exact = []
-  while ((p = t.indexOf(q, p + 1)) >= 0 && exact.length < 20) exact.push(p)
-  if (exact.length) return near(exact) // same text twice: keep the one at the cursor, not the first
-  const cands = []
-  const pushAll = sub => {
-    if (sub.length < 10) return
-    let p = -1, n = 0
-    while ((p = t.indexOf(sub, p + 1)) >= 0 && n++ < 20) cands.push(p)
-  }
-  if (q.length >= 16) { const h = q.length >> 1; pushAll(q.slice(0, h)); pushAll(q.slice(h)) }
-  else pushAll(q.slice(0, Math.min(10, q.length)))
-  if (!cands.length && q.length > 10) pushAll(q.slice(0, 10))
-  if (!cands.length) return -1
-  return near(cands)
+  const before = hint ? t.lastIndexOf(q, hint - 1) : -1
+  const after = t.indexOf(q, hint)
+  if (before < 0) return after
+  if (after < 0) return before
+  const left = t.slice(before, hint).split('\n').length
+  const right = t.slice(hint, after).split('\n').length
+  return left < right || (left === right && hint - before <= after - hint) ? before : after
+}
+function commentCovers(from, to) {
+  return threads.some(th => {
+    if (th.suggestion_status || th.a == null || th.b == null) return false
+    const r = threadEditorRange(th)
+    return r.to > r.from && (from === to ? r.from <= from && r.to >= to : r.from < to && r.to > from)
+  })
 }
 function threadHighlights() {
-  const rs = []
+  const rs = [], segs = []
   for (const th of threads) {
     if (th.suggestion_status && th.suggestion_status !== 'pending') continue
     if (th.a == null || th.b == null) continue
-    let source = th
-    if (th.suggestion_status === 'pending') {
-      const span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement)) // display trim: never cut inside a formula/raw token
+    const pending = th.suggestion_status === 'pending'
+    if (pending && th.conflict) {
+      const { from: a, to: b } = threadEditorRange(th)
+      if (b > a) segs.push({ a, b, kind: 'conflict', id: String(th.id) })
+      continue
+    }
+    let source = th, span = null
+    if (pending) {
+      span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement))
       const a = Math.min(th.b, th.a + span.a)
       source = { ...th, a, b: Math.max(a, th.b - span.b) }
     }
     const { from: a, to: b } = threadEditorRange(source)
-    if (b > a) rs.push(Decoration.mark({
-      class: th.suggestion_status === 'pending' ? 'cm-hl cm-suggestion suggestionDeleted' : 'cm-hl',
-      attributes: th.suggestion_status === 'pending' ? { 'data-suggestion-id': String(th.id) } : { 'data-comment-id': String(th.id) },
-    }).range(a, b))
-    if (th.suggestion_status === 'pending') {
-      const widget = new SuggestionReplacement(th)
+    if (b > a) segs.push({ a, b, kind: pending ? 'sug' : th.resolved ? 'resolved' : 'open', id: String(th.id) })
+    if (pending && (b > a || source.a === source.b)) { // old text deleted in the open draft: its replacement has nothing to replace
+      const widget = new SuggestionReplacement(th, span)
       if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
     }
+  }
+  if (!segs.length) return rs
+  const pts = [...new Set(segs.flatMap(s => [s.a, s.b]))].sort((x, y) => x - y)
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1]
+    if (b <= a) continue
+    let open = 0, resolved = null, sug = null, conflict = null, openId = null
+    for (const s of segs) {
+      if (s.a > a || s.b < b) continue
+      if (s.kind === 'conflict') conflict = s.id
+      else if (s.kind === 'sug') sug = s.id
+      else if (s.kind === 'open') { open++; openId = s.id }
+      else if (s.kind === 'resolved') resolved = s.id
+    }
+    if (!conflict && !sug && !open && !resolved) continue
+    const cls = conflict ? 'cm-hl cm-suggestion cm-suggestion-conflict'
+      : sug ? (open ? 'cm-hl cm-suggestion cm-live-suggestion suggestionDeleted cm-hl-mix' : 'cm-hl cm-suggestion cm-live-suggestion suggestionDeleted')
+      : open > 1 ? 'cm-hl cm-hl-multi'
+      : open && resolved ? 'cm-hl cm-hl-mix-res'
+      : open ? 'cm-hl'
+      : 'cm-hl cm-hl-resolved'
+    const attrs = (conflict || sug) ? { 'data-suggestion-id': conflict || sug } : { 'data-comment-id': openId || resolved }
+    rs.push(Decoration.mark({ class: cls, attributes: attrs }).range(a, b))
   }
   return rs
 }
@@ -487,10 +527,15 @@ function tokenCut(text, cut, from) { // snap a char cut out of the strict inside
     return best
   } catch (e) { return cut } // no parser in scope (tests): plain char trim
 }
-function tokenSafeSpan(old, { a, b }) { // tokenCut both trim ends so a pending mark stays visually continuous over whole tokens
+function tokenSafeSpan(old, { a, b }) { // tokenCut + word-boundary snap so a pending mark never slices mid-word or mid-formula
   if (a + b > old.length || a < 0 || b < 0) return { a, b }
-  const na = a ? tokenCut(old, a, true) : a
-  const nb = b ? old.length - tokenCut(old, old.length - b, false) : b
+  let na = a ? tokenCut(old, a, true) : a
+  let nb = b ? old.length - tokenCut(old, old.length - b, false) : b
+  const isW = ch => /[\p{L}\p{N}_]/u.test(ch)
+  while (na > 0 && na < old.length && isW(old[na - 1]) && isW(old[na])) na--
+  let end = old.length - nb
+  while (end > na && end < old.length && isW(old[end - 1]) && isW(old[end])) end++
+  nb = old.length - end
   return { a: na, b: nb }
 }
 function refreshHl() {

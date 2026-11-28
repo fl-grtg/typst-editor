@@ -274,7 +274,7 @@ def comment(ctx: Ctx, path: str, text: str = "", quote: str = "", line: int = 0,
     con = db.connect()
     try:
         if reply_to:
-            p = con.execute("SELECT parent_id FROM comments WHERE id=? AND doc_id=?", (reply_to, node["doc_id"])).fetchone()
+            p = con.execute("SELECT parent_id FROM comments WHERE id=? AND doc_id=? AND package_id=''", (reply_to, node["doc_id"])).fetchone()
             if not p:
                 raise err(404, "not_found", "That thread is gone")
             if p["parent_id"]:

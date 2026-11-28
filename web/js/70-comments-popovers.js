@@ -128,8 +128,8 @@ function schedulePeerEdges() { if (!edgeT) edgeT = requestAnimationFrame(renderP
 cm.scrollDOM.addEventListener('scroll', schedulePeerEdges, { passive: true })
 new ResizeObserver(schedulePeerEdges).observe(cm.scrollDOM)
 new ResizeObserver(schedulePeerEdges).observe(cm.contentDOM) // editor font/split changes move the excerpt without a scroll event
-cm.dom.addEventListener('focusin', pushPresence)
-cm.dom.addEventListener('focusout', () => { pushPresence(); renderPeers() })
+cm.dom.addEventListener('focusin', () => queueMicrotask(pushPresence)) // focus moves during editor updates; awareness repaints dispatch, so wait until the update is done
+cm.dom.addEventListener('focusout', () => queueMicrotask(() => { pushPresence(); renderPeers() }))
 addEventListener('blur', pushPresence)
 addEventListener('focus', () => { pushPresence(); renderPeers() })
 document.addEventListener('visibilitychange', () => { pushPresence(); renderPeers() })
@@ -315,6 +315,8 @@ const ICO_RESET = svgI('<path d="M2.8 6.2a5.4 5.4 0 1 1 .3 4.1"/><path d="M2.8 2
 const ICO_PLUS = svgI('<path d="M8 3v10M3 8h10"/>')
 const ICO_CHECK = svgI('<path d="M3.5 8.5l3 3 6-7"/>')
 const ICO_SEND = svgI('<path d="M8 13V3"/><path d="M4 7l4-4 4 4"/>')
+const ICO_PREV = svgI('<path d="M10 3.5L5.5 8 10 12.5"/>')
+const ICO_NEXT = svgI('<path d="M6 3.5L10.5 8 6 12.5"/>')
 const icoBtn = (cls, svg) => { const b = el('button', cls); b.innerHTML = svg; return b }
 const ICO_TRASH = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11"/><path d="M6.5 4V2.5h3V4"/><path d="M4 4l.7 9.5h6.6L12 4"/><path d="M6.5 6.8v3.7M9.5 6.8v3.7"/></svg>'
 function paintOutline() { // collect = lines, click jumps to line; page badge from the PDF outline
@@ -369,15 +371,26 @@ function updPos() { // F24 status: Ln/Col + words + sync (no aria-live: no SR sp
 const lineOf = pos => getT().slice(0, pos).split('\n').length
 function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), only new marks need refresh
   let m = new Set()
+  const suggestions = new Set()
   if (docId && !tplName && !activeFile) {
-    m = new Set(threads.map(th => (window.suggestionDraft || window.changeSession) ? cm.state.doc.lineAt(threadEditorRange(th).from).number : th.anchor))
-    if (window.suggestionDraft) for (const range of draftRanges(window.suggestionDraft)) m.add(cm.state.doc.lineAt(range.a).number)
+    for (const th of threads) {
+      if (th.a == null) continue // detached (its text is gone): no marker on whatever line took its place
+      const line = cm.state.doc.lineAt(threadEditorRange(th).from).number
+      m.add(line)
+      if (th.suggestion_status === 'pending') suggestions.add(line)
+    }
+    if (window.suggestionDraft) for (const range of draftRanges(window.suggestionDraft)) {
+      const line = cm.state.doc.lineAt(range.a).number
+      m.add(line); suggestions.add(line)
+    }
   } // file tab/template: no main markers
   if (window.changeSession && !window.changeSession.original) {
     const f = window.changeSession.files.get(sessionKey(sessionCurrent()))
-    if (f && getT() === (f.content || '')) for (const range of sessionChangeRanges(f)) m.add(cm.state.doc.lineAt(range.a).number)
+    if (f && getT() === (f.content || '')) for (const range of sessionChangeRanges(f)) {
+      const line = cm.state.doc.lineAt(range.a).number
+      m.add(line); suggestions.add(line)
+    }
   }
-  const suggestions = new Set(threads.filter(x => x.suggestion_status === 'pending').map(x => x.anchor))
   const style = [...suggestions].sort().join(',')
   let same = m.size === marks.size && style === markStyle
   if (same) for (const x of m) if (!marks.has(x)) { same = false; break }
@@ -391,22 +404,25 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
     cm.dispatch({ effects: setMarks.of(RangeSet.of(rs, true)) })
   }
 }
-let popFresh = false, popQuote = '', popT = 0, popLayoutTries = 0
+let popFresh = false, popT = 0, popLayoutTries = 0, popThreadId = null, popHomeId = null, popUp = null // popHomeId/popUp: where the card opened; paging never moves it
+const popDrafts = new Map()
 function paintCardView() { $('cmWrap').classList.toggle('cardOpen', $('pop').style.display !== 'none') } // open card suppresses hover previews (CSS hides .cm-tooltip-hover)
-function openPop(anchor, fresh, quote = '', suggestion = null) {
+function openPop(anchor, fresh, suggestion = null, focusId = null) {
   closePop(true)
   window.suggestionPopup = suggestion
-  popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, +anchor || 1)); popFresh = !!fresh; popQuote = (quote || '').slice(0, 500)
+  popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, +anchor || 1)); popFresh = !!fresh
+  popThreadId = popHomeId = focusId ? String(focusId) : null
+  popUp = null
   popLayoutTries = 0
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
-  const pp = $('pop'); pp.classList.remove('errs'); pp.style.display = ''; pp.setAttribute('role', 'dialog'); paintCardView()
+  const pp = $('pop'); pp.replaceChildren(); pp.classList.remove('errs'); pp.style.display = ''; pp.tabIndex = -1; pp.setAttribute('role', 'dialog'); pp.setAttribute('aria-labelledby', 'commentPopTitle'); paintCardView()
   $('cNew').setAttribute('aria-expanded', 'true'); if (!$('cNew').getAttribute('aria-controls')) $('cNew').setAttribute('aria-controls', 'pop')
   renderPop()
   movePop()
 }
 function closePop(force) { if (!force && $('pop').classList.contains('errs') && $('pop').style.display !== 'none') return // error list: only its x closes it
-  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
+  if ($('pop').contains(document.activeElement)) try { cm.focus() } catch (e) {}; popAnchor = null; popThreadId = null; popDrafts.clear(); window.suggestionPopup = null; cm.contentDOM.style.paddingTop = ''; $('pop').style.display = 'none'; const c = $('cNew'); if (c) c.setAttribute('aria-expanded', 'false'); const eb = $('eBadge'); if (eb) eb.setAttribute('aria-expanded', 'false'); paintCardView() }
 const popTriggers = id => document.querySelectorAll(`[aria-controls="${id}"]`)
 function closeHeaderPops(inside = null) { // inside: keep the popover holding this element (a row menu opened from it)
   for (const p of ['sharePop', 'tplPop', 'histPop', 'symPop', 'setPop', 'inboxPop', 'exportPop']) { const b = $(p); if (b && b.style.display !== 'none' && !(inside && b.contains(inside))) { b.style.display = 'none'; popTriggers(p).forEach(t => t.setAttribute('aria-expanded', 'false')); const btn = $(POP_BTN[p]); if (btn && b.contains(document.activeElement)) try { btn.focus() } catch (e) {} } }
@@ -455,10 +471,11 @@ function anchorPop(p, btn, align = 'left') { // popover under its trigger: getBo
 function movePop() {
   const pop = $('pop')
   if (popAnchor == null || pop.classList.contains('errs')) return
-  const text = getT(), selected = threads.filter(th => th.a != null).map(th => (window.suggestionDraft || window.changeSession) ? { ...th, a: threadEditorRange(th).from, b: threadEditorRange(th).to, anchor: cm.state.doc.lineAt(threadEditorRange(th).from).number } : th).filter(th => th.anchor === popAnchor)
-  const selection = cm.state.selection.main
-  const from = window.suggestionPopup ? window.suggestionPopup.from : popFresh && !selection.empty ? selection.from : selected.length ? Math.min(...selected.map(th => th.a)) : posOfLine(text, popAnchor)
-  const to = window.suggestionPopup ? window.suggestionPopup.to : popFresh && !selection.empty ? selection.to : selected.length ? Math.max(...selected.map(th => th.b)) : from
+  const text = getT(), selection = cm.state.selection.main
+  const thread = threads.find(th => String(th.id) === popHomeId)
+  const target = window.suggestionPopup || (popFresh && !selection.empty ? selection : thread && threadEditorRange(thread))
+  const from = target?.from ?? posOfLine(text, popAnchor)
+  const to = target?.to ?? from
   const r = $('editWrap').getBoundingClientRect(), editor = cm.scrollDOM.getBoundingClientRect()
   const first = cm.coordsAtPos(Math.min(from, text.length)), last = cm.coordsAtPos(Math.min(to, text.length))
   const boxes = (window.suggestionPopup?.nodes || []).filter(node => node.isConnected).map(node => node.getBoundingClientRect())
@@ -476,7 +493,7 @@ function movePop() {
   const above = Math.max(0, top - Math.max(r.top, editor.top) - 10)
   const below = Math.max(0, Math.min(r.bottom, editor.bottom) - bottom - 10)
   const wanted = Math.min(pop.scrollHeight, 360)
-  const up = above >= wanted || (below < wanted && above >= below)
+  const up = popUp != null && (popUp ? above : below) >= 90 ? popUp : above >= wanted || (below < wanted && above >= below)
   const available = up ? above : below
   if (available < 90) {
     pop.style.visibility = 'hidden'
@@ -494,116 +511,265 @@ function movePop() {
     return
   }
   popLayoutTries = 0
+  popUp = up
   pop.style.visibility = ''
   pop.style.maxHeight = Math.min(360, available) + 'px'
   const height = Math.min(pop.scrollHeight, available, 360)
   pop.style.top = (up ? top - r.top - height - 10 : bottom - r.top + 10) + 'px'
-  pop.style.left = Math.max(8, Math.min((first ? first.left : r.left + 56) - r.left, r.width - pop.offsetWidth - 8)) + 'px'
+  const left = boxes.length ? boxes[0].left : first ? first.left : r.left + 56 // the card's first mark wins over the line start
+  pop.style.left = Math.max(8, Math.min(left - r.left, r.width - pop.offsetWidth - 8)) + 'px'
+}
+function paintPopItems(items) {
+  if (!items.length) return
+  const pop = $('pop')
+  const idx = Math.max(0, items.findIndex(it => it.id === popThreadId))
+  popThreadId = items[idx].id
+  if (items.length > 1) {
+    const nav = el('span', 'popNav')
+    const button = (step, icon, label) => {
+      const b = icoBtn('ib', icon)
+      b.title = label; b.setAttribute('aria-label', label)
+      b.onclick = e => {
+        e.stopPropagation()
+        popThreadId = items[(idx + step + items.length) % items.length].id
+        renderPop()
+        pop.querySelectorAll('.popNav button')[step < 0 ? 0 : 1]?.focus()
+      }
+      return b
+    }
+    nav.append(button(-1, ICO_PREV, t('comments.previousThread')), el('span', 'popStep', `${idx + 1} / ${items.length}`), button(1, ICO_NEXT, t('comments.nextThread')))
+    pop.querySelector('.barActs').prepend(nav)
+  }
+  pop.append(items[idx].render())
 }
 function renderPop() {
-  const pop = $('pop'); pop.replaceChildren()
+  const pop = $('pop')
+  for (const input of pop.querySelectorAll('input[data-comment-draft]')) {
+    if (input.value) popDrafts.set(input.id, input.value)
+    else popDrafts.delete(input.id)
+  }
+  pop.replaceChildren()
   if (popAnchor != null) popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, popAnchor)) // doc shrank while open: never address a dead line
   const bar = el('div', 'bar') // fixed header: X overlaps nothing
-  bar.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
+  const title = el('span', 'barTitle'); title.id = 'commentPopTitle'
+  title.append(el('b', null, window.suggestionPopup?.label || t('comments.lineHead', { n: popAnchor })))
+  const barActs = el('span', 'barActs')
   const x = icoBtn('ib', ICO_X); x.title = t('common.close'); x.setAttribute('aria-label', x.title); x.onclick = closePop
-  bar.appendChild(x); pop.appendChild(bar)
+  bar.append(title, barActs); pop.appendChild(bar)
   requestAnimationFrame(movePop)
-  if (window.suggestionPopup) { if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
+  if (window.suggestionPopup) { barActs.appendChild(x); if (window.suggestionPopup.session) sessionCard(window.suggestionPopup); else renderSuggestionBox(window.suggestionPopup); return }
   const line = cm.state.doc.line(popAnchor)
-  const hit = th => threadEditorRange(th)
-  const covering = threads.filter(th => { const r = hit(th); return r.from <= line.from && r.to >= line.to }) // the clicked line inside the range
-  const overlapping = threads.filter(th => { const r = hit(th); return r.from <= line.to && r.to >= line.from })
-  const list = covering.length ? covering : overlapping // exact first: adjacent/newline-bleed ranges stay out of the card
+  const list = threads.filter(th => {
+    if (String(th.id) === popThreadId) return true
+    if (th.a == null || th.b == null) return false // detached: reachable from the open-threads badge, not from a line it no longer marks
+    const r = threadEditorRange(th)
+    return r.to > r.from ? (r.from < line.to && r.to > line.from) : (r.from >= line.from && r.from <= line.to)
+  })
   const roC = openedTrashed
   if ((popFresh || !list.length) && !roC) {
+    barActs.appendChild(x)
     pop.appendChild(newBox())
     document.getElementById('popNew')?.focus()
+    return
   }
-  list.forEach(t => pop.appendChild(threadCard(t)))
+  barActs.appendChild(x)
+  paintPopItems(list.map(th => ({ id: String(th.id), render: () => threadCard(th) })))
+}
+function visibleSelectionQuote(from, to) { // reflect proposed text in quotes: deleted draft spans stay out, live pending suggestions use their replacement
+  const txt = getT()
+  if (window.changeSession || window.suggestionDraft) return txt.slice(from, to).slice(0, 500)
+  const pending = threads.filter(th => th.suggestion_status === 'pending' && !th.conflict && th.a != null && th.b != null)
+    .map(th => {
+      const span = tokenSafeSpan(th.suggestion_old, diffSpan(th.suggestion_old, th.replacement))
+      const a = Math.min(th.b, th.a + span.a), b = Math.max(a, th.b - span.b)
+      return { a, b, next: th.replacement.slice(span.a, th.replacement.length - span.b) }
+    })
+    .filter(s => s.a >= from && s.b <= to)
+    .sort((x, y) => x.a - y.a)
+  if (!pending.length) return txt.slice(from, to).slice(0, 500)
+  let out = '', cur = from
+  for (const s of pending) {
+    if (s.a < cur) continue
+    out += txt.slice(cur, s.a) + s.next
+    cur = s.b
+  }
+  return (out + txt.slice(cur, to)).slice(0, 500)
 }
 function newBox() {
-  const doc = docId, epoch = openN, draft = window.suggestionDraft || window.changeSession
-  const selection = cm.state.selection.main
-  const target = { from: selection.from, to: selection.to }
-  const source = draft ? shadow : getT()
-  const a = editorToSource(target.from), b = editorToSource(target.to, true)
-  const anchor = draft ? source.slice(0, a).split('\n').length : popAnchor
-  const quote = draft ? source.slice(a, b).slice(0, 500) : popQuote
+  const doc = docId, epoch = openN, session = window.changeSession, suggestion = window.suggestionDraft
+  const pkg = commentPackage(), draft = pkg ? session : null
+  const selection = popFresh ? cm.state.selection.main : null
+  const target = selection ? { from: selection.from, to: selection.to } : { from: cm.state.doc.line(popAnchor).from, to: cm.state.doc.line(popAnchor).from }
+  const live = !pkg && (session || suggestion)
+  const from = live ? editorToSource(target.from) : target.from
+  const to = live ? editorToSource(target.to, true) : target.to
+  const source = live ? shadow : getT()
+  const anchor = source.slice(0, from).split('\n').length
+  const quote = selection ? visibleSelectionQuote(target.from, target.to) : ''
+  const anchorQuote = source.slice(from, to).slice(0, 500)
+  const anchorRange = !pkg && anchorQuote.trim() ? saveCommentRange(from, to) : null
   const box = el('div', 'nw'), row = el('div', 'rr')
-  const inp = el('input'); inp.id = 'popNew'; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
+  if (live && !session?.original && target.to > target.from && from === to) {
+    box.append(el('p', 'commentAnchorNote', t('comments.commentAfterSending')))
+    return box
+  }
+  if (quote && quote.trim()) box.appendChild(el('div', 'qt nwQt', '"' + (quote.length > 90 ? quote.slice(0, 90) + '…' : quote) + '"'))
+  const inp = el('input'); inp.id = 'popNew'; inp.maxLength = 2000; inp.placeholder = t('comments.newPh'); inp.setAttribute('aria-label', t('comments.newAria'))
   wireMentions(inp)
   const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
   const post = async () => {
-    if (doc !== docId || epoch !== openN || !inp.value.trim() || ok.disabled) return
+    if (doc !== docId || epoch !== openN || session !== window.changeSession || suggestion !== window.suggestionDraft || pkg !== commentPackage() || !inp.value.trim() || ok.disabled) return
     ok.disabled = true
     try {
-      if (draft) draft.commentRanges.set(target, target)
-      const result = await api('POST', `/api/docs/${doc}/comments`, { anchor, text: inp.value, quote })
+      if (draft) { target.doc = doc; draft.commentRanges.set(target, target) }
+      const body = { anchor, text: inp.value, quote, anchor_quote: anchorQuote.trim() ? anchorQuote : '', anchor_range: anchorRange, package_id: pkg }
+      const result = draft ? await postReviewComment(draft, doc, body, target) : await api('POST', `/api/docs/${doc}/comments`, body)
       if (draft) { draft.commentRanges.delete(target); draft.commentRanges.set(result.id, target) }
-      if (doc === docId && epoch === openN) { popFresh = false; popQuote = ''; await refresh(''); closePop() }
+      if (doc === docId && epoch === openN && pkg === commentPackage()) {
+        if (inp.isConnected) closePop(true)
+        await refresh('')
+      }
     } catch (e) { if (draft) draft.commentRanges.delete(target); toast(e.message) } finally { ok.disabled = false }
   }
-  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') post() }
+  ok.onclick = post; inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); post() } else if (e.key === 'Escape') closePop() }
   row.append(inp, ok); box.append(row)
   return box
 }
+function saveCommentChange(doc, item, text) {
+  const s = window.changeSession && !window.changeSession.original ? window.changeSession : null
+  if (item.package_id === 'draft') {
+    if (text == null) s.draftComments = s.draftComments.filter(x => x.id !== item.id && x.parent_id !== item.id)
+    else s.draftComments.find(x => x.id === item.id).text = text.trim()
+    s.commentRanges.delete(item.id)
+    sessionStash(); paintSuggestionControls()
+    return Promise.resolve()
+  }
+  if (s && !item.package_id) return postReviewComment(s, doc, { anchor: item.anchor || 1, text: text || '', deleted: text == null, replaces_id: item.id })
+  return text == null ? api('DELETE', `/api/docs/${doc}/comments/${item.id}`) : api('POST', `/api/docs/${doc}/comments/${item.id}/edit`, { text })
+}
+function saveCommentResolve(doc, th) {
+  const s = window.changeSession && !window.changeSession.original ? window.changeSession : null
+  if (!s || th.package_id) return api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved })
+  if (!th._proposedResolve) return postReviewComment(s, doc, { anchor: th.anchor || 1, text: '', resolved: !th.resolved, replaces_id: th.id })
+  return withdrawCommentChange(s, doc, th._changeId) // toggling back withdraws the proposal
+}
+function withdrawCommentChange(s, doc, id) {
+  if (s.package) return api('DELETE', `/api/docs/${doc}/comments/${id}`)
+  s.draftComments = s.draftComments.filter(c => c.id !== id)
+  sessionStash(); paintSuggestionControls()
+  return Promise.resolve()
+}
+function keepButton(session, doc, item, done) {
+  const b = icoBtn('ib', ICO_UNDO); b.title = t(item._proposedDelete ? 'comments.keep' : 'comments.withdraw'); b.setAttribute('aria-label', b.title)
+  b.onclick = () => withdrawCommentChange(session, doc, item._changeId).then(done).catch(e => toast(e.message))
+  return b
+}
 function threadCard(th) {
   const doc = docId, epoch = openN
+  const session = window.changeSession && !window.changeSession.original ? window.changeSession : null
   const fresh = () => { if (doc === docId && epoch === openN) return refresh(''); return Promise.resolve() }
   const d = el('div', 'th')
-  if (th.resolved) d.style.opacity = '.55' // done: faded, stays readable
   const hd = el('div', 'hd')
-  const nm = el('b', 'nm', th.author || th.username); nm.style.color = colOf(th.username)
-  hd.append(nm, el('span', 'tm', ago(th.created_at)))
+  const author = th.author || th.username || '?'
+  const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(th.username || author); av.setAttribute('aria-hidden', 'true')
+  if (th.username) paintAvatar(av, th.username, colOf(th.username))
+  const meta = el('span', 'hdMeta')
+  const nm = el('b', 'nm', author)
+  meta.append(nm, el('span', 'tm', ago(th.created_at)))
+  const acts = el('span', 'acts')
+  hd.append(av, meta, acts)
   const roC = openedTrashed
-  if (!roC && !th.suggestion_status && (docRole === 'owner' || th.username === user)) {
+  const mayWithdraw = item => !!session && (docRole === 'owner' || item._changeUser === user) // a proposed change belongs to whoever proposed it
+  if (!roC && th.package_id !== 'draft' && !th.suggestion_status && !th._proposedDelete && (th._proposedResolve ? mayWithdraw(th) : docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
-    fin.onclick = () => api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved }).then(fresh).catch(e => toast(e.message))
-    hd.appendChild(fin)
+    fin.onclick = () => saveCommentResolve(doc, th).then(fresh).catch(e => toast(e.message))
+    acts.appendChild(fin)
   }
-  if (th.username === user && !openedTrashed) { // only author edits (owner deletes)
+  if (th.username === user && !openedTrashed && !th._proposedDelete) { // only author edits (owner deletes)
     const ed = icoBtn('ib', ICO_EDIT); ed.title = t('comments.edit'); ed.setAttribute('aria-label', ed.title)
     ed.onclick = async () => {
-      const v = await ask(t('comments.editHead'), { value: th.text })
-      if (doc === docId && epoch === openN && v !== null && v.trim()) api('POST', `/api/docs/${doc}/comments/${th.id}/edit`, { text: v }).then(fresh).catch(e => toast(e.message))
+      const v = await ask(t('comments.editHead'), { value: th.text, maxLen: 2000 })
+      if (doc !== docId || epoch !== openN || v === null || !v.trim()) return
+      saveCommentChange(doc, th, v).then(fresh).catch(e => toast(e.message))
     }
-    hd.appendChild(ed)
+    acts.appendChild(ed)
   }
-  const del = el('button', 'ib'); del.innerHTML = ICO_TRASH; del.style.marginLeft = 'auto'; del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
-  const editorDismiss = docRole === 'editor' && th.suggestion_status === 'pending'
-  del.onclick = () => editorDismiss && th.username !== user ? decideSuggestion(th, 'reject', doc, epoch) : api('DELETE', `/api/docs/${doc}/comments/${th.id}`).then(() => fresh().then(() => {
-    if (doc === docId && epoch === openN && !threads.some(x => x.anchor === popAnchor)) closePop()
-  })).catch(e => toast(e.message))
-  if (!roC && (docRole === 'owner' || th.username === user || editorDismiss)) hd.appendChild(del)
+  if (!roC && th._proposedEdit && mayWithdraw(th)) acts.appendChild(keepButton(session, doc, th, fresh))
+  const pendingSug = th.suggestion_status === 'pending'
+  const canDecide = pendingSug && ['owner', 'editor'].includes(docRole)
+  const canDel = !roC && (pendingSug ? canDecide : (docRole === 'owner' || th.username === user))
+  if (!roC && th._proposedDelete && mayWithdraw(th)) acts.appendChild(keepButton(session, doc, th, fresh))
+  else if (canDel && !th._proposedDelete) {
+    const del = icoBtn('ib', ICO_TRASH); del.classList.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
+    del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : saveCommentChange(doc, th, null).then(() => fresh().then(() => {
+      if (doc === docId && epoch === openN && !window.suggestionPopup && !threads.some(x => String(x.id) === String(th.id))) closePop() // a change card stays open without its discussion
+    })).catch(e => toast(e.message))
+    acts.appendChild(del)
+  }
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
-  else d.appendChild(el('b', null, t('comments.newAria')))
-  if (th.text) d.appendChild(richText(th.text))
-  if (th.quote) { // show context, click jumps there
-    const q = el('button', 'qt', '"' + (th.quote.length > 80 ? th.quote.slice(0, 80) + '…' : th.quote) + '"')
-    q.title = t('comments.jumpPos')
-    q.onclick = () => jumpThread(th)
-    d.appendChild(q)
+  else {
+    const proposed = th._proposedDelete ? 'comments.proposedDelete' : th._proposedEdit ? 'comments.proposedEdit' : th._proposedResolve && (th.resolved ? 'comments.proposedDone' : 'comments.proposedReopen')
+    const tag = el('span', 'thTag', t(proposed || (th.resolved ? 'comments.done' : 'comments.newAria')))
+    if (th.resolved || proposed) tag.classList.add('resolvedTag')
+    meta.appendChild(tag)
+    const range = th.a != null && th.b > th.a ? threadEditorRange(th) : null
+    const quote = range && range.to > range.from ? cm.state.doc.sliceString(range.from, range.to) : th.quote
+    if (quote) { // quoted passage first so comment + replies read as one continuous thread
+      const q = el('button', 'qt', '"' + (quote.length > 80 ? quote.slice(0, 80) + '…' : quote) + '"')
+      if (th.a == null) q.classList.add('is-detached')
+      q.title = t(th.a == null ? 'comments.detached' : 'comments.jumpPos')
+      q.onclick = () => jumpThread(th)
+      d.appendChild(q)
+      if (th.a == null) d.appendChild(el('small', 'commentAnchorNote', t('comments.detached')))
+    }
+    if (th.text) d.appendChild(richText(th.text))
+    if (th._proposedDelete) d.lastChild.classList.add('commentRemoved')
   }
   th.replies.forEach(r => {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
-    const rn = el('b', 'nm', r.author || r.username); rn.style.color = colOf(r.username)
-    rh.append(rn, el('span', 'tm', ago(r.created_at)))
-    rd.append(rh, richText(r.text)); d.appendChild(rd)
+    const rAuthor = r.author || r.username || '?'
+    const rav = el('span', 'av', rAuthor.slice(0, 1).toUpperCase()); rav.style.background = colOf(r.username || rAuthor); rav.setAttribute('aria-hidden', 'true')
+    if (r.username) paintAvatar(rav, r.username, colOf(r.username))
+    const rMeta = el('span', 'hdMeta')
+    const rn = el('b', 'nm', rAuthor)
+    rMeta.append(rn, el('span', 'tm', ago(r.created_at)))
+    const rActs = el('span', 'acts')
+    if (r._proposedDelete || r._proposedEdit) rMeta.appendChild(el('span', 'thTag resolvedTag', t(r._proposedDelete ? 'comments.proposedDelete' : 'comments.proposedEdit')))
+    if (!roC && r.username === user && !r._proposedDelete) {
+      const red = icoBtn('ib', ICO_EDIT); red.title = t('comments.edit'); red.setAttribute('aria-label', red.title)
+      red.onclick = async () => {
+        const v = await ask(t('comments.editHead'), { value: r.text, maxLen: 2000 })
+        if (doc === docId && epoch === openN && v !== null && v.trim()) saveCommentChange(doc, r, v).then(fresh).catch(e => toast(e.message))
+      }
+      rActs.appendChild(red)
+    }
+    if (!roC && r._proposedEdit && mayWithdraw(r)) rActs.appendChild(keepButton(session, doc, r, fresh))
+    if (!roC && r._proposedDelete && mayWithdraw(r)) rActs.appendChild(keepButton(session, doc, r, fresh))
+    else if (!roC && !r._proposedDelete && (docRole === 'owner' || r.username === user)) {
+      const rdel = icoBtn('ib', ICO_TRASH); rdel.classList.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
+      rdel.onclick = () => saveCommentChange(doc, r, null).then(fresh).catch(e => toast(e.message))
+      rActs.appendChild(rdel)
+    }
+    rh.append(rav, rMeta, rActs)
+    const body = richText(r.text)
+    if (r._proposedDelete) body.classList.add('commentRemoved')
+    rd.append(rh, body); d.appendChild(rd)
   })
-  const row = el('div', 'rr')
-  if (!roC) { // trash/reviewer: read, not write (cNew logic)
-    const inp = el('input'); inp.id = 'r_' + th.id; inp.placeholder = t('comments.replyPh'); inp.setAttribute('aria-label', t('comments.replyAria'))
+  if (!roC) {
+    const row = el('div', 'rr')
+    const inp = el('input'); inp.id = 'r_' + th.id; inp.dataset.commentDraft = ''; inp.value = popDrafts.get(inp.id) || ''; inp.placeholder = t('comments.replyPh'); inp.setAttribute('aria-label', t('comments.replyAria'))
     wireMentions(inp)
     const ok = icoBtn('ib', ICO_SEND); ok.title = t('comments.send'); ok.setAttribute('aria-label', ok.title)
     const send = () => { if (doc !== docId || epoch !== openN || !inp.value.trim() || ok.disabled) return; ok.disabled = true
       const text = inp.value; inp.value = '' // clear first: else loadComments keeps it as draft and skips renderPop
-      api('POST', `/api/docs/${doc}/comments`,
-      { anchor: th.anchor, text, parent_id: th.id }).then(() => { if (doc === docId && epoch === openN) return refresh('r_' + th.id) }).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
-    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') send() }
+      const body = { anchor: th.anchor, text, parent_id: th.id }
+      ;(session ? postReviewComment(session, doc, body) : api('POST', `/api/docs/${doc}/comments`, body))
+        .then(() => { if (doc === docId && epoch === openN) return refresh('r_' + th.id) }).catch(e => { inp.value = text; toast(e.message) }).finally(() => ok.disabled = false) }
+    ok.onclick = send; inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); send() } else if (e.key === 'Escape') closePop() }
     row.append(inp, ok)
+    d.appendChild(row)
   }
-  d.appendChild(row)
   return d
 }
 function invalidateCommentCache() { lastC = '' } // clears the poll dedupe key: the next loadComments re-derives ranges even though the comment list itself is unchanged (e.g. after a package accept)
@@ -611,19 +777,56 @@ function repaintCommentRanges() { // self-healing: threads beat the first sync t
   if (activeFile || !synced || !ytext || !threads.length || !threads.some(x => x.a == null)) return
   initRanges(); reanchor(); gutter(); refreshHl() // same pass as the fresh-list branch below; dedupe only skips rendering, never the range derivation
 }
+function proposalComments(live, items) {
+  const tops = live.map(th => ({ ...th, replies: (th.replies || []).map(r => ({ ...r })) }))
+  const byId = new Map(tops.flatMap(th => [[th.id, th], ...th.replies.map(r => [r.id, r])]))
+  for (const item of items) if (item.replaces_id && byId.has(item.replaces_id)) {
+    const target = byId.get(item.replaces_id)
+    if (item.deleted) Object.assign(target, { _proposedDelete: true, _changeId: item.id, _changeUser: item.username })
+    else if (item.text) Object.assign(target, { text: item.text, _proposedEdit: true, _changeId: item.id, _changeUser: item.username })
+    else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id, _changeUser: item.username })
+  }
+  const fresh = items.filter(item => !item.parent_id && !item.replaces_id).map(item => ({ ...item, replies: [...(item.replies || [])] }))
+  for (const th of fresh) byId.set(th.id, th)
+  for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
+  return [...tops, ...fresh]
+}
+function commentPackage() {
+  const s = window.changeSession
+  return s && !s.original ? s.package?.id || 'draft' : ''
+}
 async function loadComments(force) {
   const doc = docId, epoch = openN
   if (!doc) return
-  const d = await api('GET', `/api/docs/${doc}/comments`)
-  if (doc !== docId || epoch !== openN) return
-  const s = JSON.stringify(d.comments)
+  const session = window.changeSession, pkg = commentPackage()
+  const scoped = threads.filter(th => !th.package_id || th.package_id === pkg)
+  if (scoped.length !== threads.length) { threads = scoped; paintBadge() }
+  const url = `/api/docs/${doc}/comments`
+  const liveRequest = api('GET', url)
+  const [live, proposed] = await Promise.all([
+    pkg === 'draft' ? liveRequest.catch(() => ({ comments: scoped.filter(th => !th.package_id) })) : liveRequest,
+    pkg === 'draft' ? (session.draftComments || []).filter(th => th.doc_id === doc)
+      : pkg ? api('GET', `${url}?package_id=${encodeURIComponent(pkg)}`).then(data => [...data.comments, ...(data.changes || [])]) : [],
+  ])
+  if (doc !== docId || epoch !== openN || session !== window.changeSession || pkg !== commentPackage()) return
+  const combined = proposalComments(live.comments, proposed).filter(th => !th.suggestion_status || th.suggestion_status === 'pending')
+  const s = (pkg ? pkg + ':' : '') + JSON.stringify(combined)
   if (s === lastC) { repaintCommentRanges(); return } // poll: nothing new, keep inputs untouched - but re-derive ranges the first sync skipped
-  lastC = s; threads = d.comments
-  for (const t of threads) t.anchor = Math.max(1, +t.anchor || 1) // heal legacy anchor 0 -> 1
+  const prevById = new Map(threads.map(th => [th.id, th]))
+  lastC = s; threads = combined
+  for (const th of threads) {
+    const docLen = (!th.package_id && (activeFile || window.suggestionDraft || session) ? shadow : getT()).length
+    th.anchor = Math.max(1, +th.anchor || 1) // heal legacy anchor 0 -> 1
+    const prev = prevById.get(th.id)
+    if (prev && !th.suggestion_status && th.quote === prev.quote && th.anchor_quote === prev.anchor_quote) {
+      if (prev._deleted) { th._deleted = true; th.a = th.b = null }
+      else if (prev.a != null && prev.b != null && prev.b >= prev.a && prev.b <= docLen) { th.a = prev.a; th.b = prev.b }
+    }
+  }
   if (!activeFile) { initRanges(); reanchor(); gutter(); refreshHl() } // file tab: do not touch main anchors
   paintBadge()
   const draft = [...$('pop').querySelectorAll('input,textarea')].some(i => i.value.trim())
-  if (popAnchor != null && !draft && (force || !$('pop').contains(document.activeElement))) renderPop() // draft + blur: keep text
+  if (popAnchor != null && !draft && (force || !$('pop').contains(document.activeElement))) renderPop()
 }
 function paintBadge() { // count open threads, click jumps to next
   const b = $('cBadge'), open = threads.filter(t => !t.resolved)
@@ -634,29 +837,47 @@ function paintBadge() { // count open threads, click jumps to next
 $('cBadge').onclick = () => {
   const open = threads.filter(t => !t.resolved)
   if (!open.length) return
-  jumpThread(open[(open.findIndex(t => t.anchor === popAnchor) + 1) % open.length])
+  jumpThread(open[(open.findIndex(th => String(th.id) === popThreadId || 't:' + th.id === popThreadId) + 1) % open.length])
 }
 $('eBadge').onclick = showErrList
-function reanchor() { // find quote: moves along; not found = anchor line (or nothing), never a stale ghost range
+function reanchor() { // keep live ranges on edits; suggestions track exact unique match; deleted quotes never resurrect onto unrelated text
   const t = getT()
   if (!docId || !ytext || activeFile || window.suggestionDraft || window.changeSession) return // file tab: anchors belong to main
-  initRanges() // after sync: add ranges missing text at load
-  let moved = false
+  let moved = !!initRanges() // capture whether first sync just derived ranges so highlights always paint after reload
   for (const th of threads) {
     const before = th.a + '|' + th.b
     const pending = th.suggestion_status === 'pending'
-    const quote = pending ? th.suggestion_old : th.quote
-    const i = quote ? (pending ? (t.split(quote).length === 2 ? t.indexOf(quote) : (th.conflict = true, -1)) : locateQuote(t, quote, th.anchor)) : -1
-    if (i >= 0) {
-      th.conflict = false // unique again: hint only while the fallback holds
-      if (th.a == null || th.a >= th.b) { th.a = i; th.b = Math.min(t.length, i + quote.length) } // collapsed: refit
-      const line = t.slice(0, i).split('\n').length
-      if (line !== th.anchor) {
-        th.anchor = line; th.a = i; th.b = Math.min(t.length, i + quote.length); moved = true
-        dirtyAnchor(th)
+    const quote = pending ? th.suggestion_old : th.anchor_quote ?? th.quote
+    if (pending) {
+      const i = t || synced ? pendingSuggestionPos(t, th) : -1
+      if (i >= 0) {
+        th.conflict = false
+        th.a = i; th.b = Math.min(t.length, i + quote.length)
+        const line = t.slice(0, i).split('\n').length
+        if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
+      } else {
+        th.conflict = true
+        th.a = th.b = null
+        if (t && th.anchor <= t.split('\n').length) {
+          const a = posOfLine(t, th.anchor)
+          th.a = a; th.b = a + t.slice(a).split('\n')[0].length
+        }
       }
-    } else { // quote gone (edited away / non-unique pending / legacy empty old): hold the anchor line, or unmark a dead one
-      if (pending) th.conflict = true
+    } else if (quote) {
+      if (th.a != null && th.b != null && th.b > th.a) { // live mapped range: keep it across edits instead of exploding to the whole line
+        const line = t.slice(0, Math.min(th.a, t.length)).split('\n').length
+        if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
+      } else if (!th.anchor_range || !resolveCommentRange(th.anchor_range)) {
+        const i = exactQuotePos(t, quote, th.anchor)
+        if (i >= 0) {
+          th.a = i; th.b = Math.min(t.length, i + quote.length); th._deleted = false
+          const line = t.slice(0, i).split('\n').length
+          if (line !== th.anchor) { th.anchor = line; moved = true; dirtyAnchor(th) }
+        } else {
+          th.a = th.b = null
+        }
+      }
+    } else { // quoteless comment: anchored to its line
       th.a = th.b = null
       if (t && th.anchor <= t.split('\n').length) {
         const a = posOfLine(t, th.anchor)
@@ -676,16 +897,13 @@ async function jumpThread(t) {
   if (id !== docId || epoch !== openN || activeFile) return
   const doc = getT()
   let { from: a, to: b } = threadEditorRange(t)
-  if (!window.suggestionDraft && (a < 0 || b <= a || a > doc.length)) { // fallback: find quote
-    a = t.quote ? locateQuote(doc, t.quote, t.anchor) : -1
-    if (a < 0) { a = Math.min(doc.length, posOfLine(doc, t.anchor)); b = a }
-    else b = Math.min(doc.length, a + t.quote.length)
-  }
+  if (b < a) b = a
   b = Math.min(doc.length, b)
   cm.dispatch({ selection: { anchor: a, head: b },
     effects: EditorView.scrollIntoView(b, { y: 'center' }) })
   cm.focus()
-  openPop(cm.state.doc.lineAt(a).number, false)
+  openPop(cm.state.doc.lineAt(a).number, false, null, t.id)
+  $('pop').focus({ preventScroll: true })
 }
 async function refresh(focusId) {
   const doc = docId, epoch = openN
@@ -700,8 +918,8 @@ function updCNewTip() {
 }
 $('cNew').onclick = () => {
   if (!docId || activeFile || openedTrashed) return
-  const m = cm.state.selection.main // save selected spot along
-  openPop(lineOf(m.head), true, getT().slice(m.from, m.to).slice(0, 20000))
+  const m = cm.state.selection.main // anchor at selection start so multi-line comments sit on their opening line
+  openPop(lineOf(m.from), true)
 }
 
 const ICO_MORE = svgI('<circle cx="3" cy="8" r=".7"/><circle cx="8" cy="8" r=".7"/><circle cx="13" cy="8" r=".7"/>')
