@@ -51,6 +51,7 @@ class DraftComment(BaseModel):
     parent_id: str | None = Field(default=None, max_length=100)
     replaces_id: str | None = Field(default=None, max_length=100)
     deleted: bool = False
+    resolved: bool = False
 
 
 class PackageSave(BaseModel):
@@ -81,11 +82,12 @@ def list_packages(project_id: str, user: str = Depends(deps.me), include_closed:
         rows = con.execute(
             """SELECT id,title,author,author_name,revision,accepted,created_at,updated_at,
                json_array_length(files) AS file_count,
+               (SELECT COUNT(*) FROM comments WHERE package_id=s.id AND replaces_id IS NOT NULL) AS comment_changes,
                (SELECT COALESCE(SUM(MAX(COALESCE(json_array_length(value,'$.changes'),0),1)),0)
                 FROM json_each(files)) AS change_count
-               FROM suggestion_packages s WHERE project_id=? AND (json_array_length(files)>0
+               FROM suggestion_packages s WHERE project_id=? AND (json_array_length(files)>0 OR comment_changes>0
                  OR (? AND EXISTS(SELECT 1 FROM comments WHERE package_id=s.id)))
-               ORDER BY file_count=0, updated_at DESC""",
+               ORDER BY file_count=0 AND comment_changes=0, updated_at DESC""",
             (project_id, include_closed),
         ).fetchall()
         return {"packages": [dict(row) for row in rows]}
@@ -112,7 +114,7 @@ async def _package_body(req: Request) -> PackageSave:
 async def create_package(project_id: str, req: Request, user: str = Depends(deps.me)) -> dict:
     deps.limited(req, "comments")
     body = await _package_body(req)
-    if not body.files:
+    if not body.files and not any(comment.replaces_id for comment in body.comments):
         raise HTTPException(400, "An empty package cannot be submitted")
     return await asyncio.to_thread(
         packages.save, user, project_id, body.title,

@@ -227,7 +227,7 @@ test('review comments are stashed locally and publish the latest text at their d
   assert.equal(stashed, 1)
   const payload = c.sessionDraftComments(session)[0]
   assert.deepEqual({ ...payload }, { client_id: 'draft-comment-test', doc_id: 'd1', anchor: 2, quote: 'before original text',
-    anchor_quote: 'before revised text', text: 'Note', parent_id: undefined, replaces_id: undefined, deleted: false })
+    anchor_quote: 'before revised text', text: 'Note', parent_id: undefined, replaces_id: undefined, deleted: false, resolved: false })
 })
 
 test('proposal comment edits, deletions and replies overlay live threads without changing them', () => {
@@ -379,7 +379,7 @@ test('a proposal line lists every change and comment as its own item', () => {
     sessionKey: () => 'f', sessionCurrent() {}, sessionChangeRanges: () => ranges,
     threads: [{ id: 'on-change', a: 3, b: 4 }, { id: 'on-delete', a: 8, b: 8 }, { id: 'live-suggestion', suggestion_status: 'pending', a: 10, b: 12 }, { id: 'line-comment', a: 13, b: 14 }],
     threadEditorRange: th => ({ from: th.a, to: th.b }), cm: { state: { doc: { lines: 1, line: () => ({ from: 0, to: 20 }), lineAt: () => ({ number: 1 }) } } },
-    popThreadId: null, paintPopItems: list => { items = list }, el: card, icoBtn: card, colOf: () => '', t: key => key, ICO_TRASH: '',
+    popThreadId: null, paintPopItems: list => { items = list }, el: card, icoBtn: card, colOf: () => '', paintAvatar() {}, t: key => key, ICO_TRASH: '',
     threadCard: th => card('th', th.id), visibleChange: text => text })
   vm.runInContext(pkg.slice(pkg.indexOf('function sessionRangeOnLine'), pkg.indexOf('function paintSessionSelection')), c)
   c.sessionCard({ index: 1 })
@@ -422,11 +422,24 @@ test('a comment card quotes the text its mark covers now, not the text it was wr
   const card = (tag, cls, text) => ({ tag, className: cls, textContent: text, children: [], dataset: {}, style: {}, classList: { add() {} },
     append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
   const c = vm.createContext({ window: {}, docId: 'd', openN: 1, docRole: 'owner', openedTrashed: false, user: 'u', el: card, icoBtn: tag => card('button', tag), ICO_CHECK: '', ICO_UNDO: '', ICO_EDIT: '', ICO_TRASH: '', ICO_SEND: '',
-    t: key => key, ago: () => '', colOf: () => '', wireMentions() {}, popDrafts: new Map(), richText: text => card('p', 'tx', text),
+    t: key => key, ago: () => '', colOf: () => '', paintAvatar() {}, wireMentions() {}, popDrafts: new Map(), richText: text => card('p', 'tx', text),
     threadEditorRange: th => ({ from: th.a, to: th.b }), cm: { state: { doc: { sliceString: (a, b) => 'Dies e Zele wird'.slice(a, b) } } } })
   vm.runInContext(source.slice(source.indexOf('function saveCommentChange'), source.indexOf('function invalidateCommentCache')), c)
   const walk = node => [node, ...(node.children || []).flatMap(walk)]
   const quote = th => walk(c.threadCard({ id: 'c', username: 'u', created_at: '', replies: [], text: 'note', ...th })).find(n => n.className === 'qt').textContent
   assert.equal(quote({ quote: 'Diese Zeile wird', a: 0, b: 16 }), '"Dies e Zele wird"')
   assert.equal(quote({ quote: 'gone text', a: null, b: null }), '"gone text"')
+})
+
+test('a proposed resolve flips the shown state only when it differs from the live thread', () => {
+  const c = vm.createContext({})
+  vm.runInContext(source.slice(source.indexOf('function proposalComments'), source.indexOf('function commentPackage')), c)
+  const live = [{ id: 'open', text: 'a', resolved: 0, replies: [] }, { id: 'done', text: 'b', resolved: 1, replies: [] }]
+  const [open, done] = c.proposalComments(live, [
+    { id: 'p1', replaces_id: 'open', text: '', resolved: true },
+    { id: 'p2', replaces_id: 'done', text: '', resolved: true },
+  ])
+  assert.deepEqual([open.resolved, open._proposedResolve, open._changeId], [1, true, 'p1'])
+  assert.deepEqual([done.resolved, done._proposedResolve], [1, undefined])
+  assert.equal(live[0].resolved, 0)
 })

@@ -234,7 +234,7 @@ test('openTopPackage routes to the document, loads the proposal and avoids doubl
   const c = context({
     window: {}, docProject: 'p1', lastOwn: [{ id: 'd1', project_id: 'p1' }], lastShared: [],
     t: key => key, toast: msg => toasts.push(msg), sidebar: async () => {}, endChangeSession: async () => true,
-    choosePackage: async () => picked.push(true), startChangeSession: async p => started.push(p),
+    choosePackage: async () => picked.push(true), startChangeSession: async p => started.push(p), packageOpen: p => !!p?.files?.length,
     api: async (method, url) => {
       calls.push([method, url])
       const id = url.slice(url.lastIndexOf('/') + 1)

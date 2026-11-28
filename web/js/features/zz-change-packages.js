@@ -2,6 +2,8 @@
 window.changeSession = null
 let packageList = [], packageLoad = 0, sessionSequence = 0, sessionStarting = false
 const sessionKey = f => [f.kind, f.doc_id || '', f.path].join(':')
+const packageOpen = p => !!(p?.files?.length || p?.comment_changes)
+const sessionCommentChanges = s => s.package ? s.package.comment_changes || 0 : (s.draftComments || []).filter(c => c.replaces_id).length
 const sessionDocumentTab = file => '@proposal-doc/' + file.doc_id + '.typ'
 function sessionIdentity(name) {
   const added = [...(window.changeSession?.files.values() || [])].find(f => f.kind === 'document' && f.action === 'add' && sessionDocumentTab(f) === name)
@@ -134,7 +136,7 @@ async function postReviewComment(s, doc, body, target = null) {
 
 function sessionDraftComments(s) {
   return (s.draftComments || []).map(th => {
-    const base = { client_id: th.id, doc_id: th.doc_id, quote: th.quote || '', text: th.text || '', parent_id: th.parent_id, replaces_id: th.replaces_id, deleted: !!th.deleted }
+    const base = { client_id: th.id, doc_id: th.doc_id, quote: th.quote || '', text: th.text || '', parent_id: th.parent_id, replaces_id: th.replaces_id, deleted: !!th.deleted, resolved: !!th.resolved }
     if (th.parent_id || th.replaces_id) return { ...base, anchor: Math.max(1, th.anchor || 1), anchor_quote: '' }
     const file = s.files.get(sessionKey({ kind: 'document', doc_id: th.doc_id, path: '' }))
     const content = file?.content ?? file?.base
@@ -299,7 +301,7 @@ async function submitChangeSession() {
   if (!s || s.busy) return false
   if (s.package) return saveSessionCorrections()
   const files = sessionFiles(s)
-  if (!files.length) return endChangeSession(true)
+  if (!files.length && !sessionCommentChanges(s)) return endChangeSession(true)
   const title = await ask(t('packages.title'), { value: s.title || docTitle, maxLen: 100 })
   if (title == null || window.changeSession !== s) return false
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
@@ -315,7 +317,7 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
   if (s.busy && !discard) return false
   if (!discard && s.package && !await saveSessionCorrections()) return false
   if (!discard && !s.package) {
-    const hasChanges = !!sessionFiles(s).length
+    const hasChanges = !!sessionFiles(s).length || !!sessionCommentChanges(s)
     if (hasChanges || s.draftComments?.length) {
       const choices = [[t('comments.draftDiscard'), ''], [t('projects.stay'), '']]
       if (hasChanges) choices.unshift([t('comments.draftSend'), ''])
@@ -350,7 +352,7 @@ async function choosePackage() {
     if (project !== docProject || epoch !== packageLoad) return
     packageList = response.packages
     const choice = await pickPop(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
-      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count }) + ' · ' + new Date(p.updated_at).toLocaleString() + (!p.file_count ? ' · ' + t('comments.completedPackage') : p.accepted ? ' · ' + t('packages.partial') : '')])], reviewButton)
+      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count + p.comment_changes }) + ' · ' + new Date(p.updated_at).toLocaleString() + (!p.file_count && !p.comment_changes ? ' · ' + t('comments.completedPackage') : p.accepted ? ' · ' + t('packages.partial') : '')])], reviewButton)
     if (choice == null || project !== docProject || window.changeSession !== previous) return
     if (choice === 0) {
       if (previous?.package) { closePop(true); previous.original = true; await sessionActivate() }
@@ -380,7 +382,7 @@ async function openTopPackage(entry) {
   try {
     if (!entry.id) { await choosePackage(); return } // entry without id: fall back to the in-project picker
     const proposal = await api('GET', '/api/projects/' + pid + '/proposals/' + entry.id).catch(e => { if (e.status === 404) return null; throw e })
-    if (proposal?.files.length) await startChangeSession(proposal) // accepted or discarded meanwhile: the project is enough
+    if (packageOpen(proposal)) await startChangeSession(proposal) // accepted or discarded meanwhile: the project is enough
   } catch (e) { toast(e.message) }
 }
 window.openTopPackage = openTopPackage
@@ -430,9 +432,9 @@ async function acceptSessionSelection(fileId = '', changeId = '', cell = null, f
       activeFile = ''; tabDirty = false
       s.busy = false; await endChangeSession(true); closeView()
       const fallback = projects.find(p => p.id === s.project)?.documents?.find(d => d.id !== deletedId)
-      if (fallback) { await openDoc(fallback.id); if (proposal.files.length) await startChangeSession(proposal) }
+      if (fallback) { await openDoc(fallback.id); if (packageOpen(proposal)) await startChangeSession(proposal) }
     }
-    else if (!proposal.files.length) {
+    else if (!packageOpen(proposal)) {
       const accepted = acceptedDocuments.find(f => f.doc_id === docId)
       const main = accepted && shadow === accepted.base ? accepted.content : shadow // WS echo may arrive after the accept response
       s.busy = false; await endChangeSession(true, true, main)
@@ -584,11 +586,11 @@ function sessionCard(box) {
     const card = el('div', 'th'), header = el('div', 'hd')
     const author = s.package?.author_name || s.package?.author || user || '?'
     const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(s.package?.author || author); av.setAttribute('aria-hidden', 'true')
-    if (typeof paintAvatar === 'function') paintAvatar(av, s.package?.author || author, colOf(s.package?.author || author))
+    paintAvatar(av, s.package?.author || author, colOf(s.package?.author || author))
     const meta = el('span', 'hdMeta')
     meta.append(el('b', 'nm', author))
     const acts = el('span', 'acts')
-    const remove = icoBtn('ib', ICO_TRASH); remove.classList?.add('danger'); remove.title = t('comments.draftDiscard'); remove.setAttribute('aria-label', remove.title)
+    const remove = icoBtn('ib', ICO_TRASH); remove.classList.add('danger'); remove.title = t('comments.draftDiscard'); remove.setAttribute('aria-label', remove.title)
     remove.onclick = () => {
       if (s.busy) return
       closePop(true)
@@ -854,34 +856,31 @@ paintSuggestionControls = () => {
     bar.hidden = false
     const label = bar.querySelector('b')
     if (label) { label.hidden = false; label.textContent = s.package ? t('packages.reviewMode') : t('packages.draftMode') }
-    const cnt = $('sugCount'), n = sessionFiles(s).reduce((sum, f) => sum + Math.max(1, f.changes?.length || 0), 0)
-    const comments = s.package ? 0 : (s.draftComments || []).length
-    if (cnt) cnt.textContent = [
-      n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : t('packages.noChanges'),
+    const n = sessionFiles(s).reduce((sum, f) => sum + Math.max(1, f.changes?.length || 0), 0) + sessionCommentChanges(s)
+    const comments = s.package ? 0 : (s.draftComments || []).filter(c => !c.replaces_id).length
+    const sendable = !!s.package || n > 0
+    $('sugCount').textContent = [
+      s.package?.title,
+      n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : '',
       comments === 1 ? t('packages.commentCountOne') : comments > 1 ? t('packages.commentCountMany', { n: comments }) : '',
+      !sendable && comments ? t('packages.sendNeedsChange') : '',
     ].filter(Boolean).join(' · ')
     const send = $('sugSend'), disc = $('sugDiscard')
-    if (send) {
-      if (s.package) {
-        send.hidden = s.package.files?.length === 0 || !['owner', 'editor'].includes(docRole)
-        send.textContent = t('packages.acceptPackage')
-        send.disabled = !!s.busy
-        send.onclick = () => acceptSessionSelection()
-      } else {
-        send.hidden = false
-        send.textContent = t('comments.draftSend')
-        send.disabled = !n || !!s.busy
-        send.title = n ? '' : t('packages.sendNeedsChange')
-        send.onclick = () => submitChangeSession()
-      }
+    send.disabled = !!s.busy
+    if (s.package) {
+      send.hidden = !packageOpen(s.package) || !['owner', 'editor'].includes(docRole)
+      send.textContent = t('packages.acceptPackage')
+      send.onclick = () => acceptSessionSelection()
+    } else {
+      send.hidden = !sendable
+      send.textContent = t('comments.draftSend')
+      send.onclick = () => submitChangeSession()
     }
-    if (disc) {
-      disc.textContent = s.package ? t('packages.exit') : t('comments.draftDiscard')
-      disc.disabled = !!s.busy
-      disc.onclick = async () => {
-        if (s.package) return endChangeSession()
-        if (!sessionFiles(s).length && !s.draftComments?.length || await ask(t('packages.discardConfirm'), { noInput: true, danger: true })) await endChangeSession(true)
-      }
+    disc.textContent = s.package ? t('packages.exit') : t('comments.draftDiscard')
+    disc.disabled = !!s.busy
+    disc.onclick = async () => {
+      if (s.package) return endChangeSession()
+      if (!sessionFiles(s).length && !s.draftComments?.length || await ask(t('packages.discardConfirm'), { noInput: true, danger: true })) await endChangeSession(true)
     }
   }
   if (available) {

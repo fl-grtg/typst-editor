@@ -129,7 +129,7 @@
 #pop .hd .acts .ib.danger:hover { background: var(--danger-soft); color: var(--danger); }
 #pop .nm { font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #pop .tm { font-size: 11.5px; color: var(--faint); flex: none; }
-#pop .hdMeta .thTag { display: none; } /* comment type is implicit; keep pill only for suggestion status */
+#pop .hdMeta .thTag { display: none; }
 #pop .hdMeta .resolvedTag { display: inline-flex; }
 #pop .thTag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--sub); background: var(--hover); line-height: 1.5; }
 #pop .suggestionCard .thTag { margin-top: 7px; }

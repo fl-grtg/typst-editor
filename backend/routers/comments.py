@@ -127,24 +127,27 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
     deps.limited(req, "comments")
     role = deps.need_access(user, doc_id)
     text = "" if b.deleted else b.text.strip()
-    if (not b.deleted and not text) or len(b.text) > 2000 or (b.deleted and not b.replaces_id):
+    if (not text and not b.replaces_id) or len(b.text) > 2000 or (b.deleted and not b.replaces_id):
         raise HTTPException(400, "Comment: 1-2000 chars")
     if b.anchor < 0:
         raise HTTPException(400, "Anchor < 0")
     cid = db.new_id("c_")
     ref = cid
     pkg = b.package_id.strip()
-    existing = None
+    existing = old = None
     with db.tx() as con:
         if b.replaces_id:
             if not pkg or b.parent_id:
                 raise HTTPException(400, "Comment changes belong to a proposal")
-            target = con.execute("SELECT username, package_id, suggestion_status FROM comments WHERE id=? AND doc_id=?",
+            target = con.execute("SELECT username, parent_id, package_id, suggestion_status, text FROM comments WHERE id=? AND doc_id=?",
                                  (b.replaces_id, doc_id)).fetchone()
             if not target or target["package_id"] or target["suggestion_status"]:
                 raise HTTPException(404, "Comment gone")
-            if target["username"] != user and not (b.deleted and role == "owner"):
+            if not b.deleted and not text and target["parent_id"]:
+                raise HTTPException(400, "Only threads can be resolved")
+            if target["username"] != user and not ((b.deleted or not text) and role == "owner"):
                 raise HTTPException(403, "Only author or owner")
+            old = target["text"]
         if b.parent_id:
             p = con.execute("SELECT parent_id, package_id FROM comments WHERE id=? AND doc_id=?",
                             (b.parent_id, doc_id)).fetchone()
@@ -164,17 +167,18 @@ def add_comment(doc_id: str, b: CommentNew, req: Request, user: str = Depends(de
             existing = con.execute("SELECT id FROM comments WHERE package_id=? AND replaces_id=?",
                                    (pkg, b.replaces_id)).fetchone()
             if existing:
-                con.execute("UPDATE comments SET username=?, text=?, deleted=? WHERE id=?",
-                            (user, text, int(b.deleted), existing["id"]))
+                con.execute("UPDATE comments SET username=?, text=?, deleted=?, resolved=?, suggestion_old=? WHERE id=?",
+                            (user, text, int(b.deleted), int(b.resolved), old, existing["id"]))
                 cid = existing["id"]
         if not existing:
             q = b.quote[:500]
             anchor = max(1, b.anchor)  # 1-based (UI); 0 = top alias -> line 1
             con.execute(
                 "INSERT INTO comments (id, doc_id, username, author, anchor, quote, text, parent_id, package_id, anchor_quote, "
-                "anchor_range, replaces_id, deleted, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "anchor_range, replaces_id, deleted, resolved, suggestion_old, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cid, doc_id, user, "", anchor, q if q.strip() else "", text, b.parent_id, pkg,
-                 b.anchor_quote, None if pkg or b.parent_id else b.anchor_range, b.replaces_id, int(b.deleted), db.now_iso()),
+                 b.anchor_quote, None if pkg or b.parent_id else b.anchor_range, b.replaces_id, int(b.deleted),
+                 int(b.resolved and bool(b.replaces_id)), old, db.now_iso()),
             )
     if not b.replaces_id:
         notifications.notify_mentions(doc_id, user, text, ref)

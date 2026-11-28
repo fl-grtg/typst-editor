@@ -8,18 +8,18 @@ function suggestionCard(th, fresh, doc, epoch) {
   const oldFull = th.suggestion_old || '', nextFull = th.replacement || ''
   if (oldFull || nextFull) {
     const raw = diffSpan(oldFull, nextFull)
-    const span = typeof tokenSafeSpan === 'function' ? tokenSafeSpan(oldFull, raw) : raw
+    const span = tokenSafeSpan(oldFull, raw)
     const old = oldFull.slice(span.a, oldFull.length - span.b)
     const next = nextFull.slice(span.a, nextFull.length - span.b)
     if (old || next) {
       const diff = el('div', 'sugDiff')
-      if (th.suggestion_status !== 'pending') diff.classList?.add('is-decided')
+      if (th.suggestion_status !== 'pending') diff.classList.add('is-decided')
       if (old) diff.append(el('div', 'sugDel', visibleChange(old)))
       if (next) diff.append(el('div', 'sugAdd', visibleChange(next)))
       card.append(diff)
     }
   }
-  if (th.text && typeof richText === 'function') card.append(richText(th.text))
+  if (th.text) card.append(richText(th.text))
   if (th.suggestion_status === 'pending' && (th.a == null || th.conflict)) card.append(el('p', 'sugConflict', t('comments.suggestionConflict')))
   if (th.suggestion_status === 'pending' && !openedTrashed && ['owner', 'editor'].includes(docRole)) {
     const actions = el('div', 'sugActs')
@@ -165,7 +165,7 @@ function draftSuggestionCard(range) {
     accept.onclick = () => acceptDraftSuggestion(range)
     acts.append(accept)
   }
-  const discard = icoBtn('ib', ICO_TRASH); discard.classList?.add('danger')
+  const discard = icoBtn('ib', ICO_TRASH); discard.classList.add('danger')
   discard.title = t('comments.draftDiscard'); discard.setAttribute('aria-label', discard.title)
   discard.onclick = () => {
     const draft = window.suggestionDraft

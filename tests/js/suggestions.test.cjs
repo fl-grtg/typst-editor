@@ -299,12 +299,12 @@ test('gutter opens every draft change on the same line', () => {
 })
 
 test('cards label comments and keep dismissal in the trash action for editors', async () => {
-  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [],
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [], classList: { add() {} },
     append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
   const calls = []
   const c = vm.createContext({ window: {}, docId: 'doc', openN: 1, docRole: 'editor', openedTrashed: false, user: 'editor',
     el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', t: value => value,
-    ago: () => 'now', colOf: () => 'blue', popDrafts: new Map(), wireMentions() {}, refresh() {},
+    ago: () => 'now', colOf: () => 'blue', paintAvatar() {}, tokenSafeSpan: (old, span) => span, richText: text => node('p', 'tx', text), popDrafts: new Map(), wireMentions() {}, refresh() {},
     decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
   const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
   vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)
@@ -323,13 +323,13 @@ test('cards label comments and keep dismissal in the trash action for editors', 
 })
 
 test('owner dismisses pending suggestions via reject, reviewer gets no broken delete, conflict disables accept', async () => {
-  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [],
+  const node = (tag, cls, text) => ({ tag, className: cls, textContent: text, style: {}, dataset: {}, children: [], classList: { add() {} },
     append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, setAttribute() {} })
   const calls = []
   const mkCtx = (docRole, user) => {
     const c = vm.createContext({ window: {}, docId: 'doc', openN: 1, docRole, openedTrashed: false, user,
       el: node, icoBtn: cls => node('button', cls), ICO_TRASH: 'trash', ICO_SEND: 'send', ICO_EDIT: 'edit', t: value => value,
-      ago: () => 'now', colOf: () => 'blue', popDrafts: new Map(), wireMentions() {}, refresh() {}, api: () => { throw Error('must not call DELETE') },
+      ago: () => 'now', colOf: () => 'blue', paintAvatar() {}, tokenSafeSpan: (old, span) => span, richText: text => node('p', 'tx', text), popDrafts: new Map(), wireMentions() {}, refresh() {}, api: () => { throw Error('must not call DELETE') },
       decideSuggestion: (...args) => { calls.push(args); return Promise.resolve() } })
     const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
     vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), c)

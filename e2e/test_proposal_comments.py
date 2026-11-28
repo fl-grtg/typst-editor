@@ -48,3 +48,27 @@ def test_proposal_comments_stay_at_changes_and_live_suggestions_can_be_decided(p
     _wait_for_content(page, did, 'one old text\nsecond row')
     expect(page.locator('#cm .cm-content')).to_contain_text('second row')
     page.wait_for_function("[...window.changeSession.files.values()].some(f => f.kind === 'document' && f.content.startsWith('one new text') && f.content.endsWith('second row'))")
+
+
+def test_a_proposal_can_only_resolve_a_comment(page):
+    register(page, 'proposal_resolve')
+    create_doc(page, 'Proposal resolve')
+    put_source(page, 'one old text')
+    did = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Proposal resolve')['id']
+    _wait_for_content(page, did, 'one old text')
+    assert page.request.post(f'/api/docs/{did}/comments', data={'anchor': 1, 'quote': 'old', 'anchor_quote': 'old', 'text': 'Live note'}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Proposal resolve').click()
+    expect(page.locator('[data-comment-id]')).to_have_text('old')
+    page.locator('#suggestionToggle').click()
+    expect(page.locator('#sugSend')).to_be_hidden()
+    page.locator('[data-comment-id]').click()
+    page.locator('#pop button[title="Done"]').click()
+    expect(page.locator('#sugBar')).to_contain_text('1')
+    page.locator('#sugSend').click()
+    page.locator('#mYes').click()
+    expect(page.locator('#sugBar')).to_be_hidden()
+    project = page.request.get(f'/api/docs/{did}').json()['project_id']
+    package, = page.request.get(f'/api/projects/{project}/proposals').json()['packages']
+    assert (package['file_count'], package['comment_changes']) == (0, 1)
+    assert page.request.get(f'/api/docs/{did}/comments').json()['comments'][0]['resolved'] == 0

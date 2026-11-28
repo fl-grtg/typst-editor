@@ -452,7 +452,7 @@ function showPop(id) { // toggle one popup, close rest (one helper not 5 blocks)
   }
   return open
 }
-function anchorPop(p, btn) { // popover under its trigger: getBoundingClientRect, clamped (no framework)
+function anchorPop(p, btn) { // popover under its trigger, clamped to the viewport
   try {
     if (!btn || !p.offsetParent) return
     const r = btn.getBoundingClientRect(), pr = p.offsetParent.getBoundingClientRect()
@@ -639,6 +639,15 @@ function saveCommentChange(doc, item, text) {
   if (s && !item.package_id) return postReviewComment(s, doc, { anchor: item.anchor || 1, text: text || '', deleted: text == null, replaces_id: item.id })
   return text == null ? api('DELETE', `/api/docs/${doc}/comments/${item.id}`) : api('POST', `/api/docs/${doc}/comments/${item.id}/edit`, { text })
 }
+function saveCommentResolve(doc, th) {
+  const s = window.changeSession && !window.changeSession.original ? window.changeSession : null
+  if (!s || th.package_id) return api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved })
+  if (!th._proposedResolve) return postReviewComment(s, doc, { anchor: th.anchor || 1, text: '', resolved: !th.resolved, replaces_id: th.id })
+  if (s.package) return api('DELETE', `/api/docs/${doc}/comments/${th._changeId}`) // toggling back withdraws the proposal
+  s.draftComments = s.draftComments.filter(c => c.id !== th._changeId)
+  sessionStash()
+  return Promise.resolve()
+}
 function threadCard(th) {
   const doc = docId, epoch = openN
   const session = window.changeSession && !window.changeSession.original ? window.changeSession : null
@@ -647,16 +656,16 @@ function threadCard(th) {
   const hd = el('div', 'hd')
   const author = th.author || th.username || '?'
   const av = el('span', 'av', author.slice(0, 1).toUpperCase()); av.style.background = colOf(th.username || author); av.setAttribute('aria-hidden', 'true')
-  if (typeof paintAvatar === 'function' && th.username) paintAvatar(av, th.username, colOf(th.username))
+  if (th.username) paintAvatar(av, th.username, colOf(th.username))
   const meta = el('span', 'hdMeta')
   const nm = el('b', 'nm', author)
   meta.append(nm, el('span', 'tm', ago(th.created_at)))
   const acts = el('span', 'acts')
   hd.append(av, meta, acts)
   const roC = openedTrashed
-  if (!roC && (!session || th.package_id && th.package_id !== 'draft') && !th.suggestion_status && (docRole === 'owner' || th.username === user)) {
+  if (!roC && th.package_id !== 'draft' && !th.suggestion_status && (docRole === 'owner' || th.username === user)) {
     const fin = icoBtn('ib', th.resolved ? ICO_UNDO : ICO_CHECK); fin.title = th.resolved ? t('comments.reopen') : t('comments.done'); fin.setAttribute('aria-label', fin.title)
-    fin.onclick = () => api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved }).then(fresh).catch(e => toast(e.message))
+    fin.onclick = () => saveCommentResolve(doc, th).then(fresh).catch(e => toast(e.message))
     acts.appendChild(fin)
   }
   if (th.username === user && !openedTrashed) { // only author edits (owner deletes)
@@ -672,7 +681,7 @@ function threadCard(th) {
   const canDecide = pendingSug && ['owner', 'editor'].includes(docRole)
   const canDel = !roC && (pendingSug ? canDecide : (docRole === 'owner' || th.username === user))
   if (canDel) {
-    const del = icoBtn('ib', ICO_TRASH); del.classList?.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
+    const del = icoBtn('ib', ICO_TRASH); del.classList.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
     del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : saveCommentChange(doc, th, null).then(() => fresh().then(() => {
       if (doc === docId && epoch === openN && !threads.some(x => String(x.id) === String(th.id))) closePop()
     })).catch(e => toast(e.message))
@@ -681,14 +690,15 @@ function threadCard(th) {
   d.appendChild(hd)
   if (th.suggestion_status) d.appendChild(suggestionCard(th, fresh, doc, epoch))
   else {
-    const tag = el('span', 'thTag', t(th._proposedEdit ? 'comments.proposedEdit' : th.resolved ? 'comments.done' : 'comments.newAria'))
-    if (th.resolved || th._proposedEdit) tag.classList.add('resolvedTag')
+    const proposed = th._proposedEdit ? 'comments.proposedEdit' : th._proposedResolve && (th.resolved ? 'comments.proposedDone' : 'comments.proposedReopen')
+    const tag = el('span', 'thTag', t(proposed || (th.resolved ? 'comments.done' : 'comments.newAria')))
+    if (th.resolved || proposed) tag.classList.add('resolvedTag')
     meta.appendChild(tag)
     const range = th.a != null && th.b > th.a ? threadEditorRange(th) : null
     const quote = range && range.to > range.from ? cm.state.doc.sliceString(range.from, range.to) : th.quote
     if (quote) { // quoted passage first so comment + replies read as one continuous thread
       const q = el('button', 'qt', '"' + (quote.length > 80 ? quote.slice(0, 80) + '…' : quote) + '"')
-      if (th.a == null) q.classList?.add('is-detached')
+      if (th.a == null) q.classList.add('is-detached')
       q.title = t(th.a == null ? 'comments.detached' : 'comments.jumpPos')
       q.onclick = () => jumpThread(th)
       d.appendChild(q)
@@ -700,7 +710,7 @@ function threadCard(th) {
     const rd = el('div', 'rp'), rh = el('div', 'hd')
     const rAuthor = r.author || r.username || '?'
     const rav = el('span', 'av', rAuthor.slice(0, 1).toUpperCase()); rav.style.background = colOf(r.username || rAuthor); rav.setAttribute('aria-hidden', 'true')
-    if (typeof paintAvatar === 'function' && r.username) paintAvatar(rav, r.username, colOf(r.username))
+    if (r.username) paintAvatar(rav, r.username, colOf(r.username))
     const rMeta = el('span', 'hdMeta')
     const rn = el('b', 'nm', rAuthor)
     rMeta.append(rn, el('span', 'tm', ago(r.created_at)))
@@ -714,7 +724,7 @@ function threadCard(th) {
       rActs.appendChild(red)
     }
     if (!roC && (docRole === 'owner' || r.username === user)) {
-      const rdel = icoBtn('ib', ICO_TRASH); rdel.classList?.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
+      const rdel = icoBtn('ib', ICO_TRASH); rdel.classList.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
       rdel.onclick = () => saveCommentChange(doc, r, null).then(fresh).catch(e => toast(e.message))
       rActs.appendChild(rdel)
     }
@@ -748,7 +758,8 @@ function proposalComments(live, items) {
   for (const item of items) if (item.replaces_id && byId.has(item.replaces_id)) {
     const target = byId.get(item.replaces_id)
     if (item.deleted) target._removed = true
-    else { target.text = item.text; target._proposedEdit = true }
+    else if (item.text) { target.text = item.text; target._proposedEdit = true }
+    else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id })
   }
   for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
   return [...tops.filter(th => !th._removed).map(th => ({ ...th, replies: th.replies.filter(r => !r._removed) })), ...items.filter(item => !item.parent_id && !item.replaces_id)]
