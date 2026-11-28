@@ -658,7 +658,7 @@ function withdrawCommentChange(doc, id) {
   return Promise.resolve()
 }
 function keepButton(doc, item, done) {
-  const b = icoBtn('ib', ICO_UNDO); b.title = t('comments.keep'); b.setAttribute('aria-label', b.title)
+  const b = icoBtn('ib', ICO_UNDO); b.title = t(item._proposedDelete ? 'comments.keep' : 'comments.withdraw'); b.setAttribute('aria-label', b.title)
   b.onclick = () => withdrawCommentChange(doc, item._changeId).then(done).catch(e => toast(e.message))
   return b
 }
@@ -692,6 +692,7 @@ function threadCard(th) {
     }
     acts.appendChild(ed)
   }
+  if (!roC && th._proposedEdit && mayWithdraw(th)) acts.appendChild(keepButton(doc, th, fresh))
   const pendingSug = th.suggestion_status === 'pending'
   const canDecide = pendingSug && ['owner', 'editor'].includes(docRole)
   const canDel = !roC && (pendingSug ? canDecide : (docRole === 'owner' || th.username === user))
@@ -732,7 +733,7 @@ function threadCard(th) {
     const rn = el('b', 'nm', rAuthor)
     rMeta.append(rn, el('span', 'tm', ago(r.created_at)))
     const rActs = el('span', 'acts')
-    if (r._proposedDelete) rMeta.appendChild(el('span', 'thTag resolvedTag', t('comments.proposedDelete')))
+    if (r._proposedDelete || r._proposedEdit) rMeta.appendChild(el('span', 'thTag resolvedTag', t(r._proposedDelete ? 'comments.proposedDelete' : 'comments.proposedEdit')))
     if (!roC && r.username === user && !r._proposedDelete) {
       const red = icoBtn('ib', ICO_EDIT); red.title = t('comments.edit'); red.setAttribute('aria-label', red.title)
       red.onclick = async () => {
@@ -741,6 +742,7 @@ function threadCard(th) {
       }
       rActs.appendChild(red)
     }
+    if (!roC && r._proposedEdit && mayWithdraw(r)) rActs.appendChild(keepButton(doc, r, fresh))
     if (!roC && r._proposedDelete && mayWithdraw(r)) rActs.appendChild(keepButton(doc, r, fresh))
     else if (!roC && !r._proposedDelete && (docRole === 'owner' || r.username === user)) {
       const rdel = icoBtn('ib', ICO_TRASH); rdel.classList.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
@@ -779,7 +781,7 @@ function proposalComments(live, items) {
   for (const item of items) if (item.replaces_id && byId.has(item.replaces_id)) {
     const target = byId.get(item.replaces_id)
     if (item.deleted) Object.assign(target, { _proposedDelete: true, _changeId: item.id, _changeUser: item.username })
-    else if (item.text) { target.text = item.text; target._proposedEdit = true }
+    else if (item.text) Object.assign(target, { text: item.text, _proposedEdit: true, _changeId: item.id, _changeUser: item.username })
     else if (!!item.resolved !== !!target.resolved) Object.assign(target, { resolved: item.resolved ? 1 : 0, _proposedResolve: true, _changeId: item.id, _changeUser: item.username })
   }
   for (const item of items) if (item.parent_id && !item.replaces_id) byId.get(item.parent_id)?.replies.push(item)
