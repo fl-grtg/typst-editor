@@ -336,7 +336,8 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
     }
     else setT(mainText ?? shadow, preserveView && !addedTab)
     cm.dispatch({ effects: editableComp.reconfigure(editMode(tabCanEdit(activeFile))) })
-    paintTabs(); paintFileExtras(); paintOutline(); loadComments().catch(() => {}); reanchor(); refreshHl(); queueRender()
+    marks = new Set(); markStyle = '' // the swapped text dropped the painted gutter markers
+    paintTabs(); paintFileExtras(); paintOutline(); loadComments().catch(() => {}); reanchor(); gutter(); refreshHl(); queueRender()
   }
   paintSuggestionControls(); await sidebar(); return true
 }

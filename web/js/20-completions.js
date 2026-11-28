@@ -488,7 +488,7 @@ function threadHighlights() {
     }
     const { from: a, to: b } = threadEditorRange(source)
     if (b > a) segs.push({ a, b, kind: pending ? 'sug' : th.resolved ? 'resolved' : 'open', id: String(th.id) })
-    if (pending) {
+    if (pending && (b > a || source.a === source.b)) { // old text deleted in the open draft: its replacement has nothing to replace
       const widget = new SuggestionReplacement(th, span)
       if (widget.text) rs.push(Decoration.widget({ widget, side: 1 }).range(b))
     }

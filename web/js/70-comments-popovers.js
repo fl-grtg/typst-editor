@@ -373,9 +373,9 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
   let m = new Set()
   const suggestions = new Set()
   if (docId && !tplName && !activeFile) {
-    const mapped = !!(window.suggestionDraft || window.changeSession)
     for (const th of threads) {
-      const line = mapped ? cm.state.doc.lineAt(threadEditorRange(th).from).number : th.anchor
+      if (th.a == null) continue // detached (its text is gone): no marker on whatever line took its place
+      const line = cm.state.doc.lineAt(threadEditorRange(th).from).number
       m.add(line)
       if (th.suggestion_status === 'pending') suggestions.add(line)
     }
@@ -404,7 +404,7 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
     cm.dispatch({ effects: setMarks.of(RangeSet.of(rs, true)) })
   }
 }
-let popFresh = false, popT = 0, popLayoutTries = 0, popThreadId = null, popHomeId = null // popHomeId: the thread the card opened at; paging never moves it
+let popFresh = false, popT = 0, popLayoutTries = 0, popThreadId = null, popHomeId = null, popUp = null // popHomeId/popUp: where the card opened; paging never moves it
 const popDrafts = new Map()
 function paintCardView() { $('cmWrap').classList.toggle('cardOpen', $('pop').style.display !== 'none') } // open card suppresses hover previews (CSS hides .cm-tooltip-hover)
 function openPop(anchor, fresh, suggestion = null, focusId = null) {
@@ -412,6 +412,7 @@ function openPop(anchor, fresh, suggestion = null, focusId = null) {
   window.suggestionPopup = suggestion
   popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, +anchor || 1)); popFresh = !!fresh
   popThreadId = popHomeId = focusId ? String(focusId) : null
+  popUp = null
   popLayoutTries = 0
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
@@ -492,7 +493,7 @@ function movePop() {
   const above = Math.max(0, top - Math.max(r.top, editor.top) - 10)
   const below = Math.max(0, Math.min(r.bottom, editor.bottom) - bottom - 10)
   const wanted = Math.min(pop.scrollHeight, 360)
-  const up = above >= wanted || (below < wanted && above >= below)
+  const up = popUp != null && (popUp ? above : below) >= 90 ? popUp : above >= wanted || (below < wanted && above >= below)
   const available = up ? above : below
   if (available < 90) {
     pop.style.visibility = 'hidden'
@@ -510,6 +511,7 @@ function movePop() {
     return
   }
   popLayoutTries = 0
+  popUp = up
   pop.style.visibility = ''
   pop.style.maxHeight = Math.min(360, available) + 'px'
   const height = Math.min(pop.scrollHeight, available, 360)

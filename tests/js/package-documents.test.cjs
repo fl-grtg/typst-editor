@@ -106,7 +106,7 @@ test('leaving an added document tab restores source without requesting a nonexis
   Object.assign(c, { sessionStashTimer: 0, clearTimeout: () => {}, packageDraft: async () => {}, sessionStashKey: () => 'draft',
     localStorage: { removeItem: () => {} }, fileCache: new Map(), shadow: 'Source document', setT: value => { text = value },
     cm: { dispatch: () => {} }, editableComp: { reconfigure: () => {} }, editMode: () => {}, tabCanEdit: () => true,
-    paintTabs: () => {}, paintFileExtras: () => {}, paintOutline: () => {}, reanchor: () => {}, refreshHl: () => {}, queueRender: () => {},
+    paintTabs: () => {}, paintFileExtras: () => {}, paintOutline: () => {}, reanchor: () => {}, gutter: () => {}, refreshHl: () => {}, queueRender: () => {},
     paintSuggestionControls: () => {}, sidebar: async () => {}, loadComments: async () => {}, sessionOriginalSwitchTab: async () => { throw Error('nonexistent file requested') } })
   vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
   assert.equal(await c.endChangeSession(true), true)
@@ -227,7 +227,7 @@ test('ending acceptance preserves main and module views instead of restoring old
       clearTimeout() {}, packageDraft: async () => {}, sessionStashKey: () => 'draft',
       localStorage: { removeItem() {} }, fileCache: new Map(), shadow: 'Accepted source',
       setT: (...args) => { restored = args }, cm: { dispatch() {} }, editableComp: { reconfigure() {} }, editMode() {}, tabCanEdit: () => true,
-      paintTabs() {}, paintFileExtras() {}, paintOutline() {}, reanchor() {}, refreshHl() {}, queueRender() {}, paintSuggestionControls() {},
+      paintTabs() {}, paintFileExtras() {}, paintOutline() {}, reanchor() {}, gutter() {}, refreshHl() {}, queueRender() {}, paintSuggestionControls() {},
       sidebar: async () => {}, loadComments: async () => {}, sessionOriginalSwitchTab: async (...args) => { switched = args; return true } })
     vm.runInContext(packages.slice(packages.indexOf('async function endChangeSession'), packages.indexOf('async function choosePackage')), c)
     await c.endChangeSession(true, true)

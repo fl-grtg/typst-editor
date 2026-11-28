@@ -5,12 +5,12 @@ const vm = require('node:vm')
 const { pathToFileURL } = require('node:url')
 const path = require('node:path')
 const source = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
-function placement(top, bottom, height = 200) {
+function placement(top, bottom, height = 200, popUp = null) {
   const pop = { style: {}, scrollHeight: height, offsetWidth: 320, classList: { contains: () => false } }
   const bounds = { top: 0, bottom: 700, left: 0, width: 800 }
   const cm = { state: { selection: { main: { empty: true } } }, contentDOM: { style: {} }, scrollDOM: { getBoundingClientRect: () => bounds },
     coordsAtPos: pos => pos === 10 ? { top, bottom: top + 20, left: 100 } : { top: bottom - 20, bottom, left: 300 }, dispatch: () => {} }
-  const c = vm.createContext({ window: {}, popAnchor: 1, popFresh: false, popLayoutTries: 0, popThreadId: 'c', popHomeId: 'c', getT: () => 'x'.repeat(100),
+  const c = vm.createContext({ window: {}, popAnchor: 1, popFresh: false, popLayoutTries: 0, popThreadId: 'c', popHomeId: 'c', popUp, getT: () => 'x'.repeat(100),
     threads: [{ id: 'c', a: 10, b: 50 }], threadEditorRange: th => ({ from: th.a, to: th.b }),
     cm, $: id => id === 'pop' ? pop : { getBoundingClientRect: () => bounds }, requestAnimationFrame: () => {}, EditorView: { scrollIntoView: () => ({}) } })
   vm.runInContext(source.slice(source.indexOf('function movePop()'), source.indexOf('function renderPop()')), c)
@@ -24,6 +24,10 @@ test('comment box sits fully above the entire multi-line mark', () => {
 test('comment box goes below the end of the mark when above is too small', () => {
   const { pop } = placement(120, 300)
   assert.ok(parseFloat(pop.style.top) > 300)
+})
+test('a card keeps its side while paging to a taller thread', () => {
+  assert.ok(parseFloat(placement(200, 450, 330).pop.style.top) > 450) // a fresh card picks the roomier side
+  assert.ok(parseFloat(placement(200, 450, 330, true).pop.style.top) < 200) // an open card stays above
 })
 test('a full-height mark reserves space instead of covering the source', () => {
   const { pop, cm } = placement(10, 690)

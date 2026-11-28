@@ -279,7 +279,7 @@ test('draft gutter marks include mapped comments and new draft suggestions', () 
   const source = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
   let painted
   const c = vm.createContext({ window: { suggestionDraft: {} }, docId: 'doc', tplName: '', activeFile: '', marks: new Set(), markStyle: '',
-    threads: [{ id: 'comment', anchor: 1 }], threadEditorRange: () => ({ from: 20 }), draftRanges: () => [{ a: 40 }],
+    threads: [{ id: 'comment', anchor: 1, a: 0 }], threadEditorRange: () => ({ from: 20 }), draftRanges: () => [{ a: 40 }],
     cm: { state: { doc: { lines: 5, lineAt: pos => ({ number: pos / 10 + 1 }), line: n => ({ from: (n - 1) * 10 }) } },
       dispatch: value => painted = value.effects },
     ThreadDot: class { range(from) { return from } }, RangeSet: { of: ranges => ranges }, setMarks: { of: ranges => ranges } })
@@ -369,4 +369,26 @@ test('conflicted pending suggestions mark anchor line cleanly without slicing or
   assert.equal(out.length, 1)
   assert.deepEqual([out[0].from, out[0].to], [10, 30])
   assert.ok(out[0].spec.class.includes('cm-suggestion-conflict'))
+})
+test('deleted commented text leaves no gutter marker and a deleted suggestion base no replacement', () => {
+  const source = fs.readFileSync('web/js/70-comments-popovers.js', 'utf8')
+  const c = vm.createContext({ window: {}, docId: 'doc', tplName: '', activeFile: '', marks: new Set(), markStyle: '',
+    threads: [{ id: 'gone', anchor: 4, a: null, _deleted: true }, { id: 'moved', anchor: 4, a: 10 }],
+    threadEditorRange: th => ({ from: th.a }),
+    cm: { state: { doc: { lines: 5, lineAt: pos => ({ number: pos / 10 + 1 }), line: n => ({ from: (n - 1) * 10 }) } }, dispatch() {} },
+    ThreadDot: class { range(from) { return from } }, RangeSet: { of: ranges => ranges }, setMarks: { of: ranges => ranges } })
+  vm.runInContext(source.slice(source.indexOf('function gutter'), source.indexOf('let popFresh')), c)
+  c.gutter()
+  assert.deepEqual(Array.from(c.marks), [2])
+  const highlights = fs.readFileSync('web/js/20-completions.js', 'utf8')
+  const sync = fs.readFileSync('web/js/40-editor-sync.js', 'utf8')
+  const widgets = []
+  const h = vm.createContext({ window: { suggestionDraft: {} }, threads: [{ id: 's', a: 0, b: 7, suggestion_status: 'pending', suggestion_old: 'Einsatz', replacement: 'Pilot' }],
+    threadEditorRange: () => ({ from: 3, to: 3 }), tokenSafeSpan: (old, span) => span,
+    Decoration: { mark: spec => ({ range: (from, to) => ({ from, to, spec }) }), widget: spec => ({ range: at => { widgets.push(at); return { at } } }) },
+    SuggestionReplacement: class { constructor() { this.text = 'Pilot' } } })
+  vm.runInContext(sync.slice(sync.indexOf('function diffSpan'), sync.indexOf('const diffMap')), h)
+  vm.runInContext(highlights.slice(highlights.indexOf('function threadHighlights'), highlights.indexOf('function refreshHl')), h)
+  h.threadHighlights()
+  assert.deepEqual(widgets, [])
 })
