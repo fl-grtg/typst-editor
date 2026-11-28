@@ -299,12 +299,14 @@ test('late proposal activation cannot blank a newly selected document', async ()
 })
 
 test('proposal picker displays the key name with an account-name fallback', async () => {
-  const labels = []
+  let items = []
+  const row = { change_count: 1, comment_changes: 1, open: true, accepted: 0, updated_at: '2026-01-01T00:00:00Z' }
   const c = vm.createContext({ docProject: 'p', packageLoad: 0, window: {},
-    api: async () => ({ packages: [{ author: 'alice', author_name: 'Review Bot' }, { author: 'bob', author_name: '' }] }),
-    t: (_key, args) => { if (args) labels.push(args.author); return '' }, pickPop: async () => null, reviewButton: null,
+    api: async () => ({ packages: [{ ...row, author: 'alice', author_name: 'Review Bot' }, { ...row, author: 'bob', author_name: '', open: false }] }),
+    t: (key, args) => key + (args ? ':' + args.n : ''), pickPop: async (_title, list) => { items = list; return null }, reviewButton: null,
     toast: message => { throw Error(message) } })
-  vm.runInContext(packages.slice(packages.indexOf('async function choosePackage'), packages.indexOf('// topbar chip opener')), c)
+  vm.runInContext(packages.slice(packages.indexOf('function packageSummary'), packages.indexOf('// topbar chip opener')), c)
   await c.choosePackage()
-  assert.deepEqual(labels, ['Review Bot', 'bob'])
+  assert.match(items[1][1], /^Review Bot · comments\.draftCountMany:2 · /)
+  assert.match(items[2][1], /^bob · .* · comments\.completedPackage$/)
 })

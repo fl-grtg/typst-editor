@@ -72,3 +72,33 @@ def test_a_proposal_can_only_resolve_a_comment(page):
     package, = page.request.get(f'/api/projects/{project}/proposals').json()['packages']
     assert (package['file_count'], package['comment_changes']) == (0, 1)
     assert page.request.get(f'/api/docs/{did}/comments').json()['comments'][0]['resolved'] == 0
+
+
+def test_a_reply_alone_is_sent_as_a_discussion_and_closed_as_done(page):
+    register(page, 'proposal_talk')
+    create_doc(page, 'Proposal talk')
+    put_source(page, 'one old text')
+    did = next(d for d in page.request.get('/api/docs').json()['own'] if d['title'] == 'Proposal talk')['id']
+    _wait_for_content(page, did, 'one old text')
+    assert page.request.post(f'/api/docs/{did}/comments', data={'anchor': 1, 'quote': 'old', 'anchor_quote': 'old', 'text': 'Live note'}).ok
+    page.reload()
+    page.locator('#own .doc .t').filter(has_text='Proposal talk').click()
+    expect(page.locator('[data-comment-id]')).to_have_text('old')
+    page.locator('#suggestionToggle').click()
+    expect(page.locator('#sugSend')).to_be_hidden()
+    page.locator('[data-comment-id]').click()
+    page.locator('#pop input[id^="r_"]').fill('Why?')
+    page.locator('#pop input[id^="r_"]').press('Enter')
+    expect(page.locator('#sugSend')).to_be_visible()
+    page.keyboard.press('Escape')
+    page.locator('#sugSend').click()
+    page.locator('#mYes').click()
+    expect(page.locator('#sugBar')).to_be_hidden()
+    project = page.request.get(f'/api/docs/{did}').json()['project_id']
+    package, = page.request.get(f'/api/projects/{project}/proposals').json()['packages']
+    assert (package['file_count'], package['comment_changes'], package['open']) == (0, 0, True)
+    page.evaluate('a => window.openTopPackage({ project: a[0], id: a[1] })', [project, package['id']])
+    expect(page.locator('#sugSend')).to_have_text('Done')
+    page.locator('#sugSend').click()
+    expect(page.locator('#sugBar')).to_be_hidden()
+    assert page.request.get(f'/api/projects/{project}/proposals').json()['packages'] == []

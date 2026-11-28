@@ -237,8 +237,6 @@ def test_comment_only_proposal_can_be_sent_and_accepted(c):
     reply = c.post(url, json={"anchor": 1, "parent_id": done, "text": "reply"}).json()["id"]
     project = project_of(c, did)
     proposals = f"/api/projects/{project}/proposals"
-    assert c.post(proposals, json={"title": "Only talk", "files": [], "comments": [
-        {"doc_id": did, "anchor": 1, "text": "just a new thread"}]}).status_code == 400
     assert c.post(proposals, json={"title": "Bad", "files": [], "comments": [
         {"doc_id": did, "anchor": 1, "replaces_id": reply, "resolved": True}]}).status_code == 400
     package = c.post(proposals, json={"title": "Comments", "files": [], "comments": [
@@ -306,3 +304,21 @@ def test_proposed_resolve_through_the_comment_api(c):
     change, = c.get(url, params={"package_id": pkg}).json()["changes"]
     assert (change["replaces_id"], change["text"], change["resolved"], change["deleted"]) == (cid, "", 1, False)
     assert c.get(url).json()["comments"][0]["resolved"] == 0
+
+
+def test_a_discussion_only_proposal_stays_open_until_accepted(c):
+    from conftest import project_of
+    register_user(c, "alice")
+    login(c, "alice")
+    did = make_doc(c, content="alpha beta")
+    proposals = f"/api/projects/{project_of(c, did)}/proposals"
+    assert c.post(proposals, json={"title": "Empty", "files": [], "comments": []}).status_code == 400
+    package = c.post(proposals, json={"title": "Talk", "files": [], "comments": [
+        {"doc_id": did, "anchor": 1, "text": "Is alpha right?", "quote": "alpha", "anchor_quote": "alpha"}]}).json()
+    assert (package["open"], package["comment_changes"]) == (True, 0)
+    assert [p["open"] for p in c.get(proposals).json()["packages"]] == [True]
+    closed = c.post(f"{proposals}/{package['id']}/accept", json={"revision": package["revision"]}).json()
+    assert closed["open"] is False
+    assert c.get(proposals).json()["packages"] == []
+    assert [p["open"] for p in c.get(proposals, params={"include_closed": True}).json()["packages"]] == [False]
+    assert c.get(f"/api/docs/{did}/comments").json()["comments"] == []

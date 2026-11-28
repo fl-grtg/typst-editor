@@ -221,7 +221,7 @@ test('review comments are stashed locally and publish the latest text at their d
   let stashed = 0
   const c = vm.createContext({ user: 'author', crypto: { randomUUID: () => 'test' },
     api: () => assert.fail('an unsent comment must not call the live comment API'),
-    sessionStash: () => stashed++, sessionKey: f => f.doc_id })
+    sessionStash: () => stashed++, paintSuggestionControls() {}, sessionKey: f => f.doc_id })
   vm.runInContext(pkg.slice(pkg.indexOf('async function postReviewComment'), pkg.indexOf('function sessionRecord')), c)
   await c.postReviewComment(session, 'd1', { anchor: 1, quote: 'before original text', anchor_quote: 'before original text', text: '  Note  ' }, { from: 7, to: 26 })
   assert.equal(stashed, 1)

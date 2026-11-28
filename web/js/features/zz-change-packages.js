@@ -2,7 +2,7 @@
 window.changeSession = null
 let packageList = [], packageLoad = 0, sessionSequence = 0, sessionStarting = false
 const sessionKey = f => [f.kind, f.doc_id || '', f.path].join(':')
-const packageOpen = p => !!(p?.files?.length || p?.comment_changes)
+const packageOpen = p => !!p?.open
 const sessionCommentChanges = s => s.package ? s.package.comment_changes || 0 : (s.draftComments || []).filter(c => c.replaces_id).length
 const sessionDocumentTab = file => '@proposal-doc/' + file.doc_id + '.typ'
 function sessionIdentity(name) {
@@ -130,7 +130,7 @@ async function postReviewComment(s, doc, body, target = null) {
     ...body, text: (body.text || '').trim(), package_id: 'draft', id, doc_id: doc, username: user,
     created_at: new Date().toISOString(), replies: [], ...(target ? { a: target.from, b: target.to } : {}),
   })
-  sessionStash()
+  sessionStash(); paintSuggestionControls()
   return { id }
 }
 
@@ -301,7 +301,7 @@ async function submitChangeSession() {
   if (!s || s.busy) return false
   if (s.package) return saveSessionCorrections()
   const files = sessionFiles(s)
-  if (!files.length && !sessionCommentChanges(s)) return endChangeSession(true)
+  if (!files.length && !s.draftComments?.length) return endChangeSession(true)
   const title = await ask(t('packages.title'), { value: s.title || docTitle, maxLen: 100 })
   if (title == null || window.changeSession !== s) return false
   s.busy = true; cm.dispatch({ effects: editableComp.reconfigure(editMode(false)) }); paintFileExtras(); paintSuggestionControls()
@@ -317,7 +317,7 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
   if (s.busy && !discard) return false
   if (!discard && s.package && !await saveSessionCorrections()) return false
   if (!discard && !s.package) {
-    const hasChanges = !!sessionFiles(s).length || !!sessionCommentChanges(s)
+    const hasChanges = !!sessionFiles(s).length || !!s.draftComments?.length
     if (hasChanges || s.draftComments?.length) {
       const choices = [[t('comments.draftDiscard'), ''], [t('projects.stay'), '']]
       if (hasChanges) choices.unshift([t('comments.draftSend'), ''])
@@ -345,6 +345,11 @@ async function endChangeSession(discard = false, preserveView = false, mainText 
   }
   paintSuggestionControls(); await sidebar(); return true
 }
+function packageSummary(p) {
+  const n = p.change_count + p.comment_changes
+  return [p.author_name || p.author, n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : '',
+    new Date(p.updated_at).toLocaleString(), !p.open ? t('comments.completedPackage') : p.accepted ? t('packages.partial') : ''].filter(Boolean).join(' · ')
+}
 async function choosePackage() {
   try {
     const project = docProject, epoch = ++packageLoad, previous = window.changeSession
@@ -352,7 +357,7 @@ async function choosePackage() {
     if (project !== docProject || epoch !== packageLoad) return
     packageList = response.packages
     const choice = await pickPop(t('packages.choose'), [[t('packages.original'), ''], ...packageList.map(p => [p.title,
-      t('packages.summary', { author: p.author_name || p.author, files: p.file_count, changes: p.change_count + p.comment_changes }) + ' · ' + new Date(p.updated_at).toLocaleString() + (!p.file_count && !p.comment_changes ? ' · ' + t('comments.completedPackage') : p.accepted ? ' · ' + t('packages.partial') : '')])], reviewButton)
+      packageSummary(p)])], reviewButton)
     if (choice == null || project !== docProject || window.changeSession !== previous) return
     if (choice === 0) {
       if (previous?.package) { closePop(true); previous.original = true; await sessionActivate() }
@@ -710,7 +715,7 @@ function paintSessionSidebar() {
         if (label) label.textContent = name + ' → ' + file.target
         existing.title = name + ' → ' + file.target
       }
-      if (s.package && ['owner', 'editor'].includes(docRole) && ['add', 'delete', 'rename'].includes(file.action)) {
+      if (!s.package || ['owner', 'editor'].includes(docRole) && ['add', 'delete', 'rename'].includes(file.action)) {
         const discard = projectAction(existing, ICO_TRASH, t('comments.draftDiscard'), () => discardSessionFile(file))
         discard.classList.add('package-discard-action')
       }
@@ -850,7 +855,7 @@ paintSuggestionControls = () => {
   discardFileButton.title = t('packages.discardFile'); discardFileButton.setAttribute('aria-label', discardFileButton.title)
   discardFileButton.hidden = !currentFile || !sessionFiles(s).some(f => f.id === currentFile.id) || !!s?.package && s.package.author !== user && !['owner', 'editor'].includes(docRole)
   discardFileButton.disabled = !!s?.busy || !!s?.original
-  packageActions.hidden = [acceptFileButton, discardFileButton, deletePackageButton].every(button => button.hidden)
+  packageActions.hidden = !s?.package || [acceptFileButton, discardFileButton, deletePackageButton].every(button => button.hidden)
   const bar = $('sugBar')
   if (bar && s) {
     bar.hidden = false
@@ -858,21 +863,19 @@ paintSuggestionControls = () => {
     if (label) { label.hidden = false; label.textContent = s.package ? t('packages.reviewMode') : t('packages.draftMode') }
     const n = sessionFiles(s).reduce((sum, f) => sum + Math.max(1, f.changes?.length || 0), 0) + sessionCommentChanges(s)
     const comments = s.package ? 0 : (s.draftComments || []).filter(c => !c.replaces_id).length
-    const sendable = !!s.package || n > 0
     $('sugCount').textContent = [
       s.package?.title,
       n === 1 ? t('comments.draftCountOne') : n > 1 ? t('comments.draftCountMany', { n }) : '',
       comments === 1 ? t('packages.commentCountOne') : comments > 1 ? t('packages.commentCountMany', { n: comments }) : '',
-      !sendable && comments ? t('packages.sendNeedsChange') : '',
     ].filter(Boolean).join(' · ')
     const send = $('sugSend'), disc = $('sugDiscard')
     send.disabled = !!s.busy
     if (s.package) {
       send.hidden = !packageOpen(s.package) || !['owner', 'editor'].includes(docRole)
-      send.textContent = t('packages.acceptPackage')
+      send.textContent = t(s.package.files.length || s.package.comment_changes ? 'packages.acceptPackage' : 'comments.done')
       send.onclick = () => acceptSessionSelection()
     } else {
-      send.hidden = !sendable
+      send.hidden = !n && !comments
       send.textContent = t('comments.draftSend')
       send.onclick = () => submitChangeSession()
     }

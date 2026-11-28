@@ -638,7 +638,7 @@ function saveCommentChange(doc, item, text) {
     if (text == null) s.draftComments = s.draftComments.filter(x => x.id !== item.id && x.parent_id !== item.id)
     else s.draftComments.find(x => x.id === item.id).text = text.trim()
     s.commentRanges.delete(item.id)
-    sessionStash()
+    sessionStash(); paintSuggestionControls()
     return Promise.resolve()
   }
   if (s && !item.package_id) return postReviewComment(s, doc, { anchor: item.anchor || 1, text: text || '', deleted: text == null, replaces_id: item.id })
@@ -650,7 +650,7 @@ function saveCommentResolve(doc, th) {
   if (!th._proposedResolve) return postReviewComment(s, doc, { anchor: th.anchor || 1, text: '', resolved: !th.resolved, replaces_id: th.id })
   if (s.package) return api('DELETE', `/api/docs/${doc}/comments/${th._changeId}`) // toggling back withdraws the proposal
   s.draftComments = s.draftComments.filter(c => c.id !== th._changeId)
-  sessionStash()
+  sessionStash(); paintSuggestionControls()
   return Promise.resolve()
 }
 function threadCard(th) {

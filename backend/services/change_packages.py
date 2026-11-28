@@ -130,14 +130,21 @@ def validate_file(file: dict) -> None:
         project_files.clean(file.get("target", ""))
 
 
+# Per package row `s`: pending comment changes, and whether anything is left to review
+# (files, comment changes, or a discussion that was never accepted).
+COMMENT_CHANGES_SQL = "(SELECT COUNT(*) FROM comments WHERE package_id=s.id AND replaces_id IS NOT NULL)"
+OPEN_SQL = ("(json_array_length(s.files)>0 OR " + COMMENT_CHANGES_SQL + ">0"
+            " OR (s.accepted=0 AND EXISTS(SELECT 1 FROM comments WHERE package_id=s.id)))")
+
+
 def get(con, project: str, package: str) -> dict:
-    row = con.execute("SELECT * FROM suggestion_packages WHERE id=? AND project_id=?", (package, project)).fetchone()
+    row = con.execute(f"SELECT s.*, {COMMENT_CHANGES_SQL} AS comment_changes, {OPEN_SQL} AS open "
+                      "FROM suggestion_packages s WHERE id=? AND project_id=?", (package, project)).fetchone()
     if not row:
         raise HTTPException(404, "Proposal package gone")
     result = dict(row)
     result["files"] = [normalize(f) for f in json.loads(row["files"])]
-    result["comment_changes"] = con.execute(
-        "SELECT COUNT(*) FROM comments WHERE package_id=? AND replaces_id IS NOT NULL", (package,)).fetchone()[0]
+    result["open"] = bool(row["open"])
     return result
 
 
@@ -548,6 +555,8 @@ def accept(
                         writes.append((file, content))
                     if not writes and not stale_marked and not proposal["files"] and not file_id:
                         apply_comment_changes(con, package, _comment_change_docs(con, package))
+                        con.execute("UPDATE suggestion_packages SET revision=revision+1,accepted=accepted+1,updated_at=? WHERE id=?",
+                                    (db.now_iso(), package))  # nothing but comments: accepting closes the package
                         return get(con, project, package), [], []
                     if not writes and not stale_marked:
                         raise HTTPException(409, "No pending changes selected")
