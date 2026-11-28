@@ -10,7 +10,7 @@ function placement(top, bottom, height = 200) {
   const bounds = { top: 0, bottom: 700, left: 0, width: 800 }
   const cm = { state: { selection: { main: { empty: true } } }, contentDOM: { style: {} }, scrollDOM: { getBoundingClientRect: () => bounds },
     coordsAtPos: pos => pos === 10 ? { top, bottom: top + 20, left: 100 } : { top: bottom - 20, bottom, left: 300 }, dispatch: () => {} }
-  const c = vm.createContext({ window: {}, popAnchor: 1, popFresh: false, popLayoutTries: 0, popThreadId: 'c', getT: () => 'x'.repeat(100),
+  const c = vm.createContext({ window: {}, popAnchor: 1, popFresh: false, popLayoutTries: 0, popThreadId: 'c', popHomeId: 'c', getT: () => 'x'.repeat(100),
     threads: [{ id: 'c', a: 10, b: 50 }], threadEditorRange: th => ({ from: th.a, to: th.b }),
     cm, $: id => id === 'pop' ? pop : { getBoundingClientRect: () => bounds }, requestAnimationFrame: () => {}, EditorView: { scrollIntoView: () => ({}) } })
   vm.runInContext(source.slice(source.indexOf('function movePop()'), source.indexOf('function renderPop()')), c)

@@ -404,14 +404,14 @@ function gutter() { // refresh markers: CM paints numbers itself (wrap-safe), on
     cm.dispatch({ effects: setMarks.of(RangeSet.of(rs, true)) })
   }
 }
-let popFresh = false, popT = 0, popLayoutTries = 0, popThreadId = null
+let popFresh = false, popT = 0, popLayoutTries = 0, popThreadId = null, popHomeId = null // popHomeId: the thread the card opened at; paging never moves it
 const popDrafts = new Map()
 function paintCardView() { $('cmWrap').classList.toggle('cardOpen', $('pop').style.display !== 'none') } // open card suppresses hover previews (CSS hides .cm-tooltip-hover)
 function openPop(anchor, fresh, suggestion = null, focusId = null) {
   closePop(true)
   window.suggestionPopup = suggestion
   popAnchor = Math.max(1, Math.min(cm.state.doc.lines || 1, +anchor || 1)); popFresh = !!fresh
-  popThreadId = focusId ? String(focusId) : null
+  popThreadId = popHomeId = focusId ? String(focusId) : null
   popLayoutTries = 0
   popT = Date.now() // opening click must not close at once
   hidePops() // only one popover at a time
@@ -471,7 +471,7 @@ function movePop() {
   const pop = $('pop')
   if (popAnchor == null || pop.classList.contains('errs')) return
   const text = getT(), selection = cm.state.selection.main
-  const thread = threads.find(th => String(th.id) === popThreadId)
+  const thread = threads.find(th => String(th.id) === popHomeId)
   const target = window.suggestionPopup || (popFresh && !selection.empty ? selection : thread && threadEditorRange(thread))
   const from = target?.from ?? posOfLine(text, popAnchor)
   const to = target?.to ?? from
@@ -514,7 +514,8 @@ function movePop() {
   pop.style.maxHeight = Math.min(360, available) + 'px'
   const height = Math.min(pop.scrollHeight, available, 360)
   pop.style.top = (up ? top - r.top - height - 10 : bottom - r.top + 10) + 'px'
-  pop.style.left = Math.max(8, Math.min((first ? first.left : r.left + 56) - r.left, r.width - pop.offsetWidth - 8)) + 'px'
+  const left = boxes.length ? boxes[0].left : first ? first.left : r.left + 56 // the card's first mark wins over the line start
+  pop.style.left = Math.max(8, Math.min(left - r.left, r.width - pop.offsetWidth - 8)) + 'px'
 }
 function paintPopItems(items) {
   if (!items.length) return

@@ -104,13 +104,8 @@ $('cm').addEventListener('click', e => {
   const packageHit = e.target.closest('[data-package-change]')
   if (packageHit && window.changeSession) { openSessionChange(+packageHit.dataset.packageChange); return }
   const suggestion = e.target.closest('[data-suggestion-change], [data-suggestion-id]')
-  const session = window.changeSession && !window.changeSession.original
-  if (suggestion && session && suggestion.dataset.suggestionId) {
-    const th = threads.find(item => String(item.id) === suggestion.dataset.suggestionId)
-    if (th) openSessionLine(cm.state.doc.lineAt(threadEditorRange(th).from).number, 't:' + th.id, [suggestion])
-    return
-  }
   if (suggestion) { openSuggestionBox(suggestion); return }
+  const session = window.changeSession && !window.changeSession.original
   const hl = e.target.closest('.cm-hl') // hover tooltip too fragile to click: use position directly
   if (hl) {
     const cid = hl.getAttribute('data-comment-id')

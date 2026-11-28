@@ -133,6 +133,7 @@ function openSuggestionBox(node) {
   const th = threads.find(th => String(th.id) === node.dataset.suggestionId)
   if (!range && !th) return
   const { from, to } = range ? { from: range.a, to: range.b } : threadEditorRange(th)
+  if (th && window.changeSession && !window.changeSession.original) { openSessionLine(cm.state.doc.lineAt(from).number, 't:' + th.id, [node]); return }
   const overlaps = threads.filter(item => {
     if (item.id === th?.id) return true
     if (item.a == null || item.resolved) return false
