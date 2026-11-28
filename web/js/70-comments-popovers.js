@@ -648,18 +648,17 @@ function saveCommentResolve(doc, th) {
   const s = window.changeSession && !window.changeSession.original ? window.changeSession : null
   if (!s || th.package_id) return api('POST', `/api/docs/${doc}/comments/${th.id}/resolve`, { resolved: !th.resolved })
   if (!th._proposedResolve) return postReviewComment(s, doc, { anchor: th.anchor || 1, text: '', resolved: !th.resolved, replaces_id: th.id })
-  return withdrawCommentChange(doc, th._changeId) // toggling back withdraws the proposal
+  return withdrawCommentChange(s, doc, th._changeId) // toggling back withdraws the proposal
 }
-function withdrawCommentChange(doc, id) {
-  const s = window.changeSession
+function withdrawCommentChange(s, doc, id) {
   if (s.package) return api('DELETE', `/api/docs/${doc}/comments/${id}`)
   s.draftComments = s.draftComments.filter(c => c.id !== id)
   sessionStash(); paintSuggestionControls()
   return Promise.resolve()
 }
-function keepButton(doc, item, done) {
+function keepButton(session, doc, item, done) {
   const b = icoBtn('ib', ICO_UNDO); b.title = t(item._proposedDelete ? 'comments.keep' : 'comments.withdraw'); b.setAttribute('aria-label', b.title)
-  b.onclick = () => withdrawCommentChange(doc, item._changeId).then(done).catch(e => toast(e.message))
+  b.onclick = () => withdrawCommentChange(session, doc, item._changeId).then(done).catch(e => toast(e.message))
   return b
 }
 function threadCard(th) {
@@ -692,11 +691,11 @@ function threadCard(th) {
     }
     acts.appendChild(ed)
   }
-  if (!roC && th._proposedEdit && mayWithdraw(th)) acts.appendChild(keepButton(doc, th, fresh))
+  if (!roC && th._proposedEdit && mayWithdraw(th)) acts.appendChild(keepButton(session, doc, th, fresh))
   const pendingSug = th.suggestion_status === 'pending'
   const canDecide = pendingSug && ['owner', 'editor'].includes(docRole)
   const canDel = !roC && (pendingSug ? canDecide : (docRole === 'owner' || th.username === user))
-  if (!roC && th._proposedDelete && mayWithdraw(th)) acts.appendChild(keepButton(doc, th, fresh))
+  if (!roC && th._proposedDelete && mayWithdraw(th)) acts.appendChild(keepButton(session, doc, th, fresh))
   else if (canDel && !th._proposedDelete) {
     const del = icoBtn('ib', ICO_TRASH); del.classList.add('danger'); del.title = t('comments.delThread'); del.setAttribute('aria-label', del.title)
     del.onclick = () => pendingSug ? decideSuggestion(th, 'reject', doc, epoch) : saveCommentChange(doc, th, null).then(() => fresh().then(() => {
@@ -742,8 +741,8 @@ function threadCard(th) {
       }
       rActs.appendChild(red)
     }
-    if (!roC && r._proposedEdit && mayWithdraw(r)) rActs.appendChild(keepButton(doc, r, fresh))
-    if (!roC && r._proposedDelete && mayWithdraw(r)) rActs.appendChild(keepButton(doc, r, fresh))
+    if (!roC && r._proposedEdit && mayWithdraw(r)) rActs.appendChild(keepButton(session, doc, r, fresh))
+    if (!roC && r._proposedDelete && mayWithdraw(r)) rActs.appendChild(keepButton(session, doc, r, fresh))
     else if (!roC && !r._proposedDelete && (docRole === 'owner' || r.username === user)) {
       const rdel = icoBtn('ib', ICO_TRASH); rdel.classList.add('danger'); rdel.title = t('common.delete'); rdel.setAttribute('aria-label', rdel.title)
       rdel.onclick = () => saveCommentChange(doc, r, null).then(fresh).catch(e => toast(e.message))
